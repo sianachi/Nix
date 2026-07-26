@@ -1,17 +1,28 @@
 /**
  * Zod schemas for every API boundary shape.
  *
- * Generated OpenAPI types land next to this directory (`src/generated/`) in a
- * later goal; schemas here then assert structural agreement with them via
- * `satisfies`. Nothing in this directory imports transport code, so schemas
- * stay usable from tests, mocks and MSW handlers.
+ * Generated OpenAPI types live next to this directory in `src/generated/`, refreshed with
+ * `pnpm --filter @nix/api-client generate` whenever Core announces a contract change. Every
+ * schema here asserts structural agreement with them via `satisfies`, so a backend rename is a
+ * build failure in this package rather than a runtime surprise in a component.
+ *
+ * Nothing in this directory imports transport code, so schemas stay usable from tests, mocks and
+ * MSW handlers.
  */
 
 import { z } from 'zod';
 
 export { problemDetailsSchema, type ProblemDetails } from './problem-details.js';
 export { cursorPageSchema, CURSOR_PARAM, PAGE_SIZE_PARAM, type CursorPage } from './pagination.js';
-export { itemSchema, itemKindSchema, type Item, type ItemKind } from './item.js';
+export {
+  itemSchema,
+  itemTypeSchema,
+  itemLifecycleStateSchema,
+  itemSequenceSchema,
+  KNOWN_ITEM_TYPES,
+  type Item,
+  type KnownItemType,
+} from './item.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

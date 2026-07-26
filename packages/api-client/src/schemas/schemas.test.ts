@@ -37,8 +37,11 @@ describe('the item schema', () => {
     id: '11111111-1111-4111-8111-111111111111',
     workspaceId: '22222222-2222-4222-8222-222222222222',
     parentId: null,
-    kind: 'document',
+    type: 'note',
     title: 'Kickoff',
+    seq: 1000,
+    lifecycleState: 'active',
+    createdAt: '2026-07-26T09:30:00.000Z',
     updatedAt: '2026-07-26T09:30:00.000Z',
   };
 
@@ -50,8 +53,21 @@ describe('the item schema', () => {
     expect(itemSchema.safeParse({ ...valid, id: '42' }).success).toBe(false);
   });
 
-  it('rejects a kind the frontend has no rendering for', () => {
-    expect(itemSchema.safeParse({ ...valid, kind: 'spreadsheet' }).success).toBe(false);
+  it('accepts a kind this build has no special rendering for', () => {
+    // Deliberately the opposite of what an enum would do. Item kinds are added as a feature, so a
+    // client that refused to parse an unfamiliar one would break on every backend release that
+    // introduced one. Rendering it generically is the honest response.
+    expect(itemSchema.safeParse({ ...valid, type: 'spreadsheet' }).success).toBe(true);
+  });
+
+  it('accepts a sibling position sent as a string, which int64 permits', () => {
+    expect(itemSchema.safeParse({ ...valid, seq: '9007199254740993' }).success).toBe(true);
+  });
+
+  it('rejects an item missing the lifecycle state a view needs to be honest about', () => {
+    const { lifecycleState, ...withoutState } = valid;
+    expect(lifecycleState).toBe('active');
+    expect(itemSchema.safeParse(withoutState).success).toBe(false);
   });
 
   it('rejects a timestamp that is not an instant', () => {

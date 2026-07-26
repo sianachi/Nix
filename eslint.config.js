@@ -11,6 +11,10 @@ export default tseslint.config(
       '**/coverage/**',
       '**/storybook-static/**',
       '**/node_modules/**',
+      // Written by `openapi-typescript` from the committed Core contract. Restyling it would be
+      // undone by the next `pnpm --filter @nix/api-client generate`, and the file is not ours to
+      // have opinions about - the schemas that wrap it are.
+      '**/src/generated/**',
       'backend/**',
       'deploy/**',
       'Design language for Nix review/**',

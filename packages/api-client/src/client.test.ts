@@ -16,8 +16,11 @@ function itemPayload(title: string): Record<string, unknown> {
     id: ITEM_ID,
     workspaceId: WORKSPACE_ID,
     parentId: null,
-    kind: 'document',
+    type: 'note',
     title,
+    seq: 1000,
+    lifecycleState: 'active',
+    createdAt: '2026-07-26T09:30:00.000Z',
     updatedAt: '2026-07-26T09:30:00.000Z',
   };
 }
@@ -137,7 +140,7 @@ describe('reading a resource', () => {
   it('reports a schema mismatch as telemetry and fails instead of returning a partial object', async () => {
     server.use(
       http.get(testUrl(`/items/${ITEM_ID}`), () =>
-        HttpResponse.json({ ...itemPayload('Plan'), id: 'not-a-uuid', kind: 'spreadsheet' }),
+        HttpResponse.json({ ...itemPayload('Plan'), id: 'not-a-uuid' }),
       ),
     );
 
@@ -149,7 +152,7 @@ describe('reading a resource', () => {
     expect(onParseError).toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'items.get', status: 200 }),
     );
-    expect(error.issues.map((issue) => issue.path)).toEqual(['id', 'kind']);
+    expect(error.issues.map((issue) => issue.path)).toEqual(['id']);
     expect(client.cache.peek(['items', ITEM_ID])).toBeUndefined();
   });
 

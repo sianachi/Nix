@@ -68,9 +68,18 @@ export {
   CURSOR_PARAM,
   PAGE_SIZE_PARAM,
   cursorPageSchema,
-  itemKindSchema,
+  itemTypeSchema,
+  itemLifecycleStateSchema,
+  itemSequenceSchema,
+  KNOWN_ITEM_TYPES,
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
 } from './schemas/index.js';
-export type { CursorPage, Item, ItemKind, ProblemDetails } from './schemas/index.js';
+export type { CursorPage, Item, KnownItemType, ProblemDetails } from './schemas/index.js';
+
+/**
+ * Per-resource methods: the only place API paths appear. A caller builds a descriptor and hands it
+ * to the client, so nothing above this package ever sees a URL.
+ */
+export * as items from './resources/items.js';
