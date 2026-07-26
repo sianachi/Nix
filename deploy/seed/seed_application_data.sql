@@ -109,8 +109,11 @@ INSERT INTO group_membership (group_id, principal_id, tenant_id, source) VALUES
 ON CONFLICT (group_id, principal_id) DO NOTHING;
 
 -- ── Role grants ────────────────────────────────────────────────────────────
--- The role vocabulary belongs to the authorization goal; these strings are
--- placeholders that the resolver will define properly when it lands.
+-- The role vocabulary is defined by Nix.Core.Authorization.WorkspaceRole:
+-- owner, editor, commenter, viewer, ordered by capability. Text outside that
+-- set parses to nothing and grants nothing, so a typo here is a lockout rather
+-- than an escalation. 'admin' on tenant_role is the tenant-wide role and is
+-- separate from the workspace vocabulary.
 INSERT INTO tenant_role (tenant_id, subject_type, subject_id, role, granted_by, granted_at) VALUES
     ('a0000000-0000-4000-8000-000000000001', 'principal',
      'a2000000-0000-4000-8000-000000000001', 'admin',

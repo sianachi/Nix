@@ -1,3 +1,4 @@
+using Nix.Application.Authorization;
 using Nix.Application.Persistence;
 using Nix.Core.Items;
 using Nix.Core.Primitives;
@@ -13,20 +14,28 @@ namespace Nix.Application.Items;
 public sealed class RenameItem
 {
     private readonly IItemTree _tree;
+    private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="RenameItem"/> class.</summary>
     /// <param name="tree">Item storage.</param>
+    /// <param name="permissions">Decides what the caller may change.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="clock">The clock.</param>
-    public RenameItem(IItemTree tree, INixSessionContextAccessor session, TimeProvider clock)
+    public RenameItem(
+        IItemTree tree,
+        IPermissionResolver permissions,
+        INixSessionContextAccessor session,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(clock);
 
         _tree = tree;
+        _permissions = permissions;
         _session = session;
         _clock = clock;
     }
@@ -45,7 +54,8 @@ public sealed class RenameItem
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
         var item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
-        if (item is null)
+        if (item is null
+            || !await _permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
         }

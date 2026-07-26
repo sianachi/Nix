@@ -1,3 +1,4 @@
+using Nix.Application.Authorization;
 using Nix.Application.Persistence;
 using Nix.Core.Items;
 using Nix.Core.Primitives;
@@ -16,20 +17,28 @@ namespace Nix.Application.Items;
 public sealed class CreateItem
 {
     private readonly IItemTree _tree;
+    private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="CreateItem"/> class.</summary>
     /// <param name="tree">Item storage.</param>
+    /// <param name="permissions">Decides what the caller may change.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="clock">The clock, injected so timestamps are controllable in tests.</param>
-    public CreateItem(IItemTree tree, INixSessionContextAccessor session, TimeProvider clock)
+    public CreateItem(
+        IItemTree tree,
+        IPermissionResolver permissions,
+        INixSessionContextAccessor session,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(clock);
 
         _tree = tree;
+        _permissions = permissions;
         _session = session;
         _clock = clock;
     }
@@ -56,10 +65,13 @@ public sealed class CreateItem
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
-        if (!await _tree.WorkspaceExistsAsync(workspaceId, cancellationToken).ConfigureAwait(false))
+        if (!await _tree.WorkspaceExistsAsync(workspaceId, cancellationToken).ConfigureAwait(false)
+            || !await _permissions.CanWriteWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
         {
             // Not-found rather than forbidden: a workspace the caller cannot see must not be
-            // distinguishable from one that does not exist.
+            // distinguishable from one that does not exist. A reader who may see the workspace but
+            // not write to it gets the same answer here, which costs them a clearer message and
+            // costs an attacker the ability to map the tenant by watching which refusal comes back.
             return Result.Failure<Item>(
                 ItemErrors.WorkspaceNotFound($"No workspace {workspaceId} is visible."));
         }

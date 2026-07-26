@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Nix.Application.Authorization;
 using Nix.Application.Identity;
 using Nix.Application.Items;
 using Nix.Application.Persistence;
+using Nix.Infrastructure.Persistence.Authorization;
 using Nix.Infrastructure.Persistence.Identity;
 using Nix.Infrastructure.Persistence.Items;
 using Nix.Infrastructure.Persistence.Rls;
@@ -108,6 +111,17 @@ public static class NixPersistenceServiceCollectionExtensions
         // context's transaction, so it belongs to one unit of work and one tenant.
         services.AddScoped<IItemTree, ItemTree>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
+
+        // The one authorization code path. Scoped like the stores, and for a stronger reason: it
+        // memoises answers for the lifetime of the unit of work, and a unit of work is one request
+        // acting as one principal in one tenant.
+        services.AddScoped<IPermissionResolver, WorkspaceMembershipResolver>();
+
+        // The use cases below take a clock, so this registration owes them one. TryAdd rather than
+        // Add: a host that wants a controllable clock registers its own first and keeps it, while a
+        // host that registers nothing still gets a working graph instead of a resolution failure at
+        // the first request that creates something.
+        services.TryAddSingleton(TimeProvider.System);
 
         // Use cases are scoped for the same reason as the stores they call: one unit of work, one
         // tenant. They are concrete types rather than interfaces - there is one implementation of

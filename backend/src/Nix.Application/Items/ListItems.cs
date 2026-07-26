@@ -1,3 +1,4 @@
+using Nix.Application.Authorization;
 using Nix.Core.Items;
 using Nix.Core.Primitives;
 using Nix.Core.Tenancy;
@@ -16,13 +17,18 @@ public sealed class ListItems
     public const int MaximumPageSize = 200;
 
     private readonly IItemTree _tree;
+    private readonly IPermissionResolver _permissions;
 
     /// <summary>Initializes a new instance of the <see cref="ListItems"/> class.</summary>
     /// <param name="tree">Item storage.</param>
-    public ListItems(IItemTree tree)
+    /// <param name="permissions">Decides what the caller may read.</param>
+    public ListItems(IItemTree tree, IPermissionResolver permissions)
     {
         ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(permissions);
+
         _tree = tree;
+        _permissions = permissions;
     }
 
     /// <summary>Reads the page.</summary>
@@ -41,7 +47,10 @@ public sealed class ListItems
         int limit,
         CancellationToken cancellationToken)
     {
-        if (!await _tree.WorkspaceExistsAsync(workspaceId, cancellationToken).ConfigureAwait(false))
+        // Existence and permission answer with the same failure, deliberately: a workspace the
+        // caller may not read must not be distinguishable from one that does not exist.
+        if (!await _tree.WorkspaceExistsAsync(workspaceId, cancellationToken).ConfigureAwait(false)
+            || !await _permissions.CanReadWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<IReadOnlyList<Item>>(
                 ItemErrors.WorkspaceNotFound($"No workspace {workspaceId} is visible."));
