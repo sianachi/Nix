@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react';
 
-import { Heading, Text } from '../components/typography';
 import { ColorSpecimen } from './tokens/color-specimen';
 import { ShapeSpecimen, SpacingSpecimen } from './tokens/scale-specimen';
 import { StateGallery } from './tokens/state-gallery';
 import { TypeSpecimen } from './tokens/type-specimen';
+
+import { Text } from '@nix/ui';
 
 /**
  * The token specimen page.
@@ -27,7 +28,7 @@ export function TokensPage(): ReactElement {
       {/* A div, not a <header>: the document has exactly one banner, and it
           is the application header in the root layout. */}
       <div className="flex flex-col gap-3">
-        <Heading level={1}>Industry design tokens</Heading>
+        <Text variant="h1">Industry design tokens</Text>
         <Text tone="muted" className="max-w-prose">
           Steel-blue on a light technical ground, Barlow Condensed over Barlow, and objects framed
           as blueprint line drawings. Everything below is drawn with token-backed utility classes

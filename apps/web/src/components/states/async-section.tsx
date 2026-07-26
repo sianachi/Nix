@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import type { AsyncStatus } from '../../lib/async-status';
-import { Button } from '../button';
+import { Button } from '@nix/ui';
 import { EmptyPanel, ErrorPanel, LoadingPanel, PartialNotice } from './status-panels';
 
 /**

@@ -1,9 +1,7 @@
 import { CircleAlert, Inbox, LoaderCircle, TriangleAlert } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { Blueprint } from '../blueprint';
-import { Icon } from '../icon';
-import { Heading, Text } from '../typography';
+import { Blueprint, Icon, Text } from '@nix/ui';
 
 /**
  * The honest states, as reusable panels. Every data-bearing view in the app
@@ -33,8 +31,8 @@ export function LoadingPanel({ label }: { readonly label: string }): ReactElemen
   return (
     <PanelFrame>
       <div aria-busy={true} aria-live="polite" className={PANEL_BODY}>
-        <Icon glyph={LoaderCircle} className="animate-spin text-accent" />
-        <Heading level={3}>Loading {label}</Heading>
+        <Icon icon={LoaderCircle} className="animate-spin text-accent" />
+        <Text variant="h3">Loading {label}</Text>
         <Text tone="muted">
           Waiting on {label}. Nothing has failed; this view will change on its own.
         </Text>
@@ -55,8 +53,8 @@ export function EmptyPanel({
   return (
     <PanelFrame>
       <div role="status" className={PANEL_BODY}>
-        <Icon glyph={Inbox} className="text-accent" />
-        <Heading level={3}>{title}</Heading>
+        <Icon icon={Inbox} className="text-accent" />
+        <Text variant="h3">{title}</Text>
         <Text tone="muted">{detail}</Text>
         {action}
       </div>
@@ -76,8 +74,8 @@ export function ErrorPanel({
   return (
     <PanelFrame>
       <div role="alert" className={PANEL_BODY}>
-        <Icon glyph={CircleAlert} className="text-accent" />
-        <Heading level={3}>{title}</Heading>
+        <Icon icon={CircleAlert} className="text-accent" />
+        <Text variant="h3">{title}</Text>
         <Text tone="muted">{detail}</Text>
         {action}
       </div>
@@ -95,7 +93,7 @@ export function PartialNotice({ pending }: { readonly pending: string }): ReactE
       role="status"
       className="flex items-start gap-2 border border-divider p-3 font-body text-sm text-accent-text"
     >
-      <Icon glyph={TriangleAlert} className="size-4" />
+      <Icon icon={TriangleAlert} className="size-4" />
       <span>{pending}</span>
     </div>
   );

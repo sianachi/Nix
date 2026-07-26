@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react';
 
-import { Card } from '../../components/card';
-import { Text } from '../../components/typography';
-import { cx } from '../../lib/cx';
 import { ELEVATION_STEPS, RADIUS_STEPS, SPACING_STEPS } from './specimens';
+
+import { Card, Text, cn } from '@nix/ui';
 
 /**
  * Spacing, radius and elevation specimens.
@@ -23,11 +22,11 @@ function SpacingScale(): ReactElement {
     <dl className="flex flex-col gap-2">
       {SPACING_STEPS.map((entry) => (
         <div key={entry.step} className="flex items-center gap-4">
-          <Text as="dt" tone="muted" size="xs" className="w-20 shrink-0">
+          <Text as="dt" tone="muted" variant="bodySmall" className="w-20 shrink-0">
             {entry.step}
           </Text>
           <dd className="flex-1">
-            <span aria-hidden="true" className={cx('block h-3 bg-accent-500', entry.className)} />
+            <span aria-hidden="true" className={cn('block h-3 bg-accent-500', entry.className)} />
           </dd>
         </div>
       ))}
@@ -60,9 +59,9 @@ export function ShapeSpecimen(): ReactElement {
             <li key={step.token} className="flex flex-col items-start gap-1">
               <span
                 aria-hidden="true"
-                className={cx('block size-16 bg-accent-200 ring-1 ring-accent-500', step.className)}
+                className={cn('block size-16 bg-accent-200 ring-1 ring-accent-500', step.className)}
               />
-              <Text tone="muted" as="span" size="xs">
+              <Text tone="muted" as="span" variant="bodySmall">
                 {step.token}
               </Text>
             </li>
@@ -73,9 +72,9 @@ export function ShapeSpecimen(): ReactElement {
             <li key={step.token} className="flex flex-col items-start gap-2">
               <span
                 aria-hidden="true"
-                className={cx('block size-16 border border-divider bg-background', step.className)}
+                className={cn('block size-16 border border-divider bg-background', step.className)}
               />
-              <Text tone="muted" as="span" size="xs">
+              <Text tone="muted" as="span" variant="bodySmall">
                 {step.token}
               </Text>
             </li>

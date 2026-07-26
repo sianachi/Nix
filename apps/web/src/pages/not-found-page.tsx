@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
-import { Button } from '../components/button';
 import { EmptyPanel } from '../components/states/status-panels';
+
+import { Button } from '@nix/ui';
 
 /**
  * The catch-all route. It reuses the shared empty panel rather than inventing

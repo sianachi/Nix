@@ -1,13 +1,11 @@
 import type { ReactElement } from 'react';
 import { Link } from 'react-router';
 
-import { Blueprint } from '../../components/blueprint';
-import { Card } from '../../components/card';
 import { AsyncSection } from '../../components/states/async-section';
-import { Kicker, Text } from '../../components/typography';
 import type { AsyncStatus } from '../../lib/async-status';
 import { empty, failed, loading, partial, ready } from '../../lib/async-status';
-import { cx } from '../../lib/cx';
+import { Blueprint, Card, Text, cn } from '@nix/ui';
+
 import {
   STATE_PREVIEWS,
   type StatePreview,
@@ -79,9 +77,9 @@ function ItemList({ items }: { readonly items: readonly DemoItem[] }): ReactElem
       {items.map((item) => (
         <Blueprint as="li" key={item.id} className="flex items-baseline justify-between gap-4 p-4">
           <Text as="span">{item.name}</Text>
-          <Kicker>
+          <Text variant="kicker">
             {item.pipelineStage === 'indexed' ? 'Downloadable and searchable' : 'Downloadable only'}
-          </Kicker>
+          </Text>
         </Blueprint>
       ))}
     </ul>
@@ -105,7 +103,7 @@ function PreviewSwitcher({ current }: { readonly current: StatePreview }): React
                   to={{ search: statePreviewSearch(preview) }}
                   replace
                   aria-current={selected ? 'true' : undefined}
-                  className={cx(
+                  className={cn(
                     SEGMENT_BASE,
                     selected
                       ? 'bg-accent text-neutral-100'

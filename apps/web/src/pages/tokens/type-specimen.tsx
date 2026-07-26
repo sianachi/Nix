@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { Card } from '../../components/card';
-import { Heading, Text } from '../../components/typography';
+import { Card, Text } from '@nix/ui';
 
 /**
  * Type specimen: Barlow Condensed headings over Barlow body copy, both
@@ -13,9 +12,9 @@ import { Heading, Text } from '../../components/typography';
 export function TypeSpecimen(): ReactElement {
   return (
     <Card kicker="Foundations" title="Type">
-      <Heading level={2}>Heading two, condensed</Heading>
-      <Heading level={3}>Heading three, condensed</Heading>
-      <Heading level={4}>Heading four, condensed</Heading>
+      <Text variant="h2">Heading two, condensed</Text>
+      <Text variant="h3">Heading three, condensed</Text>
+      <Text variant="h4">Heading four, condensed</Text>
       <Text>
         Body copy is Barlow at a comfortable reading measure. Headings condense above it, which is
         what gives the system its technical, drawn-to-spec feel. Nothing on this page names a font

@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-import { Button } from './button';
+import { Button } from '@nix/ui';
 import { ErrorPanel } from './states/status-panels';
 
 /**

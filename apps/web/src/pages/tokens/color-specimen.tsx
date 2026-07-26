@@ -1,9 +1,8 @@
 import type { ReactElement } from 'react';
 
-import { Card } from '../../components/card';
-import { Kicker, Text } from '../../components/typography';
-import { cx } from '../../lib/cx';
 import { ACCENT_RAMP, NEUTRAL_RAMP, ROLE_SWATCHES, type Swatch } from './specimens';
+
+import { Card, Text, cn } from '@nix/ui';
 
 /**
  * Colour specimens. Each chip is nothing but a token-backed utility class, so
@@ -23,15 +22,15 @@ function SwatchRow({
 }): ReactElement {
   return (
     <div className="flex flex-col gap-2">
-      <Kicker>{title}</Kicker>
+      <Text variant="kicker">{title}</Text>
       <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-9">
         {swatches.map((swatch) => (
           <li key={swatch.token} className="flex flex-col gap-1">
             <span
               aria-hidden="true"
-              className={cx('block h-12 w-full border border-divider', swatch.className)}
+              className={cn('block h-12 w-full border border-divider', swatch.className)}
             />
-            <Text tone="muted" as="span" size="xs">
+            <Text tone="muted" as="span" variant="bodySmall">
               {swatch.token}
             </Text>
           </li>

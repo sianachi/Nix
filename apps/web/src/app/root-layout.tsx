@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { Link, Outlet } from 'react-router';
 
-import { Heading, Kicker, Text } from '../components/typography';
+import { Text } from '@nix/ui';
 
 /**
  * The application shell: header bar, main region, footer.
@@ -28,9 +28,11 @@ export function RootLayout(): ReactElement {
             to="/"
             className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            <Heading level={4}>Nix</Heading>
+            <Text variant="h4">Nix</Text>
           </Link>
-          <Kicker tone="muted">Collaborative document workspace</Kicker>
+          <Text variant="kicker" tone="muted">
+            Collaborative document workspace
+          </Text>
         </div>
       </header>
 
@@ -40,7 +42,7 @@ export function RootLayout(): ReactElement {
 
       <footer className="border-t border-divider">
         <div className="mx-auto w-full max-w-6xl px-6 py-4">
-          <Text tone="muted" size="xs">
+          <Text tone="muted" variant="bodySmall">
             Rendered entirely from the Industry design tokens.
           </Text>
         </div>
