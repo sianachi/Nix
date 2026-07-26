@@ -89,6 +89,19 @@ internal sealed class NixUnitOfWork : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Resolves a service from this unit of work's scope.
+    /// </summary>
+    /// <typeparam name="TService">The service to resolve.</typeparam>
+    /// <returns>The scoped instance.</returns>
+    /// <remarks>
+    /// Stores and use cases are scoped, and a scope here is one tenant-pinned unit of work, so
+    /// resolving through it is what makes a test exercise the same object graph a request would
+    /// rather than a hand-wired approximation of it.
+    /// </remarks>
+    public TService Resolve<TService>()
+        where TService : notnull => _scope.ServiceProvider.GetRequiredService<TService>();
+
     /// <summary>Commits the transaction.</summary>
     /// <param name="cancellationToken">Cancels the commit.</param>
     /// <returns>A task that completes when the transaction is committed.</returns>

@@ -1,0 +1,137 @@
+using Nix.Core.Items;
+using Nix.Core.Tenancy;
+
+namespace Nix.Application.Items;
+
+/// <summary>
+/// Storage for the item tree: the envelope rows and the closure edges that make ancestry a range
+/// scan.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A port because the dependency direction requires one - use cases live in this assembly and the
+/// implementation needs EF Core and Npgsql, which only Infrastructure may reference. That is the
+/// justification the interface guardrail asks for; there is no second implementation and none is
+/// planned.
+/// </para>
+/// <para>
+/// <b>Every method is tenant-scoped implicitly, never by parameter.</b> The tenant comes from the
+/// session context the request pipeline established, and is published to Postgres as a
+/// transaction-local setting that the row-level security policies read. A tenant argument here
+/// would be a second source of truth for the same fact, and the failure mode of the two
+/// disagreeing is a cross-tenant read.
+/// </para>
+/// <para>
+/// The closure table is maintained by the implementations of <see cref="InsertAsync"/> and
+/// <see cref="ReparentAsync"/> and by nothing else. It is derived data: correct because those two
+/// are, and rebuildable from <c>parent_id</c> if they ever are not.
+/// </para>
+/// </remarks>
+public interface IItemTree
+{
+    /// <summary>Finds one item.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The item, or <see langword="null"/> when it does not exist or is not visible.</returns>
+    public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken);
+
+    /// <summary>Reads one page of a parent's children, in sibling order.</summary>
+    /// <param name="workspaceId">The workspace to read in.</param>
+    /// <param name="parentId">The parent, or <see langword="null"/> for the workspace roots.</param>
+    /// <param name="includeDeleted">Whether soft-deleted items are included.</param>
+    /// <param name="afterSeq">Resume after this sibling position, or <see langword="null"/> to start.</param>
+    /// <param name="limit">How many to return at most.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The children, ordered by sibling position.</returns>
+    public ValueTask<IReadOnlyList<Item>> ListChildrenAsync(
+        WorkspaceId workspaceId,
+        ItemId? parentId,
+        bool includeDeleted,
+        long? afterSeq,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>Whether a workspace exists and is visible to this session.</summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns><see langword="true"/> when it can be seen.</returns>
+    public ValueTask<bool> WorkspaceExistsAsync(WorkspaceId workspaceId, CancellationToken cancellationToken);
+
+    /// <summary>Allocates the next sibling position under a parent.</summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="parentId">The parent, or <see langword="null"/> for the roots.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>A position after every current sibling.</returns>
+    public ValueTask<long> NextSiblingSequenceAsync(
+        WorkspaceId workspaceId,
+        ItemId? parentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Stores a new item and its closure edges.</summary>
+    /// <param name="item">The item to store.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when both are written.</returns>
+    public ValueTask InsertAsync(Item item, CancellationToken cancellationToken);
+
+    /// <summary>Replaces an item's property bag.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="properties">The new bag.</param>
+    /// <param name="actor">Who made the change.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the row is updated.</returns>
+    public ValueTask UpdatePropertiesAsync(
+        ItemId id,
+        string properties,
+        Core.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether making <paramref name="parentId"/> the parent of <paramref name="id"/> would put
+    /// the item inside its own subtree.
+    /// </summary>
+    /// <param name="id">The item that would move.</param>
+    /// <param name="parentId">The proposed parent.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns><see langword="true"/> when the move would create a cycle.</returns>
+    public ValueTask<bool> WouldCreateCycleAsync(
+        ItemId id,
+        ItemId parentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Moves an item and rewrites the closure edges of its whole subtree.</summary>
+    /// <param name="id">The item to move.</param>
+    /// <param name="newParentId">The new parent, or <see langword="null"/> for the workspace root.</param>
+    /// <param name="seq">The item's position among its new siblings.</param>
+    /// <param name="actor">Who made the change.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the tree and its closure agree again.</returns>
+    public ValueTask ReparentAsync(
+        ItemId id,
+        ItemId? newParentId,
+        long seq,
+        Core.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
+    /// <summary>Changes an item's lifecycle state.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="state">The new state.</param>
+    /// <param name="actor">Who made the change.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the row is updated.</returns>
+    /// <remarks>
+    /// Soft deletion is a flag flip on one row and never a cascade: the subtree stays intact and
+    /// its descendants become invisible by closure derivation, which is what makes restoring the
+    /// same flip back rather than a reconstruction.
+    /// </remarks>
+    public ValueTask SetLifecycleAsync(
+        ItemId id,
+        ItemLifecycleState state,
+        Core.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+}
