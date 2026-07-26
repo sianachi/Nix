@@ -16,10 +16,19 @@ var builder = WebApplication.CreateBuilder(args);
 // rather than chained behind ours: a response type missing from
 // NixJsonSerializerContext must fail loudly instead of quietly costing a
 // reflection walk on a request path (engineering plan section 3.2).
+// One context per feature, chained. The chain is what lets a feature own its own JSON contract
+// instead of every feature appending to one shared file - the same reason routes are registered
+// per feature below. Order is irrelevant: a type appears in exactly one context, and the resolver
+// walks the chain until something claims it.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Clear();
     options.SerializerOptions.TypeInfoResolverChain.Add(NixJsonSerializerContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(HealthJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(WorkspacesJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(ItemsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(PermissionsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(RolesJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
