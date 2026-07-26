@@ -15,6 +15,18 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  server: {
+    // The API is a different origin in development. Proxying keeps the browser same-origin, so
+    // there is no CORS preflight on every request and no cookie/credential surprises - the token
+    // travels in the Authorization header either way, but same-origin is the shape production has.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5014',
+        changeOrigin: true,
+      },
+    },
+  },
+
   plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',

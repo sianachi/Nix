@@ -1,13 +1,19 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import { renderAt } from '../test/render-with-router';
+import { renderAt, signedIn } from '../test/render-with-router';
 import { App } from './app';
 
-describe('the application shell', () => {
+// Every suite in this file is about what the application renders once somebody is past the session
+// gate. The gate itself has its own suite.
+beforeEach(() => {
+  signedIn();
+});
+
+describe('the design token specimen page', () => {
   it('renders the token page heading at the index route', () => {
-    renderAt(<App />);
+    renderAt(<App />, '/tokens');
 
     expect(
       screen.getByRole('heading', { level: 1, name: /industry design tokens/i }),
@@ -15,7 +21,7 @@ describe('the application shell', () => {
   });
 
   it('renders the layout chrome around the page', () => {
-    renderAt(<App />);
+    renderAt(<App />, '/tokens');
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('main')).toBeInTheDocument();
@@ -32,33 +38,33 @@ describe('the application shell', () => {
 
 describe('state that lives in the URL', () => {
   it('renders the state named by the search parameter, so a link is shareable', () => {
-    renderAt(<App />, '/?state=empty');
+    renderAt(<App />, '/tokens?state=empty');
 
     expect(screen.getByRole('heading', { name: /no items here yet/i })).toBeVisible();
   });
 
   it('names what it is waiting for rather than showing an anonymous spinner', () => {
-    renderAt(<App />, '/?state=loading');
+    renderAt(<App />, '/tokens?state=loading');
 
     expect(screen.getByRole('heading', { name: /loading workspace items/i })).toBeVisible();
   });
 
   it('shows the data and says what is missing when the result is partial', () => {
-    renderAt(<App />, '/?state=partial');
+    renderAt(<App />, '/tokens?state=partial');
 
     expect(screen.getByText(/not yet indexed/i)).toBeVisible();
     expect(screen.getByText('Acquisition memo')).toBeVisible();
   });
 
   it('falls back to the default view when the parameter is not a known state', () => {
-    renderAt(<App />, '/?state=nonsense');
+    renderAt(<App />, '/tokens?state=nonsense');
 
     expect(screen.getByText('Acquisition memo')).toBeVisible();
   });
 
   it('recovers from the error state through its retry affordance', async () => {
     const user = userEvent.setup();
-    renderAt(<App />, '/?state=error');
+    renderAt(<App />, '/tokens?state=error');
 
     expect(screen.getByRole('alert')).toHaveTextContent(/could not load workspace items/i);
 
@@ -69,7 +75,7 @@ describe('state that lives in the URL', () => {
   });
 
   it('offers every state as a real link, not a button', () => {
-    renderAt(<App />);
+    renderAt(<App />, '/tokens');
 
     const switcher = screen.getByRole('navigation', { name: /state pattern preview/i });
     expect(screen.getAllByRole('link')).not.toHaveLength(0);

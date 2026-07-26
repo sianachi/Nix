@@ -1,10 +1,17 @@
 import type { ReactElement } from 'react';
 import { Route, Routes } from 'react-router';
 
+import { AuthProvider } from '../auth/auth-provider';
 import { AppErrorBoundary } from '../components/error-boundary';
+import { AuthCallbackPage, SilentRenewPage } from '../pages/auth-callback-page';
+import { AuditPage } from '../pages/audit-page';
+import { BoardPage } from '../pages/board-page';
+import { EditorPage } from '../pages/editor-page';
+import { SearchPage } from '../pages/search-page';
 import { NotFoundPage } from '../pages/not-found-page';
 import { TokensPage } from '../pages/tokens-page';
-import { RootLayout } from './root-layout';
+import { AppShell } from './app-shell';
+import { RequireSession } from './require-session';
 
 /**
  * The route tree and the crash barrier that wraps it.
@@ -30,12 +37,24 @@ export function App(): ReactElement {
   return (
     <div className="min-h-screen bg-background font-body text-foreground">
       <AppErrorBoundary>
-        <Routes>
-          <Route element={<RootLayout />}>
-            <Route index element={<TokensPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            {/* Outside the session gate: these two ARE the sign-in process. */}
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            <Route path="/auth/silent-renew" element={<SilentRenewPage />} />
+
+            <Route element={<RequireSession />}>
+              <Route element={<AppShell />}>
+                <Route index element={<EditorPage />} />
+                <Route path="board" element={<BoardPage />} />
+                <Route path="search" element={<SearchPage />} />
+                <Route path="admin" element={<AuditPage />} />
+                <Route path="tokens" element={<TokensPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Route>
+          </Routes>
+        </AuthProvider>
       </AppErrorBoundary>
     </div>
   );
