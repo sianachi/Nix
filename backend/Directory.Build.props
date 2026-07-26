@@ -18,8 +18,11 @@
 
   <!-- Test projects: same rigor, minus rules that fight test idioms. -->
   <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
-    <!-- CA1707: underscores in names — test names are behavior sentences. -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- CA1707: underscores in names — test names are behavior sentences.
+         CA1515: wants types internal in exe-output projects, but xUnit1000
+         (error) requires test classes to be public; the pair can never both
+         be satisfied, so the xunit rule wins for test projects. -->
+    <NoWarn>$(NoWarn);CA1707;CA1515</NoWarn>
   </PropertyGroup>
 
 </Project>
