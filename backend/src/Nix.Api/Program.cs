@@ -1,6 +1,10 @@
 using Nix.Api;
 using Nix.Api.Errors;
 using Nix.Api.Features.Health;
+using Nix.Api.Features.Items;
+using Nix.Api.Features.Permissions;
+using Nix.Api.Features.Roles;
+using Nix.Api.Features.Workspaces;
 using Nix.Api.Serialization;
 using Nix.Infrastructure.Persistence;
 
@@ -90,6 +94,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapHealthEndpoints();
+app.MapWorkspaceEndpoints();
+app.MapItemEndpoints();
+app.MapPermissionEndpoints();
+app.MapRoleEndpoints();
 
 app.Run();
 

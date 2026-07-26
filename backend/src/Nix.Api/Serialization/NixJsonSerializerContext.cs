@@ -1,6 +1,11 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
+using Nix.Api.Contracts;
 using Nix.Api.Features.Health;
+using Nix.Api.Features.Items;
+using Nix.Api.Features.Permissions;
+using Nix.Api.Features.Roles;
+using Nix.Api.Features.Workspaces;
 
 namespace Nix.Api.Serialization;
 
@@ -27,6 +32,18 @@ namespace Nix.Api.Serialization;
 [JsonSerializable(typeof(LivenessResponse))]
 [JsonSerializable(typeof(ServiceStatusResponse))]
 [JsonSerializable(typeof(HealthCheckResponse))]
+[JsonSerializable(typeof(WorkspaceResponse))]
+[JsonSerializable(typeof(CursorPage<WorkspaceResponse>))]
+[JsonSerializable(typeof(ItemResponse))]
+[JsonSerializable(typeof(CursorPage<ItemResponse>))]
+[JsonSerializable(typeof(CreateItemRequest))]
+[JsonSerializable(typeof(UpdateItemRequest))]
+[JsonSerializable(typeof(MoveItemRequest))]
+[JsonSerializable(typeof(AclEntryResponse))]
+[JsonSerializable(typeof(ItemPermissionsResponse))]
+[JsonSerializable(typeof(UpsertAclEntryRequest))]
+[JsonSerializable(typeof(RoleGrantResponse))]
+[JsonSerializable(typeof(CursorPage<RoleGrantResponse>))]
 [JsonSerializable(typeof(ProblemDetails))]
 [JsonSerializable(typeof(HttpValidationProblemDetails))]
 [JsonSerializable(typeof(string))]
