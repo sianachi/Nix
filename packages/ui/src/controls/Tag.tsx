@@ -1,0 +1,53 @@
+import { cva } from 'class-variance-authority';
+import { type ComponentPropsWithRef, type ReactNode } from 'react';
+
+import { cn } from '../lib/cn';
+
+/**
+ * <Tag> - a small square-cornered label for a state or a category.
+ *
+ * Type-led, like the rest of the chrome: a hairline box in condensed uppercase, never a filled
+ * pill. The one solid accent object on a screen is the primary button, so a tag that filled itself
+ * with accent would compete with the action the design wants read first.
+ *
+ * `tone` names what the tag is *for*, not what colour it is. A caller asking for `accent` is
+ * saying "this is the current or selected one", which is a fact about the data; asking for a
+ * colour would be a fact about this screen, and would be wrong on the next one.
+ */
+
+const tagVariants = cva(
+  cn(
+    'inline-flex items-center gap-1 rounded-none border px-1.5 py-0.5',
+    'font-heading text-[11px] uppercase leading-[1.2] tracking-[0.08em]',
+  ),
+  {
+    variants: {
+      tone: {
+        /** The ordinary case: a category, a type, a name. */
+        neutral: 'border-divider text-foreground/70',
+        /** Selected, current, or otherwise the one being pointed at. */
+        accent: 'border-accent-700 text-accent-text',
+        /** Deliberately quiet - a detail that is present but not the point. */
+        muted: 'border-transparent bg-foreground/5 text-foreground/60',
+      },
+    },
+    defaultVariants: { tone: 'neutral' },
+  },
+);
+
+export type TagTone = 'neutral' | 'accent' | 'muted';
+
+export type TagProps = Omit<ComponentPropsWithRef<'span'>, 'style'> & {
+  tone?: TagTone;
+  className?: string;
+};
+
+export function Tag(props: TagProps): ReactNode {
+  const { tone = 'neutral', className, children, ...rest } = props;
+
+  return (
+    <span className={cn(tagVariants({ tone }), className)} {...rest}>
+      {children}
+    </span>
+  );
+}

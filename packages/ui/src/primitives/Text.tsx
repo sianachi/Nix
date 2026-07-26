@@ -33,7 +33,20 @@ export type TextVariant =
 export type TextTone = 'default' | 'muted' | 'accent';
 
 export type TextElement =
-  'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'span' | 'div' | 'figcaption';
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'h4'
+  | 'h5'
+  | 'h6'
+  | 'p'
+  | 'span'
+  | 'div'
+  | 'figcaption'
+  // Description lists: a term and its definition are text like any other, and a caller who had to
+  // drop out of the component to mark one up would be marking it up wrongly.
+  | 'dt'
+  | 'dd';
 
 /** Variants that clear WCAG's large-text threshold and may carry base accent. */
 const DISPLAY_VARIANTS = ['h1', 'h2', 'h3'] as const satisfies readonly TextVariant[];

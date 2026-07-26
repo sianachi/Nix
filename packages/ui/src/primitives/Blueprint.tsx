@@ -56,17 +56,22 @@ export function RegistrationMarks(): ReactNode {
 export interface BlueprintProps {
   children?: ReactNode;
   /**
+   * The element the frame is drawn on, when the document outline demands one - a framed list
+   * item, say. The frame's geometry does not change; only the tag does.
+   */
+  as?: 'div' | 'li' | 'section' | 'article' | 'figure';
+  /**
    * Layout only - margin, width, grid placement. Not a way to restyle the
    * frame: its border, corners and transparency are the component's contract.
    */
   className?: string;
 }
 
-export function Blueprint({ children, className }: BlueprintProps): ReactNode {
+export function Blueprint({ children, className, as: Element = 'div' }: BlueprintProps): ReactNode {
   return (
-    <div className={cn(blueprintFrame, className)}>
+    <Element className={cn(blueprintFrame, className)}>
       {children}
       <RegistrationMarks />
-    </div>
+    </Element>
   );
 }
