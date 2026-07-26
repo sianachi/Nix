@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets,sln}]
+indent_size = 4
+
+[*.cs]
+# Style conventions enforced in build (EnforceCodeStyleInBuild)
+csharp_style_namespace_declarations = file_scoped:error
+csharp_style_prefer_primary_constructors = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_prefer_braces = true:error
+dotnet_style_require_accessibility_modifiers = always:error
+dotnet_sort_system_directives_first = true
+
+# Naming: interfaces prefixed with I
+dotnet_naming_rule.interfaces_begin_with_i.severity = error
+dotnet_naming_rule.interfaces_begin_with_i.symbols = interface_symbols
+dotnet_naming_rule.interfaces_begin_with_i.style = prefix_i
+dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
+dotnet_naming_style.prefix_i.required_prefix = I
+dotnet_naming_style.prefix_i.capitalization = pascal_case
+
+[*.{ts,tsx,js,jsx,json,yml,yaml,css}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

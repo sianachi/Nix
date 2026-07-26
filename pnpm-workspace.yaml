@@ -1,0 +1,5 @@
+packages:
+  - packages/*
+  - apps/web
+  - apps/collab
+  - apps/media

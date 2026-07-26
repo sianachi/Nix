@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nix.Application\Nix.Application.csproj" />
+    <ProjectReference Include="..\Nix.Infrastructure\Nix.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nix.Api/Nix.Api.csproj" />
+    <Project Path="src/Nix.Application/Nix.Application.csproj" />
+    <Project Path="src/Nix.Core/Nix.Core.csproj" />
+    <Project Path="src/Nix.Infrastructure/Nix.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nix.Api.Tests/Nix.Api.Tests.csproj" />
+    <Project Path="tests/Nix.Application.Tests/Nix.Application.Tests.csproj" />
+    <Project Path="tests/Nix.Core.Tests/Nix.Core.Tests.csproj" />
+    <Project Path="tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj" />
+  </Folder>
+</Solution>

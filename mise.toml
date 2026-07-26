@@ -1,0 +1,5 @@
+# Toolchain pins — one `mise install` makes any machine (or CI runner) match.
+[tools]
+node = "22"
+pnpm = "10"
+dotnet = "10"

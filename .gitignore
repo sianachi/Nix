@@ -1,0 +1,40 @@
+# --- Documentation stays out of version control (commit only on explicit request, via git add -f) ---
+*.md
+docs/
+Design language for Nix review/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- .NET ---
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+TestResults/
+coverage/
+*.coverage
+
+# --- Node / frontend ---
+node_modules/
+dist/
+build/
+.turbo/
+storybook-static/
+playwright-report/
+test-results/
+.vite/
+*.tsbuildinfo
+
+# --- Env & secrets ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Tooling state ---
+.idea/
+*.log
+.pnpm-store/
