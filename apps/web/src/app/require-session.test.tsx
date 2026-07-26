@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '../auth/session-store';
 import { renderAt } from '../test/render-with-router';
@@ -33,6 +33,13 @@ describe('the session gate', () => {
   });
 
   it('explains a missing identity provider rather than offering a sign-in that cannot work', () => {
+    // Stated rather than inherited. The provider reads `import.meta.env`, and a developer who has
+    // run zitadel-configure.sh has a .env.local that configures it - so without this the test
+    // asserts unconfigured behaviour on a configured build and fails on their machine and nobody
+    // else's. `vi.unstubAllEnvs` in the global setup puts it back.
+    vi.stubEnv('VITE_OIDC_ISSUER', '');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
+
     // From `unknown`, with no issuer configured, the provider resolves immediately to signed-out
     // and the screen says why. The failure this replaces would be a login button that redirects
     // nowhere, or a shell that spins forever - both worse than being told the build is not

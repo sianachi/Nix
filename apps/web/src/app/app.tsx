@@ -5,9 +5,7 @@ import { AuthProvider } from '../auth/auth-provider';
 import { AppErrorBoundary } from '../components/error-boundary';
 import { AuthCallbackPage, SilentRenewPage } from '../pages/auth-callback-page';
 import { AuditPage } from '../pages/audit-page';
-import { BoardPage } from '../pages/board-page';
 import { EditorPage } from '../pages/editor-page';
-import { SearchPage } from '../pages/search-page';
 import { NotFoundPage } from '../pages/not-found-page';
 import { TokensPage } from '../pages/tokens-page';
 import { AppShell } from './app-shell';
@@ -45,10 +43,16 @@ export function App(): ReactElement {
 
             <Route element={<RequireSession />}>
               <Route element={<AppShell />}>
+                {/* One workspace, one place to be. The board is a view of a container rather
+                    than a destination, and search opens over whatever is on screen, so neither
+                    has a route of its own. */}
                 <Route index element={<EditorPage />} />
-                <Route path="board" element={<BoardPage />} />
-                <Route path="search" element={<SearchPage />} />
-                <Route path="admin" element={<AuditPage />} />
+
+                {/* Behind the profile menu, and offered only to a tenant administrator - which
+                    the server decides, not a token claim. The route itself is not the guard:
+                    every endpoint it calls asks the database for itself. */}
+                <Route path="settings/audit" element={<AuditPage />} />
+
                 <Route path="tokens" element={<TokensPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>

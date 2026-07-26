@@ -1,80 +1,95 @@
-import { type ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router';
+import { Icon } from '@nix/ui';
+import { Search } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, Outlet } from 'react-router';
 
-import { useSessionStore } from '../auth/session-store';
+import { useWorkspaceTree } from '../items/use-workspace-tree';
+import { WorkspaceSidebar } from '../items/workspace-sidebar';
+import { useSelectedItem } from '../routing/selected-item';
+import { SearchOverlay } from '../search/search-overlay';
+import { useCurrentPrincipal } from '../session/use-current-principal';
+import { ProfileMenu } from './profile-menu';
 
 /**
- * The application chrome, per the shell pattern the design language applies to every screen.
+ * The application chrome: one workspace, always visible.
  *
- * A hairline-bordered tab strip in condensed uppercase, with a 2px accent rule under the active
- * one. The rule is the only solid accent object in the chrome - the design reserves filled accent
- * for the primary action and for exactly this indicator, so tabs are otherwise plain text on the
- * page ground.
+ * **There is no tab strip, and that is the point.** Tabs were a faithful reading of the design
+ * file's five example screens and the wrong shape for the product: they made a board and a search
+ * page into destinations, which they are not. A board is a way of looking at a container, and
+ * searching is something you do while reading rather than instead of it. So the shell is a
+ * persistent tree beside whatever is open, a search affordance that opens over the top, and a
+ * profile menu holding what belongs to the person rather than to the document.
+ *
+ * The tree lives here rather than on the editor screen because it is how you move around; a tree
+ * that appeared on one screen would make every other screen a dead end.
  */
-
-const TABS = [
-  { to: '/', label: 'Editor', end: true },
-  { to: '/board', label: 'Board', end: false },
-  { to: '/search', label: 'Search', end: false },
-  { to: '/admin', label: 'Admin · Audit', end: false },
-] as const;
-
 export function AppShell(): ReactNode {
-  const profile = useSessionStore((state) => state.profile);
+  const tree = useWorkspaceTree();
+  const principal = useCurrentPrincipal();
+  const { selectedId, select } = useSelectedItem();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      // The shortcut everybody already has in their fingers. Both modifiers, because the same
+      // browser runs on machines with either.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   return (
     <div className="flex min-h-dvh flex-col bg-background font-body text-foreground">
-      <header className="border-b border-divider">
-        <div className="flex items-center border-b border-divider px-[14px] py-2">
-          <span className="inline-flex size-[26px] items-center justify-center border border-divider font-heading text-xs">
-            NX
-          </span>
-          <span className="ml-3 text-[11px] uppercase tracking-[0.1em] text-foreground/60">
-            Acme &middot; Engineering
-          </span>
-          <span className="ml-auto text-[11px] text-foreground/60">{profile?.name ?? ''}</span>
-        </div>
+      <header className="flex items-center gap-3 border-b border-divider px-[14px] py-2">
+        <Link
+          to="/"
+          aria-label="Nix home"
+          className="inline-flex size-[26px] items-center justify-center border border-divider font-heading text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          NX
+        </Link>
 
-        <nav aria-label="Sections" className="flex">
-          {TABS.map((tab) => (
-            <NavLink
-              key={tab.to}
-              to={tab.to}
-              end={tab.end}
-              className={({ isActive }) =>
-                [
-                  'relative border-r border-divider px-[22px] pb-[7px] pt-[9px]',
-                  'font-heading text-[15px] uppercase tracking-[0.06em]',
-                  'hover:bg-accent-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                  isActive ? 'text-foreground' : 'text-foreground/70',
-                ].join(' ')
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {tab.label}
-                  {isActive ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute inset-x-0 bottom-0 h-[2px] bg-accent"
-                    />
-                  ) : null}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
+        <span className="text-[11px] uppercase tracking-[0.1em] text-foreground/60">
+          Acme &middot; Engineering
+        </span>
+
+        <button
+          type="button"
+          onClick={() => {
+            setSearchOpen(true);
+          }}
+          className="ml-auto flex items-center gap-2 border border-divider px-2 py-1 text-[11px] text-foreground/60 hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Icon icon={Search} size="sm" />
+          Search
+          {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can
+              discover is a shortcut nobody uses. */}
+          <kbd className="font-mono text-[10px] text-foreground/50">Ctrl K</kbd>
+        </button>
+
+        <ProfileMenu principal={principal} />
       </header>
 
-      {/* The shell owns the main landmark so every screen has exactly one, and a screen that
-          renders panels side by side does not have to nest them inside another. */}
-      <main className="flex flex-1">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 flex-1">
+        <WorkspaceSidebar tree={tree} selectedId={selectedId} onSelect={select} />
 
-      {/* The status strip the design puts along the bottom of every screen. It says what is true
-          right now rather than decorating: the tenant this session is pinned to, and the fact that
-          isolation is enforced in the database rather than by this application. */}
+        {/* The shell owns the main landmark so every screen has exactly one, and a screen that
+            renders panels side by side does not have to nest them inside another. */}
+        <main className="flex min-w-0 flex-1">
+          <Outlet context={{ tree, selectedId }} />
+        </main>
+      </div>
+
+      {/* The status strip says what is true right now rather than decorating: the tenant this
+          session is pinned to, and the fact that isolation is enforced in the database rather
+          than by this application. */}
       <footer className="flex items-center gap-4 border-t border-divider px-[14px] py-1.5 text-[11px] text-foreground/60">
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block size-[7px] bg-accent" />
@@ -82,6 +97,22 @@ export function AppShell(): ReactNode {
         </span>
         <span className="ml-auto font-mono">{globalThis.location.host}</span>
       </footer>
+
+      <SearchOverlay
+        open={searchOpen}
+        items={tree.items}
+        loaded={tree.status === 'ready'}
+        onSelect={select}
+        onClose={() => {
+          setSearchOpen(false);
+        }}
+      />
     </div>
   );
+}
+
+/** What the shell hands to whatever screen is open. */
+export interface ShellContext {
+  readonly tree: ReturnType<typeof useWorkspaceTree>;
+  readonly selectedId: string | null;
 }

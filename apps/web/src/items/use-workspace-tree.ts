@@ -1,39 +1,70 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
 
 /**
- * The workspace tree, and the two writes the editor screen performs.
+ * The workspace tree: the items, their shape, and the writes the shell performs on them.
  *
  * Talks to Core directly with `fetch` rather than through `@nix/api-client`'s cache layer, because
- * the client's descriptor execution wants a configured `NixClient` and this screen needs one thing:
- * a bearer token on each request. When the app-wide client is wired, this hook is the only place
+ * the client's descriptor execution wants a configured `NixClient` and this needs one thing: a
+ * bearer token on each request. When the app-wide client is wired, this hook is the only place
  * that changes.
  *
- * Every state the screen can be in is represented here, separately, because the screen renders them
- * separately: loading is not the same as empty, and a failed load is not the same as an empty
- * workspace. Collapsing them is how a person ends up staring at "no items" when the request 500ed.
+ * **Every state the interface can be in is represented separately**, because the interface renders
+ * them separately: loading is not empty, and a failed load is not an empty workspace. Collapsing
+ * them is how a person ends up staring at "no items" when the request returned a 500.
+ *
+ * **Children are fetched per folder, on expansion.** The alternative - one request for the whole
+ * workspace - is simpler and wrong at the size this is built for: a workspace with ten thousand
+ * items would make opening the application a ten-thousand-row download to render twelve.
  */
 
 export interface TreeItem {
   readonly id: string;
   readonly title: string;
   readonly type: string;
+  readonly parentId: string | null;
+  readonly seq: number;
+  readonly lifecycleState: string;
 }
 
 export type TreeStatus = 'loading' | 'ready' | 'error';
 
 export interface WorkspaceTree {
   readonly status: TreeStatus;
-  readonly items: readonly TreeItem[];
   readonly error: string | null;
-  readonly selected: TreeItem | null;
+
+  /** Every item loaded so far, in no particular order. Use `childrenOf` for display. */
+  readonly items: readonly TreeItem[];
+
+  /** The children of a folder, in sibling order, or the roots when given null. */
+  readonly childrenOf: (parentId: string | null) => readonly TreeItem[];
+
+  /** Whether a folder's children are on screen. */
+  readonly isExpanded: (itemId: string) => boolean;
+
+  /** Whether a folder's children are still being fetched. */
+  readonly isLoadingChildren: (itemId: string) => boolean;
+
+  /** The chain from the workspace root down to an item, the item last. */
+  readonly breadcrumbs: (itemId: string) => readonly TreeItem[];
+
+  readonly find: (itemId: string) => TreeItem | null;
+
   readonly isCreating: boolean;
-  readonly isRenaming: boolean;
-  readonly lastSavedAt: string | null;
-  readonly select: (itemId: string) => void;
-  readonly createNote: (title: string) => Promise<void>;
+  readonly isSaving: boolean;
+
+  readonly toggle: (itemId: string) => Promise<void>;
+  readonly expand: (itemId: string) => Promise<void>;
+  readonly create: (
+    parentId: string | null,
+    title: string,
+    type?: string,
+  ) => Promise<string | null>;
   readonly rename: (itemId: string, title: string) => Promise<void>;
+  readonly move: (itemId: string, parentId: string | null, afterId: string | null) => Promise<void>;
+  readonly remove: (itemId: string) => Promise<void>;
+  readonly restore: (itemId: string) => Promise<void>;
   readonly reload: () => Promise<void>;
 }
 
@@ -51,18 +82,32 @@ interface ItemPayload {
   readonly id: string;
   readonly title: string;
   readonly type: string;
+  readonly parentId: string | null;
+  readonly seq: number;
+  readonly lifecycleState: string;
+}
+
+function toItem(payload: ItemPayload): TreeItem {
+  return {
+    id: payload.id,
+    title: payload.title,
+    type: payload.type,
+    parentId: payload.parentId,
+    seq: payload.seq,
+    lifecycleState: payload.lifecycleState,
+  };
 }
 
 export function useWorkspaceTree(): WorkspaceTree {
   const { getAccessToken } = useAuth();
 
   const [status, setStatus] = useState<TreeStatus>('loading');
-  const [items, setItems] = useState<readonly TreeItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [items, setItems] = useState<readonly TreeItem[]>([]);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [loadingChildren, setLoadingChildren] = useState<ReadonlySet<string>>(new Set());
   const [isCreating, setIsCreating] = useState(false);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const request = useCallback(
     async (path: string, init?: RequestInit): Promise<Response> => {
@@ -78,29 +123,53 @@ export function useWorkspaceTree(): WorkspaceTree {
     [getAccessToken],
   );
 
+  const fetchChildren = useCallback(
+    async (parentId: string | null): Promise<readonly TreeItem[] | null> => {
+      const query = parentId === null ? '' : `?parentId=${parentId}`;
+      const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items${query}`);
+
+      if (!response.ok) {
+        // The stable `code` is what to branch on; the detail is for a person to read.
+        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+        setError(problem?.detail ?? `The tree could not be loaded (${String(response.status)}).`);
+        return null;
+      }
+
+      const page = (await response.json()) as { items: ItemPayload[] };
+      return page.items.map(toItem);
+    },
+    [request],
+  );
+
+  /**
+   * Replaces one parent's children wholesale.
+   *
+   * Merging would leave an item that was deleted elsewhere on screen forever, because a merge has
+   * no way to learn that something is gone - only that it was not mentioned.
+   */
+  const absorb = useCallback((parentId: string | null, children: readonly TreeItem[]): void => {
+    setItems((current) => [...current.filter((item) => item.parentId !== parentId), ...children]);
+  }, []);
+
   const load = useCallback(async (): Promise<void> => {
     setStatus('loading');
     setError(null);
 
     try {
-      const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items`);
-
-      if (!response.ok) {
-        // The stable `code` is what to branch on; the message is for a person to read.
-        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-        setError(problem?.detail ?? `The tree could not be loaded (${String(response.status)}).`);
+      const roots = await fetchChildren(null);
+      if (roots === null) {
         setStatus('error');
         return;
       }
 
-      const page = (await response.json()) as { items: ItemPayload[] };
-      setItems(page.items.map((item) => ({ id: item.id, title: item.title, type: item.type })));
+      setItems(roots);
+      setExpanded(new Set());
       setStatus('ready');
     } catch {
       setError('Core could not be reached.');
       setStatus('error');
     }
-  }, [request]);
+  }, [fetchChildren]);
 
   useEffect(() => {
     // queueMicrotask so the first setState lands after the effect returns rather than during it,
@@ -110,27 +179,67 @@ export function useWorkspaceTree(): WorkspaceTree {
     });
   }, [load]);
 
-  const createNote = useCallback(
-    async (title: string): Promise<void> => {
+  const expand = useCallback(
+    async (itemId: string): Promise<void> => {
+      setExpanded((current) => new Set(current).add(itemId));
+      setLoadingChildren((current) => new Set(current).add(itemId));
+
+      try {
+        const children = await fetchChildren(itemId);
+        if (children !== null) {
+          absorb(itemId, children);
+        }
+      } finally {
+        setLoadingChildren((current) => {
+          const next = new Set(current);
+          next.delete(itemId);
+          return next;
+        });
+      }
+    },
+    [absorb, fetchChildren],
+  );
+
+  const toggle = useCallback(
+    async (itemId: string): Promise<void> => {
+      if (expanded.has(itemId)) {
+        setExpanded((current) => {
+          const next = new Set(current);
+          next.delete(itemId);
+          return next;
+        });
+        return;
+      }
+
+      await expand(itemId);
+    },
+    [expand, expanded],
+  );
+
+  const create = useCallback(
+    async (parentId: string | null, title: string, type = 'note'): Promise<string | null> => {
       setIsCreating(true);
       try {
         const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items`, {
           method: 'POST',
-          body: JSON.stringify({ type: 'note', title, parentId: null }),
+          body: JSON.stringify({ type, title, parentId }),
         });
 
         if (!response.ok) {
-          setError(`The note could not be created (${String(response.status)}).`);
-          setStatus('error');
-          return;
+          setError(`The item could not be created (${String(response.status)}).`);
+          return null;
         }
 
-        const created = (await response.json()) as ItemPayload;
-        setItems((current) => [
-          ...current,
-          { id: created.id, title: created.title, type: created.type },
-        ]);
-        setSelectedId(created.id);
+        const created = toItem((await response.json()) as ItemPayload);
+        setItems((current) => [...current, created]);
+
+        // A child created inside a collapsed folder would otherwise be invisible, which reads as
+        // the creation having failed.
+        if (parentId !== null) {
+          setExpanded((current) => new Set(current).add(parentId));
+        }
+
+        return created.id;
       } finally {
         setIsCreating(false);
       }
@@ -140,7 +249,7 @@ export function useWorkspaceTree(): WorkspaceTree {
 
   const rename = useCallback(
     async (itemId: string, title: string): Promise<void> => {
-      setIsRenaming(true);
+      setIsSaving(true);
       try {
         const response = await request(`/api/v1/items/${itemId}`, {
           method: 'PATCH',
@@ -152,29 +261,156 @@ export function useWorkspaceTree(): WorkspaceTree {
           return;
         }
 
-        const updated = (await response.json()) as ItemPayload;
-        setItems((current) =>
-          current.map((item) => (item.id === itemId ? { ...item, title: updated.title } : item)),
-        );
-        setLastSavedAt(new Date().toLocaleTimeString());
+        const updated = toItem((await response.json()) as ItemPayload);
+        setItems((current) => current.map((item) => (item.id === itemId ? updated : item)));
       } finally {
-        setIsRenaming(false);
+        setIsSaving(false);
       }
     },
     [request],
   );
 
+  const move = useCallback(
+    async (itemId: string, parentId: string | null, afterId: string | null): Promise<void> => {
+      setIsSaving(true);
+      try {
+        const response = await request(`/api/v1/items/${itemId}/move`, {
+          method: 'POST',
+          body: JSON.stringify({ parentId, afterId }),
+        });
+
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as {
+            code?: string;
+            detail?: string;
+          } | null;
+
+          // The cycle refusal is the one a person can act on - they dropped a folder into itself -
+          // so it is worth saying plainly rather than as a status code.
+          setError(
+            problem?.code === 'items.move_would_create_cycle'
+              ? 'A folder cannot be moved inside itself.'
+              : (problem?.detail ?? `The item could not be moved (${String(response.status)}).`),
+          );
+          return;
+        }
+
+        const moved = toItem((await response.json()) as ItemPayload);
+        setItems((current) => current.map((item) => (item.id === itemId ? moved : item)));
+
+        // The destination's order changed for every sibling, not just the moved item, so its
+        // children are re-read rather than patched.
+        const siblings = await fetchChildren(parentId);
+        if (siblings !== null) {
+          absorb(parentId, siblings);
+        }
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [absorb, fetchChildren, request],
+  );
+
+  const remove = useCallback(
+    async (itemId: string): Promise<void> => {
+      setIsSaving(true);
+      try {
+        const response = await request(`/api/v1/items/${itemId}`, { method: 'DELETE' });
+
+        if (!response.ok) {
+          setError(`The item could not be deleted (${String(response.status)}).`);
+          return;
+        }
+
+        // Descendants stay in the store and simply stop being reachable, exactly as they do in
+        // the database: deletion is a flag on one row, never a cascade.
+        setItems((current) => current.filter((item) => item.id !== itemId));
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [request],
+  );
+
+  const restore = useCallback(
+    async (itemId: string): Promise<void> => {
+      setIsSaving(true);
+      try {
+        const response = await request(`/api/v1/items/${itemId}/restore`, { method: 'POST' });
+
+        if (!response.ok) {
+          setError(`The item could not be restored (${String(response.status)}).`);
+          return;
+        }
+
+        const restored = toItem((await response.json()) as ItemPayload);
+        setItems((current) => [...current.filter((item) => item.id !== itemId), restored]);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [request],
+  );
+
+  const byParent = useMemo(() => {
+    const index = new Map<string | null, TreeItem[]>();
+    for (const item of items) {
+      const siblings = index.get(item.parentId) ?? [];
+      siblings.push(item);
+      index.set(item.parentId, siblings);
+    }
+
+    for (const siblings of index.values()) {
+      siblings.sort((left, right) => left.seq - right.seq);
+    }
+
+    return index;
+  }, [items]);
+
+  const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
+  const childrenOf = useCallback(
+    (parentId: string | null): readonly TreeItem[] => byParent.get(parentId) ?? [],
+    [byParent],
+  );
+
+  const breadcrumbs = useCallback(
+    (itemId: string): readonly TreeItem[] => {
+      const chain: TreeItem[] = [];
+      let cursor = byId.get(itemId) ?? null;
+
+      // Bounded by the number of loaded items rather than trusting the chain to terminate: the
+      // database forbids cycles, and a client that looped anyway would hang the tab.
+      let guard = byId.size + 1;
+      while (cursor !== null && guard > 0) {
+        chain.unshift(cursor);
+        cursor = cursor.parentId === null ? null : (byId.get(cursor.parentId) ?? null);
+        guard -= 1;
+      }
+
+      return chain;
+    },
+    [byId],
+  );
+
   return {
     status,
-    items,
     error,
-    selected: items.find((item) => item.id === selectedId) ?? null,
+    items,
+    childrenOf,
+    isExpanded: (itemId) => expanded.has(itemId),
+    isLoadingChildren: (itemId) => loadingChildren.has(itemId),
+    breadcrumbs,
+    find: (itemId) => byId.get(itemId) ?? null,
     isCreating,
-    isRenaming,
-    lastSavedAt,
-    select: setSelectedId,
-    createNote,
+    isSaving,
+    toggle,
+    expand,
+    create,
     rename,
+    move,
+    remove,
+    restore,
     reload: load,
   };
 }
