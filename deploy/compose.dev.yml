@@ -1,0 +1,230 @@
+# Nix development stack.
+#
+# Usage (from the repository root):
+#   cp .env.example .env                                  # optional; every variable has a safe dev default
+#   docker compose -f deploy/compose.dev.yml --profile core up -d
+#   deploy/seed/seed.sh                                   # idempotent DB seed (roles, database, pgvector)
+#
+# Profiles:
+#   core   - the default developer set: app Postgres (pgvector), Versity S3
+#            gateway, Zitadel (with its own Postgres), Aspire dashboard (OTLP).
+#   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
+#   ai     - mock LLM endpoint serving a static OpenRouter-shaped completion.
+#
+# Combine profiles as needed:
+#   docker compose -f deploy/compose.dev.yml --profile core --profile media up -d
+#
+# Note on .env resolution: docker compose resolves `.env` relative to the
+# project directory, which defaults to this file's directory (deploy/). To use
+# the repo-root .env, pass it explicitly:
+#   docker compose --env-file .env -f deploy/compose.dev.yml --profile core up -d
+# All defaults below are safe for local development, so no .env is required.
+#
+# Host ports (chosen to dodge common local conflicts; override in .env):
+#   5433  app Postgres        (5432 is usually taken by a local Postgres)
+#   7070  Versity S3 gateway  (versitygw native port; 9000 clashes with MinIO)
+#   8300  Zitadel             (8080 is too popular to claim)
+#   18888 Aspire dashboard UI
+#   18889 OTLP gRPC ingest, 18890 OTLP HTTP ingest
+#   3310  clamd               (media profile; clamd native port)
+#   8380  mock LLM            (ai profile)
+
+name: nix-dev
+
+services:
+
+  # --- profile: core ------------------------------------------------------
+
+  # Application database. pgvector/pgvector:pg16 = Postgres 16 + pgvector.
+  # The init script creates the nix database and the two roles of the
+  # security model (nix_app WITHOUT BYPASSRLS, nix_migrator with it) on the
+  # first boot of an empty volume; deploy/seed/seed.sh re-applies the same
+  # idempotent SQL any time after that.
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["core"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${NIX_PG_SUPERUSER_PASSWORD:-nix-dev-superuser}
+      # Consumed by the init script / seed.sql, not by the postgres image:
+      NIX_PG_DB: ${NIX_PG_DB:-nix}
+      NIX_PG_APP_PASSWORD: ${NIX_PG_APP_PASSWORD:-nix-dev-app}
+      NIX_PG_MIGRATOR_PASSWORD: ${NIX_PG_MIGRATOR_PASSWORD:-nix-dev-migrator}
+    ports:
+      - "${NIX_PG_PORT:-5433}:5432"
+    volumes:
+      - nix-pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./seed:/nix-seed:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # S3-compatible object store: Versity gateway, posix backend over a named
+  # volume. Same IBlobStore + presigned-URL contract as production S3.
+  versitygw:
+    image: versity/versitygw:v1.7.0
+    profiles: ["core"]
+    command: ["--health", "/health", "posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY: ${VERSITY_ROOT_ACCESS_KEY:-nix-dev-access}
+      ROOT_SECRET_KEY: ${VERSITY_ROOT_SECRET_KEY:-nix-dev-secret-key}
+    ports:
+      - "${VERSITY_PORT:-7070}:7070"
+    volumes:
+      - versity-data:/data
+    healthcheck:
+      # The gateway serves an unauthenticated 200 at the --health path.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7070/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # Zitadel's OWN database. Never share the app database with the IdP: it is
+  # a separate trust domain, migrates on its own schedule, and must never be
+  # reachable through the app roles. Not published to the host on purpose.
+  zitadel-db:
+    image: postgres:16-alpine
+    profiles: ["core"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ZITADEL_DB_ADMIN_PASSWORD:-zitadel-dev-admin}
+    volumes:
+      - zitadel-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # Docker creates a named volume owned by root, but the Zitadel image runs as
+  # uid 1000, so the first-instance bootstrap cannot write its PAT there and
+  # the whole migration fails. This one-shot container fixes the ownership
+  # before Zitadel starts.
+  zitadel-init:
+    image: busybox:1.37
+    profiles: ["core"]
+    command: ["sh", "-c", "mkdir -p /machinekey && chown -R 1000:1000 /machinekey"]
+    volumes:
+      - zitadel-machinekey:/machinekey
+
+  # OIDC identity provider (first IdP; the app is multi-issuer by design).
+  # First-instance bootstrap is declarative via ZITADEL_FIRSTINSTANCE_* env:
+  # a dev org, a human admin, and a machine user whose PAT is written to the
+  # zitadel-machinekey volume on the first start (best-effort bootstrap; no
+  # fragile API automation).
+  # Console: http://localhost:8300/ui/console
+  # Issuer / OIDC discovery: http://localhost:8300/.well-known/openid-configuration
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v4.16.1
+    profiles: ["core"]
+    command:
+      [
+        "start-from-init",
+        "--masterkey", "${ZITADEL_MASTERKEY:-NixDevMasterkeyMustBe32BytesOk!!}",
+        "--tlsMode", "disabled",
+      ]
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: zitadel-db
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${ZITADEL_DB_USER_PASSWORD:-zitadel-dev-user}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${ZITADEL_DB_ADMIN_PASSWORD:-zitadel-dev-admin}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALDOMAIN: localhost
+      ZITADEL_EXTERNALPORT: ${ZITADEL_PORT:-8300}
+      ZITADEL_EXTERNALSECURE: "false"
+      # First-instance bootstrap (applies only on the very first init):
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: ${ZITADEL_ORG_NAME:-nix-dev}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME:-nix-admin}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD:-NixDev-Password1!}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: ${ZITADEL_MACHINE_USERNAME:-nix-dev-machine}
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: nix-dev-automation
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2030-01-01T00:00:00Z"
+      ZITADEL_FIRSTINSTANCE_PATPATH: /machinekey/pat.txt
+    ports:
+      - "${ZITADEL_PORT:-8300}:8080"
+    volumes:
+      - zitadel-machinekey:/machinekey
+    depends_on:
+      zitadel-db:
+        condition: service_healthy
+      zitadel-init:
+        condition: service_completed_successfully
+    # No healthcheck on purpose. The image is distroless (no shell, no curl or
+    # wget to probe with), and its own `zitadel ready` subcommand reports "not
+    # ready" even once /debug/ready serves 200, so a container-level check
+    # would report a false failure forever. Readiness is instead waited on from
+    # the host by deploy/seed/zitadel-configure.sh, which polls the OIDC
+    # discovery document - the thing callers actually depend on.
+    #
+    # Verify by hand with:
+    #   curl -fsS http://localhost:8300/.well-known/openid-configuration
+
+  # Local OTLP collector + trace/log/metric viewer for all services.
+  # UI: http://localhost:18888  (anonymous auth: dev only, never expose)
+  # Point OTEL_EXPORTER_OTLP_ENDPOINT at http://localhost:18889 (gRPC)
+  # or http://localhost:18890 (HTTP/protobuf).
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.4
+    profiles: ["core"]
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+      DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL: http://+:18890
+    ports:
+      - "${ASPIRE_DASHBOARD_PORT:-18888}:18888"
+      - "${ASPIRE_OTLP_GRPC_PORT:-18889}:18889"
+      - "${ASPIRE_OTLP_HTTP_PORT:-18890}:18890"
+
+  # --- profile: media -----------------------------------------------------
+
+  # clamd virus scanner for the media pipeline.
+  # NOTE: clamd needs roughly 1-2 GB of RAM once the signature database is
+  # loaded, and the first start downloads the full signature set (can take
+  # minutes). Keep it out of the default profile for that reason.
+  # The debian variant is used because clamav/clamav:stable (alpine-based)
+  # publishes no linux/arm64 manifest; the debian image is multi-arch.
+  clamav:
+    image: clamav/clamav-debian:stable
+    profiles: ["media"]
+    ports:
+      - "${CLAMD_PORT:-3310}:3310"
+    volumes:
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      # clamdcheck.sh ships in the official image and pings clamd.
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 5m
+
+  # --- profile: ai --------------------------------------------------------
+
+  # Minimal mock LLM endpoint: WireMock serving a static OpenRouter-shaped
+  # chat completion from deploy/mock-llm/mappings/. Point the AI provider at
+  # http://localhost:8380/api/v1 during development.
+  mock-llm:
+    image: wiremock/wiremock:3x
+    profiles: ["ai"]
+    command: ["--port", "8080", "--disable-banner"]
+    ports:
+      - "${MOCK_LLM_PORT:-8380}:8080"
+    volumes:
+      - ./mock-llm:/home/wiremock:ro
+
+volumes:
+  nix-pg-data:
+  versity-data:
+  zitadel-pg-data:
+  zitadel-machinekey:
+  clamav-db:

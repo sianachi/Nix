@@ -1,0 +1,26 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/v1/models"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "data": [
+        {
+          "id": "mock/deterministic-completion",
+          "name": "Mock deterministic completion",
+          "context_length": 128000,
+          "pricing": {
+            "prompt": "0",
+            "completion": "0"
+          }
+        }
+      ]
+    }
+  }
+}
