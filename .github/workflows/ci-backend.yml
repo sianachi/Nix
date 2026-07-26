@@ -88,3 +88,45 @@ jobs:
           dotnet test tests/Nix.Core.Tests/Nix.Core.Tests.csproj --configuration Release
           dotnet test tests/Nix.Application.Tests/Nix.Application.Tests.csproj --configuration Release
           dotnet test tests/Nix.Api.Tests/Nix.Api.Tests.csproj --configuration Release
+
+  # ── Stage 3: integration ───────────────────────────────────────────────────
+  # Everything that needs a real Postgres: the tenant isolation policies, the
+  # composite foreign keys that stop cross-tenant references, the grants matrix,
+  # the pre-authentication identity provider resolver, and the SET LOCAL pooling
+  # proof.
+  #
+  # These are the tests the engineering plan calls the crown jewels, and until
+  # this job existed they ran only on whichever machine last touched them. A
+  # permission regression is a breach rather than a defect, so "someone ran it
+  # locally" is not a control.
+  #
+  # Parallel to backend-unit rather than after it: both need the static stage to
+  # have passed, neither needs the other, and a broken policy should not wait on
+  # a unit suite to be reported.
+  backend-integration:
+    name: backend integration
+    runs-on: ubuntu-latest
+    needs: backend-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # No docker setup step: ubuntu-latest ships a running daemon, and
+      # Testcontainers finds it through the default socket. Asserted rather than
+      # assumed, because the failure mode otherwise is a confusing timeout deep
+      # inside the fixture rather than a clear message here.
+      - name: Docker is available for Testcontainers
+        run: docker info --format 'docker {{.ServerVersion}}'
+
+      # Pulled explicitly so the image download is its own step. Inside the
+      # fixture it would land in the first test's timeout budget and present as
+      # a flake on a cold runner.
+      - name: Pre-pull the Postgres image
+        run: docker pull pgvector/pgvector:pg16
+
+      - name: Integration tests
+        working-directory: backend
+        run: dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release
