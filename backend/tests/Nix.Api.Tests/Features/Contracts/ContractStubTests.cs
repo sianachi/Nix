@@ -21,6 +21,12 @@ namespace Nix.Api.Tests.Features.Contracts;
 /// contract surface has been fully implemented - which makes this file a to-do list that cannot
 /// go stale.
 /// </para>
+/// <para>
+/// Four item operations have already left it: list, create, get and rename are implemented and
+/// covered by the integration suite instead, because they need a database and a tenant-scoped
+/// unit of work to say anything true. This host is deliberately built without persistence, so
+/// asserting anything about them here would be asserting the behaviour of a misconfiguration.
+/// </para>
 /// </remarks>
 public sealed class ContractStubTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
@@ -35,10 +41,6 @@ public sealed class ContractStubTests(WebApplicationFactory<Program> factory)
         { "GET", "/api/v1/workspaces", null },
         { "GET", $"/api/v1/workspaces/{WorkspaceId}", null },
         { "GET", $"/api/v1/workspaces/{WorkspaceId}/members", null },
-        { "GET", $"/api/v1/workspaces/{WorkspaceId}/items", null },
-        { "POST", $"/api/v1/workspaces/{WorkspaceId}/items", """{"type":"folder","title":"Plans","parentId":null}""" },
-        { "GET", $"/api/v1/items/{ItemId}", null },
-        { "PATCH", $"/api/v1/items/{ItemId}", """{"title":"Renamed"}""" },
         { "DELETE", $"/api/v1/items/{ItemId}", null },
         { "POST", $"/api/v1/items/{ItemId}/move", """{"parentId":null,"afterId":null}""" },
         { "POST", $"/api/v1/items/{ItemId}/restore", null },

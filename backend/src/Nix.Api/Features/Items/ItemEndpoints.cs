@@ -1,6 +1,11 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Nix.Api.Contracts;
 using Nix.Api.Errors;
+using Nix.Application.Items;
+using Nix.Core.Items;
+using Nix.Core.Primitives;
+using Nix.Core.Tenancy;
 
 namespace Nix.Api.Features.Items;
 
@@ -124,31 +129,96 @@ internal static class ItemEndpoints
         return endpoints;
     }
 
-    private static Results<Ok<CursorPage<ItemResponse>>, ProblemHttpResult> ListItems(
+    private static async Task<Results<Ok<CursorPage<ItemResponse>>, ProblemHttpResult>> ListItems(
         Guid workspaceId,
         HttpContext httpContext,
+        [FromServices] Application.Items.ListItems listItems,
         Guid? parentId = null,
         bool includeDeleted = false,
         string? cursor = null,
-        int limit = CursorPaging.DefaultLimit) =>
-        ContractStub.NotImplemented(httpContext, "ListItems");
+        int limit = CursorPaging.DefaultLimit)
+    {
+        var result = await listItems.ExecuteAsync(
+            WorkspaceId.From(workspaceId),
+            parentId is { } parent ? ItemId.From(parent) : null,
+            includeDeleted,
+            ItemCursor.Decode(cursor),
+            limit,
+            httpContext.RequestAborted).ConfigureAwait(false);
 
-    private static Results<Created<ItemResponse>, ProblemHttpResult> CreateItem(
+        return result.Match<Results<Ok<CursorPage<ItemResponse>>, ProblemHttpResult>>(
+            page => TypedResults.Ok(
+                new CursorPage<ItemResponse>(
+                    [.. page.Select(ItemMapping.ToResponse)],
+                    ItemCursor.NextFrom(page, limit))),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
+
+    private static async Task<Results<Created<ItemResponse>, ProblemHttpResult>> CreateItem(
         Guid workspaceId,
         CreateItemRequest request,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "CreateItem");
+        HttpContext httpContext,
+        [FromServices] Application.Items.CreateItem createItem)
+    {
+        var result = await createItem.ExecuteAsync(
+            WorkspaceId.From(workspaceId),
+            request.Type,
+            request.Title,
+            request.ParentId is { } parent ? ItemId.From(parent) : null,
+            httpContext.RequestAborted).ConfigureAwait(false);
 
-    private static Results<Ok<ItemResponse>, ProblemHttpResult> GetItem(
+        return result.Match<Results<Created<ItemResponse>, ProblemHttpResult>>(
+            item => TypedResults.Created($"/api/v1/items/{item.Id}", ItemMapping.ToResponse(item)),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
+
+    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> GetItem(
         Guid itemId,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "GetItem");
+        HttpContext httpContext,
+        [FromServices] Application.Items.GetItem getItem)
+    {
+        var result = await getItem
+            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
+            .ConfigureAwait(false);
 
-    private static Results<Ok<ItemResponse>, ProblemHttpResult> UpdateItem(
+        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
+            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
+
+    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> UpdateItem(
         Guid itemId,
         UpdateItemRequest request,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "UpdateItem");
+        HttpContext httpContext,
+        [FromServices] RenameItem renameItem)
+    {
+        var result = await renameItem.ExecuteAsync(
+            ItemId.From(itemId),
+            request.Title,
+            httpContext.RequestAborted).ConfigureAwait(false);
+
+        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
+            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
+
+    /// <summary>
+    /// Maps a use case's failure onto the status its stable code implies.
+    /// </summary>
+    /// <remarks>
+    /// The code is the contract; the status is a consequence of it. Deciding the status here, in
+    /// one place, is what stops two endpoints answering the same failure differently.
+    /// </remarks>
+    private static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error)
+    {
+        var status = error.Code switch
+        {
+            CycleCode or LifecycleConflictCode => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status404NotFound,
+        };
+
+        return ApiProblem.Create(httpContext, status, error.Code, "Request refused", error.Message);
+    }
 
     private static Results<Ok<ItemResponse>, ProblemHttpResult> MoveItem(
         Guid itemId,
