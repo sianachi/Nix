@@ -1,0 +1,134 @@
+/*
+ * @nix/design-tokens
+ *
+ * The Industry design system token sheet, transcribed as a Tailwind CSS v4
+ * CSS-first theme. Source of truth: the Industry stylesheet's :root token
+ * sheet ("Design language for Nix review" / _ds / industry / styles.css).
+ * Every value here is a verbatim transcription of that sheet; nothing is
+ * recomputed or invented. Retune the look there, then re-transcribe here.
+ *
+ * Usage, in an app's Tailwind entry stylesheet:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@nix/design-tokens';
+ *
+ * The @theme block registers Tailwind theme variables, so every token is
+ * available both as a utility class (bg-accent-500, text-neutral-900,
+ * bg-background, text-foreground, font-heading, rounded-md, shadow-lg, p-4)
+ * and as a CSS variable (var(--color-accent-500)).
+ *
+ * Notes:
+ * - Tailwind's default color, radius and shadow palettes are cleared so only
+ *   Industry values exist: no decorative color beyond the steel accent, the
+ *   sheet's three radius steps, elevation only via shadow-sm/md/lg.
+ * - The tonal ramps were generated in OKLCH on one shared perceptual
+ *   lightness scale (the same step of any ramp has the same visual weight)
+ *   and are serialized in the source sheet as sRGB hex. The hex values are
+ *   carried verbatim: transcription, not regeneration.
+ * - Industry is a mono scheme: one steel accent. The accent-2 ramp is a
+ *   machine-derived stand-in carried only so both variable sets resolve;
+ *   treat accent and accent-2 as one role.
+ * - Ramp usage (per the Industry guide): 100-300 for tinted fills, hovers
+ *   and subtle borders; 500 as a role's base; 700-900 for text on tinted
+ *   fills and for pressed states. Prefer ramp steps over ad-hoc color-mix().
+ */
+
+@theme {
+  /* ══ Reset — only Industry tokens may exist ═══════════════════════════ */
+  --color-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  /* ══ Color — base roles ═══════════════════════════════════════════════ */
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-accent-2: #728fab;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  /* ══ Color — tonal ramps (OKLCH-generated, shared lightness scale) ════ */
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
+
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  --color-accent-2-100: #eef6ff;
+  --color-accent-2-200: #d6ebff;
+  --color-accent-2-300: #bdd8f2;
+  --color-accent-2-400: #9ebbd8;
+  --color-accent-2-500: #7e9cb8;
+  --color-accent-2-600: #627d98;
+  --color-accent-2-700: #486077;
+  --color-accent-2-800: #314457;
+  --color-accent-2-900: #1f2d3a;
+
+  /* ══ Color — semantic roles ═══════════════════════════════════════════
+     Aliases onto the roles above so components read as intent:
+     bg-background, text-foreground, bg-accent-hover, and so on. The
+     interaction steps follow the Industry guide: hover is one step past
+     the base on this light ground (accent-600), pressed is accent-700,
+     and body-size accent text uses accent-700 because the base accent is
+     tuned to 3:1 against the ground - enough for chrome, not body copy. */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --color-accent-hover: var(--color-accent-600);
+  --color-accent-pressed: var(--color-accent-700);
+  --color-accent-text: var(--color-accent-700);
+
+  /* ══ Type ═════════════════════════════════════════════════════════════ */
+  --font-heading: 'Barlow Condensed', system-ui, sans-serif;
+  --font-body: 'Barlow', system-ui, sans-serif;
+
+  /* ══ Spacing — density 0.85x ══════════════════════════════════════════
+     The sheet's spacing unit is 3.4px (4px base x 0.85 density). Tailwind
+     v4 derives every spacing utility from --spacing, which reproduces the
+     sheet's named steps exactly: --space-1 3.4px, --space-2 6.8px,
+     --space-3 10.2px, --space-4 13.6px, --space-6 20.4px, --space-8 27.2px
+     (p-1 ... p-8, gap-*, and friends). */
+  --spacing: 3.4px;
+
+  /* ══ Radius ═══════════════════════════════════════════════════════════ */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  /* ══ Elevation — soft ink-tinted shadows tuned to the light ground ════ */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
+}
+
+/* ══ Source tokens with no Tailwind v4 @theme namespace ═════════════════
+   Carried verbatim as plain custom properties so nothing from the sheet is
+   dropped. Consume with var(). */
+:root {
+  /* Heading weight (Barlow Condensed 600). Not registered as
+     --font-weight-heading: that would generate a font-weight utility named
+     font-heading, colliding with the font-family utility of the same name. */
+  --font-heading-weight: 600;
+
+  /* The sheet's named spacing steps, verbatim, for var() consumers. The
+     @theme --spacing base above yields the identical scale as utilities. */
+  --space-1: 3.4px;
+  --space-2: 6.8px;
+  --space-3: 10.2px;
+  --space-4: 13.6px;
+  --space-6: 20.4px;
+  --space-8: 27.2px;
+}
