@@ -26,4 +26,32 @@
     <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
   </ItemGroup>
 
+  <!-- ==========================================================================
+       G7a - Persistence (EF Core + Npgsql, migration runner, integration harness)
+
+       Appended as a distinct trailing group on purpose: this file is edited by
+       more than one branch at a time, and a trailing block merges cleanly.
+
+       Version constraint worth knowing: Npgsql.EntityFrameworkCore.PostgreSQL
+       10.0.3 requires Microsoft.EntityFrameworkCore[.Relational] >= 10.0.4, so
+       the EF Core versions below must never be lowered past that floor.
+       ========================================================================== -->
+  <ItemGroup Label="Persistence">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Migration runner host">
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup Label="Integration test harness">
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <PackageVersion Include="Respawn" Version="7.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+  </ItemGroup>
+
 </Project>

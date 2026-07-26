@@ -1,8 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- CA2007: ConfigureAwait(false) on every await. There is no ambient synchronization
+         context to capture in a test host, and threading the call through hundreds of test
+         awaits buries the assertions it is meant to make readable. Production code keeps the
+         rule. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Nix.Infrastructure\Nix.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Nix.Api\Nix.Api.csproj" />
+  </ItemGroup>
+
+  <!-- Real Postgres, always. Nothing in this project runs against an in-memory provider:
+       row-level security, grants, and SET LOCAL scoping only exist in the database. -->
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Respawn" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 
 </Project>
