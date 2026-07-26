@@ -50,10 +50,33 @@ internal sealed class NixTokenValidator
     // fetched from it rather than discovered - pointing an OpenID discovery retriever at a JWKS URL
     // yields a document with no signing keys, which presents as every token being refused with
     // nothing logged, because there is no error to log.
-    private static readonly ConcurrentDictionary<string, JsonWebKeySet> KeyCache =
+    private static readonly ConcurrentDictionary<string, CachedKeySet> KeyCache =
         new(StringComparer.Ordinal);
 
     private static readonly HttpClient KeyFetcher = new() { Timeout = TimeSpan.FromSeconds(10) };
+
+    /// <summary>How long a key set is trusted before it is fetched again.</summary>
+    /// <remarks>
+    /// A cache with no expiry is a correctness and a security problem, not just a staleness one.
+    /// An issuer that rotates its signing keys would break every token until this process was
+    /// restarted, and a key withdrawn because it leaked would go on being trusted for exactly as
+    /// long as the process lived. Twelve hours bounds both without making the identity provider
+    /// serve a key set per request.
+    /// </remarks>
+    private static readonly TimeSpan KeyLifetime = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// Shortest gap between refetches triggered by an unknown key id.
+    /// </summary>
+    /// <remarks>
+    /// A token signed with a key we have not seen is the signal that a rotation happened, so it is
+    /// worth refetching immediately rather than waiting out the lifetime. Rate-limited because the
+    /// same signal is what a flood of forged tokens with random key ids would produce, and that
+    /// must not turn into a fetch storm against the issuer.
+    /// </remarks>
+    private static readonly TimeSpan MinimumRefetchInterval = TimeSpan.FromMinutes(5);
+
+    private sealed record CachedKeySet(JsonWebKeySet Keys, DateTimeOffset FetchedAt);
 
     /// <summary>Initializes a new instance of the <see cref="NixTokenValidator"/> class.</summary>
     /// <param name="directory">The pre-authentication lookups.</param>
@@ -103,7 +126,8 @@ internal sealed class NixTokenValidator
             return null;
         }
 
-        var keys = await ResolveSigningKeysAsync(registration, cancellationToken).ConfigureAwait(false);
+        var keys = await ResolveSigningKeysAsync(registration, unverified.Header.Kid, cancellationToken)
+            .ConfigureAwait(false);
         if (keys is null)
         {
             return null;
@@ -150,11 +174,30 @@ internal sealed class NixTokenValidator
 
     private static async ValueTask<ICollection<SecurityKey>?> ResolveSigningKeysAsync(
         IdentityProviderRegistration registration,
+        string? keyId,
         CancellationToken cancellationToken)
     {
+        var now = DateTimeOffset.UtcNow;
+
         if (KeyCache.TryGetValue(registration.Issuer, out var cached))
         {
-            return cached.GetSigningKeys();
+            var age = now - cached.FetchedAt;
+            var knowsKey = keyId is null
+                || cached.Keys.Keys.Any(key => string.Equals(key.Kid, keyId, StringComparison.Ordinal));
+
+            // Fresh enough, and it can verify the token in hand: use it.
+            if (age < KeyLifetime && knowsKey)
+            {
+                return cached.Keys.GetSigningKeys();
+            }
+
+            // An unknown key id usually means the issuer rotated. Refetch - but not more often
+            // than the floor, so forged tokens carrying random key ids cannot become a fetch
+            // storm against the identity provider.
+            if (!knowsKey && age < MinimumRefetchInterval)
+            {
+                return cached.Keys.GetSigningKeys();
+            }
         }
 
         try
@@ -164,14 +207,20 @@ internal sealed class NixTokenValidator
                 .ConfigureAwait(false);
 
             var keySet = new JsonWebKeySet(json);
-            KeyCache[registration.Issuer] = keySet;
+            KeyCache[registration.Issuer] = new CachedKeySet(keySet, now);
             return keySet.GetSigningKeys();
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or ArgumentException)
         {
-            // The issuer's key endpoint is unreachable or malformed. Refusing is the only safe
-            // answer: accepting a token we cannot verify is worse than a failed request.
-            return null;
+            // The issuer's key endpoint is unreachable or malformed.
+            //
+            // Fall back to a cached set only while it is still inside its lifetime: a brief outage
+            // should not sign everybody out, but a key set old enough to have expired must not be
+            // kept alive indefinitely by the endpoint staying down. Past that, refuse - accepting
+            // a token we cannot verify is worse than a failed request.
+            return cached is not null && now - cached.FetchedAt < KeyLifetime
+                ? cached.Keys.GetSigningKeys()
+                : null;
         }
     }
 }
