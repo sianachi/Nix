@@ -271,6 +271,60 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Content_is_read_only_for_the_api_and_writable_by_the_collaboration_service()
+    {
+        // The split is the whole point of having a third role. An update can only be validated by
+        // applying it, which needs a CRDT runtime the API does not have - so the API serves content
+        // and never authors it, and a bug in the API cannot corrupt a document.
+        //
+        // Asserted in both directions: read-only that is actually read-write is a boundary that
+        // does not exist, and read-write that is actually read-only is a service that cannot work.
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            foreach (var table in new[] { NixTables.ContentDoc, NixTables.ContentUpdate, NixTables.ContentSnapshot })
+            {
+                var application = await RawSql.TextListAsync(
+                    connection,
+                    $"""
+                    SELECT privilege_type FROM information_schema.table_privileges
+                    WHERE table_schema = 'public' AND table_name = '{table}'
+                      AND grantee = '{NixDatabaseRoles.Application}'
+                    ORDER BY privilege_type
+                    """);
+
+                var collaboration = await RawSql.TextListAsync(
+                    connection,
+                    $"""
+                    SELECT privilege_type FROM information_schema.table_privileges
+                    WHERE table_schema = 'public' AND table_name = '{table}'
+                      AND grantee = '{NixDatabaseRoles.Collaboration}'
+                    ORDER BY privilege_type
+                    """);
+
+                Assert.Equal(["SELECT"], application);
+                Assert.Equal(["DELETE", "INSERT", "SELECT", "UPDATE"], collaboration);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task The_collaboration_role_cannot_bypass_row_level_security_either()
+    {
+        // A third role is a third chance to get this wrong. The isolation policies are only a
+        // boundary while every role that reaches these tables is subject to them.
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var canBypass = await RawSql.BooleanAsync(
+                connection,
+                $"SELECT rolbypassrls FROM pg_roles WHERE rolname = '{NixDatabaseRoles.Collaboration}'");
+
+            Assert.False(canBypass);
+        }
+    }
+
+    [Fact]
     public async Task An_audit_event_written_through_the_context_reaches_the_table()
     {
         // The runtime role holds INSERT on audit_event and nothing else, and insert-without-select

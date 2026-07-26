@@ -59,6 +59,15 @@ public static class NixTables
     /// <summary>Insert-only record of what was done.</summary>
     public const string AuditEvent = "audit_event";
 
+    /// <summary>The body of a native item.</summary>
+    public const string ContentDoc = "content_doc";
+
+    /// <summary>Append-only log of conflict-free updates. The source of truth for content.</summary>
+    public const string ContentUpdate = "content_update";
+
+    /// <summary>Materialisations of the update log. Derived, rebuildable, never authoritative.</summary>
+    public const string ContentSnapshot = "content_snapshot";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -77,6 +86,9 @@ public static class NixTables
         ItemClosure,
         AclEntry,
         AuditEvent,
+        ContentDoc,
+        ContentUpdate,
+        ContentSnapshot,
     ];
 
     /// <summary>
@@ -88,6 +100,9 @@ public static class NixTables
     /// <c>ImmutableArray</c> that throws on enumeration rather than reading as empty.
     /// </remarks>
     private static ImmutableArray<string> FullDml { get; } = ["DELETE", "INSERT", "SELECT", "UPDATE"];
+
+    /// <summary>Read without write, sorted the way the catalogue reports it.</summary>
+    private static ImmutableArray<string> ReadOnly { get; } = ["SELECT"];
 
     /// <summary>
     /// The privileges the runtime role is expected to hold on each table, from the development
@@ -126,6 +141,14 @@ public static class NixTables
             // Insert-only: an audit trail the application can rewrite records only what an
             // attacker who reached the application was willing to leave behind.
             [AuditEvent] = ["INSERT"],
+
+            // Read-only for the application, per the table ownership matrix. Content is written by
+            // the collaboration service, which is the only thing that can validate an update -
+            // doing so means applying it, which needs a CRDT runtime. Core serves what is there
+            // and never authors it, so a bug in Core cannot corrupt a document.
+            [ContentDoc] = ReadOnly,
+            [ContentUpdate] = ReadOnly,
+            [ContentSnapshot] = ReadOnly,
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }

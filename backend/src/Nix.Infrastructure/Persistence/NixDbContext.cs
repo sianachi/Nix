@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Nix.Core.Audit;
 using Nix.Core.Authorization;
+using Nix.Core.Content;
 using Nix.Core.Identity;
 using Nix.Core.Items;
 using Nix.Core.Tenancy;
@@ -98,6 +99,22 @@ public sealed class NixDbContext : DbContext
     /// </remarks>
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
+    /// <summary>Gets the document bodies of native items.</summary>
+    public DbSet<ContentDoc> ContentDocs => Set<ContentDoc>();
+
+    /// <summary>
+    /// Gets the append-only log of conflict-free updates.
+    /// </summary>
+    /// <remarks>
+    /// Readable here and not writable: the runtime role holds SELECT only on the content tables.
+    /// Updates are authored by the collaboration service, which is the only thing that can
+    /// validate one - validating means applying it, and that needs a CRDT runtime.
+    /// </remarks>
+    public DbSet<ContentUpdate> ContentUpdates => Set<ContentUpdate>();
+
+    /// <summary>Gets the materialised snapshots. Derived from the log and rebuildable from it.</summary>
+    public DbSet<ContentSnapshot> ContentSnapshots => Set<ContentSnapshot>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -133,6 +150,7 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<ItemId>().HaveConversion<NixIdConverter<ItemId>>();
         configurationBuilder.Properties<AclEntryId>().HaveConversion<NixIdConverter<AclEntryId>>();
         configurationBuilder.Properties<AuditEventId>().HaveConversion<NixIdConverter<AuditEventId>>();
+        configurationBuilder.Properties<ContentDocId>().HaveConversion<NixIdConverter<ContentDocId>>();
     }
 
     /// <inheritdoc />
@@ -165,5 +183,8 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ItemClosureEdgeConfiguration());
         modelBuilder.ApplyConfiguration(new AclEntryConfiguration());
         modelBuilder.ApplyConfiguration(new AuditEventConfiguration());
+        modelBuilder.ApplyConfiguration(new ContentDocConfiguration());
+        modelBuilder.ApplyConfiguration(new ContentUpdateConfiguration());
+        modelBuilder.ApplyConfiguration(new ContentSnapshotConfiguration());
     }
 }

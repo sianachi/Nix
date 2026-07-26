@@ -26,6 +26,16 @@ internal static class NixDatabaseRoles
     /// <summary>The schema owner. The only role holding BYPASSRLS.</summary>
     public const string Migrator = "nix_migrator";
 
+    /// <summary>
+    /// The collaboration service's role: read-write on the content tables, where the runtime role
+    /// is read-only.
+    /// </summary>
+    /// <remarks>
+    /// A third role rather than sharing the runtime one, because the split between them is the
+    /// thing being enforced - two services under one role could not have different privileges.
+    /// </remarks>
+    public const string Collaboration = "nix_collab";
+
     /// <summary>Password for both roles inside the disposable test container.</summary>
     public const string Password = "nix-test-password";
 
@@ -45,11 +55,15 @@ internal static class NixDatabaseRoles
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{Application}') THEN
                 CREATE ROLE {Application} LOGIN PASSWORD '{Password}';
             END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{Collaboration}') THEN
+                CREATE ROLE {Collaboration} LOGIN PASSWORD '{Password}';
+            END IF;
         END
         $$;
 
         ALTER ROLE {Migrator} WITH BYPASSRLS;
         ALTER ROLE {Application} WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        ALTER ROLE {Collaboration} WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
         DO $$
         BEGIN
@@ -75,11 +89,12 @@ internal static class NixDatabaseRoles
 
         ALTER SCHEMA public OWNER TO {Migrator};
 
-        GRANT CONNECT ON DATABASE {Database} TO {Application}, {Migrator};
-        GRANT USAGE ON SCHEMA public TO {Application};
+        GRANT CONNECT ON DATABASE {Database} TO {Application}, {Collaboration}, {Migrator};
+        GRANT USAGE ON SCHEMA public TO {Application}, {Collaboration};
 
         REVOKE CREATE ON SCHEMA public FROM PUBLIC;
         REVOKE CREATE ON SCHEMA public FROM {Application};
+        REVOKE CREATE ON SCHEMA public FROM {Collaboration};
 
         ALTER DEFAULT PRIVILEGES FOR ROLE {Migrator} IN SCHEMA public
             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {Application};

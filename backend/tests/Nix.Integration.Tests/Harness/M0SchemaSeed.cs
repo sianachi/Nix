@@ -30,6 +30,7 @@ internal static class M0SchemaSeed
         ItemId: new Guid("1e1e1e1e-1111-4111-8111-1e1e1e1e1e1e"),
         AclEntryId: new Guid("1f1f1f1f-1111-4111-8111-1f1f1f1f1f1f"),
         AuditEventId: new Guid("19191919-1111-4111-8111-191919191919"),
+        ContentDocId: new Guid("1d0c1d0c-1111-4111-8111-1d0c1d0c1d0c"),
         Slug: "alpha");
 
     /// <summary>The rows belonging to the second tenant - the ones that must never be visible.</summary>
@@ -42,6 +43,7 @@ internal static class M0SchemaSeed
         ItemId: new Guid("2e2e2e2e-2222-4222-8222-2e2e2e2e2e2e"),
         AclEntryId: new Guid("2f2f2f2f-2222-4222-8222-2f2f2f2f2f2f"),
         AuditEventId: new Guid("29292929-2222-4222-8222-292929292929"),
+        ContentDocId: new Guid("2d0c2d0c-2222-4222-8222-2d0c2d0c2d0c"),
         Slug: "beta");
 
     /// <summary>
@@ -73,6 +75,7 @@ internal static class M0SchemaSeed
         var item = Literal(rows.ItemId);
         var acl = Literal(rows.AclEntryId);
         var auditEvent = Literal(rows.AuditEventId);
+        var contentDoc = Literal(rows.ContentDocId);
         var slug = rows.Slug;
 
         return $"""
@@ -130,6 +133,21 @@ internal static class M0SchemaSeed
             VALUES ({auditEvent}, {tenant}, {workspace}, {principal}, NULL, 'item.created',
                     {item}, 'item', NULL, jsonb_build_object('type', 'folder'),
                     '203.0.113.10'::inet, now());
+
+            INSERT INTO content_doc
+                (doc_id, tenant_id, item_id, workspace_id, schema_version, head_seq, created_at)
+            VALUES ({contentDoc}, {tenant}, {item}, {workspace}, 1, 1, now());
+
+            -- One update, so the log is not empty and the isolation theory has a row to filter.
+            -- The bytes are not a real CRDT payload: nothing in Core interprets them, and the
+            -- collaboration service's own tests use real ones.
+            INSERT INTO content_update
+                (doc_id, seq, tenant_id, update_bytes, actor_id, client_id, created_at)
+            VALUES ({contentDoc}, 1, {tenant}, '\\x0102'::bytea, {principal}, '{slug}-client', now());
+
+            INSERT INTO content_snapshot
+                (doc_id, seq, tenant_id, yjs_state, prosemirror_json, plaintext, created_at)
+            VALUES ({contentDoc}, 1, {tenant}, '\\x0102'::bytea, NULL, '{slug} note body', now());
             """;
     }
 
@@ -148,6 +166,7 @@ internal static class M0SchemaSeed
 /// <param name="ItemId">Its one item.</param>
 /// <param name="AclEntryId">The access control entry on that item.</param>
 /// <param name="AuditEventId">The audit event recording the item's creation.</param>
+/// <param name="ContentDocId">The document body of that item.</param>
 /// <param name="Slug">A short name, used to make seeded text distinguishable in failures.</param>
 internal sealed record M0TenantRows(
     Guid TenantId,
@@ -158,4 +177,5 @@ internal sealed record M0TenantRows(
     Guid ItemId,
     Guid AclEntryId,
     Guid AuditEventId,
+    Guid ContentDocId,
     string Slug);

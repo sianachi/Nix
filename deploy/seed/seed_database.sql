@@ -12,12 +12,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- The migrator owns the schema; the app role only uses what it is granted.
 ALTER SCHEMA public OWNER TO nix_migrator;
 
-GRANT CONNECT ON DATABASE :"db_name" TO nix_app, nix_migrator;
-GRANT USAGE ON SCHEMA public TO nix_app;
+GRANT CONNECT ON DATABASE :"db_name" TO nix_app, nix_collab, nix_migrator;
+GRANT USAGE ON SCHEMA public TO nix_app, nix_collab;
 
 -- The app role must never create objects; migrations do that as nix_migrator.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM nix_app;
+REVOKE CREATE ON SCHEMA public FROM nix_collab;
 
 -- Table-level grants for future migrations: anything nix_migrator creates in
 -- public is automatically readable/writable by nix_app. Per-table grants in
