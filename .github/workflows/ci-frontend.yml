@@ -1,0 +1,96 @@
+# Frontend CI (engineering plan section 9.2).
+#   Stage 1 static -> Stage 2 unit. Storybook + axe is stage 3.
+#
+# Split from the backend workflow so the two lanes can be developed in
+# parallel without contending for one file. backend/openapi is in the trigger
+# paths on purpose: it is the contract the client is generated from, so a
+# change to it must re-run the frontend checks even though no frontend file
+# moved.
+name: CI frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'backend/openapi/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.js'
+      - '.prettierrc'
+      - '.prettierignore'
+      - 'scripts/check-raw-design-values.sh'
+      - '.github/workflows/ci-frontend.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'backend/openapi/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.js'
+      - '.prettierrc'
+      - '.prettierignore'
+      - 'scripts/check-raw-design-values.sh'
+      - '.github/workflows/ci-frontend.yml'
+
+concurrency:
+  group: ci-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-static:
+    name: frontend static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No version input: pnpm/action-setup reads the root package.json
+      # "packageManager" field, keeping CI pinned with the repo.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # mise.toml pins node = "22"; track the same major here.
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (ESLint + Prettier check)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Design-token guard (no raw hex outside packages/design-tokens)
+        run: ./scripts/check-raw-design-values.sh
+
+  frontend-unit:
+    name: frontend unit
+    runs-on: ubuntu-latest
+    needs: frontend-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test

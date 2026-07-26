@@ -1,0 +1,90 @@
+# Backend CI (engineering plan section 9.2).
+#   Stage 1 static -> Stage 2 unit. Integration (Testcontainers) is stage 3.
+#
+# Split from the frontend workflow so the two lanes can be developed in
+# parallel without contending for one file. Path filters mean a frontend-only
+# change does not queue a .NET toolchain run, and vice versa. Files shared by
+# both lanes (the guard scripts, the workflows themselves) trigger both.
+name: CI backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'scripts/check-byte-array-markers.sh'
+      - 'scripts/check-no-controllers.sh'
+      - '.github/workflows/ci-backend.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'scripts/check-byte-array-markers.sh'
+      - 'scripts/check-no-controllers.sh'
+      - '.github/workflows/ci-backend.yml'
+
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  backend-static:
+    name: backend static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # mise.toml pins dotnet = "10"; track the same major here.
+          dotnet-version: 10.0.x
+
+      - name: Verify formatting (dotnet format)
+        working-directory: backend
+        run: dotnet format Nix.slnx --verify-no-changes
+
+      - name: Build (analyzers + warnings-as-errors)
+        working-directory: backend
+        run: dotnet build Nix.slnx --configuration Release
+
+      # The build above regenerates backend/openapi/nix-api.json (see the OpenAPI
+      # section of Nix.Api.csproj). If the committed contract no longer matches the
+      # code, the generated frontend client is stale - fail here rather than at
+      # runtime. Fix by rebuilding locally and committing the regenerated file.
+      #
+      # This is also the seam between the two development lanes: the frontend
+      # generates its types from this artifact, so it must never drift.
+      - name: OpenAPI contract is committed and current
+        run: git diff --exit-code -- backend/openapi
+
+      - name: Byte-array marker guard (memory rule 7)
+        run: ./scripts/check-byte-array-markers.sh
+
+      - name: No-controllers guard (minimal APIs only, section 2.3)
+        run: ./scripts/check-no-controllers.sh
+
+  backend-unit:
+    name: backend unit
+    runs-on: ubuntu-latest
+    needs: backend-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Explicit project list: Nix.Integration.Tests is excluded here on
+      # purpose - it needs Docker and runs in its own stage-3 job.
+      - name: Unit tests
+        working-directory: backend
+        run: |
+          dotnet test tests/Nix.Core.Tests/Nix.Core.Tests.csproj --configuration Release
+          dotnet test tests/Nix.Application.Tests/Nix.Application.Tests.csproj --configuration Release
+          dotnet test tests/Nix.Api.Tests/Nix.Api.Tests.csproj --configuration Release
