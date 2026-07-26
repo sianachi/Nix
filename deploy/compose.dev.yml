@@ -28,6 +28,15 @@
 #   18889 OTLP gRPC ingest, 18890 OTLP HTTP ingest
 #   3310  clamd               (media profile; clamd native port)
 #   8380  mock LLM            (ai profile)
+#
+# Application processes are not in this file. Core (5014), the web app (5173)
+# and the collaboration service (8100) run on the host from source, because in
+# development they are edited constantly and a container round trip per change
+# is the wrong trade. Their ports are listed here so the numbers are claimed in
+# one place:
+#   5014  Nix.Api             (dotnet run --project backend/src/Nix.Api)
+#   5173  web                 (pnpm --filter @nix/web dev)
+#   8100  collaboration       (pnpm --filter @nix/collab dev)
 
 name: nix-dev
 

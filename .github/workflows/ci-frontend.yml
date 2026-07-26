@@ -93,4 +93,79 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Unit tests
+        # The collaboration service's database suite needs a real Postgres with the
+        # migrations applied, which this job has not got. It runs in collab-integration
+        # below instead - not skipped everywhere, which would leave the isolation proof
+        # unrun.
+        env:
+          NIX_COLLAB_SKIP_DB_TESTS: '1'
         run: pnpm test
+
+  collab-integration:
+    name: collab integration
+    runs-on: ubuntu-latest
+    needs: frontend-static
+
+    services:
+      postgres:
+        # The same image as deploy/compose.dev.yml: Postgres 16 with pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nix-dev-superuser
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The schema comes from the migrator, not from a copy of the DDL kept here. A
+      # second definition of the content tables would drift from the first, and the
+      # isolation policies are exactly the part that must not.
+      - name: Create the roles and the database
+        env:
+          PGPASSWORD: nix-dev-superuser
+        run: |
+          psql -h localhost -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -v app_password=nix-dev-app \
+            -v collab_password=nix-dev-collab \
+            -v migrator_password=nix-dev-migrator \
+            -v db_name=nix \
+            -f deploy/seed/seed.sql
+          psql -h localhost -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE nix OWNER nix_migrator'
+          psql -h localhost -p 5433 -U postgres -d nix -v ON_ERROR_STOP=1 \
+            -v db_name=nix \
+            -f deploy/seed/seed_database.sql
+
+      - name: Apply migrations
+        working-directory: backend
+        env:
+          NIX_MIGRATOR_CONNECTION_STRING: >-
+            Host=localhost;Port=5433;Database=nix;Username=nix_migrator;Password=nix-dev-migrator
+        run: dotnet run --project src/Nix.Migrator
+
+      - name: Collaboration service tests
+        env:
+          NIX_COLLAB_TEST_DATABASE_URL: postgresql://nix_collab:nix-dev-collab@localhost:5433/nix
+          NIX_COLLAB_TEST_ADMIN_DATABASE_URL: postgresql://postgres:nix-dev-superuser@localhost:5433/nix
+        run: pnpm --filter @nix/collab test

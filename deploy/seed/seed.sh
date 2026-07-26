@@ -18,6 +18,7 @@ compose_file="$(cd "$script_dir/.." && pwd)/compose.dev.yml"
 db_name="${NIX_PG_DB:-nix}"
 app_password="${NIX_PG_APP_PASSWORD:-nix-dev-app}"
 migrator_password="${NIX_PG_MIGRATOR_PASSWORD:-nix-dev-migrator}"
+collab_password="${NIX_PG_COLLAB_PASSWORD:-nix-dev-collab}"
 
 compose() {
   docker compose -f "$compose_file" --profile core "$@"
@@ -45,6 +46,7 @@ echo "seed: postgres is ready"
 echo "seed: applying roles"
 psql_super -d postgres \
   -v app_password="$app_password" \
+  -v collab_password="$collab_password" \
   -v migrator_password="$migrator_password" \
   -v db_name="$db_name" \
   -f /nix-seed/seed.sql
