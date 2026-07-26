@@ -127,9 +127,12 @@ public static class NixPersistenceServiceCollectionExtensions
         // tenant. They are concrete types rather than interfaces - there is one implementation of
         // each and no swap planned, so an interface would be indirection tax.
         services.AddScoped<CreateItem>();
+        services.AddScoped<DeleteItem>();
         services.AddScoped<GetItem>();
         services.AddScoped<ListItems>();
+        services.AddScoped<MoveItem>();
         services.AddScoped<RenameItem>();
+        services.AddScoped<RestoreItem>();
 
         return services;
     }

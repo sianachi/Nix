@@ -13,9 +13,16 @@ namespace Nix.Api.Features.Items;
 /// Route registration for the items feature: the tree, and the operations that reshape it.
 /// </summary>
 /// <remarks>
-/// Contract only; see <see cref="ContractStub"/>. The failure codes below are the stable part and
-/// are what the frontend switches on, so they are named here rather than invented at each call
-/// site.
+/// <para>
+/// The failure codes below are the stable part of the contract and are what the frontend switches
+/// on, so they are named here rather than invented at each call site.
+/// </para>
+/// <para>
+/// Every route in this group is implemented. The <c>501</c> response each one still declares is
+/// left in place deliberately: it is published in <c>backend/openapi/nix-api.json</c>, and removing
+/// a declared response is a contract change that belongs in a goal that announces it rather than a
+/// side effect of implementing the handlers.
+/// </para>
 /// </remarks>
 internal static class ItemEndpoints
 {
@@ -32,6 +39,11 @@ internal static class ItemEndpoints
 
     /// <summary>Stable code for an operation that is not valid in the item's lifecycle state.</summary>
     internal const string LifecycleConflictCode = "items.lifecycle_conflict";
+
+    /// <summary>
+    /// Stable code for a move ordered after a sibling that is not a child of the destination.
+    /// </summary>
+    internal const string SiblingNotInDestinationCode = "items.sibling_not_in_destination";
 
     /// <summary>
     /// Registers the items feature's routes on <paramref name="endpoints"/>.
@@ -213,26 +225,58 @@ internal static class ItemEndpoints
     {
         var status = error.Code switch
         {
-            CycleCode or LifecycleConflictCode => StatusCodes.Status409Conflict,
+            CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode =>
+                StatusCodes.Status409Conflict,
             _ => StatusCodes.Status404NotFound,
         };
 
         return ApiProblem.Create(httpContext, status, error.Code, "Request refused", error.Message);
     }
 
-    private static Results<Ok<ItemResponse>, ProblemHttpResult> MoveItem(
+    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> MoveItem(
         Guid itemId,
         MoveItemRequest request,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "MoveItem");
+        HttpContext httpContext,
+        [FromServices] Application.Items.MoveItem moveItem)
+    {
+        var result = await moveItem.ExecuteAsync(
+            ItemId.From(itemId),
+            request.ParentId is { } parent ? ItemId.From(parent) : null,
+            request.AfterId is { } after ? ItemId.From(after) : null,
+            httpContext.RequestAborted).ConfigureAwait(false);
 
-    private static Results<NoContent, ProblemHttpResult> DeleteItem(
-        Guid itemId,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "DeleteItem");
+        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
+            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
 
-    private static Results<Ok<ItemResponse>, ProblemHttpResult> RestoreItem(
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteItem(
         Guid itemId,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "RestoreItem");
+        HttpContext httpContext,
+        [FromServices] Application.Items.DeleteItem deleteItem)
+    {
+        var result = await deleteItem
+            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        // No body on success, including when the item was already deleted. The status is the whole
+        // answer, and a client retrying after a dropped response gets the same one.
+        return result.Match<Results<NoContent, ProblemHttpResult>>(
+            _ => TypedResults.NoContent(),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
+
+    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> RestoreItem(
+        Guid itemId,
+        HttpContext httpContext,
+        [FromServices] Application.Items.RestoreItem restoreItem)
+    {
+        var result = await restoreItem
+            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
+            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
+            error => TypedResults.Problem(Problem(httpContext, error)));
+    }
 }

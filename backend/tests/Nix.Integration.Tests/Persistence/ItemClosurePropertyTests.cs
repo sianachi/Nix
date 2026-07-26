@@ -87,6 +87,7 @@ public sealed class ItemClosurePropertyTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var tree = work.Resolve<IItemTree>();
+            var moveItem = work.Resolve<MoveItem>();
 
             for (var index = 0; index < ItemCount; index++)
             {
@@ -126,19 +127,21 @@ public sealed class ItemClosurePropertyTests : IAsyncLifetime
                     Assert.Equal(wouldCycle, reported);
                 }
 
+                // Driven through the use case rather than the port, so what is being checked is
+                // the operation a request performs - permission check, cycle refusal, sibling
+                // placement and closure rewrite together - and not just the store method underneath
+                // it. A closure that stayed correct while the use case skipped a step would pass
+                // the port-level version of this test and ship the bug.
+                var outcome = await moveItem.ExecuteAsync(subject, destination, null, Cancellation);
+
                 if (wouldCycle)
                 {
+                    Assert.True(outcome.IsFailure);
+                    Assert.Equal("items.move_would_create_cycle", outcome.Error.Code);
                     continue;
                 }
 
-                await tree.ReparentAsync(
-                    subject,
-                    destination,
-                    await NextSeqAsync(tree, workspace, destination),
-                    actor,
-                    DateTimeOffset.UtcNow,
-                    Cancellation);
-
+                Assert.True(outcome.IsSuccess);
                 parents[subject] = destination;
 
                 await AssertClosureMatchesAsync(

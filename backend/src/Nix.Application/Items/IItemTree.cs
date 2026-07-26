@@ -67,6 +67,32 @@ public interface IItemTree
         ItemId? parentId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Allocates the position an item should take among a parent's children when it is placed
+    /// immediately after a named sibling, or first when none is named.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="parentId">The destination parent, or <see langword="null"/> for the roots.</param>
+    /// <param name="movingId">The item being placed, excluded from its own neighbour search.</param>
+    /// <param name="afterId">
+    /// The sibling to sit immediately after, or <see langword="null"/> to sit before all of them.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>A position that orders the item where the caller asked.</returns>
+    /// <remarks>
+    /// Positions are sparse, so the ordinary answer is a number between two neighbours and costs
+    /// one statement. When two neighbours are adjacent there is no such number, and the
+    /// implementation renumbers that parent's children and asks again rather than placing the item
+    /// somewhere the caller did not ask for. Both outcomes are the same to the caller, which is why
+    /// this is one port method and not a protocol.
+    /// </remarks>
+    public ValueTask<long> AllocateSiblingSequenceAsync(
+        WorkspaceId workspaceId,
+        ItemId? parentId,
+        ItemId movingId,
+        ItemId? afterId,
+        CancellationToken cancellationToken);
+
     /// <summary>Stores a new item and its closure edges.</summary>
     /// <param name="item">The item to store.</param>
     /// <param name="cancellationToken">Cancels the write.</param>

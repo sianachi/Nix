@@ -118,6 +118,47 @@ public sealed class ItemTree : IItemTree
             cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async ValueTask<long> AllocateSiblingSequenceAsync(
+        WorkspaceId workspaceId,
+        ItemId? parentId,
+        ItemId movingId,
+        ItemId? afterId,
+        CancellationToken cancellationToken)
+    {
+        var slot = await SlotAsync(workspaceId, parentId, movingId, afterId, cancellationToken)
+            .ConfigureAwait(false);
+        if (slot > 0)
+        {
+            return slot;
+        }
+
+        // No room between the neighbours. Spread this parent's children back out and ask once
+        // more; the renumber preserves their order, so nobody reading the list sees anything move.
+        await _sql.ExecuteAsync(
+            ClosureSql.RenumberSiblings,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                Uuid("workspace_id", workspaceId.Value),
+                NullableUuid("parent_id", parentId?.Value),
+            ],
+            cancellationToken).ConfigureAwait(false);
+
+        slot = await SlotAsync(workspaceId, parentId, movingId, afterId, cancellationToken)
+            .ConfigureAwait(false);
+        if (slot > 0)
+        {
+            return slot;
+        }
+
+        // Only reachable when the anchor is not among these siblings at all, which the use case
+        // checks for and refuses. Appending is the safe answer for a caller that got here anyway:
+        // the item lands in the destination, at the end, rather than at position zero alongside
+        // whatever else failed to find a slot.
+        return await NextSiblingSequenceAsync(workspaceId, parentId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask InsertAsync(Item item, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -239,6 +280,41 @@ public sealed class ItemTree : IItemTree
                     .SetProperty(item => item.LastModifiedAt, at),
                 cancellationToken)
             .ConfigureAwait(false);
+
+    /// <summary>
+    /// Asks the database for a free position, returning zero when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Zero doubles as "no room" because the numbering scheme never produces it: positions start at
+    /// a gap and halving a positive minimum stops at one. The alternative - a nullable scalar -
+    /// boxes on every call to say something the value range already says.
+    /// </remarks>
+    private ValueTask<long> SlotAsync(
+        WorkspaceId workspaceId,
+        ItemId? parentId,
+        ItemId movingId,
+        ItemId? afterId,
+        CancellationToken cancellationToken) =>
+        afterId is { } anchor
+            ? _sql.ScalarOrDefaultAsync<long>(
+                ClosureSql.SequenceSlotAfter,
+                [
+                    Uuid("tenant_id", Tenant.Value),
+                    Uuid("workspace_id", workspaceId.Value),
+                    NullableUuid("parent_id", parentId?.Value),
+                    Uuid("item_id", movingId.Value),
+                    Uuid("after_id", anchor.Value),
+                ],
+                cancellationToken)
+            : _sql.ScalarOrDefaultAsync<long>(
+                ClosureSql.SequenceSlotFirst,
+                [
+                    Uuid("tenant_id", Tenant.Value),
+                    Uuid("workspace_id", workspaceId.Value),
+                    NullableUuid("parent_id", parentId?.Value),
+                    Uuid("item_id", movingId.Value),
+                ],
+                cancellationToken);
 
     private static NpgsqlParameter Uuid(string name, Guid value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value };

@@ -30,6 +30,12 @@ public static class ItemErrors
     public static NixError WouldCreateCycle(string detail) =>
         new("items.move_would_create_cycle", detail);
 
+    /// <summary>
+    /// A move named a sibling to be placed after that is not a child of the destination.
+    /// </summary>
+    public static NixError SiblingNotInDestination(string detail) =>
+        new("items.sibling_not_in_destination", detail);
+
     /// <summary>The operation is not valid in the item's current lifecycle state.</summary>
     public static NixError LifecycleConflict(string detail) =>
         new("items.lifecycle_conflict", detail);

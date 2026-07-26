@@ -236,6 +236,40 @@ public static class ClosureSql
         """;
 
     /// <summary>
+    /// Finds a position ahead of every current sibling, for a move that asked to be placed first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The mirror of <see cref="SequenceSlotAfter"/> for the one placement it cannot express:
+    /// "before everything" has no anchor to be after. Halving the current minimum keeps positions
+    /// positive, which is what lets the renumber fallback and the append path share a numbering
+    /// scheme.
+    /// </para>
+    /// <para>
+    /// Returns NULL when the first sibling already sits at 1 and there is no room below it -
+    /// the same signal to renumber and retry - and the first gap when there are no siblings at all.
+    /// The moving item is excluded: it may already be among these siblings, and asking to be placed
+    /// before itself must not resolve to its own position.
+    /// </para>
+    /// <para>
+    /// Index dependency: <c>IX_item_workspace_id_parent_id_seq</c>, which supplies the minimum
+    /// without a scan.
+    /// </para>
+    /// </remarks>
+    public const string SequenceSlotFirst = """
+        SELECT CASE
+                   WHEN min(sibling.seq) IS NULL THEN 1000
+                   WHEN min(sibling.seq) > 1 THEN min(sibling.seq) / 2
+                   ELSE NULL
+               END
+        FROM item AS sibling
+        WHERE sibling.tenant_id = @tenant_id
+          AND sibling.workspace_id = @workspace_id
+          AND sibling.parent_id IS NOT DISTINCT FROM @parent_id
+          AND sibling.id <> @item_id
+        """;
+
+    /// <summary>
     /// Rewrites every sibling's position with even gaps, preserving their current order.
     /// </summary>
     /// <remarks>

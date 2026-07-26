@@ -22,10 +22,11 @@ namespace Nix.Api.Tests.Features.Contracts;
 /// go stale.
 /// </para>
 /// <para>
-/// Four item operations have already left it: list, create, get and rename are implemented and
-/// covered by the integration suite instead, because they need a database and a tenant-scoped
-/// unit of work to say anything true. This host is deliberately built without persistence, so
-/// asserting anything about them here would be asserting the behaviour of a misconfiguration.
+/// The whole items feature has already left it: list, create, get, rename, move, delete and
+/// restore are implemented and covered by the integration suite instead, because they need a
+/// database and a tenant-scoped unit of work to say anything true. This host is deliberately built
+/// without persistence, so asserting anything about them here would be asserting the behaviour of
+/// a misconfiguration. What remains is workspaces, permissions and roles.
 /// </para>
 /// </remarks>
 public sealed class ContractStubTests(WebApplicationFactory<Program> factory)
@@ -41,9 +42,6 @@ public sealed class ContractStubTests(WebApplicationFactory<Program> factory)
         { "GET", "/api/v1/workspaces", null },
         { "GET", $"/api/v1/workspaces/{WorkspaceId}", null },
         { "GET", $"/api/v1/workspaces/{WorkspaceId}/members", null },
-        { "DELETE", $"/api/v1/items/{ItemId}", null },
-        { "POST", $"/api/v1/items/{ItemId}/move", """{"parentId":null,"afterId":null}""" },
-        { "POST", $"/api/v1/items/{ItemId}/restore", null },
         { "GET", $"/api/v1/items/{ItemId}/permissions", null },
         {
             "PUT",
