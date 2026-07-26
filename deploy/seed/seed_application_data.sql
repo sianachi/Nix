@@ -25,6 +25,7 @@
 -- token and looks like it should.
 \if :{?oidc_issuer} \else \set oidc_issuer '' \endif
 \if :{?oidc_client_id} \else \set oidc_client_id '' \endif
+\if :{?dev_user_id} \else \set dev_user_id '' \endif
 
 DO $$
 BEGIN
@@ -74,6 +75,23 @@ VALUES
     ('b2000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002',
      'umbrella-admin', 'user', 'Uma Admin', 'uma@umbrella.test',  'active', NULL)
 ON CONFLICT (principal_id) DO NOTHING;
+
+-- Map the administrator onto the identity provider's real subject.
+--
+-- Core resolves a token's `sub` against principal.external_subject and refuses a
+-- subject nobody provisioned - deliberately, because a valid token alone must
+-- never be able to mint an identity. The placeholder above ('acme-admin') is
+-- what the row carries before Zitadel exists; once zitadel-configure.sh has run
+-- it writes the developer user's real id into oidc.generated.env, seed.sh passes
+-- it here, and this statement points the administrator at it.
+--
+-- Without this, signing in through the browser succeeds at the identity provider
+-- and is then refused by Core with "the token's subject is not provisioned in
+-- this tenant" - which is correct behaviour reported against the wrong data.
+UPDATE principal
+SET external_subject = :'dev_user_id'
+WHERE principal_id = 'a2000000-0000-4000-8000-000000000001'
+  AND :'dev_user_id' <> '';
 
 -- ── Groups ─────────────────────────────────────────────────────────────────
 INSERT INTO principal_group (group_id, tenant_id, name, external_id) VALUES

@@ -208,6 +208,11 @@ NIX_OIDC_REDIRECT_URI=$web_origin/auth/callback
 NIX_OIDC_POST_LOGOUT_REDIRECT_URI=$web_origin
 NIX_DEV_USERNAME=$dev_username
 NIX_DEV_PASSWORD=$dev_password
+# The issuer's subject claim for the developer user. seed.sh maps the Acme
+# administrator principal onto it, because Core resolves a token's `sub` against
+# `principal.external_subject` and refuses a subject nobody provisioned - a token
+# alone must never mint an identity.
+NIX_DEV_USER_ID=$user_id
 EOF
 
 echo
