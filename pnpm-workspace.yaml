@@ -3,3 +3,11 @@ packages:
   - apps/web
   - apps/collab
   - apps/media
+
+# Install scripts are denied by default (pnpm 10). Only the build toolchain's
+# native-binary packages are allowed to run one: esbuild links the platform
+# binary Vite/Vitest execute, and @parcel/watcher compiles the native watcher
+# Storybook's dev server uses.
+onlyBuiltDependencies:
+  - esbuild
+  - '@parcel/watcher'

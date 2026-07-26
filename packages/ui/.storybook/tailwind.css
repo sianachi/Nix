@@ -1,0 +1,28 @@
+/*
+ * The one stylesheet in @nix/ui: Storybook's Tailwind entry.
+ *
+ * It is the library's stand-in for an application's entry sheet - it does what
+ * apps/web will do, and nothing more. Components carry no CSS of their own;
+ * everything else in this package is utility classes in TSX.
+ *
+ * The token sheet arrives through @nix/design-tokens, so every value below
+ * resolves to an Industry token.
+ */
+
+@import 'tailwindcss';
+@import '@nix/design-tokens';
+
+/* The component sources Tailwind scans for class names. */
+@source '../src';
+
+/* The ground: the light technical paper the whole system sits on. */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-body);
+}
+
+/* Selection is themed like every other state - never the browser default. */
+::selection {
+  background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
