@@ -93,6 +93,28 @@ api() {
   fi
 }
 
+# ── Instance features ───────────────────────────────────────────────────────
+# Turn off the v2 login UI.
+#
+# A fresh Zitadel instance sets loginV2.required = true, which routes every
+# sign-in to /ui/v2/login. That UI is a SEPARATE service shipped as its own
+# container, and this compose stack does not run it - so the redirect lands on a
+# route with no handler and the browser gets a bare gRPC status:
+#
+#     /oauth/v2/authorize -> 302 -> /ui/v2/login/login?authRequest=...
+#                                -> {"code":5, "message":"Not Found"}
+#
+# which says nothing about the actual cause. Disabling the flag makes Zitadel
+# serve its own built-in login, which is what this stack expects and what the
+# registered redirect URIs are for.
+#
+# The alternative is adding the login-v2 container to compose. That is closer to
+# where Zitadel is heading and worth revisiting, but it is another service to
+# run and keep in step for a development stack whose whole point is one command.
+echo "zitadel-configure: disabling the v2 login UI (no login-v2 service in this stack)"
+api PUT /v2/features/instance '{"loginV2":{"required":false}}' >/dev/null
+echo "zitadel-configure: instance will use the built-in login"
+
 # ── Project ─────────────────────────────────────────────────────────────────
 project_id="$(api POST /management/v1/projects/_search \
   "$(jq -nc --arg n "$project_name" \
