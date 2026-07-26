@@ -89,6 +89,51 @@ internal static class RawSql
         return values;
     }
 
+    /// <summary>Counts rows, inside a transaction when one is supplied.</summary>
+    /// <param name="connection">An open connection.</param>
+    /// <param name="transaction">The enclosing transaction, or <see langword="null"/>.</param>
+    /// <param name="sql">A statement whose first column is a count.</param>
+    /// <returns>The count.</returns>
+    public static async Task<long> CountAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        string sql)
+    {
+        var command = Create(connection, transaction, sql);
+        await using (command.ConfigureAwait(false))
+        {
+            return (long)(await command.ExecuteScalarAsync())!;
+        }
+    }
+
+    /// <summary>Reads a single uuid column into a list, inside a transaction when one is supplied.</summary>
+    /// <param name="connection">An open connection.</param>
+    /// <param name="transaction">The enclosing transaction, or <see langword="null"/>.</param>
+    /// <param name="sql">The statement.</param>
+    /// <returns>The values, in the statement's order.</returns>
+    public static async Task<IReadOnlyList<Guid>> GuidListAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        string sql)
+    {
+        var values = new List<Guid>();
+
+        var command = Create(connection, transaction, sql);
+        await using (command.ConfigureAwait(false))
+        {
+            var reader = await command.ExecuteReaderAsync();
+            await using (reader.ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync())
+                {
+                    values.Add(reader.GetGuid(0));
+                }
+            }
+        }
+
+        return values;
+    }
+
     /// <summary>Reads this session's backend process id, identifying the physical connection.</summary>
     /// <param name="connection">An open connection.</param>
     /// <param name="transaction">The enclosing transaction, or <see langword="null"/>.</param>

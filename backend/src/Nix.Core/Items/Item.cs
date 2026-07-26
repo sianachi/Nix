@@ -1,0 +1,91 @@
+using Nix.Core.Identity;
+using Nix.Core.Tenancy;
+
+namespace Nix.Core.Items;
+
+/// <summary>
+/// The universal object: a note, task, folder, board, or file. One parent, exactly one workspace,
+/// properties validated against an inherited schema.
+/// </summary>
+/// <remarks>
+/// <para>
+/// One table for every kind of thing is the decision the rest of the product rests on. It is why
+/// a folder can hold a board, why a task can be given a document body, and why permissions,
+/// search, and the tree have one implementation each rather than one per type. <see cref="Type"/>
+/// discriminates behaviour; it does not discriminate storage.
+/// </para>
+/// <para>
+/// This goal lands the envelope only. Content bodies (<c>content_doc</c>), file bodies
+/// (<c>file_version</c>), property schemas, views, and saved queries arrive with the phases that
+/// build them, each in that phase's own migration.
+/// </para>
+/// </remarks>
+public sealed class Item
+{
+    /// <summary>Gets the item's identifier.</summary>
+    public required ItemId Id { get; init; }
+
+    /// <summary>Gets the owning tenant.</summary>
+    public required TenantId TenantId { get; init; }
+
+    /// <summary>Gets the workspace the item lives in.</summary>
+    public required WorkspaceId WorkspaceId { get; init; }
+
+    /// <summary>
+    /// Gets the item's kind - folder, note, task, board, file.
+    /// </summary>
+    /// <remarks>
+    /// Text rather than an enumeration because the set is open by design: adding a kind should be
+    /// a feature, not a migration.
+    /// </remarks>
+    public required string Type { get; init; }
+
+    /// <summary>
+    /// Gets the parent item, or <see langword="null"/> for a workspace root.
+    /// </summary>
+    /// <remarks>
+    /// Single-parent by construction. The closure table derives ancestry from this column and is
+    /// rebuildable from it, so this is the durable fact and the closure is the index.
+    /// </remarks>
+    public ItemId? ParentId { get; init; }
+
+    /// <summary>
+    /// Gets the item's position among its siblings.
+    /// </summary>
+    /// <remarks>
+    /// Sparse rather than dense: gaps are left between neighbours so an insertion writes one row
+    /// instead of renumbering the whole sibling set.
+    /// </remarks>
+    public required long Seq { get; init; }
+
+    /// <summary>
+    /// Gets the item's properties as a JSON object, or <see langword="null"/> when it has none.
+    /// </summary>
+    /// <remarks>
+    /// Held as a JSON string rather than a parsed document: nothing in this phase reads it, and
+    /// keeping it opaque avoids paying for a parse on every item read. The goal that introduces
+    /// property schemas owns the typed representation and the validation on write.
+    /// </remarks>
+    public string? Properties { get; init; }
+
+    /// <summary>Gets where the item sits in the deletion lifecycle.</summary>
+    public required ItemLifecycleState LifecycleState { get; init; }
+
+    /// <summary>
+    /// Gets when a soft-deleted item becomes eligible for purge, or <see langword="null"/> if it
+    /// is not scheduled. Legal hold blocks the transition regardless of this value.
+    /// </summary>
+    public DateTimeOffset? PurgeAfter { get; init; }
+
+    /// <summary>Gets who created the item.</summary>
+    public required PrincipalId CreatedBy { get; init; }
+
+    /// <summary>Gets who last modified it.</summary>
+    public required PrincipalId LastModifiedBy { get; init; }
+
+    /// <summary>Gets when the item was created.</summary>
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>Gets when the item was last modified.</summary>
+    public required DateTimeOffset LastModifiedAt { get; init; }
+}

@@ -1,0 +1,35 @@
+# Analyser settings for scaffolded EF Core migrations.
+#
+# Everything in this folder is written by `dotnet ef migrations add` and rewritten wholesale by
+# the next scaffold. Rules that ask us to restyle it are therefore permanently unfixable: the
+# generator does not read our preferences, and hand-editing its output would be undone the next
+# time anyone adds a migration.
+#
+# ONE EXCEPTION, and it is load-bearing. Each migration's `Up` ends with a hand-added call into
+# its `*SecuritySql` class in the parent folder - that is what applies the row-level security
+# policies, the grants and the payload bounds. The SQL itself lives outside this folder precisely
+# so a scaffold cannot delete it, but the call site is inside a generated file and WILL be lost if
+# the migration is removed and re-added. After any re-scaffold, put the call back. The isolation
+# suite fails loudly if you forget, which is the intended backstop rather than the first line of
+# defence.
+#
+# This file is scoped to this folder and nothing above it, so the full latest-all analyser set
+# still applies to every line of code we actually write. It is deliberately a short list rather
+# than a blanket exclusion - a migration is a security-relevant artefact and should still be
+# checked for anything that is genuinely our fault.
+#
+# root is left at its default of false, so the repository's settings still apply here.
+
+[*.cs]
+
+# CA1062 (validate arguments of public methods): Up and Down are called by EF's migrator with an
+# instance it just constructed. There is no caller who could pass null.
+dotnet_diagnostic.CA1062.severity = none
+
+# CA1861 (prefer static readonly over constant array arguments): the generator emits inline
+# `new[] { "tenant_id", ... }` for every composite key and index. They are evaluated once, at
+# migration time, on a code path that runs once per deployment.
+dotnet_diagnostic.CA1861.severity = none
+
+# IDE0161 (use file-scoped namespace): the generator emits block-scoped namespaces.
+dotnet_diagnostic.IDE0161.severity = none

@@ -36,8 +36,8 @@ END
 $$;
 
 -- ── Application data ───────────────────────────────────────────────────────
--- Intentionally empty. The tenancy goal introduces the tenant, workspace, and
--- principal tables; once they exist, seed two tenants here (two, because RLS
--- isolation tests need a second tenant to prove isolation against), their
--- workspaces, and demo principals mapped to the Zitadel dev users. Write the
--- rows with ON CONFLICT DO NOTHING so this file stays idempotent.
+-- Lives in seed_application_data.sql, not here, because it needs tables and
+-- this file runs before any exist: the order is roles, database, grants (this
+-- file), then the migrator, then rows. seed.sh applies that last step only when
+-- the schema is present, so running it against a fresh database is still a
+-- no-op rather than an error.

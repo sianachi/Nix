@@ -1,3 +1,6 @@
+using Nix.Core.Identity;
+using Nix.Core.Tenancy;
+
 namespace Nix.Application.Persistence;
 
 /// <summary>
@@ -11,10 +14,10 @@ namespace Nix.Application.Persistence;
 /// <c>Nix.Application</c>, the implementation in <c>Nix.Infrastructure</c>.
 /// </para>
 /// <para>
-/// Identifiers are <see cref="Guid"/> today because no domain schema exists yet. The tenancy
-/// goal introduces the typed identity structs (<c>TenantId</c>, <c>WorkspaceId</c>,
-/// <c>PrincipalId</c>) in <c>Nix.Core</c>; when it does, these members change type and nothing
-/// else about the mechanism moves.
+/// Identifiers are typed rather than bare <see cref="Guid"/> values. This is the boundary where
+/// that matters most: the three settings are positional, they are all UUIDs, and transposing the
+/// tenant and the workspace would publish a session that row-level security evaluates happily and
+/// wrongly. The compiler refuses the transposition; a review might not.
 /// </para>
 /// <para>
 /// The values are never trusted from a client. They come from the validated token and the
@@ -28,7 +31,10 @@ namespace Nix.Application.Persistence;
 /// <paramref name="TenantId"/>: absence narrows nothing.
 /// </param>
 /// <param name="PrincipalId">The acting principal, used by policies and by the audit trail.</param>
-public readonly record struct NixSessionContext(Guid TenantId, Guid? WorkspaceId, Guid PrincipalId)
+public readonly record struct NixSessionContext(
+    TenantId TenantId,
+    WorkspaceId? WorkspaceId,
+    PrincipalId PrincipalId)
 {
     /// <summary>
     /// Creates a tenant-wide context with no workspace in scope.
@@ -36,7 +42,7 @@ public readonly record struct NixSessionContext(Guid TenantId, Guid? WorkspaceId
     /// <param name="tenantId">The tenant in scope.</param>
     /// <param name="principalId">The acting principal.</param>
     /// <returns>A context whose <see cref="WorkspaceId"/> is <see langword="null"/>.</returns>
-    public static NixSessionContext ForTenant(Guid tenantId, Guid principalId) =>
+    public static NixSessionContext ForTenant(TenantId tenantId, PrincipalId principalId) =>
         new(tenantId, WorkspaceId: null, principalId);
 
     /// <summary>
@@ -45,5 +51,5 @@ public readonly record struct NixSessionContext(Guid TenantId, Guid? WorkspaceId
     /// publishing it would set the session variables to the nil UUID, which reads as a tenant
     /// rather than as "no tenant".
     /// </summary>
-    public bool IsComplete => TenantId != Guid.Empty && PrincipalId != Guid.Empty;
+    public bool IsComplete => TenantId.Value != Guid.Empty && PrincipalId.Value != Guid.Empty;
 }

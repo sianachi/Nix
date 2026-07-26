@@ -179,7 +179,7 @@ public sealed class RlsIsolationTests : IAsyncLifetime
     [Fact]
     public async Task A_tenant_wide_unit_of_work_publishes_an_empty_workspace()
     {
-        var tenantWide = NixSessionContext.ForTenant(TestTenants.Alpha, Guid.NewGuid());
+        var tenantWide = TestTenants.ContextFor(TestTenants.Alpha, workspaceId: null, Guid.NewGuid());
 
         var work = await _fixture.Application.BeginUnitOfWorkAsync(tenantWide, Cancellation);
         await using (work.ConfigureAwait(false))

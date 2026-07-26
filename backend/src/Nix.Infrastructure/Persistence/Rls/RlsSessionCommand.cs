@@ -77,9 +77,9 @@ public static class RlsSessionCommand
                 nameof(context));
         }
 
-        var tenant = Format(context.TenantId);
-        var workspace = context.WorkspaceId is { } workspaceId ? Format(workspaceId) : NoWorkspace;
-        var principal = Format(context.PrincipalId);
+        var tenant = Format(context.TenantId.Value);
+        var workspace = context.WorkspaceId is { } workspaceId ? Format(workspaceId.Value) : NoWorkspace;
+        var principal = Format(context.PrincipalId.Value);
 
         // Three statements of 55-ish characters each; 192 keeps the batch on one buffer.
         var batch = new StringBuilder(192);

@@ -64,6 +64,35 @@ fi
 echo "seed: applying database configuration"
 psql_super -d "$db_name" -v db_name="$db_name" -f /nix-seed/seed_database.sql
 
+# ── Application data (only once the schema exists) ──────────────────────────
+# The migrator owns the schema and runs separately, so this step is conditional
+# rather than assumed: seeding rows into tables that do not exist yet would turn
+# a first run into an error for no reason.
+oidc_issuer=""
+oidc_client_id=""
+oidc_env="$(cd "$script_dir/.." && pwd)/.zitadel/oidc.generated.env"
+if [ -f "$oidc_env" ]; then
+  # shellcheck disable=SC1090
+  . "$oidc_env"
+  oidc_issuer="${NIX_OIDC_ISSUER:-}"
+  oidc_client_id="${NIX_OIDC_CLIENT_ID:-}"
+fi
+
+if [ "$(psql_super -d "$db_name" -tAc "SELECT to_regclass('public.tenant') IS NOT NULL")" = "t" ]; then
+  echo "seed: applying application data"
+  psql_super -d "$db_name" \
+    -v oidc_issuer="$oidc_issuer" \
+    -v oidc_client_id="$oidc_client_id" \
+    -f /nix-seed/seed_application_data.sql
+  if [ -z "$oidc_issuer" ]; then
+    echo "seed: no OIDC issuer yet; run deploy/seed/zitadel-configure.sh then re-run this script"
+  fi
+else
+  echo "seed: schema not present, skipping application data"
+  echo "seed:   apply it with: dotnet run --project backend/src/Nix.Migrator"
+  echo "seed:   then re-run this script to seed tenants and principals"
+fi
+
 echo
 echo "seed: complete."
 echo "  database : $db_name on localhost:${NIX_PG_PORT:-5433}"
