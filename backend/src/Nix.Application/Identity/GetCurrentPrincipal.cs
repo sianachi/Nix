@@ -1,0 +1,93 @@
+using Nix.Application.Authorization;
+using Nix.Application.Persistence;
+using Nix.Core.Identity;
+using Nix.Core.Primitives;
+using Nix.Core.Tenancy;
+
+namespace Nix.Application.Identity;
+
+/// <summary>Describes the caller to themselves: who they are, and what the interface may offer them.</summary>
+/// <remarks>
+/// <para>
+/// <b>The administrator flag is read from the database on every request, never from the token.</b>
+/// Roles live in the database and never in tokens - a role inside a bearer artefact minted minutes
+/// ago by a system we do not control cannot be revoked before it expires. That principle is what
+/// makes this endpoint necessary at all: the shell cannot decide whether to show an administrative
+/// entry by decoding the identity token it already holds, because the answer is not in there and
+/// must not be.
+/// </para>
+/// <para>
+/// <b>It is a display decision, not an authorization one.</b> Hiding an entry stops nobody from
+/// requesting the route behind it; the endpoints answer that question for themselves through the
+/// same resolver. What this prevents is offering somebody a door that will not open, which is a
+/// truthfulness problem rather than a security one.
+/// </para>
+/// </remarks>
+public sealed class GetCurrentPrincipal
+{
+    private readonly IPrincipalDirectory _principals;
+    private readonly IPermissionResolver _permissions;
+    private readonly INixSessionContextAccessor _session;
+
+    /// <summary>Initializes a new instance of the <see cref="GetCurrentPrincipal"/> class.</summary>
+    /// <param name="principals">Principal storage.</param>
+    /// <param name="permissions">Answers whether the caller is a tenant administrator.</param>
+    /// <param name="session">The tenant and principal this request runs as.</param>
+    public GetCurrentPrincipal(
+        IPrincipalDirectory principals,
+        IPermissionResolver permissions,
+        INixSessionContextAccessor session)
+    {
+        ArgumentNullException.ThrowIfNull(principals);
+        ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(session);
+
+        _principals = principals;
+        _permissions = permissions;
+        _session = session;
+    }
+
+    /// <summary>Reads the caller's own profile.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The profile, or why it could not be read.</returns>
+    public async ValueTask<Result<CurrentPrincipal>> ExecuteAsync(CancellationToken cancellationToken)
+    {
+        var context = _session.Current
+            ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
+
+        var principal = await _principals.FindAsync(context.PrincipalId, cancellationToken).ConfigureAwait(false);
+        if (principal is null)
+        {
+            // Reachable only if the row disappeared between authentication and here, which the
+            // request's own transaction makes vanishingly unlikely - but returning a half-populated
+            // profile from the session context alone would be inventing data to avoid a branch.
+            return Result.Failure<CurrentPrincipal>(
+                new NixError("identity.principal_not_found", "The acting principal no longer exists."));
+        }
+
+        var isAdministrator = await _permissions
+            .IsTenantAdministratorAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return Result.Success(
+            new CurrentPrincipal(
+                principal.Id,
+                principal.TenantId,
+                principal.DisplayName,
+                principal.Email,
+                isAdministrator));
+    }
+}
+
+/// <summary>The caller, as the caller is allowed to see themselves.</summary>
+/// <param name="Id">Their principal identifier.</param>
+/// <param name="TenantId">The tenant they are acting in.</param>
+/// <param name="DisplayName">Their name, for the shell.</param>
+/// <param name="Email">Their email address, or <see langword="null"/> when the provider supplies none.</param>
+/// <param name="IsTenantAdministrator">Whether tenant-wide administrative surfaces apply to them.</param>
+public sealed record CurrentPrincipal(
+    PrincipalId Id,
+    TenantId TenantId,
+    string DisplayName,
+    string? Email,
+    bool IsTenantAdministrator);

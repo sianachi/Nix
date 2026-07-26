@@ -28,6 +28,48 @@
         }
       }
     },
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "summary": "The signed-in caller",
+        "description": "Returns the caller's identity and whether tenant-wide administrative surfaces apply to them. 'isTenantAdministrator' is a display hint for deciding what to offer, never a grant: every administrative endpoint checks the same fact against the database for itself. The flag is read from the database on each request rather than from a token claim, because a role inside a bearer token cannot be revoked before the token expires.",
+        "operationId": "GetCurrentPrincipal",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentPrincipalResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health/status": {
       "get": {
         "tags": [
@@ -1037,6 +1079,38 @@
           }
         }
       },
+      "CurrentPrincipalResponse": {
+        "required": [
+          "id",
+          "tenantId",
+          "displayName",
+          "email",
+          "isTenantAdministrator"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isTenantAdministrator": {
+            "type": "boolean"
+          }
+        }
+      },
       "CursorPageOfItemResponse": {
         "required": [
           "items",
@@ -1417,6 +1491,9 @@
   "tags": [
     {
       "name": "Health"
+    },
+    {
+      "name": "Me"
     },
     {
       "name": "Workspaces"

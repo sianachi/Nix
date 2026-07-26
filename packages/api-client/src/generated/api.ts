@@ -24,6 +24,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The signed-in caller
+     * @description Returns the caller's identity and whether tenant-wide administrative surfaces apply to them. 'isTenantAdministrator' is a display hint for deciding what to offer, never a grant: every administrative endpoint checks the same fact against the database for itself. The flag is read from the database on each request rather than from a token claim, because a role inside a bearer token cannot be revoked before the token expires.
+     */
+    get: operations['GetCurrentPrincipal'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/health/status': {
     parameters: {
       query?: never;
@@ -321,6 +341,15 @@ export interface components {
       /** Format: uuid */
       parentId: null | string;
     };
+    CurrentPrincipalResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      tenantId: string;
+      displayName: string;
+      email: null | string;
+      isTenantAdministrator: boolean;
+    };
     CursorPageOfItemResponse: {
       items: components['schemas']['ItemResponse'][];
       nextCursor: null | string;
@@ -445,6 +474,44 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['LivenessResponse'];
+        };
+      };
+    };
+  };
+  GetCurrentPrincipal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CurrentPrincipalResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
     };

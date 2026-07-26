@@ -111,6 +111,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // context's transaction, so it belongs to one unit of work and one tenant.
         services.AddScoped<IItemTree, ItemTree>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
+        services.AddScoped<IPrincipalDirectory, PrincipalDirectory>();
 
         // The one authorization code path. Scoped like the stores, and for a stronger reason: it
         // memoises answers for the lifetime of the unit of work, and a unit of work is one request
@@ -127,6 +128,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // tenant. They are concrete types rather than interfaces - there is one implementation of
         // each and no swap planned, so an interface would be indirection tax.
         services.AddScoped<CreateItem>();
+        services.AddScoped<GetCurrentPrincipal>();
         services.AddScoped<DeleteItem>();
         services.AddScoped<GetItem>();
         services.AddScoped<ListItems>();
