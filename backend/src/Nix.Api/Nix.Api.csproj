@@ -5,4 +5,49 @@
     <ProjectReference Include="..\Nix.Infrastructure\Nix.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Security floor for a transitive dependency; see Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    OpenAPI contract artifact.
+
+    REGENERATE WITH (from the backend/ directory):
+
+        dotnet build src/Nix.Api/Nix.Api.csproj
+
+    That is the whole command - generation is wired into Build, so any ordinary
+    `dotnet build` refreshes backend/openapi/nix-api.json. CI runs the same build
+    and then fails if the working tree moved, which is what keeps the committed
+    contract honest and the generated frontend client in step with the server.
+
+    Mechanism: Microsoft.Extensions.ApiDescription.Server runs `dotnet-getdocument`
+    against the built assembly before Build completes. That tool derives the file
+    name from the project name and has no override, so it writes into an obj-local
+    staging directory and the target below copies it to the stable contract path.
+    Paths are absolute because the tool resolves $(OpenApiDocumentsDirectory)
+    against the MSBuild process working directory, not the project directory.
+  -->
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/obj/openapi/</OpenApiDocumentsDirectory>
+    <NixOpenApiStagedDocument>$(OpenApiDocumentsDirectory)$(MSBuildProjectName).json</NixOpenApiStagedDocument>
+    <NixOpenApiContract>$(MSBuildProjectDirectory)/../../openapi/nix-api.json</NixOpenApiContract>
+  </PropertyGroup>
+
+  <Target Name="PublishNixOpenApiContract"
+          AfterTargets="GenerateOpenApiDocuments"
+          Condition=" '$(OpenApiGenerateDocumentsOnBuild)' == 'true' AND Exists('$(NixOpenApiStagedDocument)') ">
+    <Copy SourceFiles="$(NixOpenApiStagedDocument)"
+          DestinationFiles="$(NixOpenApiContract)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

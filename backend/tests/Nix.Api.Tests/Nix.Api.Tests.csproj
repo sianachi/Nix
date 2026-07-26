@@ -1,7 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- CA2007: these tests await an in-memory HTTP pipeline and then assert on the
+         result. xUnit v3 flows TestContext through AsyncLocal, so there is no
+         context to resume onto and no deadlock shape to guard against; adding
+         ConfigureAwait to every await would only obscure the behavior sentences.
+         Justification: test-host code, no synchronization context, readability wins. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Nix.Api\Nix.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WebApplicationFactory<Program>: the real host, real routing, real
+         serialization, in-memory transport. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
 </Project>

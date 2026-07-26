@@ -1,0 +1,200 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Nix API",
+    "description": "Contract for the Nix collaborative document workspace. The generated frontend client and its MSW mocks are built from this document.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness probe",
+        "description": "Answers 200 whenever the process can serve HTTP. Touches no dependency.",
+        "operationId": "GetLiveness",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/status": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Service identity and clock",
+        "description": "Reports the service name, the running build's version, and the server clock in UTC.",
+        "operationId": "GetServiceStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/checks/{name}": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Result of one named health check",
+        "description": "Returns the named check's result, or an RFC 9457 problem with code 'health.check_not_found'.",
+        "operationId": "GetHealthCheck",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthCheckResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthCheckResponse": {
+        "required": [
+          "name",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "LivenessResponse": {
+        "required": [
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "required": [
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable, machine-readable error code, namespaced by feature (for example 'health.check_not_found'). Clients branch on this value and never on 'title' or 'detail', which are human-facing and may change."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Identifier of the server-side trace that produced this failure."
+          }
+        }
+      },
+      "ServiceStatusResponse": {
+        "required": [
+          "service",
+          "version",
+          "utcNow"
+        ],
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "utcNow": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health"
+    }
+  ]
+}

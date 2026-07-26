@@ -43,8 +43,18 @@ jobs:
         working-directory: backend
         run: dotnet build Nix.slnx --configuration Release
 
+      # The build above regenerates backend/openapi/nix-api.json (see the OpenAPI
+      # section of Nix.Api.csproj). If the committed contract no longer matches the
+      # code, the generated frontend client is stale - fail here rather than at
+      # runtime. Fix by rebuilding locally and committing the regenerated file.
+      - name: OpenAPI contract is committed and current
+        run: git diff --exit-code -- backend/openapi
+
       - name: Byte-array marker guard (memory rule 7)
         run: ./scripts/check-byte-array-markers.sh
+
+      - name: No-controllers guard (minimal APIs only, section 2.3)
+        run: ./scripts/check-no-controllers.sh
 
   frontend-static:
     name: frontend static
