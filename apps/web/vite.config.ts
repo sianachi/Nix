@@ -24,6 +24,15 @@ export default defineConfig({
         target: 'http://localhost:5014',
         changeOrigin: true,
       },
+
+      // The collaboration service is a third origin, and it holds the document bodies. The
+      // prefix is stripped because the service's own routes are '/documents/...' - it does not
+      // know or care that the browser reaches it under a path.
+      '/collab': {
+        target: 'http://localhost:8100',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/collab/, ''),
+      },
     },
   },
 
