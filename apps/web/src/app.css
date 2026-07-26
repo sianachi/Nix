@@ -1,0 +1,31 @@
+/*
+ * The one and only stylesheet in @nix/web.
+ *
+ * Repository rule (engineering plan section 5.2): the only .css files that
+ * may exist are this Tailwind entry, one per app, and the design token
+ * sheet. No CSS modules, no styled-components, no inline style
+ * attributes, no @apply. Everything else is utility classes in TSX.
+ *
+ * Order matters. `tailwindcss` must come first so its @theme defaults are
+ * registered; the token sheet then clears the default color, radius and
+ * shadow namespaces and installs the Industry values in their place.
+ */
+@import 'tailwindcss';
+@import '@nix/design-tokens';
+
+/*
+ * Fonts are self-hosted, served from our own origin, and only the weights the
+ * Industry sheet actually names are imported. No external font CDN: Nix is
+ * deployed self-hosted and air-gapped, enterprise networks block third-party
+ * origins, and a font CDN would send every reader's IP to a third party -
+ * awkward for a product whose pitch is tenant isolation and auditability.
+ *
+ * Barlow Condensed 400/600 for headings, Barlow 400/500/600 for body, matching
+ * the families the token sheet names. Adding a weight here means adding it to
+ * the token sheet's intent too, not just importing more bytes.
+ */
+@import '@fontsource/barlow-condensed/400.css';
+@import '@fontsource/barlow-condensed/600.css';
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/500.css';
+@import '@fontsource/barlow/600.css';
