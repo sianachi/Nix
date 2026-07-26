@@ -1,4 +1,5 @@
 using Nix.Api;
+using Nix.Api.Authentication;
 using Nix.Api.Errors;
 using Nix.Api.Features.Health;
 using Nix.Api.Features.Items;
@@ -56,6 +57,10 @@ var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
     builder.Services.AddNixPersistence(nixConnectionString!);
+
+    // Scoped, because it resolves issuers through the request's own connection. The signing-key
+    // cache inside it is static and shared, which is the part that must not be per request.
+    builder.Services.AddScoped<NixTokenValidator>();
 }
 
 builder.Services.AddOpenApi(options =>
@@ -102,7 +107,22 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// Health is deliberately outside the unit of work: a liveness probe that needed a database would
+// report the database's health, not the process's, and an orchestrator would restart a healthy
+// pod because Postgres was briefly slow.
 app.MapHealthEndpoints();
+
+// Everything below this line runs inside a tenant-scoped transaction and requires a bearer token.
+if (persistenceConfigured)
+{
+    app.UseWhen(
+        static context =>
+            context.Request.Path.StartsWithSegments("/api/v1", StringComparison.OrdinalIgnoreCase)
+            && !context.Request.Path.StartsWithSegments(
+                "/api/v1/health",
+                StringComparison.OrdinalIgnoreCase),
+        static branch => branch.UseMiddleware<NixUnitOfWorkMiddleware>());
+}
 app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
 app.MapPermissionEndpoints();

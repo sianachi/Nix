@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Nix.Application.Identity;
+using Nix.Application.Items;
 using Nix.Application.Persistence;
+using Nix.Infrastructure.Persistence.Identity;
+using Nix.Infrastructure.Persistence.Items;
 using Nix.Infrastructure.Persistence.Rls;
 using Nix.Infrastructure.Persistence.Sql;
 using Npgsql;
@@ -99,6 +103,19 @@ public static class NixPersistenceServiceCollectionExtensions
         });
 
         services.AddScoped<NixSqlExecutor>();
+
+        // Scoped, like everything else here: a store reads the scope's tenant and shares the
+        // context's transaction, so it belongs to one unit of work and one tenant.
+        services.AddScoped<IItemTree, ItemTree>();
+        services.AddScoped<IIdentityDirectory, IdentityDirectory>();
+
+        // Use cases are scoped for the same reason as the stores they call: one unit of work, one
+        // tenant. They are concrete types rather than interfaces - there is one implementation of
+        // each and no swap planned, so an interface would be indirection tax.
+        services.AddScoped<CreateItem>();
+        services.AddScoped<GetItem>();
+        services.AddScoped<ListItems>();
+        services.AddScoped<RenameItem>();
 
         return services;
     }

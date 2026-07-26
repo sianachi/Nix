@@ -44,6 +44,13 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
+  <!-- G8 - authentication. Multi-issuer JWT validation; the issuer is resolved per request from
+       identity_provider rather than configured, so the handler is configured with a dynamic
+       configuration manager rather than a fixed authority. -->
+  <ItemGroup Label="Authentication">
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Migration runner host">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
   </ItemGroup>
