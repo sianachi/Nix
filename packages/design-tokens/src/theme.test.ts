@@ -336,3 +336,28 @@ describe('the accent fill', () => {
     expect(getDarkProperty('color-accent-fill-pressed')).toBe('var(--color-accent-100)');
   });
 });
+
+describe('the browser half of the theme', () => {
+  it('declares a color scheme for each ground', () => {
+    // Scrollbars, the canvas behind the document and every native control - a date picker, a
+    // select's dropdown, a checkbox - are drawn by the browser from `color-scheme` and from nothing
+    // else. No custom property reaches them, so without this a date field renders white-on-white
+    // over a dark page and the scrollbar is a bright bar down the side of it.
+    expect(themeCss).toMatch(/:root\s*\{[^}]*color-scheme:\s*light/);
+    expect(grounds.dark).toContain('color-scheme: dark');
+    expect(themeCss).toMatch(/\[data-theme='dark'\]\s*\{\s*color-scheme:\s*dark/);
+    expect(themeCss).toMatch(/\[data-theme='light'\]\s*\{\s*color-scheme:\s*light/);
+  });
+
+  it('keeps it out of the theme block, which takes custom properties only', () => {
+    // Tailwind refuses an `@theme` block containing anything else, and the failure it produces is
+    // a suite that reports as *skipped* rather than failed - which is how this shipped green once
+    // already.
+    const themeBlocks = themeCss.match(/@theme\s*\{[\s\S]*?\n\}/g) ?? [];
+
+    expect(themeBlocks.length).toBeGreaterThan(0);
+    for (const block of themeBlocks) {
+      expect(block).not.toContain('color-scheme');
+    }
+  });
+});

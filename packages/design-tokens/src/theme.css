@@ -201,6 +201,19 @@
   --space-8: 27.2px;
 }
 
+/* ══ The browser's half of the theme ═══════════════════════════════════
+   Scrollbars, the canvas behind the document, and every native control - a
+   date picker, a select's dropdown, a checkbox - are drawn by the browser
+   from `color-scheme` and from nothing else. No custom property reaches
+   them. Without this they stay light while the page goes dark, which is not
+   a subtle mismatch: a date field renders white-on-white and the scrollbar
+   is a bright bar down a dark page.
+
+   Outside `@theme`, which accepts custom properties and nothing else. */
+:root {
+  color-scheme: light;
+}
+
 /* ══ Dark ground ═══════════════════════════════════════════════════════
    Declared as a runtime override of the custom properties, not as a second
    @theme block. Tailwind v4 flattens every @theme it finds regardless of
@@ -224,6 +237,13 @@
    invisible against ink. */
 @media (prefers-color-scheme: dark) {
   :root {
+    /* The browser's own half of the theme, and the half a custom property cannot reach.
+       Scrollbars, the canvas behind the document, and every native control - a date picker, a
+       select's dropdown, a checkbox - are drawn by the browser from this and from nothing else.
+       Without it they stay light while the page goes dark, which is not a subtle mismatch: a date
+       field renders as white-on-white and a scrollbar as a bright bar down a dark page. */
+    color-scheme: dark;
+
     --color-bg: #17181a;
     --color-surface: #1f2123;
     --color-text: #e8e9ea;
@@ -247,6 +267,8 @@
    directions, which is what lets somebody on a dark desktop read a document
    on a light ground without changing their machine's setting. */
 :root[data-theme='dark'] {
+  color-scheme: dark;
+
   --color-bg: #17181a;
   --color-surface: #1f2123;
   --color-text: #e8e9ea;
@@ -265,6 +287,8 @@
 }
 
 :root[data-theme='light'] {
+  color-scheme: light;
+
   --color-bg: #f2f2f3;
   --color-surface: #e9e9ea;
   --color-text: #1d1f20;
