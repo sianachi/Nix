@@ -141,10 +141,7 @@ describe('filtering', () => {
 
 describe('sorting', () => {
   it('falls back to sibling order when no property is named', () => {
-    const items = [
-      itemOf({}, { id: 'second', seq: 2000 }),
-      itemOf({}, { id: 'first', seq: 1000 }),
-    ];
+    const items = [itemOf({}, { id: 'second', seq: 2000 }), itemOf({}, { id: 'first', seq: 1000 })];
 
     // Sibling order is the order somebody arranged by hand, and replacing it with an arbitrary
     // alphabetisation is the sort of helpfulness people undo.
@@ -152,10 +149,7 @@ describe('sorting', () => {
   });
 
   it('sorts by a property', () => {
-    const items = [
-      itemOf({ owner: 'Grace' }, { id: 'g' }),
-      itemOf({ owner: 'Ada' }, { id: 'a' }),
-    ];
+    const items = [itemOf({ owner: 'Grace' }, { id: 'g' }), itemOf({ owner: 'Ada' }, { id: 'a' })];
 
     expect(sortItems(items, 'owner', false).map((item) => item.id)).toEqual(['a', 'g']);
     expect(sortItems(items, 'owner', true).map((item) => item.id)).toEqual(['g', 'a']);

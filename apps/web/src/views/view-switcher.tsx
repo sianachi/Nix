@@ -39,10 +39,7 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
   }
 
   return (
-    <nav
-      aria-label="Views"
-      className="flex items-center gap-1 border-b border-divider px-4 py-1.5"
-    >
+    <nav aria-label="Views" className="flex items-center gap-1 border-b border-divider px-4 py-1.5">
       {views.map((view) => {
         const active = view.id === activeViewId;
         const broken = unrenderable.includes(view.id);

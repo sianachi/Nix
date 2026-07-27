@@ -34,9 +34,7 @@ const VIEWS: View[] = [
 
 describe('the view switcher', () => {
   it('offers every view the container defines', () => {
-    render(
-      <ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="all" onSelect={vi.fn()} />,
-    );
+    render(<ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="all" onSelect={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: /^all$/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /by status/i })).toBeVisible();
@@ -59,9 +57,7 @@ describe('the view switcher', () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
 
-    render(
-      <ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="all" onSelect={onSelect} />,
-    );
+    render(<ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="all" onSelect={onSelect} />);
 
     await user.click(screen.getByRole('button', { name: /schedule/i }));
 

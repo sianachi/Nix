@@ -87,13 +87,22 @@ export function useContainer(containerId: string | null): ContainerData {
       // anything. Sequencing them would make opening a folder three round trips deep.
       const [childrenResponse, schemaResponse, viewsResponse] = await Promise.all([
         request(childrenPath),
-        containerId === null ? Promise.resolve(null) : request(`/api/v1/items/${containerId}/schema`),
-        containerId === null ? Promise.resolve(null) : request(`/api/v1/items/${containerId}/views`),
+        containerId === null
+          ? Promise.resolve(null)
+          : request(`/api/v1/items/${containerId}/schema`),
+        containerId === null
+          ? Promise.resolve(null)
+          : request(`/api/v1/items/${containerId}/views`),
       ]);
 
       if (!childrenResponse.ok) {
-        const problem = (await childrenResponse.json().catch(() => null)) as { detail?: string } | null;
-        setError(problem?.detail ?? `This folder could not be loaded (${String(childrenResponse.status)}).`);
+        const problem = (await childrenResponse.json().catch(() => null)) as {
+          detail?: string;
+        } | null;
+        setError(
+          problem?.detail ??
+            `This folder could not be loaded (${String(childrenResponse.status)}).`,
+        );
         setStatus('error');
         return;
       }
@@ -165,9 +174,7 @@ export function useContainer(containerId: string | null): ContainerData {
 
       const updated = ItemSchema.safeParse(await response.json());
       if (updated.success) {
-        setChildren((current) =>
-          current.map((item) => (item.id === itemId ? updated.data : item)),
-        );
+        setChildren((current) => current.map((item) => (item.id === itemId ? updated.data : item)));
       }
     },
     [children, request],
