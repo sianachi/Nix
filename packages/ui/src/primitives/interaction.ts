@@ -10,9 +10,8 @@
  * Every value below resolves through the design tokens (`--color-accent`, the
  * accent ramp's deep steps, `--color-text`) rather than a literal.
  *
- * Grounds: the washes are all built from roles that move with the ground, so
- * they invert correctly without a `dark:` variant. The one exception is
- * `accentFillStates`, which is documented at the bottom of this file.
+ * Grounds: every state here is built from roles that move with the ground, so
+ * they invert correctly without a `dark:` variant anywhere.
  */
 
 /**
@@ -58,22 +57,18 @@ export const inkWashStates = 'hover:bg-foreground/7 active:bg-foreground/14';
  * See `Button.tsx` for why the rest state is `--color-accent-text` and not the
  * base accent.
  *
- * **Known gap on the dark ground.** These two steps are ramp steps, and the
- * ramps deliberately do not move between grounds - but the label they carry is
- * `--color-background`, which does. On ink the label is dark, so a fill that
- * steps deeper moves *towards* the label: accent-800 under a dark label reads
- * 1.8:1. The rest state is fine (it is a role, 12.1:1 on ink), so this only
- * bites while a pointer is down or over the button, and axe does not reach it -
- * but it is a real defect, not a rounding error.
+ * **Why these are the fill roles and not the text ones.** They start at the same
+ * step and move in opposite directions. Accent *text* sits on the ground, so its
+ * hover step moves towards the ground. An accent *fill* carries the ground's own
+ * colour as its label, so its hover step has to move *away* from the ground -
+ * deeper on paper, lighter on ink - or the fill closes on its own label.
  *
- * It cannot be fixed here. A fill that carries ground-coloured text has to move
- * *away* from the ground on hover, which is deeper on paper and lighter on ink,
- * and the sheet has no role that does that: `--color-accent-hover` and
- * `--color-accent-pressed` are tuned for text and washes and move one step
- * *towards* the ground from `--color-accent-text` in both. The fix is a
- * `--color-accent-fill{,-hover,-pressed}` triple in the token sheet, which this
- * package does not own. Until then the light ground is correct and the dark one
- * is not, which is stated here rather than papered over with a `dark:` variant.
+ * Written with the text roles, this read 1.8:1 on the dark ground: the ramps do
+ * not move between grounds, but `--color-background` does, so a fill stepping
+ * deeper moved towards a label that had turned dark. The rest state was fine, so
+ * it only bit while a pointer was down or over the button - which is exactly the
+ * state axe does not reach.
  */
 export const accentFillStates =
-  'hover:border-accent-800 hover:bg-accent-800 active:border-accent-900 active:bg-accent-900';
+  'hover:border-accent-fill-hover hover:bg-accent-fill-hover ' +
+  'active:border-accent-fill-pressed active:bg-accent-fill-pressed';

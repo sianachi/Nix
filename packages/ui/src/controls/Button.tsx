@@ -26,21 +26,23 @@ import {
  * `primitives/interaction` so hover, pressed, focus and disabled read the same
  * on every control in the library.
  *
- * Contrast, and why `primary` fills with `--color-accent-text` rather than the
+ * Contrast, and why `primary` fills with `--color-accent-fill` rather than the
  * base accent: the base accent is tuned to about 3:1 against the ground, and
  * that ceiling is a property of the fill, not of the label - even pure white on
  * `--color-accent` reaches only 4.1:1, under the 4.5:1 AA floor for a body-size
- * label. `--color-accent-text` is defined as the accent step that clears 4.5:1
- * against `--color-background`, and contrast is symmetric, so the same role
- * used as a *fill* under a `--color-background` label clears 4.5:1 by
- * construction - on both grounds, without either colour being named here. It is
- * accent-700 on paper (5.8:1, exactly what this button used to hard-code) and
- * accent-300 on ink (12.1:1).
+ * label. `--color-accent-fill` is defined as the accent step that clears 4.5:1
+ * against `--color-background`, and contrast is symmetric, so the role used as
+ * a *fill* under a `--color-background` label clears 4.5:1 by construction - on
+ * both grounds, without either colour being named here. It is accent-700 on
+ * paper (5.8:1, exactly what this button used to hard-code) and accent-300 on
+ * ink (12.1:1).
+ *
+ * It is a separate role from `--color-accent-text` even though the two start
+ * equal, because their hover steps move in opposite directions: text moves
+ * towards the ground, a fill has to move away from it. See `interaction.ts`.
  *
  * The button is still the one solid accent object; it just sits at the step the
- * design system already reserves for accent-carrying-text. Hover and pressed
- * step deeper into the ramp instead of lighter - correct on paper, and see
- * `interaction.ts` for the gap that leaves on ink.
+ * design system already reserves for accent-carrying-text.
  *
  * The frame is drawn by the button element itself rather than by a
  * <Blueprint> wrapper: a wrapping div would put the border and the marks
@@ -80,7 +82,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary: cn(
-          `border-accent-text bg-accent-text text-background ${boxPadding}`,
+          `border-accent-fill bg-accent-fill text-background ${boxPadding}`,
           accentFillStates,
         ),
         secondary: cn(`border-divider text-foreground ${boxPadding}`, inkWashStates),

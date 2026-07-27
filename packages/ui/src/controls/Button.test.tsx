@@ -91,13 +91,15 @@ describe('Button', () => {
     expect(secondary.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
-  it('fills the primary button from the accent role that carries text', () => {
+  it('fills the primary button from the accent role built for a fill', () => {
     render(<Button variant="primary">Publish</Button>);
 
     const button = screen.getByRole('button', { name: 'Publish' });
     // The role, not the ramp step behind it: contrast is symmetric, so a `--color-background`
-    // label on a `--color-accent-text` fill clears 4.5:1 on whichever ground it lands.
-    expect(button.className).toContain('bg-accent-text');
+    // label on a `--color-accent-fill` fill clears 4.5:1 on whichever ground it lands. It is a
+    // role of its own rather than the text one because their hover steps move in opposite
+    // directions - see interaction.ts.
+    expect(button.className).toContain('bg-accent-fill');
     expect(button.className).not.toMatch(/(^|\s)bg-accent(\s|$)/);
   });
 
@@ -126,7 +128,7 @@ describe('Button', () => {
     );
 
     const primary = screen.getByRole('button', { name: 'Publish' }).className;
-    expect(primary).toContain('border-accent-text');
+    expect(primary).toContain('border-accent-fill');
     expect(primary).not.toContain('border-divider');
 
     expect(screen.getByRole('button', { name: 'Discard' }).className).toContain('border-divider');
@@ -157,6 +159,6 @@ describe('Button', () => {
 
     const className = screen.getByRole('button', { name: 'Publish' }).className;
     expect(className).toContain('mt-4');
-    expect(className).toContain('bg-accent-text');
+    expect(className).toContain('bg-accent-fill');
   });
 });

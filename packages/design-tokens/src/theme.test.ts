@@ -311,3 +311,28 @@ describe('the dark ground', () => {
     expect(themeCss).toContain("[data-theme='light']");
   });
 });
+
+describe('the accent fill', () => {
+  it('is a role of its own, not the text role reused', () => {
+    // They start at the same step, which is why reusing one for the other looked correct until
+    // somebody hovered on the dark ground.
+    expect(getProperty('color-accent-fill')).toBe(getProperty('color-accent-text'));
+    expect(properties.has('color-accent-fill-hover')).toBe(true);
+    expect(properties.has('color-accent-fill-pressed')).toBe(true);
+  });
+
+  it('moves away from the ground on paper', () => {
+    // A fill carrying a ground-coloured label has to move away from the ground as it is pressed,
+    // or it closes on its own text. On paper that is deeper into the ramp.
+    expect(getProperty('color-accent-fill-hover')).toBe('var(--color-accent-800)');
+    expect(getProperty('color-accent-fill-pressed')).toBe('var(--color-accent-900)');
+  });
+
+  it('moves the other way on ink', () => {
+    // The ramps do not move between grounds but --color-background does, so on ink the label is
+    // dark and a fill stepping deeper would move towards it. Written with the text roles this read
+    // 1.8:1, in the one state axe does not reach.
+    expect(getDarkProperty('color-accent-fill-hover')).toBe('var(--color-accent-200)');
+    expect(getDarkProperty('color-accent-fill-pressed')).toBe('var(--color-accent-100)');
+  });
+});

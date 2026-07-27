@@ -97,6 +97,22 @@
      points this at the other end of it. */
   --color-muted: var(--color-neutral-700);
 
+  /* ── The solid accent fill ─────────────────────────────────────────────
+     The primary button, and anything else that fills with accent and puts
+     ground-coloured text on top of it.
+
+     Separate from --color-accent-text even though they start equal, because
+     they move in opposite directions. Accent *text* sits on the ground, so
+     its hover step moves towards the ground. An accent *fill* carries the
+     ground's colour as its label, so its hover step has to move away from
+     the ground - deeper on paper, lighter on ink - or the fill closes on
+     its own label. Reusing the text roles for a fill gave accent-800 under
+     a dark label at 1.8:1 on the dark ground, which is the defect this
+     triple exists to fix. */
+  --color-accent-fill: var(--color-accent-700);
+  --color-accent-fill-hover: var(--color-accent-800);
+  --color-accent-fill-pressed: var(--color-accent-900);
+
   /* ══ Type ═════════════════════════════════════════════════════════════ */
   --font-heading: 'Barlow Condensed', system-ui, sans-serif;
   --font-body: 'Barlow', system-ui, sans-serif;
@@ -217,6 +233,12 @@
     --color-accent-hover: var(--color-accent-400);
     --color-accent-pressed: var(--color-accent-300);
     --color-muted: var(--color-neutral-400);
+
+    /* Lighter rather than deeper: on ink the label is dark, so the fill has
+       to move away from it. */
+    --color-accent-fill: var(--color-accent-300);
+    --color-accent-fill-hover: var(--color-accent-200);
+    --color-accent-fill-pressed: var(--color-accent-100);
   }
 }
 
@@ -234,6 +256,12 @@
   --color-accent-hover: var(--color-accent-400);
   --color-accent-pressed: var(--color-accent-300);
   --color-muted: var(--color-neutral-400);
+
+  /* Lighter rather than deeper: on ink the label is dark, so the fill has
+     to move away from it. */
+  --color-accent-fill: var(--color-accent-300);
+  --color-accent-fill-hover: var(--color-accent-200);
+  --color-accent-fill-pressed: var(--color-accent-100);
 }
 
 :root[data-theme='light'] {
@@ -246,4 +274,8 @@
   --color-accent-hover: var(--color-accent-600);
   --color-accent-pressed: var(--color-accent-700);
   --color-muted: var(--color-neutral-700);
+
+  --color-accent-fill: var(--color-accent-700);
+  --color-accent-fill-hover: var(--color-accent-800);
+  --color-accent-fill-pressed: var(--color-accent-900);
 }
