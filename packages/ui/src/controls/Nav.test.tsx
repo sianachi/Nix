@@ -81,12 +81,13 @@ describe('Nav', () => {
     expect(screen.getByRole('link', { name: 'General' })).toBeInTheDocument();
   });
 
-  it('draws the current item with the accent step that carries body-size text', () => {
+  it('draws the current item with the accent role that carries body-size text', () => {
     render(<Nav label="Workspace settings" items={ITEMS} currentHref="/settings/billing" />);
 
     const className = screen.getByRole('link', { name: 'Billing' }).className;
+    // Rule and text are the same role, so the mark cannot half-move when the ground does.
     expect(className).toContain('text-accent-text');
-    expect(className).toContain('border-accent-700');
+    expect(className).toContain('border-accent-text');
   });
 
   it('lays the list out along the axis it was asked for', () => {

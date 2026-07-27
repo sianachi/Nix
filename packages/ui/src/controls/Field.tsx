@@ -54,12 +54,14 @@ export function Field(props: FieldProps): ReactNode {
 
   return (
     <div className={cn('flex flex-col gap-1', className)}>
-      {/* The neutral ramp rather than a translucent ink wash, here and on the hint below: at these
+      {/* The muted role rather than a translucent ink wash, here and on the hint below: at these
           sizes an ink wash falls under the 4.5:1 contrast floor, and a label nobody can read is
-          not a subtle label. The Text primitive settled this the same way for the same reason. */}
+          not a subtle label. A ramp step would have been the light ground's answer baked in -
+          `--color-muted` is the same colour there and crosses the ramp on the dark one. The Text
+          primitive settled this the same way for the same reason. */}
       <label
         htmlFor={controlId}
-        className="font-heading text-[11px] uppercase tracking-[0.08em] text-neutral-700"
+        className="font-heading text-xs uppercase tracking-[0.08em] text-muted"
       >
         {label}
         {required ? (
@@ -78,11 +80,11 @@ export function Field(props: FieldProps): ReactNode {
       {invalid ? (
         // role="alert" so a validation failure that appears after a submit is announced rather
         // than only drawn.
-        <p id={errorId} role="alert" className="text-[12px] text-foreground">
+        <p id={errorId} role="alert" className="text-sm text-foreground">
           {error}
         </p>
       ) : hint === undefined ? null : (
-        <p id={hintId} className="text-[12px] text-neutral-700">
+        <p id={hintId} className="text-sm text-muted">
           {hint}
         </p>
       )}

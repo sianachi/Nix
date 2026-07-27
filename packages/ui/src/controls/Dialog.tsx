@@ -193,7 +193,13 @@ export function Dialog(props: DialogProps): ReactNode {
         // this is the one place in the system where a surface has to sit on top of another.
         'bg-background text-foreground',
         'w-[min(560px,calc(100vw-var(--spacing)*8))]',
-        'backdrop:bg-foreground/40',
+        // The scrim is the one colour in the library that must *not* follow the ground. It exists
+        // to dim what is behind the modal, and an ink wash of `--color-foreground` stops doing
+        // that the moment the foreground is paper: on the dark ground it would be a light veil
+        // that brightens the page instead of pushing it back. The neutral ramp does not move
+        // between grounds (ADR-0008), so its deepest step is the one thing here that darkens on
+        // both - which is why this is a ramp step rather than a role, and the only one left.
+        'backdrop:bg-neutral-900/40',
         className,
       )}
     >

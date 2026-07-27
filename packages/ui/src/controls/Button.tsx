@@ -26,15 +26,21 @@ import {
  * `primitives/interaction` so hover, pressed, focus and disabled read the same
  * on every control in the library.
  *
- * Contrast, and why `primary` fills with accent-700 rather than the base
- * accent: the base accent is tuned to about 3:1 against the light ground, and
- * that ceiling is a property of the fill, not of the label - even pure white
- * on `--color-accent` reaches only 4.1:1, under the 4.5:1 AA floor for a 14px
- * label. `--color-accent-700` carries paper-colored text at 5.8:1, so it is
- * the shallowest step of the accent ramp that can hold a button label at all.
- * The button is still the one solid accent object; it just sits at the ramp
- * step the design system already reserves for accent-carrying-text. Hover and
- * pressed therefore step deeper (800, 900) instead of lighter.
+ * Contrast, and why `primary` fills with `--color-accent-text` rather than the
+ * base accent: the base accent is tuned to about 3:1 against the ground, and
+ * that ceiling is a property of the fill, not of the label - even pure white on
+ * `--color-accent` reaches only 4.1:1, under the 4.5:1 AA floor for a body-size
+ * label. `--color-accent-text` is defined as the accent step that clears 4.5:1
+ * against `--color-background`, and contrast is symmetric, so the same role
+ * used as a *fill* under a `--color-background` label clears 4.5:1 by
+ * construction - on both grounds, without either colour being named here. It is
+ * accent-700 on paper (5.8:1, exactly what this button used to hard-code) and
+ * accent-300 on ink (12.1:1).
+ *
+ * The button is still the one solid accent object; it just sits at the step the
+ * design system already reserves for accent-carrying-text. Hover and pressed
+ * step deeper into the ramp instead of lighter - correct on paper, and see
+ * `interaction.ts` for the gap that leaves on ink.
  *
  * The frame is drawn by the button element itself rather than by a
  * <Blueprint> wrapper: a wrapping div would put the border and the marks
@@ -43,25 +49,29 @@ import {
  * hairline square box and `RegistrationMarks` for the corners - so there is
  * exactly one definition of the grammar, not a lookalike.
  *
- * The 14px label and the 36px icon-button box are literals because the token
- * sheet carries no type scale and no control-height scale; padding, gap and
- * every color resolve through the tokens.
+ * Size comes from the sheet's two scales (ADR-0008): the label is `text-md` and
+ * every variant is one `--control-md` tall. That height used to belong to the
+ * icon button alone, as a literal, while the boxed variants were whatever their
+ * padding and line height happened to add up to - 32.4px, so a button never
+ * quite lined up with the icon button beside it. Naming the step fixes the row
+ * and moves the icon button by nothing.
  */
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'icon';
 
 /**
- * The boxed variants' padding: one spacing step vertically, 1.2 steps of the
- * third step horizontally, exactly as the design system's `.btn` writes it.
- * Both are derived from `--spacing`, so a change of density moves them.
+ * The boxed variants' inset: 1.2 of the design system's third spacing step,
+ * exactly as its `.btn` writes it, and derived from `--spacing` so a change of
+ * density moves it. Only horizontal - the vertical measure is the control
+ * height, which the base class owns.
  */
-const boxPadding = 'py-2 px-[calc(var(--spacing)*3.6)]';
+const boxPadding = 'px-[calc(var(--spacing)*3.6)]';
 
 const buttonVariants = cva(
   cn(
     blueprintFrame,
     'inline-flex cursor-pointer items-center justify-center gap-2',
-    'font-heading text-[14px] leading-[1.2] font-semibold no-underline',
+    'h-(--control-md) font-heading text-md font-semibold no-underline',
     'transition-colors',
     focusRing,
     disabledState,
@@ -70,12 +80,12 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary: cn(
-          `border-accent-700 bg-accent-700 text-background ${boxPadding}`,
+          `border-accent-text bg-accent-text text-background ${boxPadding}`,
           accentFillStates,
         ),
         secondary: cn(`border-divider text-foreground ${boxPadding}`, inkWashStates),
-        ghost: cn('text-accent-text border-transparent py-2 px-1', accentWashStates),
-        icon: cn('border-divider text-foreground size-[36px] p-0', inkWashStates),
+        ghost: cn('text-accent-text border-transparent px-1', accentWashStates),
+        icon: cn('border-divider text-foreground w-(--control-md) p-0', inkWashStates),
       },
       fullWidth: {
         true: 'w-full',

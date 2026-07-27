@@ -1,14 +1,61 @@
-import { type Preview } from '@storybook/react-vite';
+import { type Decorator, type Preview } from '@storybook/react-vite';
+import { createElement } from 'react';
 
 import './tailwind.css';
 
 /**
  * `a11y.test: 'error'` makes an axe finding fail the story under the Vitest
  * addon, so an inaccessible component cannot merge green. Backgrounds are
- * disabled because the ground is not a choice: it is `--color-bg`, set on the
- * body by the Tailwind entry.
+ * disabled because the ground is not a decoration a story picks: it is
+ * `--color-bg`, set on the body by the Tailwind entry, and the `ground` global
+ * below is the only thing that moves it.
+ *
+ * The token sheet describes two grounds (ADR-0008), and the contrast reasoning
+ * recorded across the library was derived against the light one. So the ground
+ * is a global with a toolbar switch, and a story that wants the dark one says
+ * `globals: { ground: 'dark' }` - which is what puts axe on both grounds.
  */
+
+/** The two grounds the token sheet defines. */
+type Ground = 'light' | 'dark';
+
+/**
+ * The ground is chosen by writing `data-theme` on the document element, which
+ * is the switch the token sheet is built around: `:root[data-theme]` reassigns
+ * the semantic roles and outranks `prefers-color-scheme`, so a headless browser
+ * reporting a light system preference still renders the dark ground faithfully.
+ *
+ * It has to be the document element and not a wrapper: the sheet's selector is
+ * `:root[data-theme='dark']`, and the page's own background comes from the
+ * Tailwind entry's `body` rule, so a nested wrapper would tint the story and
+ * leave the page behind it on the other ground - which is exactly the mismatch
+ * an axe contrast check would then measure. Every story sets the attribute,
+ * light included, so a dark story cannot leak into the one after it.
+ */
+const withGround: Decorator = (Story, context) => {
+  const ground: Ground = context.globals.ground === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = ground;
+
+  return createElement(Story);
+};
+
 const preview: Preview = {
+  initialGlobals: { ground: 'light' satisfies Ground },
+  globalTypes: {
+    ground: {
+      description: 'The ground the story is drawn on',
+      toolbar: {
+        title: 'Ground',
+        icon: 'mirror',
+        items: [
+          { value: 'light' satisfies Ground, title: 'Light' },
+          { value: 'dark' satisfies Ground, title: 'Dark' },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
+  decorators: [withGround],
   parameters: {
     layout: 'centered',
     a11y: { test: 'error' },

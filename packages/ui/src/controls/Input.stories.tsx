@@ -59,3 +59,18 @@ export const Disabled: Story = {
 export const ReadOnly: Story = {
   args: { readOnly: true, defaultValue: 'Quarterly plan' },
 };
+
+/**
+ * The empty field on ink, which is the placeholder's worst case: it is the only
+ * thing in the box, so if the quiet step were chosen against paper there would
+ * be nothing legible here at all.
+ */
+export const DarkGround: Story = {
+  globals: { ground: 'dark' },
+};
+
+/** A value and the invalid frame on ink. The frame is `--color-foreground`, so it inverts. */
+export const InvalidDark: Story = {
+  args: { 'aria-invalid': true, defaultValue: 'Quarterly plan' },
+  globals: { ground: 'dark' },
+};

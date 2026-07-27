@@ -13,8 +13,16 @@ import { cn } from '../lib/cn';
  * to a global radius default cannot soften the frame.
  *
  * The geometry of a mark (an 11px box, hairline bars crossing 5px in, pulled
- * 6px outside the frame) is pure drawing, not a themed value: the token sheet
- * carries no length for it, so it is written literally here and only here.
+ * 6px outside the frame) is pure drawing, not a themed value. The token sheet
+ * now carries a type scale and a control-height scale (ADR-0008), and neither
+ * applies: a registration mark is a line drawing rather than type or a control,
+ * and rounding it onto either scale would move the marks off the corner they
+ * register. So the lengths stay literal, here and only here, and this is the
+ * one file in the library where `[Npx]` is not a defect.
+ *
+ * The mark's ink is `--color-foreground` at 55%, which follows the ground: on
+ * the dark ground it is a light hairline on ink rather than a dark one on
+ * paper, which is what the drawing wants in both.
  */
 
 /**

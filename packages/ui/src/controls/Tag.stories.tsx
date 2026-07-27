@@ -41,3 +41,19 @@ export const InARow: Story = {
     </div>
   ),
 };
+
+/**
+ * The three tones on ink. `muted` is the one to watch: it is the muted role
+ * rather than the neutral-700 it used to name, which on this ground would be
+ * a tag nobody can read.
+ */
+export const DarkGround: Story = {
+  globals: { ground: 'dark' },
+  render: () => (
+    <div className="flex flex-wrap gap-2">
+      <Tag tone="accent">Current</Tag>
+      <Tag>Engineering</Tag>
+      <Tag tone="muted">Archived</Tag>
+    </div>
+  ),
+};

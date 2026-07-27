@@ -3,8 +3,19 @@ import { describe, expect, it } from 'vitest';
 
 import { Text, type TextVariant } from './Text';
 
-const BODY_SIZED: TextVariant[] = ['h4', 'h5', 'h6', 'body', 'bodySmall', 'caption', 'kicker'];
-const DISPLAY_SIZED: TextVariant[] = ['h1', 'h2', 'h3'];
+const BODY_SIZED: TextVariant[] = [
+  // h3 is 22px on the type scale, under WCAG's 24px large-text threshold at weight 600, so it
+  // belongs on this side of the line even though it is a display heading by name.
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'body',
+  'bodySmall',
+  'caption',
+  'kicker',
+];
+const DISPLAY_SIZED: TextVariant[] = ['h1', 'h2'];
 
 describe('Text', () => {
   it('renders a heading variant as a heading of the matching level', () => {
@@ -27,7 +38,7 @@ describe('Text', () => {
     );
 
     const heading = screen.getByRole('heading', { level: 2, name: 'Workspace' });
-    expect(heading.className).toContain('text-[42px]');
+    expect(heading.className).toContain('text-3xl');
   });
 
   it('sets headings in the condensed family and body copy in the body family', () => {
@@ -71,6 +82,17 @@ describe('Text', () => {
 
     const className = container.firstElementChild?.className ?? '';
     expect(className).toContain('mt-4');
-    expect(className).toContain('text-[15px]');
+    expect(className).toContain('text-md');
+  });
+
+  it('names a step of the token sheet type scale rather than a pixel size', () => {
+    // The whole point of ADR-0008: a remaining `text-[13px]` is a defect a reviewer can point at,
+    // which it could not be while this component was the scale's only home.
+    for (const variant of [...DISPLAY_SIZED, ...BODY_SIZED]) {
+      const { container, unmount } = render(<Text variant={variant}>Copy</Text>);
+
+      expect(container.firstElementChild?.className ?? '').not.toMatch(/text-\[[\d.]+px\]/);
+      unmount();
+    }
   });
 });

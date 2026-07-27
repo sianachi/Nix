@@ -122,6 +122,38 @@ export const InButtons: Story = {
   ),
 };
 
+/**
+ * On ink. An icon sets no colour of its own - `currentColor` all the way down -
+ * so the glyph is correct on either ground for the same reason the text beside
+ * it is, and there is nothing here for a `dark:` variant to do.
+ */
+export const DarkGround: Story = {
+  globals: { ground: 'dark' },
+  render: () => (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-4">
+        <Button variant="primary">
+          <Icon icon={Upload} size="sm" />
+          Upload
+        </Button>
+        <Button variant="secondary">
+          <Icon icon={Share2} size="sm" />
+          Share
+        </Button>
+        <Button variant="icon" aria-label="Delete document">
+          <Icon icon={Trash2} />
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <Icon icon={Clock} size="sm" />
+        <Text variant="bodySmall" tone="muted" as="span">
+          Indexed 4 minutes ago
+        </Text>
+      </div>
+    </div>
+  ),
+};
+
 /** Inline with text, taking the surrounding color. */
 export const InlineWithText: Story = {
   render: () => (

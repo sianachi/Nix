@@ -16,7 +16,7 @@ describe('Tag', () => {
     for (const tone of ['neutral', 'accent', 'muted'] as const) {
       const { unmount } = render(<Tag tone={tone}>Draft</Tag>);
 
-      expect(screen.getByText('Draft').className).not.toContain('bg-accent-700');
+      expect(screen.getByText('Draft').className).not.toMatch(/(^|\s)bg-accent/);
       unmount();
     }
   });

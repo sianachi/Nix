@@ -192,6 +192,22 @@ export const LoadingWithPreviousRows: Story = {
   args: { loading: true, loadingMessage: 'Reordering documents' },
 };
 
+/**
+ * Rows on ink. Every colour the table draws with is a role or a wash of one -
+ * the caption is muted, the headers are a foreground wash, the rules are the
+ * divider - so the whole table crosses grounds without a variant of its own.
+ */
+export const DarkGround: Story = {
+  args: { sort: { columnKey: 'title', direction: 'ascending' } },
+  globals: { ground: 'dark' },
+};
+
+/** The empty answer on ink, since the message is muted copy and that is where muted copy fails. */
+export const EmptyDark: Story = {
+  args: { rows: [] },
+  globals: { ground: 'dark' },
+};
+
 /** A table with one column and one row still owes the reader a caption and a header. */
 export const SingleColumn: Story = {
   args: {

@@ -67,3 +67,20 @@ export const Disabled: Story = {
     children: (control) => <Input {...control} disabled defaultValue="Quarterly plan" />,
   },
 };
+
+/**
+ * Label, hint and placeholder on ink - the three pieces of quiet copy this
+ * component owns, and the three that were previously ramp steps picked against
+ * paper. All of them are `--color-muted` now, so axe measures one role here
+ * rather than three guesses.
+ */
+export const DarkGround: Story = {
+  args: { hint: 'Shown in the tree and in search results.', required: true },
+  globals: { ground: 'dark' },
+};
+
+/** The error line on ink: full-strength foreground, because a failure is not quiet copy. */
+export const InvalidDark: Story = {
+  args: { hint: 'Shown in the tree and in search results.', error: 'A title is required.' },
+  globals: { ground: 'dark' },
+};

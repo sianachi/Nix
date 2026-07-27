@@ -24,10 +24,17 @@ import { disabledState, focusRing } from '../primitives/interaction';
 const inputVariants = cva(
   cn(
     blueprintFrame,
-    'w-full bg-background px-3 py-2',
-    'font-body text-[14px] leading-[1.4] text-foreground',
-    // The neutral ramp, not an ink wash: a placeholder at 4:1 is one people ask you to repeat.
-    'placeholder:text-neutral-600',
+    'w-full bg-background px-3',
+    // The height is the control scale's middle step rather than whatever the padding and the line
+    // height add up to. It used to add up to 36.6px, which is a number nobody chose and which
+    // never quite matched the 36px button standing beside it.
+    'h-(--control-md) font-body text-md text-foreground',
+    // The muted role, not an ink wash and not a ramp step: a placeholder at 4:1 is one people ask
+    // you to repeat. neutral-600 was this package's own answer to that and did not reach it -
+    // 3.8:1 on paper - and it is the light ground's step besides. `--color-muted` clears AA on both
+    // grounds (5.9:1 on paper, 8.9:1 on ink) and still reads quieter than the value beside it,
+    // which is the whole job of a placeholder.
+    'placeholder:text-muted',
     'transition-colors',
     focusRing,
     disabledState,

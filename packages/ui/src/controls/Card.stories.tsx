@@ -45,6 +45,16 @@ export const NestedHeadingLevel: Story = {
   args: { headingLevel: 3, kicker: 'Workspace policy' },
 };
 
+/**
+ * The card on ink: a transparent line drawing over the dark ground, which is
+ * the case that proves the frame carries no fill of its own - a card with a
+ * surface would show as a paper-coloured rectangle here.
+ */
+export const DarkGround: Story = {
+  args: { kicker: 'Workspace policy' },
+  globals: { ground: 'dark' },
+};
+
 export const WithActions: Story = {
   args: {
     kicker: 'Workspace policy',

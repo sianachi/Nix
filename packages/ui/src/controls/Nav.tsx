@@ -105,7 +105,7 @@ const navListVariants = cva('flex list-none', {
 const navItemVariants = cva(
   cn(
     'flex items-center gap-2 no-underline transition-colors',
-    'font-heading text-[13px] leading-[1.2] font-medium tracking-[0.04em]',
+    'font-heading text-base font-medium tracking-[0.04em]',
     focusRing,
   ),
   {
@@ -115,7 +115,11 @@ const navItemVariants = cva(
         vertical: '-ml-px border-l-2 py-2 pr-3 pl-3',
       },
       current: {
-        true: 'border-accent-700 text-accent-text',
+        // The rule and the text are the same role, which is what keeps them one mark rather than
+        // two colours that have to be kept in step. It is a state indicator, so the floor is 3:1;
+        // the ramp step this used to name reads 2.7:1 on the dark ground, and the role reads
+        // 5.8:1 on paper and 12.1:1 on ink.
+        true: 'border-accent-text text-accent-text',
         // The ink wash rather than the accent one: a hover is a maybe, and tinting it with the
         // accent would make every item look briefly current.
         false: cn('border-transparent text-foreground/70 hover:text-foreground', inkWashStates),

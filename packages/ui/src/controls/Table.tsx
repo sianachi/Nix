@@ -102,7 +102,7 @@ export interface TableProps<Row> {
 
 const cellPadding = 'px-3 py-2';
 
-const headerText = 'font-heading text-[11px] leading-[1.2] tracking-[0.08em] uppercase';
+const headerText = 'font-heading text-xs tracking-[0.08em] uppercase';
 
 /**
  * The sort button fills its header cell rather than sitting inside it, so the whole header is the
@@ -218,7 +218,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
             <tr key={rowKey(row)}>
               {columns.map((column) => {
                 const cellClass = cn(
-                  'border-b border-divider font-body text-[14px] leading-[1.4] text-foreground',
+                  'border-b border-divider font-body text-md text-foreground',
                   cellPadding,
                   column.align === 'end' ? 'text-right' : 'text-left',
                 );

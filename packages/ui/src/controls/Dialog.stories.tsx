@@ -66,6 +66,28 @@ export const Closed: Story = {
   args: { open: false },
 };
 
+/**
+ * The modal on ink, which is the one place in the library where a surface has
+ * to sit on top of another and therefore the one place a scrim exists.
+ *
+ * The scrim is deliberately not a role: it is the deepest neutral ramp step, so
+ * it darkens whatever is behind it on both grounds. An ink wash of
+ * `--color-foreground` - which is what this used to be - inverts along with the
+ * foreground and would be a *light* veil here, brightening the page it is meant
+ * to push away.
+ */
+export const DarkGround: Story = {
+  globals: { ground: 'dark' },
+  args: {
+    actions: (
+      <>
+        <Button variant="secondary">Keep document</Button>
+        <Button>Delete document</Button>
+      </>
+    ),
+  },
+};
+
 /** A long body scrolls inside the frame; the registration marks are never clipped. */
 export const LongBody: Story = {
   args: {

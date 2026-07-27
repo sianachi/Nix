@@ -305,3 +305,32 @@ export const AllVariants: Story = {
     </div>
   ),
 };
+
+/**
+ * The same four on ink. Nothing here carries a `dark:` variant: the fill and
+ * the ghost's type are `--color-accent-text`, the label on the fill is
+ * `--color-background`, and the two swap ends of the accent ramp together - so
+ * the one solid object keeps its 4.5:1 by construction rather than by a second
+ * set of classes kept in step by hand.
+ *
+ * Hover and pressed are deliberately absent from this story. Their ramp steps
+ * are still tuned to the light ground and read about 1.8:1 under a dark label;
+ * see `interaction.ts` for why that cannot be fixed without a fill role in the
+ * token sheet. Adding a dark hover story here would assert a state the library
+ * does not yet get right.
+ */
+export const AllVariantsDark: Story = {
+  args: { children: 'Publish document' },
+  globals: { ground: 'dark' },
+  parameters: { layout: 'padded' },
+  render: () => (
+    <div className="flex flex-wrap items-center gap-4">
+      <Button variant="primary">Publish document</Button>
+      <Button variant="secondary">Discard changes</Button>
+      <Button variant="ghost">Cancel</Button>
+      <Button variant="icon" aria-label="Add block">
+        <Icon icon={Plus} />
+      </Button>
+    </div>
+  ),
+};

@@ -18,21 +18,27 @@ import { cn } from '../lib/cn';
 const tagVariants = cva(
   cn(
     'inline-flex items-center gap-1 rounded-none border px-1.5 py-0.5',
-    'font-heading text-[11px] uppercase leading-[1.2] tracking-[0.08em]',
+    'font-heading text-xs uppercase tracking-[0.08em]',
   ),
   {
     variants: {
       tone: {
         /** The ordinary case: a category, a type, a name. */
         neutral: 'border-divider text-foreground/70',
-        /** Selected, current, or otherwise the one being pointed at. */
-        accent: 'border-accent-700 text-accent-text',
         /**
-         * Deliberately quiet - a detail that is present but not the point. Quiet is the neutral
-         * ramp rather than a translucent ink wash: at 11px an ink wash lands around 4:1 on the
-         * ground, under the 4.5:1 floor, and "quiet" must never mean "unreadable".
+         * Selected, current, or otherwise the one being pointed at. Box and text are the same
+         * role, so the tag is one mark; the ramp step this used to name for the box reads 2.7:1
+         * on the dark ground, under the 3:1 floor a state indicator owes.
          */
-        muted: 'border-transparent bg-foreground/5 text-neutral-700',
+        accent: 'border-accent-text text-accent-text',
+        /**
+         * Deliberately quiet - a detail that is present but not the point. Quiet is the muted role
+         * rather than a translucent ink wash: at 11px an ink wash lands around 4:1 on the ground,
+         * under the 4.5:1 floor, and "quiet" must never mean "unreadable". A role rather than the
+         * ramp step behind it, because which end of the neutral ramp reads as quiet depends on
+         * which ground the tag is sitting on.
+         */
+        muted: 'border-transparent bg-foreground/5 text-muted',
       },
     },
     defaultVariants: { tone: 'neutral' },

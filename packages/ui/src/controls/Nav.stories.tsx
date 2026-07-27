@@ -117,6 +117,22 @@ export const WithConsumerLinkComponent: Story = {
   },
 };
 
+/**
+ * Both orientations on ink. The current item's rule and its text are the same
+ * role, so the mark crosses the ramp in one piece; the accent-700 the rule used
+ * to name reads 2.7:1 here, under the 3:1 a state indicator owes.
+ */
+export const DarkGround: Story = {
+  args: { items: SETTINGS_WITH_ICONS },
+  globals: { ground: 'dark' },
+  render: (args) => (
+    <div className="flex flex-col gap-8">
+      <Nav {...args} orientation="horizontal" label="Document sections" />
+      <Nav {...args} orientation="vertical" label="Workspace settings" />
+    </div>
+  ),
+};
+
 /** Both orientations side by side, so the one current-item treatment reads as one idea. */
 export const BothOrientations: Story = {
   render: (args) => (

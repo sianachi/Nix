@@ -90,6 +90,33 @@ export const Grid: Story = {
 };
 
 /**
+ * The frame on ink. The hairline is `--color-divider` and the marks are a wash
+ * of `--color-foreground`, so the drawing is dark-on-paper here and
+ * light-on-ink there without either length or colour being restated. The mark
+ * geometry is the one set of pixel literals the library keeps, and it is the
+ * same in both grounds because a drawing does not change size with the light.
+ */
+export const DarkGround: Story = {
+  globals: { ground: 'dark' },
+  args: {
+    className: 'w-80 p-3',
+    children: (
+      <div className="flex flex-col gap-2">
+        <Text variant="kicker" tone="accent">
+          Contract
+        </Text>
+        <Text variant="h4" as="h3">
+          Master services agreement
+        </Text>
+        <Text variant="bodySmall" tone="muted">
+          Searchable once indexing finishes. Downloadable now.
+        </Text>
+      </div>
+    ),
+  },
+};
+
+/**
  * The frame next to the primary button: the same marks, drawn once and shared,
  * on the one object that is allowed to be solid.
  */
