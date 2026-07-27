@@ -2,7 +2,7 @@ import { X } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 
 import { cn } from '../lib/cn';
-import { RegistrationMarks, blueprintFrame } from '../primitives/Blueprint';
+import { blueprintFrame } from '../primitives/Blueprint';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
 import { Button } from './Button';
@@ -223,8 +223,6 @@ export function Dialog(props: DialogProps): ReactNode {
           <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
         )}
       </div>
-
-      <RegistrationMarks />
     </dialog>
   );
 }

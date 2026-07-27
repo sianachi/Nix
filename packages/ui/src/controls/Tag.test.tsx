@@ -21,10 +21,10 @@ describe('Tag', () => {
     }
   });
 
-  it('keeps square corners', () => {
+  it('turns the small corner, sized to a small box', () => {
     render(<Tag>Draft</Tag>);
 
-    expect(screen.getByText('Draft').className).toContain('rounded-none');
+    expect(screen.getByText('Draft').className).toContain('rounded-sm');
   });
 
   it('can carry an accessible name of its own when the text is an abbreviation', () => {

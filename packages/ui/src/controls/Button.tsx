@@ -2,7 +2,7 @@ import { cva } from 'class-variance-authority';
 import { type ComponentPropsWithRef, type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
-import { RegistrationMarks, blueprintFrame } from '../primitives/Blueprint';
+import { blueprintFrame } from '../primitives/Blueprint';
 import {
   accentFillStates,
   accentWashStates,
@@ -21,7 +21,8 @@ import {
  * - `ghost`     type only, no box, for tertiary actions.
  * - `icon`      a square outlined box holding a single glyph.
  *
- * Square corners are baked into the base (`rounded-none`); there is no size or
+ * The frame's radius comes from `blueprintFrame`, so a button turns its corner
+ * the same way a card does; there is no size or
  * radius prop to soften them. Interaction states come from
  * `primitives/interaction` so hover, pressed, focus and disabled read the same
  * on every control in the library.
@@ -127,7 +128,6 @@ export function Button(props: ButtonProps): ReactNode {
   return (
     <button type={type} className={cn(buttonVariants({ variant, fullWidth }), className)} {...rest}>
       {children}
-      {variant === 'primary' ? <RegistrationMarks /> : null}
     </button>
   );
 }

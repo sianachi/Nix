@@ -47,7 +47,7 @@ const PROSE_VARIANTS = ['body', 'bodySmall', 'caption', 'kicker'] as const;
 
 // ── The scale ─────────────────────────────────────────────────────────────
 
-/** Barlow Condensed at six steps: the whole heading scale, in order. */
+/** The heading face at six steps: the whole scale, in order. */
 export const HeadingScale: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
@@ -60,7 +60,7 @@ export const HeadingScale: Story = {
   ),
 };
 
-/** Barlow for everything that is not a heading. */
+/** The body face, for everything that is not a heading. */
 export const ProseScale: Story = {
   render: () => (
     <div className="flex flex-col gap-4">

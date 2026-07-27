@@ -85,9 +85,9 @@ describe('Tailwind v4 compiles the theme', () => {
   });
 
   it('resolves type, spacing and radius utilities to the tokens', () => {
-    expect(output).toContain("--font-heading: 'Barlow Condensed', system-ui, sans-serif;");
+    expect(output).toContain("--font-heading: 'Nunito Sans', system-ui, sans-serif;");
     expect(output).toContain('--spacing: 3.4px;');
-    expect(output).toContain('--radius-md: 4px;');
+    expect(output).toContain('--radius-md: 8px;');
     expect(output).toContain('.rounded-md');
     expect(output).toContain('.p-4');
   });
@@ -97,7 +97,10 @@ describe('Tailwind v4 compiles the theme', () => {
     // referencing var(--shadow-lg), so the token is asserted through the
     // generated utility, not through an emitted theme variable.
     expect(output).toContain('.shadow-lg');
-    expect(output).toContain('0 12px 32px var(--tw-shadow-color, color-mix(in srgb, #2b2b2d 22%');
+
+    // Two layers: the contact shadow and the ambient one. Asserted on the wider of the two,
+    // because a single-layer shadow would still satisfy a check for the tighter one.
+    expect(output).toContain('0 16px 40px var(--tw-shadow-color, color-mix(in srgb, #2b2b2d 20%');
   });
 
   it('does not resurrect the default Tailwind palette', () => {

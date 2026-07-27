@@ -8,7 +8,7 @@
  * one, so the two can land in either order without a conflict.
  */
 
-export { Blueprint, RegistrationMarks, blueprintFrame, type BlueprintProps } from './Blueprint';
+export { Blueprint, blueprintFrame, type BlueprintProps } from './Blueprint';
 export { Text, type TextProps, type TextVariant, type TextTone, type TextElement } from './Text';
 export { Icon, ICON_STROKE_WIDTH, type IconProps, type IconSize } from './Icon';
 export {

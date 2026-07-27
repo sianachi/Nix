@@ -112,7 +112,7 @@ const headerText = 'font-heading text-xs tracking-[0.08em] uppercase';
  * press and focus read the same here as everywhere else.
  */
 const sortButton = cn(
-  'flex w-full cursor-pointer items-center gap-1 rounded-none text-left transition-colors',
+  'flex w-full cursor-pointer items-center gap-1 rounded-sm text-left transition-colors',
   headerText,
   cellPadding,
   focusRing,

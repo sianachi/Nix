@@ -1,13 +1,13 @@
 import { type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
-import { RegistrationMarks, blueprintFrame } from '../primitives/Blueprint';
+import { blueprintFrame } from '../primitives/Blueprint';
 import { Text } from '../primitives/Text';
 
 /**
  * <Card> - a titled blueprint figure.
  *
- * A transparent line drawing with square corners and corner registration marks, holding a
+ * A line drawing on a lifted surface, softly cornered, holding a
  * kicker, a title and a body. There is no fill prop and no radius prop: Industry cards are line
  * drawings, and that is an invariant of the component rather than a convention each page has to
  * remember.
@@ -46,7 +46,10 @@ export function Card(props: CardProps): ReactNode {
   return (
     <section
       aria-label={props['aria-label']}
-      className={cn(blueprintFrame, 'flex flex-col gap-4 p-6', className)}
+      // A resting shadow, not a hover one. The card is a surface in front of the ground rather
+      // than something that lifts when noticed, and depth that only appears under a pointer is
+      // depth that never exists on a touch screen or under a keyboard.
+      className={cn(blueprintFrame, 'flex flex-col gap-4 bg-surface p-6 shadow-sm', className)}
     >
       {/* A plain div rather than a <header>: the only banner in the document is the application
           header, and a card announcing itself as one would put two in the landmark list. */}
@@ -56,8 +59,6 @@ export function Card(props: CardProps): ReactNode {
       </div>
 
       {children}
-
-      <RegistrationMarks />
     </section>
   );
 }

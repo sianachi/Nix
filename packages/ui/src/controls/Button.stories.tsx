@@ -35,7 +35,7 @@ type Story = StoryObj<typeof meta>;
 
 // ── Variants ──────────────────────────────────────────────────────────────
 
-/** The one solid accent object on the board, registration marks and all. */
+/** The one solid accent object on the board. */
 export const Primary: Story = {
   args: { variant: 'primary' },
 };

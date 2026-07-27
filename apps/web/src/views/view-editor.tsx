@@ -174,7 +174,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                     onChange={(event) => {
                       update(index, { kind: event.target.value });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {VIEW_KINDS.map((descriptor) => (
                       <option key={descriptor.kind} value={descriptor.kind}>
@@ -248,7 +248,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                           ...configures.clears,
                         });
                       }}
-                      className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       <option value="">Choose a property</option>
                       {usable.map((property) => (

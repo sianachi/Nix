@@ -20,12 +20,10 @@
  * origins, and a font CDN would send every reader's IP to a third party -
  * awkward for a product whose pitch is tenant isolation and auditability.
  *
- * Barlow Condensed 400/600 for headings, Barlow 400/500/600 for body, matching
- * the families the token sheet names. Adding a weight here means adding it to
+ * Nunito Sans 400/600/700 - one family for headings and body, told apart by
+ * weight rather than by a second face. Adding a weight here means adding it to
  * the token sheet's intent too, not just importing more bytes.
  */
-@import '@fontsource/barlow-condensed/400.css';
-@import '@fontsource/barlow-condensed/600.css';
-@import '@fontsource/barlow/400.css';
-@import '@fontsource/barlow/500.css';
-@import '@fontsource/barlow/600.css';
+@import '@fontsource/nunito-sans/400.css';
+@import '@fontsource/nunito-sans/600.css';
+@import '@fontsource/nunito-sans/700.css';

@@ -13,35 +13,65 @@ const themeCss = readFileSync(join(packageDir, 'src', 'theme.css'), 'utf8');
  * report the dark value for every role and quietly assert nothing about the light one. Splitting on
  * the media query is what keeps each ground's assertions about that ground.
  */
-function splitByGround(css: string): { light: string; dark: string } {
-  // Strip comments first so commented-out declarations never count.
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const darkStart = withoutComments.indexOf('@media (prefers-color-scheme: dark)');
-
-  if (darkStart === -1) {
-    return { light: withoutComments, dark: '' };
-  }
-
-  // The dark ground is a runtime :root override rather than a second @theme block, because
-  // Tailwind flattens every theme block it finds regardless of what wraps it. Splitting on the
-  // media query is still what keeps each ground's assertions about that ground.
+/**
+ * The span of the block whose opening brace follows `from`, braces balanced.
+ *
+ * Returned as a half-open range so a caller can either keep it or cut it out.
+ */
+function blockAt(css: string, from: number): { start: number; end: number } {
+  let index = css.indexOf('{', from);
+  const start = index;
   let depth = 0;
-  let index = withoutComments.indexOf('{', darkStart);
-  const blockStart = index;
 
-  while (index < withoutComments.length) {
-    if (withoutComments[index] === '{') depth += 1;
-    if (withoutComments[index] === '}') {
+  while (index < css.length) {
+    if (css[index] === '{') depth += 1;
+    if (css[index] === '}') {
       depth -= 1;
       if (depth === 0) break;
     }
     index += 1;
   }
 
-  return {
-    light: withoutComments.slice(0, darkStart) + withoutComments.slice(index + 1),
-    dark: withoutComments.slice(blockStart, index + 1),
-  };
+  return { start, end: index + 1 };
+}
+
+/**
+ * Splits the sheet into what each ground declares.
+ *
+ * **Both dark blocks are cut out of the light ground, not just the media query.** The sheet states
+ * the dark ground twice - once for the system preference and once for an explicit choice - and the
+ * second one is a plain `:root` rule that a naive read counts as light. Since it comes last, its
+ * declarations win the map, and a light-ground assertion silently reads a dark value.
+ *
+ * That was live for as long as both grounds happened to override the same properties: a test
+ * comparing two roles would compare their dark values and pass, meaning nothing. It surfaced when
+ * the two grounds started declaring shadows of different *shapes* rather than different colours.
+ */
+function splitByGround(css: string): { light: string; dark: string } {
+  // Strip comments first so commented-out declarations never count.
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const mediaStart = withoutComments.indexOf('@media (prefers-color-scheme: dark)');
+  const attributeStart = withoutComments.search(/:root\[data-theme=['"]dark['"]\]/);
+
+  let light = withoutComments;
+  let dark = '';
+
+  // Cut from the back so the earlier offset stays valid.
+  for (const start of [mediaStart, attributeStart].sort((a, b) => b - a)) {
+    if (start === -1) {
+      continue;
+    }
+
+    const block = blockAt(light, start);
+    if (start === mediaStart) {
+      dark = light.slice(block.start, block.end);
+    }
+
+    light = light.slice(0, start) + light.slice(block.end);
+  }
+
+  return { light, dark };
 }
 
 /** Every custom property declared in one ground, by name (without the leading dashes). */
@@ -150,22 +180,31 @@ describe('semantic roles', () => {
 });
 
 describe('type', () => {
-  it('sets the heading face to the Barlow Condensed stack', () => {
-    const heading = getProperty('font-heading');
-    expect(heading).toContain('Barlow Condensed');
-    expect(heading).toContain('system-ui');
-    expect(heading).toContain('sans-serif');
+  it('sets both faces to the Nunito Sans stack', () => {
+    // One family, told apart by weight. The reference paired a condensed face with a normal one,
+    // and the condensed cut was most of what made the product read as a technical drawing.
+    for (const role of ['font-heading', 'font-body']) {
+      const face = getProperty(role);
+      expect(face).toContain('Nunito Sans');
+      expect(face).toContain('system-ui');
+      expect(face).toContain('sans-serif');
+    }
   });
 
-  it('sets the body face to the Barlow stack', () => {
-    const body = getProperty('font-body');
-    expect(body).toMatch(/['"]Barlow['"]/);
-    expect(body).toContain('system-ui');
-    expect(body).toContain('sans-serif');
+  it('always falls back to a face that exists', () => {
+    // The webfont can fail to load - a blocked origin, a slow network, a reader who turned
+    // webfonts off. Every stack ends in a generic family so the page renders in something rather
+    // than in whatever the browser picks when it reaches the end of a list it cannot satisfy.
+    for (const role of ['font-heading', 'font-body']) {
+      expect(getProperty(role).trim().endsWith('sans-serif')).toBe(true);
+    }
   });
 
-  it('carries the heading weight as a plain custom property', () => {
-    expect(getProperty('font-heading-weight')).toBe('600');
+  it('carries a heading weight heavy enough to separate from body text', () => {
+    // 700 rather than the 600 the condensed face used. A rounded, wider face at 600 does not part
+    // company with body text the way a narrow one did at the same weight, so headings stopped
+    // reading as headings.
+    expect(getProperty('font-heading-weight')).toBe('700');
   });
 });
 
@@ -184,19 +223,60 @@ describe('spacing, radius, elevation', () => {
   });
 
   it('carries the radius steps verbatim', () => {
-    expect(getProperty('radius-sm')).toBe('2px');
-    expect(getProperty('radius-md')).toBe('4px');
-    expect(getProperty('radius-lg')).toBe('7px');
+    expect(getProperty('radius-sm')).toBe('4px');
+    expect(getProperty('radius-md')).toBe('8px');
+    expect(getProperty('radius-lg')).toBe('14px');
   });
 
-  it('carries the shadow tokens verbatim', () => {
-    expect(getProperty('shadow-sm')).toBe('0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent)');
-    expect(getProperty('shadow-md')).toBe(
-      '0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent)',
+  it('scales the radius to what it sits on', () => {
+    // Each step roughly doubles. One radius for everything looks sharp on a dialog and bulbous on
+    // a tag, because a corner reads relative to the box it turns.
+    const steps = ['radius-sm', 'radius-md', 'radius-lg'].map((step) =>
+      Number.parseInt(getProperty(step), 10),
     );
-    expect(getProperty('shadow-lg')).toBe(
-      '0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent)',
-    );
+
+    expect(steps).toEqual([...steps].sort((a, b) => a - b));
+    expect(new Set(steps).size).toBe(steps.length);
+  });
+
+  it('gives every shadow a contact layer and an ambient one', () => {
+    // One blur tries to say both "this edge is lifted" and "by this much", and reads as a smudge
+    // attempting neither. Two layers say them separately.
+    for (const step of ['shadow-sm', 'shadow-md', 'shadow-lg']) {
+      expect(
+        getProperty(step)
+          .split(',')
+          .filter((part) => part.includes('px')).length,
+      ).toBe(2);
+    }
+  });
+
+  it('tints the paper shadows with ink rather than black', () => {
+    // A black shadow on paper is a grey rectangle. The ramp's own dark end reads as a shadow.
+    for (const step of ['shadow-sm', 'shadow-md', 'shadow-lg']) {
+      expect(getProperty(step)).toContain('#2b2b2d');
+      expect(getProperty(step)).not.toContain('#000000');
+    }
+  });
+
+  it('rebuilds them from true black on ink', () => {
+    // Not the paper shadows at a higher alpha: #2b2b2d is a hair off the dark background, so a
+    // shadow made from it is invisible - which is exactly why the dark ground looked flat.
+    for (const step of ['shadow-sm', 'shadow-md', 'shadow-lg']) {
+      expect(getDarkProperty(step)).toContain('#000000');
+      expect(getDarkProperty(step)).not.toContain('#2b2b2d');
+    }
+  });
+
+  it('spends more shadow on ink than on paper', () => {
+    // A dark interface has less contrast to spend on edges, so the shadow carries more of the work
+    // of saying which surface is in front.
+    const alphaOf = (value: string): number =>
+      Math.max(...[...value.matchAll(/(\d+)%/g)].map((match) => Number(match[1])));
+
+    for (const step of ['shadow-sm', 'shadow-md', 'shadow-lg']) {
+      expect(alphaOf(getDarkProperty(step))).toBeGreaterThan(alphaOf(getProperty(step)));
+    }
   });
 });
 

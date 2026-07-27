@@ -16,19 +16,25 @@ describe('Blueprint', () => {
     expect(frame).toHaveTextContent('Contract draft');
   });
 
-  it('is square-cornered, with no way to ask for a radius', () => {
+  it('turns its corner on the scale, with no way to ask for a different radius', () => {
     const { container } = render(<Blueprint />);
 
-    expect(container.firstElementChild?.className).toContain('rounded-none');
+    // A token step rather than a literal: the radius is a themed value like the border colour, and
+    // a caller passing `rounded-xl` through className would be restyling the frame's contract.
+    expect(container.firstElementChild?.className).toContain('rounded-md');
+    expect(container.firstElementChild?.className).not.toMatch(/rounded-\[/);
   });
 
-  it('draws four registration marks', () => {
+  it('draws no decoration of its own', () => {
     const { container } = render(<Blueprint />);
 
-    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(4);
+    // It used to draw four "+" registration marks straddling the corners. They went when the
+    // corners rounded: a crosshair registers a corner, so on a curve it sits beside the thing it
+    // is pointing at. See ADR-0011.
+    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
-  it('keeps the registration marks out of the accessibility tree and out of pointer events', () => {
+  it('leaves the accessibility tree to its content', () => {
     const { container } = render(
       <Blueprint>
         <button type="button">Open</button>

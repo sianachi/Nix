@@ -5,8 +5,8 @@ import { cn } from '../lib/cn';
 
 /**
  * <Text> - the typography primitive. Every string the product renders goes
- * through it, so the Industry pairing (Barlow Condensed headings over Barlow
- * body) and the type scale exist in exactly one place.
+ * through it, so the pairing - one family, headings told apart by weight - and
+ * the type scale exist in exactly one place.
  *
  * Two rules are encoded here rather than left to discipline:
  *

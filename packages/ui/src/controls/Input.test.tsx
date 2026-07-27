@@ -46,11 +46,11 @@ describe('Input', () => {
     expect(screen.getByRole('textbox', { name: 'Title' })).toBeInvalid();
   });
 
-  it('keeps square corners in every tone', () => {
+  it('turns the same corner in every tone', () => {
     const { rerender } = render(<Input aria-label="Title" />);
-    expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-none');
+    expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-md');
 
     rerender(<Input aria-label="Title" tone="plain" />);
-    expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-none');
+    expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-md');
   });
 });

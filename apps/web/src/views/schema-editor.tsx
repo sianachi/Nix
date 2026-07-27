@@ -165,7 +165,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                         options: hasOptions(type) ? property.options : [],
                       });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -205,7 +205,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                       });
                     }}
                     rows={3}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 )}
               </Field>

@@ -113,9 +113,16 @@
   --color-accent-fill-hover: var(--color-accent-800);
   --color-accent-fill-pressed: var(--color-accent-900);
 
-  /* ══ Type ═════════════════════════════════════════════════════════════ */
-  --font-heading: 'Barlow Condensed', system-ui, sans-serif;
-  --font-body: 'Barlow', system-ui, sans-serif;
+  /* ══ Type ═════════════════════════════════════════════════════════════
+     One family, told apart by weight rather than by a second face.
+
+     The reference paired Barlow Condensed with Barlow, and the condensed face
+     was doing most of the work of making the product feel like a technical
+     drawing - narrow, upright, engineered. Nunito Sans is the opposite
+     instruction: rounded terminals, open counters, and no condensed cut to
+     reach for. See ADR-0011. */
+  --font-heading: 'Nunito Sans', system-ui, sans-serif;
+  --font-body: 'Nunito Sans', system-ui, sans-serif;
 
   /* ══ Type scale ═══════════════════════════════════════════════════════
      Nine steps, derived from the Industry reference rather than invented:
@@ -141,9 +148,9 @@
   --text-2xl: 28px;
   --text-3xl: 40px;
 
-  /* Line heights, paired with the steps above. Tight for the condensed
-     headings, which are set large and would otherwise sit too far apart;
-     open for body copy, which is read in paragraphs. */
+  /* Line heights, paired with the steps above. Tight for the large heading
+     steps, which would otherwise sit too far apart; open for body copy, which
+     is read in paragraphs. */
   --text-2xs--line-height: 1.4;
   --text-xs--line-height: 1.4;
   --text-sm--line-height: 1.45;
@@ -171,25 +178,47 @@
   --control-md: 36px;
   --control-lg: 44px;
 
-  /* ══ Radius ═══════════════════════════════════════════════════════════ */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 7px;
+  /* ══ Radius ═══════════════════════════════════════════════════════════
+     Three steps, each roughly doubling, scaled to what they sit on: a tag is
+     small enough that 4px reads as rounded, a dialog needs 14px to read the
+     same way at its size. A single radius applied to both would look sharp on
+     one and bulbous on the other.
 
-  /* ══ Elevation — soft ink-tinted shadows tuned to the light ground ════ */
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #2b2b2d 14%, transparent);
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2b2b2d 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2b2b2d 22%, transparent);
+     They were 2/4/7 and used nowhere - every surface said rounded-none. See
+     ADR-0011 for why the square-corner rule went. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* ══ Elevation ════════════════════════════════════════════════════════
+     Two layers each: a tight contact shadow that says the edge is lifted, and
+     a wider ambient one that says how far. A single blur does one or the
+     other and reads as a smudge attempting both.
+
+     Ink-tinted rather than black, so a shadow on paper is a shadow and not a
+     grey rectangle. The dark ground overrides all three - see the note
+     there. */
+  --shadow-sm:
+    0 1px 1px color-mix(in srgb, #2b2b2d 10%, transparent),
+    0 2px 4px color-mix(in srgb, #2b2b2d 8%, transparent);
+  --shadow-md:
+    0 2px 4px color-mix(in srgb, #2b2b2d 10%, transparent),
+    0 6px 16px color-mix(in srgb, #2b2b2d 12%, transparent);
+  --shadow-lg:
+    0 4px 8px color-mix(in srgb, #2b2b2d 12%, transparent),
+    0 16px 40px color-mix(in srgb, #2b2b2d 20%, transparent);
 }
 
 /* ══ Source tokens with no Tailwind v4 @theme namespace ═════════════════
    Carried verbatim as plain custom properties so nothing from the sheet is
    dropped. Consume with var(). */
 :root {
-  /* Heading weight (Barlow Condensed 600). Not registered as
+  /* Heading weight (Nunito Sans 700). Heavier than the 600 the condensed face
+     needed: a rounded, wider face at 600 does not separate from body text the
+     way a narrow one did at the same weight. Not registered as
      --font-weight-heading: that would generate a font-weight utility named
      font-heading, colliding with the font-family utility of the same name. */
-  --font-heading-weight: 600;
+  --font-heading-weight: 700;
 
   /* The sheet's named spacing steps, verbatim, for var() consumers. The
      @theme --spacing base above yields the identical scale as utilities. */
@@ -259,6 +288,25 @@
     --color-accent-fill: var(--color-accent-300);
     --color-accent-fill-hover: var(--color-accent-200);
     --color-accent-fill-pressed: var(--color-accent-100);
+
+    /* ── Elevation on ink ────────────────────────────────────────────────
+       Not the paper shadows at a higher alpha. On paper a shadow is ink
+       spilling onto white and the ramp's own dark end reads as one; on ink,
+       #2b2b2d is a hair off the background and a shadow made from it is
+       invisible - the very state that made the dark ground look flat.
+
+       So: true black, and much more of it. A dark interface has less
+       contrast to spend on edges, so the shadow has to carry more of the
+       work of saying which surface is in front. */
+    --shadow-sm:
+      0 1px 1px color-mix(in srgb, #000000 40%, transparent),
+      0 2px 4px color-mix(in srgb, #000000 28%, transparent);
+    --shadow-md:
+      0 2px 4px color-mix(in srgb, #000000 44%, transparent),
+      0 6px 16px color-mix(in srgb, #000000 36%, transparent);
+    --shadow-lg:
+      0 4px 8px color-mix(in srgb, #000000 48%, transparent),
+      0 16px 40px color-mix(in srgb, #000000 52%, transparent);
   }
 }
 
@@ -284,6 +332,18 @@
   --color-accent-fill: var(--color-accent-300);
   --color-accent-fill-hover: var(--color-accent-200);
   --color-accent-fill-pressed: var(--color-accent-100);
+
+  /* True black and much more of it - see the note in the media query above
+     for why the paper shadows cannot simply be reused at a higher alpha. */
+  --shadow-sm:
+    0 1px 1px color-mix(in srgb, #000000 40%, transparent),
+    0 2px 4px color-mix(in srgb, #000000 28%, transparent);
+  --shadow-md:
+    0 2px 4px color-mix(in srgb, #000000 44%, transparent),
+    0 6px 16px color-mix(in srgb, #000000 36%, transparent);
+  --shadow-lg:
+    0 4px 8px color-mix(in srgb, #000000 48%, transparent),
+    0 16px 40px color-mix(in srgb, #000000 52%, transparent);
 }
 
 :root[data-theme='light'] {

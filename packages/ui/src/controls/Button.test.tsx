@@ -83,12 +83,14 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: 'Add block' })).toBeInTheDocument();
   });
 
-  it('keeps the registration marks on the primary button and nowhere else', () => {
-    const { container: primary } = render(<Button variant="primary">Publish</Button>);
-    expect(primary.querySelectorAll('[aria-hidden="true"]')).toHaveLength(4);
-
-    const { container: secondary } = render(<Button variant="secondary">Discard</Button>);
-    expect(secondary.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+  it('draws no decoration on any variant', () => {
+    // The primary button used to wear four "+" registration marks, which is what marked it as the
+    // one solid object in the Industry grammar. It is now marked by being filled, and nothing
+    // else - see ADR-0011.
+    for (const variant of ['primary', 'secondary'] as const) {
+      const { container } = render(<Button variant={variant}>Publish</Button>);
+      expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+    }
   });
 
   it('fills the primary button from the accent role built for a fill', () => {
@@ -137,11 +139,11 @@ describe('Button', () => {
     );
   });
 
-  it('is square-cornered in every variant', () => {
+  it('turns the same corner as a card, in every variant', () => {
     for (const variant of ['primary', 'secondary', 'ghost'] as const) {
       const { container } = render(<Button variant={variant}>Act</Button>);
       const button = container.querySelector('button');
-      expect(button?.className).toContain('rounded-none');
+      expect(button?.className).toContain('rounded-md');
     }
   });
 
