@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { clearViewState } from '../views/view-state';
+
 /**
  * Which item is open, held in the URL.
  *
@@ -55,6 +57,12 @@ export function useSelectedItem(): SelectedItemControl {
   const select = useCallback(
     (itemId: string): void => {
       const next = new URLSearchParams(searchParams);
+
+      // The view, sort and filters belonged to the item being left, and every item can carry views
+      // of its own now. Left in place, opening a sibling that happens to have a view with the same
+      // id would land on a board nobody asked for - and one that does not would look like the
+      // choice had been ignored.
+      clearViewState(next);
       next.set(SELECTED_ITEM_PARAM, itemId);
       setSearchParams(next);
     },

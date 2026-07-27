@@ -1,8 +1,9 @@
 import { Icon } from '@nix/ui';
-import { List as ListIcon, TriangleAlert } from 'lucide-react';
+import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import type { View } from './container-model';
+import { DOCUMENT_VIEW, type View } from './container-model';
 import { findViewKind } from './view-kinds';
 
 /**
@@ -17,6 +18,12 @@ import { findViewKind } from './view-kinds';
  * Hiding it would be worse: somebody who configured a board and then deleted the property it
  * groups by needs to find that board in order to fix it, and a switcher that quietly dropped it
  * would leave them with no way back to their own configuration.
+ *
+ * **The document is the first entry, and it is not one of the views.** An item's body and its
+ * views answer different questions - the body is the item's own content, a view renders its
+ * children - but only one of them is on screen at a time, so one control chooses between them.
+ * That is why the document is passed as a flag rather than smuggled in as a fourth view kind: it
+ * has no configuration, cannot be reordered or deleted, and is the one entry every item has.
  */
 
 export interface ViewSwitcherProps {
@@ -24,17 +31,35 @@ export interface ViewSwitcherProps {
   readonly unrenderable: readonly string[];
   readonly activeViewId: string | null;
   readonly onSelect: (viewId: string) => void;
+
+  /** What to call the item's own body. Omit to leave the document out entirely. */
+  readonly documentLabel?: string;
 }
 
 export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
-  const { views, unrenderable, activeViewId, onSelect } = props;
+  const { views, unrenderable, activeViewId, onSelect, documentLabel } = props;
 
+  // Nothing to choose between. An item nobody has configured a view on shows its body and no
+  // chrome at all, which is every plain note - a lone "Document" tab would be a control with one
+  // option, taking up a row to say what the screen already shows.
   if (views.length === 0) {
     return null;
   }
 
   return (
     <nav aria-label="Views" className="flex items-center gap-1 px-4 py-1.5">
+      {documentLabel === undefined ? null : (
+        <SwitcherTab
+          icon={FileText}
+          label={documentLabel}
+          active={activeViewId === DOCUMENT_VIEW}
+          broken={false}
+          onSelect={() => {
+            onSelect(DOCUMENT_VIEW);
+          }}
+        />
+      )}
+
       {views.map((view) => {
         const active = view.id === activeViewId;
         const broken = unrenderable.includes(view.id);
@@ -43,37 +68,57 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
         const icon = findViewKind(view.kind)?.icon ?? ListIcon;
 
         return (
-          <button
+          <SwitcherTab
             key={view.id}
-            type="button"
-            // aria-current rather than aria-selected: these are not tabs in the ARIA sense - each
-            // one is a destination within the container, and the pattern a screen reader should
-            // announce is "current", not a tablist we would then owe arrow-key navigation.
-            aria-current={active ? 'page' : undefined}
-            onClick={() => {
+            icon={icon}
+            label={view.name}
+            active={active}
+            broken={broken}
+            onSelect={() => {
               onSelect(view.id);
             }}
-            className={[
-              'flex items-center gap-1.5 border px-2 py-1 text-sm',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-              active
-                ? 'border-divider bg-foreground/7 text-foreground'
-                : 'border-transparent text-muted hover:bg-foreground/5',
-            ].join(' ')}
-          >
-            <Icon icon={icon} size="sm" />
-            {view.name}
-            {broken ? (
-              <>
-                <Icon icon={TriangleAlert} size="sm" />
-                {/* The mark is not colour alone, and it is not icon alone either: a name a screen
-                    reader reads out has to carry the same warning the eye gets. */}
-                <span className="sr-only">(needs attention)</span>
-              </>
-            ) : null}
-          </button>
+          />
         );
       })}
     </nav>
+  );
+}
+
+interface SwitcherTabProps {
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly active: boolean;
+  readonly broken: boolean;
+  readonly onSelect: () => void;
+}
+
+function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps): ReactNode {
+  return (
+    <button
+      type="button"
+      // aria-current rather than aria-selected: these are not tabs in the ARIA sense - each one is
+      // a destination within the item, and the pattern a screen reader should announce is
+      // "current", not a tablist we would then owe arrow-key navigation.
+      aria-current={active ? 'page' : undefined}
+      onClick={onSelect}
+      className={[
+        'flex items-center gap-1.5 border px-2 py-1 text-sm',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        active
+          ? 'border-divider bg-foreground/7 text-foreground'
+          : 'border-transparent text-muted hover:bg-foreground/5',
+      ].join(' ')}
+    >
+      <Icon icon={icon} size="sm" />
+      {label}
+      {broken ? (
+        <>
+          <Icon icon={TriangleAlert} size="sm" />
+          {/* The mark is not colour alone, and it is not icon alone either: a name a screen reader
+              reads out has to carry the same warning the eye gets. */}
+          <span className="sr-only">(needs attention)</span>
+        </>
+      ) : null}
+    </button>
   );
 }

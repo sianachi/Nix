@@ -14,13 +14,23 @@ import { vi } from 'vitest';
 
 export interface StubItem {
   readonly id: string;
+  readonly workspaceId: string;
   readonly title: string;
   readonly type: string;
   readonly parentId: string | null;
   readonly hasChildren: boolean;
   readonly seq: number;
   readonly lifecycleState: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
+
+/** The workspace every stub item belongs to, matching what the app reads from its environment. */
+const STUB_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
+
+/** A container's views, keyed by the item that offers them. */
+export type StubViews = Readonly<Record<string, { views: readonly unknown[]; default: string }>>;
 
 export interface StubOptions {
   readonly isTenantAdministrator?: boolean;
@@ -31,10 +41,17 @@ export interface StubOptions {
   readonly profileFails?: boolean;
   /** Makes the tree request fail. */
   readonly treeFails?: boolean;
+
+  /**
+   * Views per item. Anything not listed offers none, which is what an item nobody has configured
+   * reports and therefore what most tests want.
+   */
+  readonly views?: StubViews;
 }
 
 export function item(overrides: Partial<StubItem> & { id: string; title: string }): StubItem {
   return {
+    workspaceId: STUB_WORKSPACE_ID,
     type: 'note',
     parentId: null,
 
@@ -43,6 +60,13 @@ export function item(overrides: Partial<StubItem> & { id: string; title: string 
     hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
+
+    // The full envelope, because a container's children are parsed against the real contract on
+    // the way in. A stub that sent less would make every test about views fail as a contract
+    // mismatch rather than as whatever it was actually asserting.
+    properties: { title: overrides.title },
+    createdAt: '2026-07-27T09:00:00.000Z',
+    updatedAt: '2026-07-27T09:00:00.000Z',
     ...overrides,
   };
 }
@@ -56,6 +80,7 @@ export function stubCoreApi(options: StubOptions = {}): void {
     items = [],
     profileFails = false,
     treeFails = false,
+    views = {},
   } = options;
 
   vi.stubGlobal(
@@ -75,6 +100,24 @@ export function stubCoreApi(options: StubOptions = {}): void {
                 isTenantAdministrator,
               }),
         );
+      }
+
+      // Views and schema are read per item and degrade to nothing when absent, which is the
+      // ordinary case rather than an error - see useContainer.
+      const viewsFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/views$/.exec(url);
+      if (viewsFor !== null) {
+        const offered = views[viewsFor[1] ?? ''];
+        return Promise.resolve(
+          json(
+            offered === undefined
+              ? { views: [], unrenderable: [], default: 'document' }
+              : { views: offered.views, unrenderable: [], default: offered.default },
+          ),
+        );
+      }
+
+      if (/\/api\/v1\/items\/[0-9a-f-]{36}\/schema$/.test(url)) {
+        return Promise.resolve(json({ properties: [], declared: [], inherit: true }));
       }
 
       // A single item by id, which is what revealing a deep link walks up through.

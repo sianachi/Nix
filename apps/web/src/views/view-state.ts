@@ -109,6 +109,30 @@ export function parseFilters(params: URLSearchParams): readonly ViewFilter[] {
   return [...byKey].map(([propertyKey, values]) => ({ propertyKey, values }));
 }
 
+/**
+ * Strips every parameter that belongs to the item being left.
+ *
+ * A view id, a sort and a filter set all name properties of one item's configuration. Carried onto
+ * a different item they are at best meaningless - that item has no view by that id, so it falls
+ * back to its body - and at worst wrong, because two items can easily both have a view called
+ * `by-status` and the second would open on a board nobody asked for, sorted by a property it may
+ * not have.
+ *
+ * Exported so item navigation can call it. It lives here rather than there because this module owns
+ * the parameter names, and a second list of them somewhere else is a list that goes stale.
+ */
+export function clearViewState(params: URLSearchParams): void {
+  params.delete(VIEW_PARAM);
+  params.delete(SORT_PARAM);
+  params.delete(DIRECTION_PARAM);
+
+  for (const name of [...params.keys()]) {
+    if (name.startsWith(FILTER_PREFIX)) {
+      params.delete(name);
+    }
+  }
+}
+
 /** Reads the whole view state out of a query string. Exported for testing without a router. */
 export function parseViewState(params: URLSearchParams): ViewState {
   const viewId = params.get(VIEW_PARAM);
@@ -138,18 +162,11 @@ export function useViewState(): ViewStateControl {
   const selectView = useCallback(
     (viewId: string): void => {
       write((next) => {
-        next.set(VIEW_PARAM, viewId);
-
         // The sort and the filters belonged to the view being left. Carrying them across would
         // apply a board's grouping filter to a calendar, which is not what anybody meant by
         // switching view.
-        next.delete(SORT_PARAM);
-        next.delete(DIRECTION_PARAM);
-        for (const name of [...next.keys()]) {
-          if (name.startsWith(FILTER_PREFIX)) {
-            next.delete(name);
-          }
-        }
+        clearViewState(next);
+        next.set(VIEW_PARAM, viewId);
       }, true);
     },
     [write],

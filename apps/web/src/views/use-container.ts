@@ -26,7 +26,7 @@ export interface SchemaDraft {
  * hooks would give the screen eight loading states to reason about instead of one.
  *
  * **Every state is represented separately.** Loading is not empty, and a failed load is not an
- * empty folder - which is exactly the distinction a view has to draw, since an empty board and a
+ * empty item - which is exactly the distinction a view has to draw, since an empty board and a
  * broken board look identical if you let them.
  */
 
@@ -120,7 +120,7 @@ export function useContainer(containerId: string | null): ContainerData {
           : `/api/v1/workspaces/${WORKSPACE_ID}/items?parentId=${containerId}`;
 
       // In parallel: three independent reads, and the screen needs all three before it can draw
-      // anything. Sequencing them would make opening a folder three round trips deep.
+      // anything. Sequencing them would make opening an item three round trips deep.
       const [childrenResponse, schemaResponse, viewsResponse] = await Promise.all([
         request(childrenPath),
         containerId === null
@@ -137,7 +137,7 @@ export function useContainer(containerId: string | null): ContainerData {
         } | null;
         setError(
           problem?.detail ??
-            `This folder could not be loaded (${String(childrenResponse.status)}).`,
+            `This item\u2019s contents could not be loaded (${String(childrenResponse.status)}).`,
         );
         setStatus('error');
         return;
@@ -151,14 +151,14 @@ export function useContainer(containerId: string | null): ContainerData {
         // A parse failure is telemetry, not a silent fallback: it means the contract moved and
         // this build did not.
         console.warn('An item did not match the contract:', bad.error.message);
-        setError('This folder could not be read.');
+        setError('This item\u2019s contents could not be read.');
         setStatus('error');
         return;
       }
 
       setChildren(parsed.flatMap((result) => (result.success ? [result.data] : [])));
 
-      // The schema and the views are optional context. A workspace root has neither, and a folder
+      // The schema and the views are optional context. A workspace root has neither, and an item
       // whose schema request failed can still show its children - so these degrade rather than
       // failing the screen.
       storeSchema(await readOptional(schemaResponse, EffectiveSchemaSchema));
@@ -322,9 +322,9 @@ export function useContainer(containerId: string | null): ContainerData {
  * Reads a response that the screen can do without.
  *
  * The schema and the views are context rather than content: a workspace root has neither, and a
- * folder whose schema request failed can still show its children. So these degrade to null rather
+ * item whose schema request failed can still show its children. So these degrade to null rather
  * than failing the screen - which is the opposite of how the children are treated, and deliberately
- * so. A folder with no schema is ordinary; a folder whose contents would not parse is not.
+ * so. An item with no schema is ordinary; an item whose contents would not parse is not.
  */
 async function readOptional<TValue>(
   response: Response | null,

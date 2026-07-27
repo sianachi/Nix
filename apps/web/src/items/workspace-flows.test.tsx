@@ -113,10 +113,18 @@ describe('the breadcrumb trail', () => {
     await user.click(up);
 
     // A trail that shows where you are and cannot take you there is a label pretending to be a
-    // control, and everybody tries to click it. Asserted on the container region rather than on the
-    // title, because a folder opens into its views and a note does not - so this says the ancestor
-    // was actually opened rather than merely named somewhere on screen.
-    expect(await screen.findByRole('region', { name: /container/i })).toBeVisible();
+    // control, and everybody tries to click it.
+    //
+    // Asserted on the title field, which is the item that is open. This used to assert on a
+    // container region instead, because a folder opened into its views and a note did not - a
+    // distinction that no longer exists, and the assertion went with it. The trail itself is the
+    // second half: the ancestor is now the last crumb rather than a clickable one, so the screen
+    // agrees about where it is.
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /note title/i })).toHaveValue('Engineering');
+    });
+
+    expect(within(trail).queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
   });
 });
 
