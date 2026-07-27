@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 
 import type { View } from './container-model';
 import type { ContainerData } from './use-container';
+import { TEMPLATES, applyTemplate, type Template } from './templates';
 import { VIEW_KINDS, findViewKind } from './view-kinds';
 
 /**
@@ -94,6 +95,29 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
     });
   }
 
+  /**
+   * Applies a template and closes.
+   *
+   * It writes through the container rather than into this editor's draft, because a template sets
+   * a schema as well as views and the schema is not this form's to hold. Closing on success is the
+   * honest end: what it did is on the screen behind, not in here.
+   */
+  async function applyChosen(template: Template): Promise<void> {
+    setSaving(true);
+    setError(null);
+
+    const refusal = await applyTemplate(template, container);
+
+    setSaving(false);
+
+    if (refusal === null) {
+      onClose();
+      return;
+    }
+
+    setError(refusal);
+  }
+
   async function save(): Promise<void> {
     setSaving(true);
     setError(null);
@@ -145,8 +169,33 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
 
         {draft.length === 0 ? (
           <p className="text-base text-muted">
-            No views yet. Without one, this folder shows a plain list.
+            No views yet. Without one, this item shows a plain list.
           </p>
+        ) : null}
+
+        {/* Offered first, and only while there is nothing configured. Somebody who has already
+            built a view does not want a row of buttons that would add a second one beside it. */}
+        {draft.length === 0 ? (
+          <div className="flex flex-col gap-2 rounded-md bg-surface p-3">
+            <p className="text-sm text-muted">Start from a template</p>
+
+            <div className="flex flex-wrap gap-2">
+              {TEMPLATES.map((template) => (
+                <Button
+                  key={template.id}
+                  variant="secondary"
+                  className="flex-col items-start gap-0.5 px-3 py-2 text-left"
+                  disabled={saving}
+                  onClick={() => {
+                    void applyChosen(template);
+                  }}
+                >
+                  <span>{template.label}</span>
+                  <span className="text-xs text-muted">{template.detail}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         {draft.map((view, index) => (
