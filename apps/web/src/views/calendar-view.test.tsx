@@ -350,4 +350,28 @@ describe('the calendar view', () => {
     expect(screen.getByRole('heading', { name: 'February 2028' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'Tuesday 29 February 2028' })).toBeInTheDocument();
   });
+
+  it('creates an item already dated to the day it was added on', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const create = vi.fn(() => Promise.resolve(null));
+
+    renderAt(
+      <CalendarView
+        container={containerOf({ children: [KICKOFF], create })}
+        view={VIEW}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const day = screen.getByRole('cell', { name: 'Friday 27 March 2026' });
+    await user.click(within(day).getByRole('button', { name: /add an item on friday 27 march/i }));
+    await user.type(
+      screen.getByRole('textbox', { name: /add an item on friday 27 march/i }),
+      'Retro{Enter}',
+    );
+
+    // The same write a drop onto that day makes. Written as text, never as an instant - the suite
+    // runs ten hours west of UTC precisely so a date turned into a moment would land on the 26th.
+    expect(create).toHaveBeenCalledWith('Retro', { due: '2026-03-27' });
+  });
 });

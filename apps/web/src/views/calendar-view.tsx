@@ -12,6 +12,7 @@ import {
   type Item,
   type View,
 } from './container-model';
+import { CreateItemControl } from './create-item-control';
 import type { ContainerData } from './use-container';
 import { useViewState } from './view-state';
 
@@ -332,6 +333,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     setDragged,
     moveTo,
     secondaryKey,
+    onCreate: container.create,
+    dateProperty,
   };
 
   // One clock reading for the whole grid rather than one per cell: the answer cannot change
@@ -531,6 +534,11 @@ interface CardContext {
   readonly setDragged: (itemId: string | null) => void;
   readonly moveTo: (itemId: string, value: string | null) => void;
   readonly secondaryKey: string | null;
+  readonly onCreate: (
+    title: string,
+    properties?: Record<string, unknown>,
+  ) => Promise<string | null>;
+  readonly dateProperty: string;
 }
 
 interface DayCellProps {
@@ -571,7 +579,7 @@ function DayCell(props: DayCellProps): ReactNode {
         }
       }}
       className={cn(
-        'h-24 border border-divider align-top',
+        'group/day h-24 border border-divider align-top',
         isToday ? 'bg-accent/18' : '',
         over && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
@@ -590,6 +598,18 @@ function DayCell(props: DayCellProps): ReactNode {
             ))}
           </ul>
         )}
+
+        {/* Created already dated to this day - the same write a drop onto it makes. Revealed on
+            hover and on focus, following the tree's delete control: forty-two always-visible
+            buttons would be more plus signs than calendar, but one that only exists for a pointer
+            would be a way to add things that a keyboard does not have. */}
+        <CreateItemControl
+          compact
+          label={`Add an item on ${name}`}
+          properties={{ [card.dateProperty]: cell.date }}
+          onCreate={card.onCreate}
+          className="invisible mt-auto self-start focus-within:visible focus-visible:visible group-hover/day:visible"
+        />
       </div>
     </td>
   );

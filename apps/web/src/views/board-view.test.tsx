@@ -419,4 +419,53 @@ describe('the board view', () => {
 
     expect(screen.getByText('Ada')).toBeVisible();
   });
+
+  it('creates a card already in the column it was added to', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(() => Promise.resolve(null));
+
+    renderAt(
+      <BoardView
+        container={aContainer({
+          schema: schemaOf(STATUS, OWNER),
+          views: views([viewOf()]),
+          children: [itemOf({ id: 'a', title: 'Existing', properties: { status: 'Todo' } })],
+          create,
+        })}
+        view={viewOf()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add an item to Doing' }));
+    await user.type(screen.getByRole('textbox', { name: 'Add an item to Doing' }), 'Search{Enter}');
+
+    // The same write a drag makes. A card added to a column and a card dragged to it must end up
+    // holding the same value, or the two gestures mean different things.
+    expect(create).toHaveBeenCalledWith('Search', { status: 'Doing' });
+  });
+
+  it('creates without a value in the unset column', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(() => Promise.resolve(null));
+
+    renderAt(
+      <BoardView
+        container={aContainer({
+          schema: schemaOf(STATUS, OWNER),
+          views: views([viewOf()]),
+          children: [itemOf({ id: 'a', title: 'Existing', properties: { status: 'Todo' } })],
+          create,
+        })}
+        view={viewOf()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /add an item without a status/i }));
+    await user.type(screen.getByRole('textbox'), 'Unsorted{Enter}');
+
+    // Null, not the empty string - the same distinction the drag path makes.
+    expect(create).toHaveBeenCalledWith('Unsorted', { status: null });
+  });
 });

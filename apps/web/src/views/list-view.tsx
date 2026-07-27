@@ -11,6 +11,7 @@ import {
   type PropertyDefinition,
   type View,
 } from './container-model';
+import { CreateItemControl } from './create-item-control';
 import type { ContainerData } from './use-container';
 import { useViewState, type SortDirection } from './view-state';
 
@@ -136,6 +137,13 @@ export function ListView(props: ListViewProps): ReactNode {
         >
           Clear filters
         </Button>
+      ) : null}
+
+      {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
+          enter the row-header inventory that eleven assertions compare against exactly - so it
+          would be a create affordance that broke tests about columns. */}
+      {container.status === 'ready' ? (
+        <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
       ) : null}
     </div>
   );

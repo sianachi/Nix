@@ -17,6 +17,7 @@ import {
   type PropertyDefinition,
   type View,
 } from './container-model';
+import { CreateItemControl } from './create-item-control';
 import type { ContainerData } from './use-container';
 import { useViewState } from './view-state';
 
@@ -115,6 +116,10 @@ export function BoardView(props: BoardViewProps): ReactNode {
       <EmptyPanel
         title="Nothing in here yet"
         detail="Nothing has been added here yet. Items added to this one appear on the board as cards."
+        // An empty state is exactly when somebody most needs the way out of it. Without a column to
+        // add to there is no value to set, so this makes an item with none - it lands in the unset
+        // column, which is where an item with no status belongs.
+        action={<CreateItemControl label="Add the first item" onCreate={container.create} />}
       />
     );
   }
@@ -202,6 +207,8 @@ export function BoardView(props: BoardViewProps): ReactNode {
       <div className="flex min-h-0 items-start gap-3 overflow-x-auto pb-2">
         {columns.map((column) => (
           <BoardColumnPanel
+            onCreate={container.create}
+            groupKey={key}
             key={column.value ?? UNSET_VALUE}
             column={column}
             columns={columns}
@@ -229,11 +236,27 @@ interface BoardColumnPanelProps {
   readonly setDragged: (itemId: string | null) => void;
   readonly onMove: (item: Item, value: string | null) => void;
   readonly onOpen: (itemId: string) => void;
+  readonly onCreate: (
+    title: string,
+    properties?: Record<string, unknown>,
+  ) => Promise<string | null>;
+  readonly groupKey: string;
 }
 
 function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
-  const { column, columns, property, cardProperties, schema, dragged, setDragged, onMove, onOpen } =
-    props;
+  const {
+    column,
+    columns,
+    property,
+    cardProperties,
+    schema,
+    dragged,
+    setDragged,
+    onMove,
+    onOpen,
+    onCreate,
+    groupKey,
+  } = props;
 
   const [dropTarget, setDropTarget] = useState(false);
 
@@ -307,6 +330,20 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
           ))}
         </ul>
       )}
+
+      {/* Created already in this column, rather than created loose and then dragged. The value the
+          column stands for is the value the item gets, which is the same write a drag makes - see
+          `move` above. */}
+      <CreateItemControl
+        label={
+          column.value === null
+            ? `Add an item without a ${property.label.toLowerCase()}`
+            : `Add an item to ${column.label}`
+        }
+        properties={{ [groupKey]: column.value }}
+        onCreate={onCreate}
+        className="mt-1 self-start"
+      />
     </section>
   );
 }
