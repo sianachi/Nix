@@ -43,6 +43,10 @@ internal sealed record ViewResponse(
 /// Identifiers of views whose configured property no longer exists or no longer fits - a board
 /// grouping by a property somebody deleted, say.
 /// </param>
+/// <param name="Default">
+/// Which view opens: a view's id, or <c>document</c> for the item's own body. Already resolved, so
+/// a default naming a deleted view arrives as <c>document</c> rather than as a dangling id.
+/// </param>
 /// <remarks>
 /// <b><see cref="Unrenderable"/> is the honest-state field.</b> Without it, such a board renders as
 /// an empty board, which is indistinguishable from an empty folder and sends somebody looking for
@@ -50,17 +54,22 @@ internal sealed record ViewResponse(
 /// </remarks>
 internal sealed record ContainerViewsResponse(
     IReadOnlyList<ViewResponse> Views,
-    IReadOnlyList<string> Unrenderable);
+    IReadOnlyList<string> Unrenderable,
+    string Default);
 
 /// <summary>
 /// Replaces every view a container offers.
 /// </summary>
 /// <param name="Views">The views, in switcher order.</param>
+/// <param name="Default">
+/// Which view should open: a view's id, or <c>document</c> (or absent) for the item's own body.
+/// Refused when it names a view this request does not also contain.
+/// </param>
 /// <remarks>
 /// A whole-set replacement because the order is part of what is being edited, and reordering
 /// through per-view endpoints is a sequence of writes that can half-apply.
 /// </remarks>
-internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views);
+internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views, string? Default);
 
 /// <summary>One view being configured. Mirrors <see cref="ViewResponse"/>.</summary>
 /// <param name="Id">Stable across renames.</param>

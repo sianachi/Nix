@@ -51,8 +51,24 @@ export interface ContainerData {
    */
   readonly setSchema: (schema: SchemaDraft) => Promise<string | null>;
 
-  /** Replaces the views this container offers, in switcher order. */
-  readonly setViews: (views: readonly View[]) => Promise<string | null>;
+  /**
+   * Replaces the views this container offers, in switcher order.
+   *
+   * The default is carried across untouched unless it is passed, so an edit that was not about
+   * which view opens does not quietly reset it.
+   */
+  readonly setViews: (
+    views: readonly View[],
+    defaultView?: string | null,
+  ) => Promise<string | null>;
+
+  /**
+   * Remembers which view opens, when somebody deliberately switches to it.
+   *
+   * Never called for a URL that merely arrived carrying `?view=`. See the implementation for why
+   * that distinction is the whole of this feature's risk.
+   */
+  readonly setDefaultView: (viewId: string) => Promise<string | null>;
 
   /** The last property write that failed, for a view to report without losing the item. */
   readonly writeError: string | null;
@@ -247,14 +263,44 @@ export function useContainer(containerId: string | null): ContainerData {
   );
 
   const setViews = useCallback(
-    async (next: readonly View[]): Promise<string | null> => {
+    async (next: readonly View[], defaultView?: string | null): Promise<string | null> => {
       if (containerId === null) {
         return 'A workspace root cannot offer views.';
       }
 
-      return await replace(`/api/v1/items/${containerId}/views`, { views: next });
+      // The default is sent as it stands unless the caller says otherwise. Omitting it on an edit
+      // that was not about the default would reset it to the document, so somebody renaming a view
+      // would find the item opening somewhere else afterwards.
+      return await replace(`/api/v1/items/${containerId}/views`, {
+        views: next,
+        default: defaultView === undefined ? (views?.default ?? null) : defaultView,
+      });
     },
-    [containerId, replace],
+    [containerId, replace, views],
+  );
+
+  /**
+   * Remembers which view opens.
+   *
+   * **Called from a deliberate switch and from nowhere else.** Arriving at a URL that already
+   * carries `?view=` must not write anything: a shared link would otherwise rewrite the default for
+   * everybody in the workspace, silently, for the person who followed it. That rule is kept by
+   * where this is called rather than by a check inside it - there is no effect watching the URL,
+   * so there is nothing to get wrong.
+   */
+  const setDefaultView = useCallback(
+    async (viewId: string): Promise<string | null> => {
+      if (containerId === null || views === null) {
+        return null;
+      }
+
+      if (views.default === viewId) {
+        return null;
+      }
+
+      return await setViews(views.views, viewId);
+    },
+    [containerId, setViews, views],
   );
 
   return {
@@ -265,6 +311,7 @@ export function useContainer(containerId: string | null): ContainerData {
     children,
     setProperties,
     setSchema,
+    setDefaultView,
     setViews,
     writeError,
     reload: load,

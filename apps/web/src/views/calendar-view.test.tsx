@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderAt } from '../test/render-with-router';
 import { CalendarView } from './calendar-view';
 import type { EffectiveSchema, Item, View } from './container-model';
+import { aContainer, views } from './container-fixture';
 import type { ContainerData } from './use-container';
 
 /**
@@ -64,19 +65,13 @@ function itemOf(id: string, title: string, properties: Record<string, unknown>):
 const KICKOFF = itemOf('item-kickoff', 'Kickoff', { due: '2026-03-17', status: 'open' });
 
 function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {
-  return {
-    status: 'ready',
-    error: null,
+  return aContainer({
     schema: SCHEMA,
-    views: { views: [VIEW], unrenderable: [] },
-    children: [],
+    views: views([VIEW]),
     setProperties: vi.fn(() => Promise.resolve()),
-    writeError: null,
-    setSchema: () => Promise.resolve(null),
-    setViews: () => Promise.resolve(null),
     reload: vi.fn(() => Promise.resolve()),
     ...overrides,
-  };
+  });
 }
 
 interface RenderOptions {
@@ -314,7 +309,7 @@ describe('the calendar view', () => {
   it('believes Core when it says the view can no longer be drawn', () => {
     renderCalendar({
       children: [KICKOFF],
-      views: { views: [VIEW], unrenderable: [VIEW.id] },
+      views: { views: [VIEW], unrenderable: [VIEW.id], default: 'document' },
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent('can no longer be drawn');

@@ -262,6 +262,7 @@ public sealed class PropertyWriteTests : IAsyncLifetime
                 [
                     new ViewDefinition("by-status", "By status", ViewKind.Board, [], "status", [], null, null, false),
                 ],
+                null,
                 Cancellation);
 
             Assert.True(stored.IsSuccess, stored.IsSuccess ? "" : stored.Error.Message);
@@ -281,6 +282,89 @@ public sealed class PropertyWriteTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_default_naming_a_view_that_is_not_being_stored_is_refused()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+
+            // Stored, it would resolve to the document on the very next read - so the person's
+            // choice would appear to be taken and then quietly discarded. Refusing says so.
+            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
+                folder.Id,
+                [new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false)],
+                "some-other-view",
+                Cancellation);
+
+            Assert.True(stored.IsFailure);
+            Assert.Equal("views.invalid", stored.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_view_may_not_call_itself_the_document()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+
+            // One field names either a view or the item's own body, so the word has to belong to
+            // exactly one of them. Ids are slugs of names, and "Document" is a name somebody will
+            // pick - without this it would become unreachable, shadowed by the body.
+            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
+                folder.Id,
+                [new ViewDefinition("document", "Document", ViewKind.List, [], null, [], null, null, false)],
+                null,
+                Cancellation);
+
+            Assert.True(stored.IsFailure);
+            Assert.Equal("views.invalid", stored.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task The_view_that_opens_survives_storage()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+            await DeclareStatusAsync(work, folder.Id);
+
+            await work.Resolve<SetContainerViews>().ExecuteAsync(
+                folder.Id,
+                [
+                    new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
+                    new ViewDefinition("by-status", "By status", ViewKind.Board, [], "status", [], null, null, false),
+                ],
+                "by-status",
+                Cancellation);
+
+            var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+
+            Assert.True(read.IsSuccess);
+            Assert.Equal("by-status", read.Value.Default);
+        }
+    }
+
+    [Fact]
+    public async Task A_container_with_no_views_opens_its_document()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+
+            var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+
+            Assert.True(read.IsSuccess);
+            Assert.Equal("document", read.Value.Default);
+        }
+    }
+
+    [Fact]
     public async Task A_board_with_no_grouping_property_is_refused()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
@@ -291,6 +375,7 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
                 folder.Id,
                 [new ViewDefinition("b", "Board", ViewKind.Board, [], null, [], null, null, false)],
+                null,
                 Cancellation);
 
             Assert.True(stored.IsFailure);
@@ -322,6 +407,7 @@ public sealed class PropertyWriteTests : IAsyncLifetime
                         null,
                         false),
                 ],
+                null,
                 Cancellation);
 
             var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { EffectiveSchema, PropertyDefinition } from './container-model';
+import { aContainer } from './container-fixture';
 import { SchemaEditor } from './schema-editor';
 import type { ContainerData, SchemaDraft } from './use-container';
 
@@ -29,18 +30,7 @@ function containerOf(
   schema: EffectiveSchema | null,
   setSchema: (draft: SchemaDraft) => Promise<string | null> = () => Promise.resolve(null),
 ): ContainerData {
-  return {
-    status: 'ready',
-    error: null,
-    schema,
-    views: null,
-    children: [],
-    setProperties: () => Promise.resolve(),
-    setSchema,
-    setViews: () => Promise.resolve(null),
-    writeError: null,
-    reload: () => Promise.resolve(),
-  };
+  return aContainer({ schema, setSchema });
 }
 
 describe('the schema editor', () => {

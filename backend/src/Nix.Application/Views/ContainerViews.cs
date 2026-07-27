@@ -15,6 +15,10 @@ namespace Nix.Application.Views;
 /// <param name="Unrenderable">
 /// The identifiers of views whose configured property no longer exists or no longer fits.
 /// </param>
+/// <param name="Default">
+/// What opens: a view's id, or <c>document</c> for the item's own body. Already resolved, so a
+/// default naming a deleted view arrives here as <c>document</c> rather than as a dangling id.
+/// </param>
 /// <remarks>
 /// The second list is what stops a board whose grouping property was deleted from rendering as an
 /// empty board - which is indistinguishable from an empty folder, and sends somebody looking for
@@ -22,7 +26,8 @@ namespace Nix.Application.Views;
 /// </remarks>
 public sealed record ContainerViewSet(
     ImmutableArray<ViewDefinition> Views,
-    ImmutableArray<string> Unrenderable);
+    ImmutableArray<string> Unrenderable,
+    string Default);
 
 /// <summary>Reads the views a container offers.</summary>
 public sealed class GetContainerViews
@@ -61,10 +66,11 @@ public sealed class GetContainerViews
             return Result.Failure<ContainerViewSet>(ItemErrors.NotFound($"No item {itemId} is visible."));
         }
 
-        var views = ViewDefinitionsJson.Read(item.Views);
+        var stored = ViewDefinitionsJson.Read(item.Views);
+        var views = stored.Views;
         if (views.IsEmpty)
         {
-            return Result.Success(new ContainerViewSet([], []));
+            return Result.Success(new ContainerViewSet([], [], ViewDefinitionsJson.DocumentView));
         }
 
         // The schema a view's configuration is checked against is the one its children carry,
@@ -76,7 +82,7 @@ public sealed class GetContainerViews
             .Select(view => view.Id)
             .ToImmutableArray();
 
-        return Result.Success(new ContainerViewSet(views, unrenderable));
+        return Result.Success(new ContainerViewSet(views, unrenderable, stored.Resolve()));
     }
 }
 
@@ -119,11 +125,15 @@ public sealed class SetContainerViews
     /// <summary>Sets the views.</summary>
     /// <param name="itemId">The container.</param>
     /// <param name="views">The views to offer, in switcher order.</param>
+    /// <param name="defaultView">
+    /// Which view opens: a view's id, or <c>document</c> / <see langword="null"/> for the body.
+    /// </param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The stored views, or why they could not be stored.</returns>
     public async ValueTask<Result<ImmutableArray<ViewDefinition>>> ExecuteAsync(
         ItemId itemId,
         ImmutableArray<ViewDefinition> views,
+        string? defaultView,
         CancellationToken cancellationToken)
     {
         var context = _session.Current
@@ -143,12 +153,12 @@ public sealed class SetContainerViews
                 ItemErrors.LifecycleConflict("A deleted container's views cannot be changed."));
         }
 
-        if (Refuse(views) is { } refusal)
+        if (Refuse(views, defaultView) is { } refusal)
         {
             return Result.Failure<ImmutableArray<ViewDefinition>>(refusal);
         }
 
-        var json = ViewDefinitionsJson.Write(views);
+        var json = ViewDefinitionsJson.Write(views, defaultView);
         if (json is not null
             && System.Text.Encoding.UTF8.GetByteCount(json) > ViewDefinitionsJson.MaximumBytes)
         {
@@ -174,7 +184,7 @@ public sealed class SetContainerViews
     /// two independent edits matter. The read path reports such a view as unrenderable instead,
     /// which is a thing the interface can explain.
     /// </remarks>
-    private static NixError? Refuse(ImmutableArray<ViewDefinition> views)
+    private static NixError? Refuse(ImmutableArray<ViewDefinition> views, string? defaultView)
     {
         if (views.Length > ViewDefinitionsJson.MaximumViews)
         {
@@ -202,6 +212,16 @@ public sealed class SetContainerViews
                 return PropertyErrors.InvalidViews("Every view needs a name.");
             }
 
+            // The word names the item's own body in the same field that names a view, so a view
+            // may not answer to it. Ids are slugs derived from names, and "Document" is a name
+            // somebody will reasonably pick.
+            if (string.Equals(view.Id, ViewDefinitionsJson.DocumentView, StringComparison.Ordinal))
+            {
+                return PropertyErrors.InvalidViews(
+                    $"'{ViewDefinitionsJson.DocumentView}' is reserved for the item's own body; "
+                        + "give this view another name.");
+            }
+
             // What each kind needs is declared once, in ViewKinds.All. A kind with no requirement,
             // and a kind whose required field is set, both pass.
             if (ViewKinds.Find(view.Kind)?.Requirement is { } requirement
@@ -209,6 +229,18 @@ public sealed class SetContainerViews
             {
                 return PropertyErrors.InvalidViews($"'{view.Name}': {requirement.Missing}.");
             }
+        }
+
+        // A default has to name something that will still be there once this write lands. Storing
+        // one that does not would resolve to the document on the next read, so the person's choice
+        // would appear to have been taken and then quietly discarded.
+        if (defaultView is { } chosen
+            && chosen.Length > 0
+            && !string.Equals(chosen, ViewDefinitionsJson.DocumentView, StringComparison.Ordinal)
+            && !ids.Contains(chosen))
+        {
+            return PropertyErrors.InvalidViews(
+                $"'{chosen}' is not one of these views, so it cannot be the one that opens.");
         }
 
         return null;

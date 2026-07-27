@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { EffectiveSchema, PropertyDefinition, View } from './container-model';
+import { aContainer, views as offered } from './container-fixture';
 import type { ContainerData } from './use-container';
 import { ViewEditor } from './view-editor';
 
@@ -48,18 +49,11 @@ function containerOf(
   setViews: (next: readonly View[]) => Promise<string | null> = () => Promise.resolve(null),
   schema: EffectiveSchema | null = SCHEMA,
 ): ContainerData {
-  return {
-    status: 'ready',
-    error: null,
+  return aContainer({
     schema,
-    views: { views: [...views], unrenderable: [] },
-    children: [],
-    setProperties: () => Promise.resolve(),
-    setSchema: () => Promise.resolve(null),
+    views: offered(views),
     setViews,
-    writeError: null,
-    reload: () => Promise.resolve(),
-  };
+  });
 }
 
 describe('the view editor', () => {

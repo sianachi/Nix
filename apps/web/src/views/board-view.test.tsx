@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderAt } from '../test/render-with-router';
 import { BoardView } from './board-view';
 import type { EffectiveSchema, Item, PropertyDefinition, View } from './container-model';
+import { aContainer, views } from './container-fixture';
 import type { ContainerData } from './use-container';
 
 /**
@@ -71,19 +72,11 @@ function viewOf(overrides: Partial<View> = {}): View {
 }
 
 function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {
-  return {
-    status: 'ready',
-    error: null,
+  return aContainer({
     schema: schemaOf(STATUS, OWNER),
-    views: { views: [], unrenderable: [] },
-    children: [],
-    setProperties: () => Promise.resolve(),
-    writeError: null,
-    setSchema: () => Promise.resolve(null),
-    setViews: () => Promise.resolve(null),
-    reload: () => Promise.resolve(),
+    views: views([]),
     ...overrides,
-  };
+  });
 }
 
 /**

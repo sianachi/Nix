@@ -178,7 +178,8 @@ internal static class StructureEndpoints
             views => TypedResults.Ok(
                 new ContainerViewsResponse(
                     [.. views.Views.Select(ViewMapping.ToResponse)],
-                    views.Unrenderable)),
+                    views.Unrenderable,
+                    views.Default)),
             error => TypedResults.Problem(Problem(httpContext, error)));
     }
 
@@ -198,7 +199,7 @@ internal static class StructureEndpoints
         }
 
         var stored = await setContainerViews
-            .ExecuteAsync(ItemId.From(itemId), views, httpContext.RequestAborted)
+            .ExecuteAsync(ItemId.From(itemId), views, request.Default, httpContext.RequestAborted)
             .ConfigureAwait(false);
 
         if (stored.IsFailure)
@@ -216,7 +217,8 @@ internal static class StructureEndpoints
             set => TypedResults.Ok(
                 new ContainerViewsResponse(
                     [.. set.Views.Select(ViewMapping.ToResponse)],
-                    set.Unrenderable)),
+                    set.Unrenderable,
+                    set.Default)),
             error => TypedResults.Problem(Problem(httpContext, error)));
     }
 

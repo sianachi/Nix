@@ -406,6 +406,7 @@ export interface components {
     ContainerViewsResponse: {
       views: components['schemas']['ViewResponse'][];
       unrenderable: string[];
+      default: string;
     };
     CreateItemRequest: {
       type: string;
@@ -531,6 +532,7 @@ export interface components {
     };
     SetViewsRequest: {
       views: components['schemas']['ViewRequest'][];
+      default: null | string;
     };
     UpdateItemRequest: {
       title: string;

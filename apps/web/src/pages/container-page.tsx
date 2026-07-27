@@ -58,7 +58,14 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
             views={views}
             unrenderable={unrenderable}
             activeViewId={active?.id ?? null}
-            onSelect={selectView}
+            onSelect={(viewId) => {
+              selectView(viewId);
+
+              // The deliberate click, and the only place the stored default is written. Arriving
+              // at a URL that already carries ?view= runs none of this - otherwise following
+              // somebody's shared link would rewrite what opens for everybody in the workspace.
+              void container.setDefaultView(viewId);
+            }}
           />
         </div>
 

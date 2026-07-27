@@ -23,6 +23,11 @@ namespace Nix.Core.Tests.Views;
 /// </remarks>
 public sealed class ViewDefinitionsJsonTests
 {
+    /// <summary>The views out of a parsed column, which is what most of these tests are about.</summary>
+    private static ImmutableArray<ViewDefinition> ReadViews(string? json) =>
+        ViewDefinitionsJson.Read(json).Views;
+
+
     [Fact]
     public void A_written_view_set_reads_back_as_the_one_that_was_written()
     {
@@ -33,7 +38,7 @@ public sealed class ViewDefinitionsJsonTests
             new ViewDefinition("v3", "This month", ViewKind.Calendar, [], null, [], "due", "due", false),
         ];
 
-        var read = ViewDefinitionsJson.Read(ViewDefinitionsJson.Write(views));
+        var read = ReadViews(ViewDefinitionsJson.Write(views));
 
         Assert.Equal(views.Length, read.Length);
         for (var index = 0; index < views.Length; index++)
@@ -73,7 +78,7 @@ public sealed class ViewDefinitionsJsonTests
     {
         // A newer build adds "timeline" and a person configures one. This instance offers the other
         // two views rather than refusing the container's switcher entirely.
-        var read = ViewDefinitionsJson.Read(
+        var read = ReadViews(
             """
             {"views":[
               {"id":"v1","kind":"list"},
@@ -91,7 +96,7 @@ public sealed class ViewDefinitionsJsonTests
     {
         // The id is what a shared link names, so two views answering to it is a link that means
         // two things. First wins for the same reason a duplicated property key does.
-        var read = ViewDefinitionsJson.Read(
+        var read = ReadViews(
             """
             {"views":[
               {"id":"v1","name":"First","kind":"list"},
@@ -107,7 +112,7 @@ public sealed class ViewDefinitionsJsonTests
     [Fact]
     public void A_view_with_no_usable_id_is_dropped()
     {
-        var read = ViewDefinitionsJson.Read(
+        var read = ReadViews(
             """
             {"views":[
               {"kind":"list"},
@@ -129,13 +134,13 @@ public sealed class ViewDefinitionsJsonTests
     public void A_view_missing_a_name_is_named_by_its_id()
     {
         // Better a switcher tab reading "v1" than a nameless one nobody can click with confidence.
-        Assert.Equal("v1", Assert.Single(ViewDefinitionsJson.Read("""{"views":[{"id":"v1","kind":"list"}]}""")).Name);
+        Assert.Equal("v1", Assert.Single(ReadViews("""{"views":[{"id":"v1","kind":"list"}]}""")).Name);
     }
 
     [Fact]
     public void A_column_named_twice_is_shown_once()
     {
-        var read = ViewDefinitionsJson.Read(
+        var read = ReadViews(
             """
             {"views":[{"id":"v1","kind":"list","columns":["title","status","title",7,null]}]}
             """);
@@ -150,7 +155,7 @@ public sealed class ViewDefinitionsJsonTests
         // The per-kind fields are all optional and all independently malformable. A board whose
         // groupBy is a number reads as a board with no grouping property, which CanRender then
         // refuses - rather than a board that renders against a key nobody can have.
-        var read = Assert.Single(ViewDefinitionsJson.Read(
+        var read = Assert.Single(ReadViews(
             """
             {"views":[{"id":"v1","kind":"board","groupBy":7,"groupOrder":"Todo",
                        "dateProperty":{},"sortBy":null,"sortDescending":"yes"}]}
@@ -178,7 +183,7 @@ public sealed class ViewDefinitionsJsonTests
     [InlineData("{\"views\":\"v1\"}")]
     public void Whatever_is_in_the_column_reads_as_a_view_set_rather_than_throwing(string? json)
     {
-        Assert.Empty(ViewDefinitionsJson.Read(json));
+        Assert.Empty(ReadViews(json));
     }
 
     private static string[] Ids(ImmutableArray<ViewDefinition> views) =>
@@ -197,5 +202,82 @@ public sealed class ViewDefinitionsJsonTests
         Assert.Equal(expected.DateProperty, actual.DateProperty);
         Assert.Equal(expected.SortBy, actual.SortBy);
         Assert.Equal(expected.SortDescending, actual.SortDescending);
+    }
+
+    [Fact]
+    public void An_item_that_has_said_nothing_opens_on_its_document()
+    {
+        // The overwhelmingly common case: a note nobody has configured a view on. Absent has to
+        // mean the body, or every plain note would open on something it does not have.
+        Assert.Equal(ViewDefinitionsJson.DocumentView, ViewDefinitionsJson.Read(null).Resolve());
+        Assert.Equal(ViewDefinitionsJson.DocumentView, ViewDefinitionsJson.Read("{}").Resolve());
+    }
+
+    [Fact]
+    public void The_view_named_as_the_default_is_the_one_that_opens()
+    {
+        var stored = ViewDefinitionsJson.Read(
+            """{"views":[{"id":"all","kind":"list"},{"id":"by-status","kind":"list"}],"default":"by-status"}""");
+
+        Assert.Equal("by-status", stored.Resolve());
+    }
+
+    [Fact]
+    public void A_default_naming_a_view_that_is_gone_opens_the_document_rather_than_a_survivor()
+    {
+        // Falling back to the first view would mean deleting a view silently promoted whichever
+        // one happened to be first - a different item opening than anybody chose. The body is the
+        // one answer that is never somebody else's view.
+        var stored = ViewDefinitionsJson.Read(
+            """{"views":[{"id":"all","kind":"list"}],"default":"deleted-one"}""");
+
+        Assert.Equal(ViewDefinitionsJson.DocumentView, stored.Resolve());
+    }
+
+    [Fact]
+    public void The_default_survives_a_round_trip()
+    {
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
+            new ViewDefinition("board", "Board", ViewKind.Board, [], "status", [], null, null, false),
+        ];
+
+        var read = ViewDefinitionsJson.Read(ViewDefinitionsJson.Write(views, "board"));
+
+        Assert.Equal("board", read.Default);
+        Assert.Equal("board", read.Resolve());
+    }
+
+    [Fact]
+    public void A_default_naming_no_view_is_not_written_at_all()
+    {
+        // Storing a dangling id would resolve to the document on the next read anyway, so writing
+        // it only leaves a value that looks like a choice and behaves like none.
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
+        ];
+
+        var written = Assert.IsType<JsonObject>(
+            JsonNode.Parse(ViewDefinitionsJson.Write(views, "not-a-view")!));
+
+        Assert.False(written.ContainsKey("default"));
+    }
+
+    [Fact]
+    public void The_document_is_stored_as_absence_rather_than_as_a_second_spelling()
+    {
+        // Absent already means the body. Writing the word too would give the same state two
+        // representations, and a later reader would have to know they are the same.
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
+        ];
+
+        var written = Assert.IsType<JsonObject>(
+            JsonNode.Parse(ViewDefinitionsJson.Write(views, ViewDefinitionsJson.DocumentView)!));
+
+        Assert.False(written.ContainsKey("default"));
     }
 }

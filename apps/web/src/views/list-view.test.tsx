@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderAt } from '../test/render-with-router';
 import type { EffectiveSchema, Item, PropertyDefinition, View } from './container-model';
 import { ListView } from './list-view';
+import { aContainer } from './container-fixture';
 import type { ContainerData } from './use-container';
 
 /**
@@ -60,19 +61,7 @@ function viewOf(overrides: Partial<View> = {}): View {
 }
 
 function containerData(overrides: Partial<ContainerData> = {}): ContainerData {
-  return {
-    status: 'ready',
-    error: null,
-    schema: null,
-    views: null,
-    children: [],
-    setProperties: () => Promise.resolve(),
-    writeError: null,
-    setSchema: () => Promise.resolve(null),
-    setViews: () => Promise.resolve(null),
-    reload: () => Promise.resolve(),
-    ...overrides,
-  };
+  return aContainer(overrides);
 }
 
 /** Reports the address back to the test, so a URL-held sort can be asserted on as a fact. */

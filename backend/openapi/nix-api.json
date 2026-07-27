@@ -1360,7 +1360,8 @@
       "ContainerViewsResponse": {
         "required": [
           "views",
-          "unrenderable"
+          "unrenderable",
+          "default"
         ],
         "type": "object",
         "properties": {
@@ -1375,6 +1376,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "default": {
+            "type": "string"
           }
         }
       },
@@ -1857,7 +1861,8 @@
       },
       "SetViewsRequest": {
         "required": [
-          "views"
+          "views",
+          "default"
         ],
         "type": "object",
         "properties": {
@@ -1866,6 +1871,12 @@
             "items": {
               "$ref": "#/components/schemas/ViewRequest"
             }
+          },
+          "default": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

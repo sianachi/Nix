@@ -5,6 +5,49 @@ using System.Text.Json.Nodes;
 namespace Nix.Core.Views;
 
 /// <summary>
+/// What a container's <c>views</c> column says: the views it offers, and which one opens.
+/// </summary>
+/// <param name="Views">The views, in switcher order.</param>
+/// <param name="Default">
+/// The id of the view that opens, or <see langword="null"/> for the item's own document.
+/// </param>
+public sealed record StoredViews(ImmutableArray<ViewDefinition> Views, string? Default)
+{
+    /// <summary>A container that has said nothing.</summary>
+    public static readonly StoredViews None = new([], null);
+
+    /// <summary>
+    /// What actually opens, given what is stored and what still exists.
+    /// </summary>
+    /// <returns>
+    /// The stored view's id, or <see cref="ViewDefinitionsJson.DocumentView"/> for the body.
+    /// </returns>
+    /// <remarks>
+    /// A default naming a view that has since been deleted resolves to the document rather than to
+    /// nothing. Falling back to the first view instead would mean deleting a view silently promoted
+    /// whichever one happened to be first, which is a different item opening than the one anybody
+    /// chose.
+    /// </remarks>
+    public string Resolve()
+    {
+        if (Default is not { } id)
+        {
+            return ViewDefinitionsJson.DocumentView;
+        }
+
+        foreach (var view in Views)
+        {
+            if (string.Equals(view.Id, id, StringComparison.Ordinal))
+            {
+                return id;
+            }
+        }
+
+        return ViewDefinitionsJson.DocumentView;
+    }
+}
+
+/// <summary>
 /// Reads and writes a container's views as the JSON stored in <c>item.views</c>.
 /// </summary>
 /// <remarks>
@@ -17,6 +60,17 @@ public static class ViewDefinitionsJson
     /// <summary>The largest a stored view set may be, matching the column's own bound.</summary>
     public const int MaximumBytes = 32 * 1024;
 
+    /// <summary>
+    /// What "open on the item's own body" is called, rather than on one of its child views.
+    /// </summary>
+    /// <remarks>
+    /// A reserved view id. An item's body and its views are two different axes - the body is the
+    /// item's own content and a view renders its children - but only one of them is on screen at a
+    /// time, so one field names the winner. Reserving the word is what stops a view whose name
+    /// slugs to "document" from colliding with it; <c>SetContainerViews</c> refuses that id.
+    /// </remarks>
+    public const string DocumentView = "document";
+
     /// <summary>How many views one container may offer.</summary>
     /// <remarks>
     /// A switcher is a row of names. Past a dozen it stops being one, and the container wants
@@ -25,6 +79,7 @@ public static class ViewDefinitionsJson
     public const int MaximumViews = 12;
 
     private const string ViewsKey = "views";
+    private const string DefaultKey = "default";
     private const string IdKey = "id";
     private const string NameKey = "name";
     private const string KindKey = "kind";
@@ -39,16 +94,16 @@ public static class ViewDefinitionsJson
     /// Reads a stored view set.
     /// </summary>
     /// <param name="json">The stored JSON, or <see langword="null"/> when the container has none.</param>
-    /// <returns>The views, empty when there is nothing usable.</returns>
+    /// <returns>The views and the default, empty when there is nothing usable.</returns>
     /// <remarks>
     /// Never throws. A malformed view set costs a container its switcher; it must not cost the
     /// container its children.
     /// </remarks>
-    public static ImmutableArray<ViewDefinition> Read(string? json)
+    public static StoredViews Read(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return [];
+            return StoredViews.None;
         }
 
         JsonNode? root;
@@ -58,12 +113,12 @@ public static class ViewDefinitionsJson
         }
         catch (JsonException)
         {
-            return [];
+            return StoredViews.None;
         }
 
         if (root is not JsonObject document || document[ViewsKey] is not JsonArray stored)
         {
-            return [];
+            return StoredViews.None;
         }
 
         var views = ImmutableArray.CreateBuilder<ViewDefinition>(stored.Count);
@@ -78,19 +133,24 @@ public static class ViewDefinitionsJson
             }
         }
 
-        return views.ToImmutable();
+        // Read as written, not validated here: a default naming a view that no longer exists is a
+        // resolution question rather than a parse failure, and StoredViews.Resolve answers it.
+        return new StoredViews(views.ToImmutable(), ReadString(document[DefaultKey]));
     }
 
     /// <summary>
     /// Writes a view set for storage.
     /// </summary>
     /// <param name="views">The views.</param>
+    /// <param name="defaultView">
+    /// The id of the view that should open, or <see langword="null"/> for the item's document.
+    /// </param>
     /// <returns>The JSON to store, or <see langword="null"/> when there are none.</returns>
     /// <remarks>
     /// Null rather than an empty document for an empty set, so a container that offers no views
     /// stores nothing at all - the column reads the same as it did before anybody configured one.
     /// </remarks>
-    public static string? Write(ImmutableArray<ViewDefinition> views)
+    public static string? Write(ImmutableArray<ViewDefinition> views, string? defaultView = null)
     {
         if (views.IsDefaultOrEmpty)
         {
@@ -129,7 +189,23 @@ public static class ViewDefinitionsJson
             stored.Add(entry);
         }
 
-        return new JsonObject { [ViewsKey] = stored }.ToJsonString();
+        var document = new JsonObject { [ViewsKey] = stored };
+
+        // Only written when it names a view that exists. "document" is what an absent default
+        // already means, so storing it would be a second spelling of the same thing.
+        if (defaultView is { } id && id.Length > 0 && !string.Equals(id, DocumentView, StringComparison.Ordinal))
+        {
+            foreach (var view in views)
+            {
+                if (string.Equals(view.Id, id, StringComparison.Ordinal))
+                {
+                    document[DefaultKey] = id;
+                    break;
+                }
+            }
+        }
+
+        return document.ToJsonString();
     }
 
     private static void AddStrings(JsonObject entry, string key, ImmutableArray<string> values)

@@ -54,7 +54,18 @@ export const ContainerViewsSchema = z.object({
    * is indistinguishable from an empty folder.
    */
   unrenderable: z.array(z.string()),
+
+  /**
+   * Which view opens: a view's id, or `document` for the item's own body.
+   *
+   * Already resolved by the server, so a default naming a view somebody has since deleted arrives
+   * as `document`. Nothing here has to check that the id it was handed still exists.
+   */
+  default: z.string(),
 });
+
+/** What the `default` field says when the item opens on its own body rather than on a view. */
+export const DOCUMENT_VIEW = 'document';
 
 export type ContainerViews = z.infer<typeof ContainerViewsSchema>;
 
