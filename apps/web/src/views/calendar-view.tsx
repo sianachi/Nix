@@ -13,6 +13,18 @@ import {
   type View,
 } from './container-model';
 import { CreateItemControl } from './create-item-control';
+import {
+  WEEKDAY_ABBREVIATIONS,
+  WEEKDAY_NAMES,
+  dayText,
+  daysInMonth,
+  monthEntry,
+  monthLabel,
+  monthPrefix,
+  shiftMonth,
+  weekdayIndex,
+  type CalendarMonth,
+} from './calendar-dates';
 import type { ContainerData } from './use-container';
 import { useViewState } from './view-state';
 
@@ -46,105 +58,6 @@ export interface CalendarViewProps {
   readonly onOpen: (itemId: string) => void;
 }
 
-/** A month on screen: a full year and a zero-based month, never a `Date`. */
-interface CalendarMonth {
-  readonly year: number;
-  readonly month: number;
-}
-
-const MONTH_NAMES = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-] as const;
-
-/** Monday first: a working week reads Monday to Sunday, and the weekend stays together. */
-const WEEKDAY_NAMES = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
-] as const;
-
-const WEEKDAY_ABBREVIATIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
-
-const MONTH_LENGTHS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
-
-/** Sakamoto's table, which turns a date into a weekday with integers and no calendar object. */
-const SAKAMOTO_OFFSETS = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4] as const;
-
-/**
- * Reads an entry a month index is known to be in range for.
- *
- * A month outside 0-11 is a bug in the arithmetic above rather than bad input, so it throws instead
- * of falling back: a silent wrong answer here is a calendar that is quietly off by a month.
- */
-function monthEntry<T>(table: readonly T[], month: number): T {
-  const entry = table[month];
-  if (entry === undefined) {
-    throw new RangeError(`Month index out of range: ${String(month)}`);
-  }
-  return entry;
-}
-
-function isLeapYear(year: number): boolean {
-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-}
-
-function daysInMonth(value: CalendarMonth): number {
-  return value.month === 1 && isLeapYear(value.year) ? 29 : monthEntry(MONTH_LENGTHS, value.month);
-}
-
-/** The weekday of a date, 0 = Monday, by pure integer arithmetic. */
-function weekdayIndex(year: number, month: number, day: number): number {
-  const shifted = month < 2 ? year - 1 : year;
-  const sundayFirst =
-    (shifted +
-      Math.floor(shifted / 4) -
-      Math.floor(shifted / 100) +
-      Math.floor(shifted / 400) +
-      monthEntry(SAKAMOTO_OFFSETS, month) +
-      day) %
-    7;
-
-  return (sundayFirst + 6) % 7;
-}
-
-function pad(value: number): string {
-  return value < 10 ? `0${String(value)}` : String(value);
-}
-
-/** The `yyyy-MM-dd` text of a cell. The only date representation this view compares against. */
-function dateText(value: CalendarMonth, day: number): string {
-  return `${String(value.year)}-${pad(value.month + 1)}-${pad(day)}`;
-}
-
-/** The `yyyy-MM-` prefix of a month, for telling apart the dates this grid can show. */
-function monthPrefix(value: CalendarMonth): string {
-  return `${String(value.year)}-${pad(value.month + 1)}-`;
-}
-
-function monthLabel(value: CalendarMonth): string {
-  return `${monthEntry(MONTH_NAMES, value.month)} ${String(value.year)}`;
-}
-
-function shiftMonth(value: CalendarMonth, delta: number): CalendarMonth {
-  const absolute = value.year * 12 + value.month + delta;
-  return { year: Math.floor(absolute / 12), month: ((absolute % 12) + 12) % 12 };
-}
-
 /**
  * Today, in the reader's own zone.
  *
@@ -155,7 +68,7 @@ function shiftMonth(value: CalendarMonth, delta: number): CalendarMonth {
 function today(): { readonly month: CalendarMonth; readonly text: string } {
   const now = new Date();
   const month = { year: now.getFullYear(), month: now.getMonth() };
-  return { month, text: dateText(month, now.getDate()) };
+  return { month, text: dayText({ ...month, day: now.getDate() }) };
 }
 
 function currentMonth(): CalendarMonth {
@@ -511,7 +424,7 @@ function buildWeeks(month: CalendarMonth): readonly (readonly (DayCellSpec | nul
 
   const length = daysInMonth(month);
   for (let day = 1; day <= length; day += 1) {
-    cells.push({ day, date: dateText(month, day) });
+    cells.push({ day, date: dayText({ ...month, day: day }) });
   }
 
   while (cells.length % 7 !== 0) {
