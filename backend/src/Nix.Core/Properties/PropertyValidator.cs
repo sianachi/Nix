@@ -180,9 +180,18 @@ public static class PropertyValidator
         foreach (var entry in values)
         {
             var text = ReadString(entry);
-            if (text is null || !definition.Allows(text))
+            if (text is null)
             {
-                return $"{definition.Label} does not offer '{text ?? "null"}'.";
+                // Named as what it is rather than as "null": a bag carrying a number where a
+                // select value belongs is a different mistake from one carrying a value the
+                // schema does not offer, and a message that conflated them would send somebody
+                // checking their options list for an entry that was never the problem.
+                return $"{definition.Label} takes text values; '{entry?.ToJsonString() ?? "null"}' is not one.";
+            }
+
+            if (!definition.Allows(text))
+            {
+                return $"{definition.Label} does not offer '{text}'.";
             }
         }
 

@@ -73,9 +73,13 @@ public sealed record PropertySchema
         ArgumentNullException.ThrowIfNull(farther);
         ArgumentNullException.ThrowIfNull(nearer);
 
+        // The shortcuts still have to honour the inheritance rule below: returning the farther
+        // schema verbatim would hand back its flag, and a caller that trusted the merged one would
+        // then inherit straight through a declaration that refused to. Nothing does that today,
+        // which is exactly why it would be found late.
         if (nearer.IsEmpty)
         {
-            return farther;
+            return farther.Inherit == nearer.Inherit ? farther : farther with { Inherit = nearer.Inherit };
         }
 
         if (farther.IsEmpty)
