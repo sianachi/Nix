@@ -29,6 +29,16 @@ export function AppShell(): ReactNode {
   const { selectedId, select } = useSelectedItem();
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // A link naming an item the tree has not loaded - which is every link to anything nested, since
+  // the tree loads roots and then children on expansion. Without this the screen says "select a
+  // note from the tree" about the note it was asked for, which is the worst possible answer to a
+  // shared link.
+  useEffect(() => {
+    if (selectedId !== null && tree.status === 'ready' && tree.find(selectedId) === null) {
+      void tree.reveal(selectedId);
+    }
+  }, [selectedId, tree]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       // The shortcut everybody already has in their fingers. Both modifiers, because the same

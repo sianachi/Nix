@@ -72,6 +72,13 @@ export function stubCoreApi(options: StubOptions = {}): void {
         );
       }
 
+      // A single item by id, which is what revealing a deep link walks up through.
+      const single = /\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(url);
+      if (single !== null) {
+        const found = items.find((candidate) => candidate.id === single[1]);
+        return Promise.resolve(found === undefined ? json({}, 404) : json(found));
+      }
+
       if (url.includes('/items')) {
         if (treeFails) {
           return Promise.resolve(json({ detail: 'The tree could not be loaded.' }, 500));

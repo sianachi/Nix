@@ -51,6 +51,16 @@ export interface WorkspaceTree {
 
   readonly find: (itemId: string) => TreeItem | null;
 
+  /**
+   * Loads an item and its ancestors, expanding the chain so it is visible in the tree.
+   *
+   * What makes a shared link to a nested note work. The tree loads roots and then children on
+   * expansion, so an item three folders down is not in it when somebody arrives on a link naming
+   * that item - and the screen would otherwise say "select a note from the tree" about the note it
+   * was asked for.
+   */
+  readonly reveal: (itemId: string) => Promise<void>;
+
   readonly isCreating: boolean;
   readonly isSaving: boolean;
 
@@ -214,6 +224,59 @@ export function useWorkspaceTree(): WorkspaceTree {
       await expand(itemId);
     },
     [expand, expanded],
+  );
+
+  const reveal = useCallback(
+    async (itemId: string): Promise<void> => {
+      const found: TreeItem[] = [];
+      const expand = new Set<string>();
+
+      // Walk up from the item, fetching each ancestor. Bounded rather than trusting the chain to
+      // terminate: the database forbids cycles, and a client that looped anyway would hang the tab.
+      let cursor: string | null = itemId;
+      let guard = 32;
+
+      while (cursor !== null && guard > 0) {
+        const response = await request(`/api/v1/items/${cursor}`);
+        if (!response.ok) {
+          // A link to something that has been deleted, or that this caller may not see. Both are
+          // reported the same way by Core, and both mean the same thing here: there is nothing to
+          // reveal, and the screen's own empty state is the honest answer.
+          break;
+        }
+
+        const loaded = toItem((await response.json()) as ItemPayload);
+        found.push(loaded);
+
+        if (loaded.parentId !== null) {
+          expand.add(loaded.parentId);
+        }
+
+        cursor = loaded.parentId;
+        guard -= 1;
+      }
+
+      if (found.length === 0) {
+        return;
+      }
+
+      setItems((current) => {
+        const known = new Set(current.map((entry) => entry.id));
+        return [...current, ...found.filter((entry) => !known.has(entry.id))];
+      });
+
+      setExpanded((current) => new Set([...current, ...expand]));
+
+      // The ancestors are now present but their other children are not, so a revealed note would
+      // appear as its parent's only child. Fetching each level puts its siblings back.
+      for (const parentId of expand) {
+        const siblings = await fetchChildren(parentId);
+        if (siblings !== null) {
+          absorb(parentId, siblings);
+        }
+      }
+    },
+    [absorb, fetchChildren, request],
   );
 
   const create = useCallback(
@@ -401,6 +464,7 @@ export function useWorkspaceTree(): WorkspaceTree {
     isExpanded: (itemId) => expanded.has(itemId),
     isLoadingChildren: (itemId) => loadingChildren.has(itemId),
     breadcrumbs,
+    reveal,
     find: (itemId) => byId.get(itemId) ?? null,
     isCreating,
     isSaving,

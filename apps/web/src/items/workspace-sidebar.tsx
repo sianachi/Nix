@@ -34,21 +34,57 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   const { tree, selectedId, onSelect } = props;
   const [dragged, setDragged] = useState<string | null>(null);
 
+  /**
+   * Where a new item goes.
+   *
+   * **Inside the folder you are looking at**, or beside the note you are looking at - not at the
+   * workspace root. Creating always at the root was the original behaviour and it made putting
+   * anything inside a folder impossible without a drag, which is not a workflow anybody would
+   * choose. The rule matches what a file manager does, and is the one people already have.
+   */
+  const destination = ((): string | null => {
+    if (selectedId === null) {
+      return null;
+    }
+
+    const selected = tree.find(selectedId);
+    if (selected === null) {
+      return null;
+    }
+
+    return selected.type === 'folder' ? selected.id : selected.parentId;
+  })();
+
+  const destinationName =
+    destination === null ? 'the workspace' : (tree.find(destination)?.title ?? 'this folder');
+
+  async function create(title: string, type: string): Promise<void> {
+    const created = await tree.create(destination, title, type);
+
+    // Selected on creation, so the thing that just appeared is the thing in front of you and its
+    // name is ready to be typed over. Creating something and leaving it unfound in a tree is how
+    // people end up with six items called "Untitled note".
+    if (created !== null) {
+      onSelect(created);
+    }
+  }
+
   return (
     <aside
       aria-label="Workspace"
       className="flex w-[264px] shrink-0 flex-col border-r border-divider bg-neutral-100"
     >
       <div className="flex items-center gap-1 border-b border-divider px-3 py-2">
-        <span className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
-          Workspace
-        </span>
+        <span className="truncate text-xs uppercase tracking-[0.08em] text-muted">Workspace</span>
 
+        {/* The label names where the item will land. Two identical buttons whose meaning depends on
+            an invisible selection is the kind of control people press twice and then undo. */}
         <Button
           variant="ghost"
-          className="ml-auto px-1.5 py-1 text-[11px]"
+          className="ml-auto px-1.5 py-1 text-xs"
+          aria-label={`New note in ${destinationName}`}
           onClick={() => {
-            void tree.create(null, 'Untitled note');
+            void create('Untitled note', 'note');
           }}
           disabled={tree.status !== 'ready' || tree.isCreating}
         >
@@ -58,9 +94,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
 
         <Button
           variant="ghost"
-          className="px-1.5 py-1 text-[11px]"
+          className="px-1.5 py-1 text-xs"
+          aria-label={`New folder in ${destinationName}`}
           onClick={() => {
-            void tree.create(null, 'Untitled folder', 'folder');
+            void create('Untitled folder', 'folder');
           }}
           disabled={tree.status !== 'ready' || tree.isCreating}
         >
@@ -235,7 +272,19 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           type="button"
           aria-label={`Delete ${item.title}`}
           onClick={() => {
-            void tree.remove(item.id);
+            // Asked, because the control is revealed on hover and sits a few pixels from the one
+            // that opens the item. Deletion is reversible in the database, but nothing in the
+            // interface offers the way back yet, so from here it reads as permanent - and a
+            // confirmation is the honest thing until an undo exists.
+            const children = tree.childrenOf(item.id).length;
+            const warning =
+              children === 0
+                ? `Delete "${item.title || 'Untitled'}"?`
+                : `Delete "${item.title || 'Untitled'}" and the ${String(children)} item${children === 1 ? '' : 's'} inside it?`;
+
+            if (globalThis.confirm(warning)) {
+              void tree.remove(item.id);
+            }
           }}
           className="invisible flex size-5 items-center justify-center text-foreground/50 hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent group-hover:visible"
         >
