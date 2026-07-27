@@ -18,6 +18,13 @@ import { cn } from '../lib/cn';
  *
  * `rounded-md` rather than a bare `rounded`: the step is chosen for the size of
  * the box it turns, and a card is a medium box. See the radius scale.
+ *
+ * **It carries no `position`.** It used to say `relative`, which existed only so
+ * the marks had something to be absolute against. Left behind after they went,
+ * it broke `<Dialog>`: a modal `<dialog>` is centred by the user agent through
+ * `position: fixed; inset: 0; margin: auto`, and `relative` overrode the
+ * `fixed`, so the margin had nothing to centre within and every dialog sat
+ * wherever the document flow put it.
  */
 
 /**
@@ -25,7 +32,7 @@ import { cn } from '../lib/cn';
  * button, which cannot be wrapped in a div without moving the border off the
  * focus target - wears the same grammar rather than a lookalike.
  */
-export const blueprintFrame = 'relative rounded-md border border-divider';
+export const blueprintFrame = 'rounded-md border border-divider';
 
 export interface BlueprintProps {
   children?: ReactNode;

@@ -93,7 +93,7 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
     <article className="flex min-w-0 flex-1 flex-col">
       <ItemHeader tree={tree} itemId={itemId} title={title} onNavigate={onOpen} />
 
-      <div className="flex items-center border-b border-divider">
+      <div className="flex items-center">
         <div className="min-w-0 flex-1">
           <ViewSwitcher
             views={views}
@@ -171,7 +171,7 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
           {container.writeError === null ? null : (
             <p
               role="alert"
-              className="flex items-center gap-2 border-b border-divider px-4 py-2 text-sm text-foreground"
+              className="mx-4 mt-3 flex items-center gap-2 rounded-md bg-surface px-4 py-2 text-sm text-foreground"
             >
               <Icon icon={TriangleAlert} size="sm" />
               {container.writeError}
@@ -212,10 +212,7 @@ function ItemProperties({
   // from, and inventing an empty one would flash a panel of blank fields over real values.
   if (item === null) {
     return (
-      <aside
-        aria-label="Properties"
-        className="w-[280px] shrink-0 border-l border-divider px-4 py-4"
-      >
+      <aside aria-label="Properties" className="w-[280px] shrink-0 bg-surface px-4 py-4">
         <p className="text-sm text-muted">Loading this item&rsquo;s properties…</p>
       </aside>
     );
@@ -224,7 +221,7 @@ function ItemProperties({
   return (
     <aside
       aria-label="Properties"
-      className="w-[280px] shrink-0 overflow-y-auto border-l border-divider px-4 py-4"
+      className="w-[280px] shrink-0 overflow-y-auto bg-surface px-4 py-4"
     >
       <PropertyPanel
         item={item}
@@ -273,7 +270,7 @@ function ItemHeader({ tree, itemId, title, onNavigate }: ItemHeaderProps): React
   }, [itemId, title]);
 
   return (
-    <header className="border-b border-divider px-8 pb-3 pt-4">
+    <header className="px-8 pb-3 pt-4">
       {trail.length > 1 ? (
         <nav aria-label="Breadcrumb" className="mb-1 flex flex-wrap items-center text-xs">
           {trail.slice(0, -1).map((ancestor) => (

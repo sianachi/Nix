@@ -68,11 +68,8 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   }
 
   return (
-    <aside
-      aria-label="Workspace"
-      className="flex w-[264px] shrink-0 flex-col border-r border-divider bg-surface"
-    >
-      <div className="flex items-center gap-1 border-b border-divider px-3 py-2">
+    <aside aria-label="Workspace" className="flex w-[264px] shrink-0 flex-col bg-surface">
+      <div className="flex items-center gap-1 px-3 py-2">
         <span className="truncate text-xs uppercase tracking-[0.08em] text-muted">Workspace</span>
 
         {/* The label names where the item will land. Two identical buttons whose meaning depends on
@@ -104,7 +101,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       {/* The error lives at the foot rather than replacing the tree: a failed rename must not take
           away the items that loaded perfectly well. */}
       {tree.error === null ? null : (
-        <div role="alert" className="border-t border-divider px-3 py-2">
+        <div role="alert" className="mx-2 mb-2 rounded-md bg-background px-3 py-2">
           <p className="text-xs text-muted">{tree.error}</p>
         </div>
       )}

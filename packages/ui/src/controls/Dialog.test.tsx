@@ -321,4 +321,21 @@ describe('Dialog', () => {
 
     expect(screen.getByRole('heading', { level: 2, name: 'Rename document' })).toBeInTheDocument();
   });
+
+  it('leaves the user agent free to centre it', () => {
+    render(
+      <Dialog open title="Properties" onClose={() => undefined}>
+        Body
+      </Dialog>,
+    );
+
+    // A modal <dialog> is centred by the user agent through `position: fixed; inset: 0;
+    // margin: auto`. Any `position` of our own overrides the fixed and the margin then has
+    // nothing to centre within - which is exactly what `relative` on the shared frame used to do,
+    // for as long as the frame needed it to anchor its corner marks.
+    const dialog = document.querySelector('dialog');
+
+    expect(dialog?.className).toContain('m-auto');
+    expect(dialog?.className).not.toMatch(/\b(relative|absolute|fixed|sticky)\b/);
+  });
 });

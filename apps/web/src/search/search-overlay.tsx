@@ -95,10 +95,18 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
         role="dialog"
         aria-modal="true"
         aria-label="Search"
-        className="relative w-full max-w-[560px] border border-divider bg-background shadow-lg"
+        className="relative w-full max-w-[680px] rounded-lg bg-background shadow-lg"
       >
-        <div className="flex items-center gap-2 border-b border-divider px-3 py-2">
-          <Icon icon={Search} size="sm" />
+        {/* Sized like the thing somebody came here to do. It was a form field in a row of
+            chrome; at this size it is the surface itself, which is what a command palette is.
+            The rule below it only appears once there is something to separate it from. */}
+        <div
+          className={[
+            'flex items-center gap-3 px-5',
+            query.trim().length === 0 ? '' : 'border-b border-divider',
+          ].join(' ')}
+        >
+          <Icon icon={Search} size="md" />
           <Input
             ref={inputRef}
             tone="plain"
@@ -108,6 +116,7 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
             onChange={(event) => {
               setQuery(event.target.value);
             }}
+            className="h-[var(--control-lg)] text-lg"
           />
         </div>
 

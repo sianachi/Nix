@@ -1,5 +1,5 @@
 import { Icon } from '@nix/ui';
-import { Search } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
 
@@ -9,6 +9,7 @@ import { useSelectedItem } from '../routing/selected-item';
 import { SearchOverlay } from '../search/search-overlay';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { ProfileMenu } from './profile-menu';
+import { useSidebar } from './use-sidebar';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -27,6 +28,7 @@ export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
+  const sidebar = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
 
   // A link naming an item the tree has not loaded - which is every link to anything nested, since
@@ -57,11 +59,23 @@ export function AppShell(): ReactNode {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background font-body text-foreground">
-      <header className="flex items-center gap-3 border-b border-divider px-[14px] py-2">
+      <header className="flex items-center gap-3 px-[14px] py-2">
+        {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
+            with the thing it controls cannot bring it back. */}
+        <button
+          type="button"
+          aria-label={sidebar.collapsed ? 'Show the workspace tree' : 'Hide the workspace tree'}
+          aria-expanded={!sidebar.collapsed}
+          onClick={sidebar.toggle}
+          className="flex size-[26px] items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Icon icon={sidebar.collapsed ? PanelLeftOpen : PanelLeftClose} size="sm" />
+        </button>
+
         <Link
           to="/"
           aria-label="Nix home"
-          className="inline-flex size-[26px] items-center justify-center border border-divider font-heading text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="inline-flex size-[26px] items-center justify-center rounded-md border border-divider font-heading text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           NX
         </Link>
@@ -75,7 +89,7 @@ export function AppShell(): ReactNode {
           onClick={() => {
             setSearchOpen(true);
           }}
-          className="ml-auto flex items-center gap-2 border border-divider px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <Icon icon={Search} size="sm" />
           Search
@@ -88,7 +102,12 @@ export function AppShell(): ReactNode {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <WorkspaceSidebar tree={tree} selectedId={selectedId} onSelect={select} />
+        {/* Unmounted rather than hidden. A tree that is merely off-screen keeps its rows in the
+            tab order and in the accessibility tree, so a keyboard would still walk through a
+            sidebar nobody can see. */}
+        {sidebar.collapsed ? null : (
+          <WorkspaceSidebar tree={tree} selectedId={selectedId} onSelect={select} />
+        )}
 
         {/* The shell owns the main landmark so every screen has exactly one, and a screen that
             renders panels side by side does not have to nest them inside another. */}
@@ -96,17 +115,6 @@ export function AppShell(): ReactNode {
           <Outlet context={{ tree, selectedId }} />
         </main>
       </div>
-
-      {/* The status strip says what is true right now rather than decorating: the tenant this
-          session is pinned to, and the fact that isolation is enforced in the database rather
-          than by this application. */}
-      <footer className="flex items-center gap-4 border-t border-divider px-[14px] py-1.5 text-xs text-muted">
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="inline-block size-[7px] bg-accent" />
-          Single tenant &middot; RLS-isolated
-        </span>
-        <span className="ml-auto font-mono">{globalThis.location.host}</span>
-      </footer>
 
       <SearchOverlay
         open={searchOpen}

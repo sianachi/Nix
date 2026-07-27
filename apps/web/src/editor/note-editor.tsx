@@ -4,21 +4,13 @@ import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import {
-  Bold as BoldIcon,
-  Code as CodeIcon,
-  Highlighter,
-  Italic as ItalicIcon,
-  Link as LinkIcon,
-  Strikethrough,
-  Underline as UnderlineIcon,
-} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Plugin } from '@tiptap/pm/state';
 import { redo, undo, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
+import { EditorToolbar } from './toolbar';
 import { startCollabSync, type SyncState } from './collab-sync';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 import { filterSlashCommands, type SlashCommand } from './slash-menu';
@@ -171,7 +163,18 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SelectionToolbar editor={editor} />
+      <EditorToolbar
+        editor={editor}
+        // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
+        // rather than imported by the toolbar, which has no business knowing the document is a
+        // CRDT.
+        onUndo={() => {
+          undo(editor.state);
+        }}
+        onRedo={() => {
+          redo(editor.state);
+        }}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
         <SlashMenu editor={editor} />
@@ -209,117 +212,6 @@ function SaveState({ state }: { readonly state: SyncState }): ReactNode {
     >
       {message}
     </footer>
-  );
-}
-
-/**
- * The formatting toolbar, over a text selection.
- *
- * Every button here has a keyboard shortcut and the shortcut is the primary interface; the toolbar
- * exists for the person who does not know it yet.
- */
-function SelectionToolbar({ editor }: { readonly editor: Editor }): ReactNode {
-  const marks = [
-    {
-      id: 'bold',
-      label: 'Bold',
-      icon: BoldIcon,
-      run: () => editor.chain().focus().toggleBold().run(),
-    },
-    {
-      id: 'italic',
-      label: 'Italic',
-      icon: ItalicIcon,
-      run: () => editor.chain().focus().toggleItalic().run(),
-    },
-    {
-      id: 'underline',
-      label: 'Underline',
-      icon: UnderlineIcon,
-      run: () => editor.chain().focus().toggleUnderline().run(),
-    },
-    {
-      id: 'strike',
-      label: 'Strikethrough',
-      icon: Strikethrough,
-      run: () => editor.chain().focus().toggleStrike().run(),
-    },
-    {
-      id: 'code',
-      label: 'Inline code',
-      icon: CodeIcon,
-      run: () => editor.chain().focus().toggleCode().run(),
-    },
-    {
-      id: 'highlight',
-      label: 'Highlight',
-      icon: Highlighter,
-      run: () => editor.chain().focus().toggleHighlight().run(),
-    },
-  ] as const;
-
-  return (
-    <div className="flex items-center gap-1 border-b border-divider px-8 py-1.5">
-      {marks.map((mark) => (
-        <button
-          key={mark.id}
-          type="button"
-          aria-label={mark.label}
-          aria-pressed={editor.isActive(mark.id)}
-          onClick={mark.run}
-          className={[
-            'flex size-7 items-center justify-center border border-transparent',
-            'hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
-            editor.isActive(mark.id) ? 'border-divider bg-foreground/7' : '',
-          ].join(' ')}
-        >
-          <Icon icon={mark.icon} size="sm" />
-        </button>
-      ))}
-
-      <button
-        type="button"
-        aria-label="Link"
-        onClick={() => {
-          const href: string | null = globalThis.prompt('Link URL');
-          if (href === null) {
-            return;
-          }
-
-          // An empty box means "remove the link", which is what everybody tries.
-          void (href.length === 0
-            ? editor.chain().focus().unsetLink().run()
-            : editor.chain().focus().setLink({ href }).run());
-        }}
-        className="flex size-7 items-center justify-center border border-transparent hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-      >
-        <Icon icon={LinkIcon} size="sm" />
-      </button>
-
-      <div className="ml-auto flex items-center gap-1">
-        <button
-          type="button"
-          aria-label="Undo"
-          onClick={() => {
-            // The Yjs history, so undo reverts your own edits and never a colleague's.
-            undo(editor.state);
-          }}
-          className="px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          aria-label="Redo"
-          onClick={() => {
-            redo(editor.state);
-          }}
-          className="px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
-        >
-          Redo
-        </button>
-      </div>
-    </div>
   );
 }
 

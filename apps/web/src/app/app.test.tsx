@@ -23,9 +23,13 @@ describe('the design token specimen page', () => {
   it('renders the layout chrome around the page', () => {
     renderAt(<App />, '/tokens');
 
+    // A banner and a main landmark, and deliberately no contentinfo. The status strip that used to
+    // sit at the foot said which tenant the session was pinned to and that isolation is enforced
+    // in the database - true, and not what somebody writing a document needs a permanent row of
+    // the screen for.
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
   it('tells the visitor which path was not found instead of showing a bare error', () => {
