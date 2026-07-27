@@ -78,6 +78,26 @@ builder.Services.AddOpenApi(options =>
         return Task.CompletedTask;
     });
 
+    // A property bag is a free-form object, and the generator does not know that. Left alone it
+    // emits JsonObject as an object declaring no members, which the TypeScript generator faithfully
+    // renders as Record<string, never> - a bag that may contain nothing. Every client would then
+    // have to cast around its own contract to read a property value, which is the opposite of what
+    // publishing a contract is for.
+    options.AddSchemaTransformer((schema, context, _) =>
+    {
+        if (context.JsonTypeInfo.Type == typeof(System.Text.Json.Nodes.JsonObject))
+        {
+            // An empty schema rather than merely allowing additional properties: OpenAPI 3.1 reads
+            // a bare "type": "object" as free-form, but generators do not agree about that, and the
+            // TypeScript one takes it as an object with no members. Saying "any value" explicitly
+            // leaves nothing to interpret.
+            schema.AdditionalPropertiesAllowed = true;
+            schema.AdditionalProperties = new Microsoft.OpenApi.OpenApiSchema();
+        }
+
+        return Task.CompletedTask;
+    });
+
     // Constructed rather than resolved: the transformer is stateless and has no
     // dependencies, so DI activation would only hide it from the analyzers.
     options.AddSchemaTransformer(new ProblemDetailsSchemaTransformer());

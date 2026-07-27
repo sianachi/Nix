@@ -11,6 +11,9 @@
  * ways worth remembering: it called the field `kind` and typed it as an enum, and it was missing
  * `seq`, `lifecycleState` and `createdAt`. The enum was the interesting mistake — item kinds are
  * added as a feature, so an enum would have broken every client each time one landed.
+ *
+ * The `satisfies` line has since earned itself once more: `properties` arrived with property
+ * schemas and this file stopped compiling, which is exactly where that should be found.
  */
 
 import { z } from 'zod';
@@ -43,6 +46,20 @@ export const itemLifecycleStateSchema = z.string();
  */
 export const itemSequenceSchema = z.union([z.number(), z.string()]);
 
+/**
+ * The item's property values, keyed by the schema's property keys.
+ *
+ * `unknown` rather than a union of the value shapes, deliberately. A property's type is declared by
+ * a schema this package cannot see, the set of types is open, and a value whose type this build
+ * does not recognise still has to survive being parsed - so the boundary's job here is to prove the
+ * bag is an object and hand the values on. Interpreting one is the job of whatever knows the schema
+ * it belongs to.
+ *
+ * The title lives in here as well as in the flat field. The flat one is the promotion every client
+ * needs to render a row; this is the storage it was promoted from.
+ */
+export const itemPropertiesSchema = z.record(z.string(), z.unknown());
+
 export const itemSchema = z.object({
   id: z.uuid(),
   workspaceId: z.uuid(),
@@ -51,6 +68,7 @@ export const itemSchema = z.object({
   title: z.string(),
   seq: itemSequenceSchema,
   lifecycleState: itemLifecycleStateSchema,
+  properties: itemPropertiesSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

@@ -1628,7 +1628,8 @@
         }
       },
       "JsonObject": {
-        "type": "object"
+        "type": "object",
+        "additionalProperties": { }
       },
       "LivenessResponse": {
         "required": [

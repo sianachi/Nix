@@ -41,6 +41,7 @@ describe('the item schema', () => {
     title: 'Kickoff',
     seq: 1000,
     lifecycleState: 'active',
+    properties: { title: 'Kickoff' },
     createdAt: '2026-07-26T09:30:00.000Z',
     updatedAt: '2026-07-26T09:30:00.000Z',
   };

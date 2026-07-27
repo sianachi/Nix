@@ -469,7 +469,9 @@ export interface components {
       /** Format: date-time */
       updatedAt: string;
     };
-    JsonObject: Record<string, never>;
+    JsonObject: {
+      [key: string]: unknown;
+    };
     LivenessResponse: {
       status: string;
     };

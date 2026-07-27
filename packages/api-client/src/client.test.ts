@@ -20,6 +20,10 @@ function itemPayload(title: string): Record<string, unknown> {
     title,
     seq: 1000,
     lifecycleState: 'active',
+    // The promoted field and the bag carry the same title, because the server sends both from one
+    // value. A fixture where they disagreed would be a shape the API cannot produce, and somebody
+    // would eventually write code against it.
+    properties: { title },
     createdAt: '2026-07-26T09:30:00.000Z',
     updatedAt: '2026-07-26T09:30:00.000Z',
   };
