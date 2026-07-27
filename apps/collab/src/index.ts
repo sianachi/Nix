@@ -24,7 +24,7 @@ const pool = new Pool({
 
 const app = createServer({
   pool,
-  tokens: createTokenValidator({ issuer: config.oidcIssuer, audience: config.oidcAudience }),
+  tokens: createTokenValidator({ issuer: config.oidcIssuer, audiences: config.oidcAudiences }),
   authorizer: createAuthorizer({ coreBaseUrl: config.coreBaseUrl }),
   snapshotEvery: config.snapshotEvery,
 });

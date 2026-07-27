@@ -17,6 +17,14 @@ describe('configuration', () => {
     expect(config.snapshotEvery).toBe(50);
   });
 
+  it('accepts more than one audience, because one deployment mints more than one', () => {
+    // The browser's tokens carry the web client's identifier; a machine identity's carry the
+    // project's. Accepting only one refuses the other for no reason anybody could act on.
+    const config = readConfig({ ...base, NIX_COLLAB_OIDC_AUDIENCE: 'web-client, project-id' });
+
+    expect(config.oidcAudiences).toEqual(['web-client', 'project-id']);
+  });
+
   it('strips trailing slashes so URLs are joined without doubling one', () => {
     const config = readConfig(base);
 

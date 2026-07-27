@@ -30,7 +30,8 @@ export interface TokenValidator {
  */
 export function createTokenValidator(options: {
   issuer: string;
-  audience: string;
+  /** Any one of these is accepted; see `CollabConfig.oidcAudiences` for why it is a list. */
+  audiences: readonly string[];
   jwksUri?: string;
 }): TokenValidator {
   const jwks = createRemoteJWKSet(
@@ -46,7 +47,7 @@ export function createTokenValidator(options: {
       try {
         const { payload } = await jwtVerify(token, jwks, {
           issuer: options.issuer,
-          audience: options.audience,
+          audience: [...options.audiences],
           // Signing algorithms are named rather than inferred. Left open, a token could
           // choose its own - which is how "alg: none" became a class of vulnerability.
           algorithms: ['RS256', 'ES256'],

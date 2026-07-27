@@ -15,9 +15,17 @@ export interface CollabConfig {
   /** Where Core lives, for the authorization call. */
   readonly coreBaseUrl: string;
 
-  /** The issuer whose tokens are accepted, and the audience they must carry. */
+  /** The issuer whose tokens are accepted. */
   readonly oidcIssuer: string;
-  readonly oidcAudience: string;
+
+  /**
+   * The audiences a token may carry, any one of which is accepted.
+   *
+   * A list rather than a single value because one deployment legitimately mints more than one:
+   * the browser's tokens carry the web client's identifier, while a machine identity's carry the
+   * project's. Accepting only one of them refuses the other for no reason anybody could act on.
+   */
+  readonly oidcAudiences: readonly string[];
 
   /** Updates between snapshots. A snapshot is a materialisation, never a source of truth. */
   readonly snapshotEvery: number;
@@ -42,7 +50,10 @@ export function readConfig(env: NodeJS.ProcessEnv): CollabConfig {
     databaseUrl,
     coreBaseUrl: stripTrailingSlash(required(env, 'NIX_COLLAB_CORE_BASE_URL')),
     oidcIssuer: stripTrailingSlash(required(env, 'NIX_COLLAB_OIDC_ISSUER')),
-    oidcAudience: required(env, 'NIX_COLLAB_OIDC_AUDIENCE'),
+    oidcAudiences: required(env, 'NIX_COLLAB_OIDC_AUDIENCE')
+      .split(',')
+      .map((audience) => audience.trim())
+      .filter((audience) => audience.length > 0),
     snapshotEvery: Number(env.NIX_COLLAB_SNAPSHOT_EVERY ?? 50),
   };
 }
