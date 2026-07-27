@@ -18,22 +18,25 @@ beforeEach(() => {
   signedIn();
 });
 
-const FOLDER = item({
+// A note that holds another note. It used to be typed 'folder', which is what earned it an expand
+// control; the control now comes from whether it actually has children, which is the fact the
+// server reports and the only one that cannot be wrong.
+const PARENT = item({
   id: '1a1a1a1a-1111-4111-8111-1a1a1a1a1a1a',
   title: 'Engineering',
-  type: 'folder',
+  hasChildren: true,
 });
 
 const CHILD = item({
   id: '1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b',
   title: 'Roadmap',
-  parentId: FOLDER.id,
+  parentId: PARENT.id,
 });
 
 describe('creating an item', () => {
   it('puts it in the workspace when nothing is selected', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER] });
+    stubCoreApi({ items: [PARENT] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });
@@ -42,32 +45,34 @@ describe('creating an item', () => {
     await user.click(screen.getByRole('button', { name: /new note in the workspace/i }));
   });
 
-  it('puts it inside the folder you are looking at', async () => {
+  it('puts it inside the item you are looking at', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: 'Engineering' }));
 
-    // Creating always at the root made putting anything inside a folder impossible without a drag.
+    // Creating always at the root made putting anything inside anything impossible without a drag.
     // The label says where it will land, so the control does not depend on an invisible selection.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /new note in engineering/i })).toBeVisible();
     });
   });
 
-  it('puts it beside the note you are looking at, not inside it', async () => {
+  it('puts it inside a nested item too, rather than beside it', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
     await user.click(await screen.findByRole('button', { name: 'Roadmap' }));
 
-    // A note is not a container, so the sibling position is the only sensible reading of "new note
-    // here" - and it is what a file manager does.
+    // This test used to assert the opposite - that a new item landed *beside* Roadmap, in
+    // Engineering - because a note could not hold anything and the sibling position was the only
+    // sensible reading. Every item can hold children now, so "inside what you are looking at" is
+    // one rule instead of two, and it is the one a file manager already taught everybody.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new note in engineering/i })).toBeVisible();
+      expect(screen.getByRole('button', { name: /new note in roadmap/i })).toBeVisible();
     });
   });
 });
@@ -104,7 +109,7 @@ describe('naming a new item', () => {
 describe('the breadcrumb trail', () => {
   it('takes you to an ancestor', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />, `/?item=${CHILD.id}`);
 
     const trail = await screen.findByRole('navigation', { name: /breadcrumb/i });
@@ -136,7 +141,7 @@ describe('deleting an item', () => {
   it('asks first', async () => {
     const user = userEvent.setup();
     const confirm = vi.fn(() => false);
-    stubCoreApi({ items: [FOLDER] });
+    stubCoreApi({ items: [PARENT] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });
@@ -153,7 +158,7 @@ describe('deleting an item', () => {
   it('says how much goes with it', async () => {
     const user = userEvent.setup();
     const confirm = vi.fn(() => false);
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
@@ -167,7 +172,7 @@ describe('deleting an item', () => {
 
   it('does nothing when the answer is no', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER] });
+    stubCoreApi({ items: [PARENT] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });

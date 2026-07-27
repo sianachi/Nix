@@ -1,14 +1,11 @@
 import { Button, Icon } from '@nix/ui';
+import { ChevronDown, ChevronRight, FilePlus, FileText, Trash2 } from 'lucide-react';
 import {
-  ChevronDown,
-  ChevronRight,
-  FilePlus,
-  FileText,
-  FolderPlus,
-  Folder,
-  Trash2,
-} from 'lucide-react';
-import { useState, type DragEvent, type ReactNode } from 'react';
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
@@ -37,10 +34,11 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   /**
    * Where a new item goes.
    *
-   * **Inside the folder you are looking at**, or beside the note you are looking at - not at the
-   * workspace root. Creating always at the root was the original behaviour and it made putting
-   * anything inside a folder impossible without a drag, which is not a workflow anybody would
-   * choose. The rule matches what a file manager does, and is the one people already have.
+   * **Inside the item you are looking at**, or the workspace when nothing is open.
+   *
+   * It used to depend on the item's type - inside a folder, beside a note - because a note could
+   * not hold anything. Now that every item can, "inside" is the answer for all of them, and it is
+   * the simpler rule to hold in your head: what you are looking at is what you are adding to.
    */
   const destination = ((): string | null => {
     if (selectedId === null) {
@@ -52,11 +50,11 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       return null;
     }
 
-    return selected.type === 'folder' ? selected.id : selected.parentId;
+    return selected.id;
   })();
 
   const destinationName =
-    destination === null ? 'the workspace' : (tree.find(destination)?.title ?? 'this folder');
+    destination === null ? 'the workspace' : (tree.find(destination)?.title ?? 'this item');
 
   async function create(title: string, type: string): Promise<void> {
     const created = await tree.create(destination, title, type);
@@ -90,19 +88,6 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         >
           <Icon icon={FilePlus} size="sm" />
           Note
-        </Button>
-
-        <Button
-          variant="ghost"
-          className="px-1.5 py-1 text-xs"
-          aria-label={`New folder in ${destinationName}`}
-          onClick={() => {
-            void create('Untitled folder', 'folder');
-          }}
-          disabled={tree.status !== 'ready' || tree.isCreating}
-        >
-          <Icon icon={FolderPlus} size="sm" />
-          Folder
         </Button>
       </div>
 
@@ -182,14 +167,56 @@ interface TreeNodeProps extends TreeBodyProps {
   readonly depth: number;
 }
 
+/**
+ * Where on a row a drop would land.
+ *
+ * The row's middle band means inside; its top and bottom edges mean before and after, as siblings.
+ * This distinction used to come free from the item's type - onto a folder meant inside, onto a note
+ * meant beside - and with one kind of item there is nothing left to read it from but the pointer.
+ *
+ * The middle is deliberately the larger share. Dropping something *into* the thing under the
+ * pointer is the common intent and the one that should be easy to hit; reordering is the
+ * deliberate act, and its targets sit where a miss lands you inside rather than somewhere
+ * surprising.
+ */
+type DropZone = 'before' | 'inside' | 'after';
+
+const EDGE_BAND = 0.25;
+
+export function dropZoneAt(offsetY: number, height: number): DropZone {
+  if (height <= 0) {
+    return 'inside';
+  }
+
+  const position = offsetY / height;
+
+  if (position < EDGE_BAND) {
+    return 'before';
+  }
+
+  return position > 1 - EDGE_BAND ? 'after' : 'inside';
+}
+
 function TreeNode(props: TreeNodeProps): ReactNode {
   const { item, depth, tree, selectedId, onSelect, dragged, setDragged } = props;
 
-  const isFolder = item.type === 'folder';
   const expanded = tree.isExpanded(item.id);
   const children = tree.childrenOf(item.id);
   const selected = selectedId === item.id;
-  const [dropTarget, setDropTarget] = useState(false);
+
+  // Whether to offer an expand control at all. From the server's answer rather than from the
+  // item's type: every item can hold children, so the alternative is a control on every row, most
+  // of which would open onto nothing. Kept while expanded so emptying an item does not strip the
+  // control out from under the pointer that just opened it.
+  const expandable = item.hasChildren || expanded;
+
+  const [zone, setZone] = useState<DropZone | null>(null);
+  const dropping = zone !== null && dragged !== null && dragged !== item.id;
+
+  const siblings = tree.childrenOf(item.parentId);
+  const index = siblings.findIndex((sibling) => sibling.id === item.id);
+  const previous = index > 0 ? siblings[index - 1] : undefined;
+  const next = index >= 0 ? siblings[index + 1] : undefined;
 
   function onDragStart(event: DragEvent<HTMLDivElement>): void {
     setDragged(item.id);
@@ -200,49 +227,103 @@ function TreeNode(props: TreeNodeProps): ReactNode {
 
   function onDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault();
-    setDropTarget(false);
 
-    if (dragged === null || dragged === item.id) {
+    const landing = zone;
+    setZone(null);
+
+    if (dragged === null || dragged === item.id || landing === null) {
       return;
     }
 
-    // Dropping onto a folder puts the item inside it; onto a note, immediately after it. The
-    // server refuses a folder dropped into its own subtree, so the one gesture that could break
+    // The server refuses an item dropped into its own subtree, so the one gesture that could break
     // the tree is the one it will not perform.
-    void (isFolder
+    void (landing === 'inside'
       ? tree.move(dragged, item.id, null)
-      : tree.move(dragged, item.parentId, item.id));
+      : tree.move(dragged, item.parentId, landing === 'after' ? item.id : (previous?.id ?? null)));
 
     setDragged(null);
   }
 
+  /**
+   * The same three moves, from the keyboard.
+   *
+   * A drop zone that exists only for a pointer is not a move affordance, it is a move affordance
+   * for some people. These are the outliner bindings - the ones anybody who has used a list of
+   * nested things already has in their fingers - and they map onto exactly the three landings a
+   * drag can produce.
+   */
+  function onKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
+    if (!event.altKey) {
+      return;
+    }
+
+    if (event.key === 'ArrowUp' && previous !== undefined) {
+      event.preventDefault();
+      // Before the sibling above, which is after the one above that.
+      void tree.move(item.id, item.parentId, siblings[index - 2]?.id ?? null);
+      return;
+    }
+
+    if (event.key === 'ArrowDown' && next !== undefined) {
+      event.preventDefault();
+      void tree.move(item.id, item.parentId, next.id);
+      return;
+    }
+
+    if (event.key === 'ArrowRight' && previous !== undefined) {
+      event.preventDefault();
+      // Inside the sibling above, which is the only unambiguous "indent": the item below cannot
+      // take it without reordering them both.
+      void tree.move(item.id, previous.id, null);
+      return;
+    }
+
+    if (event.key === 'ArrowLeft' && item.parentId !== null) {
+      event.preventDefault();
+      const parent = tree.find(item.parentId);
+      void tree.move(item.id, parent?.parentId ?? null, item.parentId);
+    }
+  }
+
   return (
-    <li role="treeitem" aria-expanded={isFolder ? expanded : undefined} aria-selected={selected}>
+    <li role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={selected}>
       <div
         draggable
         onDragStart={onDragStart}
         onDragEnd={() => {
           setDragged(null);
-          setDropTarget(false);
+          setZone(null);
         }}
         onDragOver={(event) => {
           event.preventDefault();
-          setDropTarget(true);
+          const box = event.currentTarget.getBoundingClientRect();
+          setZone(dropZoneAt(event.clientY - box.top, box.height));
         }}
         onDragLeave={() => {
-          setDropTarget(false);
+          setZone(null);
         }}
         onDrop={onDrop}
         className={[
-          'group flex items-center gap-1 pr-1',
+          'group relative flex items-center gap-1 pr-1',
           selected ? 'bg-accent/18' : 'hover:bg-accent/10',
-          dropTarget && dragged !== null && dragged !== item.id
-            ? 'outline-2 -outline-offset-2 outline-accent'
-            : '',
+          dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
         ].join(' ')}
         style={{ paddingLeft: `${String(depth * 12 + 6)}px` }}
       >
-        {isFolder ? (
+        {/* A line where the item would land, rather than an outline round the row it would land
+            beside. An outline says "into this"; a line between two rows says "between them", which
+            is the thing being chosen. */}
+        {dropping && zone !== 'inside' ? (
+          <span
+            aria-hidden="true"
+            className={[
+              'pointer-events-none absolute inset-x-0 h-0.5 bg-accent',
+              zone === 'before' ? 'top-0' : 'bottom-0',
+            ].join(' ')}
+          />
+        ) : null}
+
+        {expandable ? (
           <button
             type="button"
             aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
@@ -262,9 +343,13 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           onClick={() => {
             onSelect(item.id);
           }}
+          // On the row's own control rather than on the wrapper: this is the element that takes
+          // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
+          // control that only looks like one.
+          onKeyDown={onKeyDown}
           className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
-          <Icon icon={isFolder ? Folder : FileText} size="sm" />
+          <Icon icon={FileText} size="sm" />
           <span className="truncate">{item.title || 'Untitled'}</span>
         </button>
 
@@ -276,11 +361,11 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             // that opens the item. Deletion is reversible in the database, but nothing in the
             // interface offers the way back yet, so from here it reads as permanent - and a
             // confirmation is the honest thing until an undo exists.
-            const children = tree.childrenOf(item.id).length;
+            const inside = tree.childrenOf(item.id).length;
             const warning =
-              children === 0
+              inside === 0
                 ? `Delete "${item.title || 'Untitled'}"?`
-                : `Delete "${item.title || 'Untitled'}" and the ${String(children)} item${children === 1 ? '' : 's'} inside it?`;
+                : `Delete "${item.title || 'Untitled'}" and the ${String(inside)} item${inside === 1 ? '' : 's'} inside it?`;
 
             if (globalThis.confirm(warning)) {
               void tree.remove(item.id);
@@ -292,7 +377,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         </button>
       </div>
 
-      {isFolder && expanded ? (
+      {expanded ? (
         <ul role="group">
           {tree.isLoadingChildren(item.id) && children.length === 0 ? (
             <li

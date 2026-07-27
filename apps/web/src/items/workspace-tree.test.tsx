@@ -17,16 +17,19 @@ beforeEach(() => {
   signedIn();
 });
 
-const FOLDER = item({
+// A note that holds another note. It used to be typed 'folder', which is what earned it an expand
+// control; the control now comes from whether it actually has children, which is the fact the
+// server reports and the only one that cannot be wrong.
+const PARENT = item({
   id: '1a1a1a1a-1111-4111-8111-1a1a1a1a1a1a',
   title: 'Engineering',
-  type: 'folder',
+  hasChildren: true,
 });
 
 const CHILD = item({
   id: '1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b',
   title: 'Roadmap',
-  parentId: FOLDER.id,
+  parentId: PARENT.id,
 });
 
 const ROOT_NOTE = item({
@@ -37,7 +40,7 @@ const ROOT_NOTE = item({
 
 describe('the workspace tree', () => {
   it('shows the roots and nothing below them until a folder is opened', async () => {
-    stubCoreApi({ items: [FOLDER, CHILD, ROOT_NOTE] });
+    stubCoreApi({ items: [PARENT, CHILD, ROOT_NOTE] });
     renderAt(<App />);
 
     expect(await screen.findByRole('button', { name: 'Engineering' })).toBeVisible();
@@ -49,7 +52,7 @@ describe('the workspace tree', () => {
 
   it('fetches a folder s children when it is expanded', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD, ROOT_NOTE] });
+    stubCoreApi({ items: [PARENT, CHILD, ROOT_NOTE] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
@@ -59,7 +62,7 @@ describe('the workspace tree', () => {
 
   it('collapses again without losing what was loaded', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD, ROOT_NOTE] });
+    stubCoreApi({ items: [PARENT, CHILD, ROOT_NOTE] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
@@ -74,7 +77,7 @@ describe('the workspace tree', () => {
 
   it('reports the expanded state to assistive technology', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />);
 
     const treeItem = await screen.findByRole('treeitem', { name: /engineering/i });
@@ -101,7 +104,7 @@ describe('the workspace tree', () => {
 
   it('shows where a nested note sits', async () => {
     const user = userEvent.setup();
-    stubCoreApi({ items: [FOLDER, CHILD] });
+    stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
