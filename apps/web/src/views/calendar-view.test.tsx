@@ -266,10 +266,10 @@ describe('the calendar view', () => {
     expect(onOpen).toHaveBeenCalledWith('item-kickoff');
   });
 
-  it('says the folder is empty when it is empty', () => {
+  it('says there is nothing here when there is nothing here', () => {
     renderCalendar({ children: [] });
 
-    expect(screen.getByRole('status')).toHaveTextContent('This folder is empty');
+    expect(screen.getByRole('status')).toHaveTextContent('Nothing in here yet');
   });
 
   it('says the filters hide everything, which is not the same as an empty folder', () => {
@@ -277,7 +277,7 @@ describe('the calendar view', () => {
 
     const panel = screen.getByRole('status');
     expect(panel).toHaveTextContent('No items match the current filters');
-    expect(panel).not.toHaveTextContent('This folder is empty');
+    expect(panel).not.toHaveTextContent('Nothing in here yet');
     expect(screen.getByRole('button', { name: 'Clear filters' })).toBeVisible();
   });
 
@@ -285,7 +285,7 @@ describe('the calendar view', () => {
     renderCalendar({ children: [KICKOFF] }, { view: { ...VIEW, dateProperty: 'delivered' } });
 
     // Not an empty month: an empty calendar and a broken calendar look identical if you let them.
-    expect(screen.getByRole('alert')).toHaveTextContent('that property is not in this folder');
+    expect(screen.getByRole('alert')).toHaveTextContent('that property is not in this item');
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

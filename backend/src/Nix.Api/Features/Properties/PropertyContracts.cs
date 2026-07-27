@@ -50,7 +50,7 @@ internal sealed record EffectiveSchemaResponse(
 /// <param name="Properties">The properties to declare. An empty list declares none.</param>
 /// <param name="Inherit">
 /// Whether ancestors above this item contribute. False makes this the outermost schema its subtree
-/// sees, which is what a scratch folder under a heavily-schema'd workspace needs.
+/// sees, which is what a scratch item under a heavily-schema'd workspace needs.
 /// </param>
 internal sealed record SetSchemaRequest(
     IReadOnlyList<PropertyDefinitionRequest> Properties,

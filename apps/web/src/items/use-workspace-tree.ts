@@ -363,7 +363,7 @@ export function useWorkspaceTree(): WorkspaceTree {
           // so it is worth saying plainly rather than as a status code.
           setError(
             problem?.code === 'items.move_would_create_cycle'
-              ? 'A folder cannot be moved inside itself.'
+              ? 'An item cannot be moved inside itself.'
               : (problem?.detail ?? `The item could not be moved (${String(response.status)}).`),
           );
           return;

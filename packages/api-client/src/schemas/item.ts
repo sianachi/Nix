@@ -22,14 +22,21 @@ import type { components } from '../generated/api.js';
 /**
  * The item's kind, as an open string.
  *
- * Deliberately not an enum. Folder, note, task, board and file are what exist today; the set is
- * open by design and a client is expected to render an unknown kind generically rather than fail
- * to parse the response that carried it.
+ * Deliberately not an enum. It says how an item's own *body* is drawn - a note's prose, a canvas's
+ * scene - and nothing about what it can contain: every item can hold children, declare a property
+ * schema and offer views, whatever its kind. The set is open by design and a client is expected to
+ * render an unknown kind generically rather than fail to parse the response that carried it.
  */
 export const itemTypeSchema = z.string();
 
-/** Kinds this build renders specially. Anything else falls back to a generic row. */
-export const KNOWN_ITEM_TYPES = ['folder', 'note', 'task', 'board', 'file'] as const;
+/**
+ * Kinds this build renders specially. Anything else falls back to a generic row.
+ *
+ * `folder` is gone: it was never a kind of body, only a claim about what an item could contain,
+ * and that claim is no longer any item's to make. `file` and `task` went with it as things that
+ * were listed here and created nowhere - MVP-6 brings files back when there is a body to draw.
+ */
+export const KNOWN_ITEM_TYPES = ['note'] as const;
 export type KnownItemType = (typeof KNOWN_ITEM_TYPES)[number];
 
 /** Where an item sits in the deletion lifecycle. Open for the same reason as the kind. */

@@ -8,7 +8,9 @@ namespace Nix.Api.Features.Items;
 /// <param name="Id">The item's identifier.</param>
 /// <param name="WorkspaceId">The workspace it belongs to.</param>
 /// <param name="ParentId">Its parent, or <see langword="null"/> for a workspace root.</param>
-/// <param name="Type">Its kind - <c>folder</c>, <c>note</c>, <c>task</c>, <c>board</c>, <c>file</c>.</param>
+/// <param name="Type">
+/// Its kind, which says how its own body is drawn rather than what it may contain.
+/// </param>
 /// <param name="Title">Its display name.</param>
 /// <param name="HasChildren">
 /// Whether this item has at least one child that is not deleted.

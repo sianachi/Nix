@@ -26,7 +26,7 @@ import { PropertyInput } from './property-input';
 export interface PropertyPanelProps {
   readonly item: Item;
 
-  /** The effective schema's properties: what this folder declares plus what it inherits. */
+  /** The effective schema's properties: what this item declares plus what it inherits. */
   readonly properties: readonly PropertyDefinition[];
 
   /**
@@ -76,7 +76,7 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
     return (
       <EmptyPanel
         title="No properties here"
-        detail="Properties come from the folder this item is in, and from the folders above it. None of them declares any yet, so there is nothing to fill in - add a property to the folder and it appears here."
+        detail="Properties come from the item this one is in, and from the items above it. None of them declares any yet, so there is nothing to fill in - add a property further up and it appears here."
       />
     );
   }

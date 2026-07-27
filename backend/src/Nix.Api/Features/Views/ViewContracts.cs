@@ -49,7 +49,7 @@ internal sealed record ViewResponse(
 /// </param>
 /// <remarks>
 /// <b><see cref="Unrenderable"/> is the honest-state field.</b> Without it, such a board renders as
-/// an empty board, which is indistinguishable from an empty folder and sends somebody looking for
+/// an empty board, which is indistinguishable from an item with nothing in it and sends somebody looking for
 /// missing items instead of a missing property.
 /// </remarks>
 internal sealed record ContainerViewsResponse(

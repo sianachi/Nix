@@ -113,7 +113,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
   return (
     <Dialog
       open={open}
-      title="Views for this folder"
+      title="Views for this item"
       onClose={onClose}
       actions={
         <>

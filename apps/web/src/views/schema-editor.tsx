@@ -10,7 +10,7 @@ import type { ContainerData } from './use-container';
  *
  * **Bound to what this container declares, never to what it inherits.** The effective schema is
  * the merge of every ancestor's; saving that back would copy the inherited properties onto this
- * folder and silently turn inheritance into a copy, after which changing the parent's schema would
+ * item and silently turn inheritance into a copy, after which changing the parent's schema would
  * stop reaching anything below. So the inherited ones are shown, greyed and uneditable, purely so
  * a person can see why a property they did not declare is appearing on their notes.
  *
@@ -100,7 +100,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
   return (
     <Dialog
       open={open}
-      title="Properties for this folder"
+      title="Properties for this item"
       onClose={onClose}
       actions={
         <>

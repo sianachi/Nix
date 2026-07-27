@@ -1,5 +1,5 @@
 import { Icon, Input, Tag } from '@nix/ui';
-import { FileText, Folder, Search } from 'lucide-react';
+import { FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { TreeItem } from '../items/use-workspace-tree';
@@ -132,7 +132,7 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
                     }}
                     className="flex w-full items-center gap-2 border-b border-divider px-4 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
                   >
-                    <Icon icon={item.type === 'folder' ? Folder : FileText} size="sm" />
+                    <Icon icon={FileText} size="sm" />
                     <span className="truncate">{item.title || 'Untitled'}</span>
                     <Tag tone="muted" className="ml-auto">
                       {item.type}

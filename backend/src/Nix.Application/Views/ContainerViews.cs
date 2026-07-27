@@ -21,7 +21,7 @@ namespace Nix.Application.Views;
 /// </param>
 /// <remarks>
 /// The second list is what stops a board whose grouping property was deleted from rendering as an
-/// empty board - which is indistinguishable from an empty folder, and sends somebody looking for
+/// empty board - which is indistinguishable from an item with nothing in it, and sends somebody looking for
 /// their missing items instead of their missing property.
 /// </remarks>
 public sealed record ContainerViewSet(

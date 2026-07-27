@@ -3,7 +3,10 @@ namespace Nix.Api.Features.Items;
 /// <summary>
 /// Creates an item in a workspace.
 /// </summary>
-/// <param name="Type">The kind to create - <c>folder</c>, <c>note</c>, <c>task</c>, <c>board</c>.</param>
+/// <param name="Type">
+/// The kind to create, which says how the item's own body is drawn. <c>note</c> today. It says
+/// nothing about what the item may contain: every item can hold children and offer views.
+/// </param>
 /// <param name="Title">The display name.</param>
 /// <param name="ParentId">
 /// The parent to create it under, or <see langword="null"/> to create it at the workspace root.

@@ -4,13 +4,13 @@ using Nix.Core.Tenancy;
 namespace Nix.Core.Items;
 
 /// <summary>
-/// The universal object: a note, task, folder, board, or file. One parent, exactly one workspace,
-/// properties validated against an inherited schema.
+/// The universal object. One parent, exactly one workspace, properties validated against an
+/// inherited schema, and children of its own if anything has been put inside it.
 /// </summary>
 /// <remarks>
 /// <para>
 /// One table for every kind of thing is the decision the rest of the product rests on. It is why
-/// a folder can hold a board, why a task can be given a document body, and why permissions,
+/// anything can hold anything, why a task can be given a document body, and why permissions,
 /// search, and the tree have one implementation each rather than one per type. <see cref="Type"/>
 /// discriminates behaviour; it does not discriminate storage.
 /// </para>
@@ -32,11 +32,19 @@ public sealed class Item
     public required WorkspaceId WorkspaceId { get; init; }
 
     /// <summary>
-    /// Gets the item's kind - folder, note, task, board, file.
+    /// Gets the item's kind, which says how its own body is drawn - a note's prose, a canvas's
+    /// scene.
     /// </summary>
     /// <remarks>
-    /// Text rather than an enumeration because the set is open by design: adding a kind should be
-    /// a feature, not a migration.
+    /// <para>
+    /// Text rather than an enumeration because the set is open by design: adding a kind should be a
+    /// feature, not a migration.
+    /// </para>
+    /// <para>
+    /// <b>It says nothing about what an item may contain.</b> Every item can hold children, declare
+    /// a property schema and offer views, whatever its kind. "Folder" used to be a kind here and
+    /// was never a body at all - only a claim about containment that the schema never made.
+    /// </para>
     /// </remarks>
     public required string Type { get; init; }
 

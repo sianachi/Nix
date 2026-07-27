@@ -76,9 +76,9 @@ describe('the property panel', () => {
       <PropertyPanel item={itemWith({})} properties={[]} onChange={() => Promise.resolve(null)} />,
     );
 
-    // "No properties" on its own reads as a fault. Naming the folder as their source is what makes
-    // it read as a folder that has not declared any - and says where to go to change that.
-    expect(screen.getByText(/folder/i)).toBeVisible();
+    // "No properties" on its own reads as a fault. Naming where they come from is what makes it
+    // read as nothing having declared any yet - and says where to go to change that.
+    expect(screen.getByText(/properties come from/i)).toBeVisible();
   });
 
   it('distinguishes not knowing yet from knowing there are none', () => {

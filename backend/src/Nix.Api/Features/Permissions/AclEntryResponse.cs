@@ -20,7 +20,7 @@ namespace Nix.Api.Features.Permissions;
 /// </param>
 /// <remarks>
 /// <see cref="InheritedFromItemId"/> is what lets a sharing panel tell "shared here" from "shared
-/// on a folder above", which is the single most confusing thing about inherited permissions and
+/// on an item above", which is the single most confusing thing about inherited permissions and
 /// the one a user most needs shown. The server computes it; the client never walks a tree to work
 /// it out.
 /// </remarks>

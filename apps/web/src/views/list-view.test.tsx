@@ -265,7 +265,7 @@ describe('ListView', () => {
     expect(titles()).toEqual(['Zeta']);
   });
 
-  it('says the filters are hiding the items rather than saying the folder is empty', () => {
+  it('says the filters are hiding the items rather than saying there is nothing here', () => {
     renderAt(
       <ListView
         container={containerData({
@@ -280,9 +280,9 @@ describe('ListView', () => {
 
     // Somebody told "this folder is empty" here goes looking for two notes they think are gone.
     expect(
-      screen.getByText('All 2 items in this folder are hidden by the current filters.'),
+      screen.getByText('All 2 items in here are hidden by the current filters.'),
     ).toBeInTheDocument();
-    expect(screen.queryByText('This folder is empty.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nothing in here yet.')).not.toBeInTheDocument();
   });
 
   it('offers a way out of a filter that hides everything', async () => {
@@ -304,24 +304,24 @@ describe('ListView', () => {
     expect(titles()).toEqual(['Zeta', 'Alpha']);
   });
 
-  it('says the folder is empty when it is the folder that is empty', () => {
+  it('says there is nothing here when there is nothing here', () => {
     renderAt(<ListView container={containerData()} view={null} onOpen={vi.fn()} />);
 
-    expect(screen.getByText('This folder is empty.')).toBeInTheDocument();
+    expect(screen.getByText('Nothing in here yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
   });
 
-  it('does not call an unanswered folder an empty one', () => {
+  it('does not call unanswered contents empty', () => {
     renderAt(
       <ListView container={containerData({ status: 'loading' })} view={null} onOpen={vi.fn()} />,
     );
 
-    expect(screen.queryByText('This folder is empty.')).not.toBeInTheDocument();
-    expect(screen.getByText('Loading this folder')).toBeInTheDocument();
+    expect(screen.queryByText('Nothing in here yet.')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading the contents')).toBeInTheDocument();
     expect(screen.getByRole('table')).toHaveAttribute('aria-busy', 'true');
   });
 
-  it('reports a folder that could not be read instead of drawing an empty table', () => {
+  it('reports contents that could not be read instead of drawing an empty table', () => {
     renderAt(
       <ListView
         container={containerData({ status: 'error', error: 'Core could not be reached.' })}

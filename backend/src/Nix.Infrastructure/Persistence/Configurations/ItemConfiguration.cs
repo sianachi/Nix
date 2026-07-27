@@ -80,7 +80,7 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             // and take the audit trail's subject with it.
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Listing a folder's children in order - the single most common tree read.
+        // Listing an item's children in order - the single most common tree read.
         //
         // Not prefixed with tenant_id: workspace_id functionally determines it, so prefixing would
         // widen every entry to narrow nothing. The row-level security predicate lands in filter

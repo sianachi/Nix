@@ -21,10 +21,10 @@ import { useViewState, type SortDirection } from './view-state';
  * that has to be right about the least interesting things - what the columns are, what order the
  * rows are in, and above all what it says when there are no rows.
  *
- * **Four answers, four messages.** "We are still asking", "this folder is empty", "the folder could
+ * **Four answers, four messages.** "We are still asking", "this item is empty", "it could
  * not be read" and "your filters are hiding everything" are four different facts, and three of them
  * are actionable in different directions. The last is the one worth spending words on: somebody who
- * followed a filtered link, or filtered down and forgot, and is told "this folder is empty" will go
+ * followed a filtered link, or filtered down and forgot, and is told "nothing in here yet" will go
  * looking for notes they think have been deleted. So the empty message is chosen from what we know
  * - the folder had children and the filters removed all of them is not emptiness - and the state
  * carries the one control that gets out of it.
@@ -85,7 +85,7 @@ export function ListView(props: ListViewProps): ReactNode {
     return (
       <div role="alert" className="max-w-md">
         <Text variant="bodySmall" tone="muted" className="mb-3">
-          {container.error ?? 'This folder could not be loaded.'}
+          {container.error ?? 'The contents could not be loaded.'}
         </Text>
         <Button
           variant="secondary"
@@ -102,14 +102,14 @@ export function ListView(props: ListViewProps): ReactNode {
   return (
     <div className="min-w-0">
       <Table<Item>
-        caption="Items in this folder"
+        caption="Items in this one"
         columns={buildColumns(view, container.schema, onOpen)}
         rows={rows}
         rowKey={(item) => item.id}
         loading={container.status === 'loading'}
-        loadingMessage="Loading this folder"
+        loadingMessage="Loading the contents"
         emptyMessage={
-          filteredToNothing ? hiddenByFilters(container.children.length) : 'This folder is empty.'
+          filteredToNothing ? hiddenByFilters(container.children.length) : 'Nothing in here yet.'
         }
         // Spread rather than passed as `undefined`: under `exactOptionalPropertyTypes` an optional
         // prop is either given or not given, and the distinction matters here - an absent `sort`
@@ -144,13 +144,13 @@ export function ListView(props: ListViewProps): ReactNode {
 /**
  * What the table says when the filters have removed everything.
  *
- * Says how many are hidden, because "no items match" leaves open the possibility that the folder
+ * Says how many are hidden, because "no items match" leaves open the possibility that the item
  * was empty all along, and the count is the proof that it was not.
  */
 function hiddenByFilters(total: number): string {
   return total === 1
-    ? 'The one item in this folder is hidden by the current filters.'
-    : `All ${String(total)} items in this folder are hidden by the current filters.`;
+    ? 'The one item in here is hidden by the current filters.'
+    : `All ${String(total)} items in here are hidden by the current filters.`;
 }
 
 /**

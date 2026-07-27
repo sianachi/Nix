@@ -2,7 +2,7 @@ namespace Nix.Infrastructure.Persistence.Migrations;
 
 /// <summary>
 /// The hand-written half of the MVP-2 migration: bounds on the two new JSON columns, and the
-/// index that makes ordering a folder by name a query rather than a scan.
+/// index that makes ordering an item's children by name a query rather than a scan.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -64,7 +64,7 @@ public static class StructureSecuritySql
     /// <para>
     /// <b>The debt the property bag has carried since M0.</b> A title lives inside
     /// <c>properties</c> rather than in a column of its own, which is correct - a name is one of
-    /// the schema-driven properties an item carries - but it left "order this folder by name" as a
+    /// the schema-driven properties an item carries - but it left "order these children by name" as a
     /// query nobody could serve without reading and parsing every row.
     /// </para>
     /// <para>
@@ -75,7 +75,7 @@ public static class StructureSecuritySql
     /// </para>
     /// <para>
     /// <c>text_pattern_ops</c> so a prefix search can use the same index: the C collation is what
-    /// makes <c>LIKE 'foo%'</c> indexable, and searching a folder by the start of a name is the
+    /// makes <c>LIKE 'foo%'</c> indexable, and searching a subtree by the start of a name is the
     /// next thing anybody asks for.
     /// </para>
     /// </remarks>

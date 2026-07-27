@@ -163,7 +163,7 @@ function currentMonth(): CalendarMonth {
 
 const NO_DATE_PROPERTY =
   'A calendar places items by a date property, and this view does not name one. Nothing has been ' +
-  'lost - every item is still in the folder, and a list or board view will show them.';
+  'lost - every item is still here, and a list or board view will show them.';
 
 /**
  * Why this calendar cannot be drawn, or null when it can.
@@ -196,7 +196,7 @@ function describeUnrenderable(
   const definition = schema.properties.find((property) => property.key === view.dateProperty);
 
   if (definition === undefined) {
-    return `This calendar places items by "${view.dateProperty}", and that property is not in this folder's schema. It was probably removed. The items are all still here; a list view will show them.`;
+    return `This calendar places items by "${view.dateProperty}", and that property is not in this item's schema. It was probably removed. The items are all still here; a list view will show them.`;
   }
 
   if (definition.type !== 'date') {
@@ -233,7 +233,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     return (
       <ErrorPanel
         title="This calendar could not be loaded"
-        detail={container.error ?? 'This folder could not be read.'}
+        detail={container.error ?? 'The contents could not be read.'}
         action={
           <Button
             variant="secondary"
@@ -262,8 +262,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   if (container.children.length === 0) {
     return (
       <EmptyPanel
-        title="This folder is empty"
-        detail="There is nothing to place on a calendar yet. Items added to this folder will appear on the day their date says."
+        title="Nothing in here yet"
+        detail="There is nothing to place on a calendar yet. Items added to this one will appear on the day their date says."
       />
     );
   }
@@ -276,7 +276,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     return (
       <EmptyPanel
         title="No items match the current filters"
-        detail={`This folder holds ${String(container.children.length)} items, and the filters in the address hide every one of them. Clearing the filters brings them back.`}
+        detail={`This holds ${String(container.children.length)} items, and the filters in the address hide every one of them. Clearing the filters brings them back.`}
         action={
           <Button variant="secondary" onClick={clearFilters}>
             Clear filters

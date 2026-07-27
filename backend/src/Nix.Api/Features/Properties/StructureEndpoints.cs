@@ -80,7 +80,7 @@ internal static class StructureEndpoints
                 "Returns the views in switcher order, plus the identifiers of any whose "
                 + "configured property no longer exists or no longer fits. A board grouping by a "
                 + "deleted property would otherwise render as an empty board, which is "
-                + "indistinguishable from an empty folder.")
+                + "indistinguishable from an item with nothing in it.")
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 

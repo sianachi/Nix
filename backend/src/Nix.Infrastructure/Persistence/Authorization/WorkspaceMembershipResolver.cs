@@ -29,7 +29,7 @@ namespace Nix.Infrastructure.Persistence.Authorization;
 /// <para>
 /// <b>Answers are memoised for the unit of work.</b> A scope is one request and one tenant, and the
 /// rows behind the answer cannot change underneath it — the transaction that would change them is
-/// this one. Listing a folder therefore asks the database once rather than once per item, which is
+/// this one. Listing an item's children therefore asks the database once rather than once per item, which is
 /// the difference between a page of two hundred children costing one round trip and costing two
 /// hundred.
 /// </para>

@@ -32,7 +32,7 @@ public static class SchemaSql
     /// <para>
     /// Only rows that declare something are returned. The partial index
     /// <c>ix_item_declares_schema</c> exists for exactly this predicate, so a chain of twenty
-    /// folders where two carry a schema fetches two rows rather than twenty.
+    /// ancestors where two carry a schema fetches two rows rather than twenty.
     /// </para>
     /// <para>
     /// Index dependencies: <c>PK_item_closure</c> for the ancestor lookup and

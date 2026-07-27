@@ -83,7 +83,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
     return (
       <ErrorPanel
         title="This board could not be loaded"
-        detail={container.error ?? 'The folder behind this board did not load.'}
+        detail={container.error ?? 'The item behind this board did not load.'}
         action={
           <Button
             variant="secondary"
@@ -113,8 +113,8 @@ export function BoardView(props: BoardViewProps): ReactNode {
   if (container.children.length === 0) {
     return (
       <EmptyPanel
-        title="This folder is empty"
-        detail="Nothing has been added here yet. Items added to this folder appear on the board as cards."
+        title="Nothing in here yet"
+        detail="Nothing has been added here yet. Items added to this one appear on the board as cards."
       />
     );
   }
@@ -132,7 +132,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
     return (
       <EmptyPanel
         title="No items match the filters"
-        detail={`This folder holds ${String(container.children.length)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because the folder is.`}
+        detail={`This holds ${String(container.children.length)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`}
         action={
           <Button variant="secondary" onClick={viewState.clearFilters}>
             Clear filters
@@ -195,7 +195,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
 
       {hidden.length === 0 ? null : (
         <PartialNotice
-          pending={`${String(hidden.length)} ${hidden.length === 1 ? 'item is' : 'items are'} not on this board: their ${property.label} is not one of its columns. They are still in the folder.`}
+          pending={`${String(hidden.length)} ${hidden.length === 1 ? 'item is' : 'items are'} not on this board: their ${property.label} is not one of its columns. They are still here.`}
         />
       )}
 
@@ -483,19 +483,19 @@ function describeUnrenderable(
     case 'missing':
       return {
         title: 'This board groups by a property that no longer exists',
-        detail: `"${view.name}" groups by "${grouping.key}", which is not in this folder's schema. The items are all still here - it is the property that is gone, so the board cannot say which column each one belongs in.`,
+        detail: `"${view.name}" groups by "${grouping.key}", which is not in this item's schema. The items are all still here - it is the property that is gone, so the board cannot say which column each one belongs in.`,
       };
 
     case 'wrongType':
       return {
         title: 'This board groups by a property that cannot make columns',
-        detail: `"${grouping.property.label}" is a ${grouping.property.type} property, and a board's columns come from a select. The items are all still in this folder; only this view cannot draw them.`,
+        detail: `"${grouping.property.label}" is a ${grouping.property.type} property, and a board's columns come from a select. The items are all still here; only this view cannot draw them.`,
       };
 
     case 'flagged':
       return {
         title: 'This board cannot be drawn',
-        detail: `Core reports that "${view.name}" can no longer be rendered as configured. The items are all still in this folder; the view needs a grouping property it can use.`,
+        detail: `Core reports that "${view.name}" can no longer be rendered as configured. The items are all still here; the view needs a grouping property it can use.`,
       };
   }
 }

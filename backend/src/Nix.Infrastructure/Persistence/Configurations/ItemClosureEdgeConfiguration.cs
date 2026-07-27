@@ -10,7 +10,7 @@ namespace Nix.Infrastructure.Persistence.Configurations;
 /// <remarks>
 /// <para>
 /// The table is read from both ends and both are on the hot path: "every ancestor of this item"
-/// is the permission question, "every descendant of this folder" is the subtree question, and
+/// is the permission question, "every descendant of this item" is the subtree question, and
 /// neither index can serve the other.
 /// </para>
 /// <para>
@@ -52,7 +52,7 @@ internal sealed class ItemClosureEdgeConfiguration : IEntityTypeConfiguration<It
             .OnDelete(DeleteBehavior.Cascade);
 
         // Descendants of an ancestor, nearest first. Carrying depth as a third key column rather
-        // than leaving it to a heap filter is what makes "the direct children of this folder"
+        // than leaving it to a heap filter is what makes "the direct children of this item"
         // (depth = 1) an index condition; measured at 5 buffers against 68 for the filtered form.
         // This index also covers the (tenant_id, ancestor_id) foreign key, so EF emits no separate
         // one for it.

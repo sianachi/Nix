@@ -28,7 +28,7 @@ namespace Nix.Infrastructure.Persistence.Properties;
 /// </para>
 /// <para>
 /// The cost is one indexed query per resolution, and resolutions are per container rather than per
-/// item: a listing resolves once for the folder, not once per child. If a profile ever shows that
+/// item: a listing resolves once for the parent, not once per child. If a profile ever shows that
 /// is not enough, ADR-0007 §3 names the escape hatch - a materialised resolution behind this same
 /// port - which is a design that has to answer the invalidation question properly rather than
 /// assume it away.
@@ -87,7 +87,7 @@ public sealed class SchemaResolver : ISchemaResolver
             if (!declared.Inherit)
             {
                 // This declaration refuses to inherit, so nothing above it contributes. Stopping
-                // here is what makes a scratch folder under a heavily-schema'd workspace possible.
+                // here is what makes a scratch item under a heavily-schema'd workspace possible.
                 break;
             }
         }

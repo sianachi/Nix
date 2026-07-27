@@ -188,7 +188,7 @@ describe('the board view', () => {
     );
 
     expect(screen.getByRole('status')).toHaveTextContent(/1 item is not on this board/i);
-    expect(screen.getByRole('status')).toHaveTextContent(/still in the folder/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/still here/i);
   });
 
   it('gives items with no value a column of their own instead of losing them', () => {
@@ -341,7 +341,7 @@ describe('the board view', () => {
   it('says the folder is empty when it holds nothing', () => {
     renderAt(boardWith({ items: [] }));
 
-    expect(screen.getByRole('status')).toHaveTextContent(/this folder is empty/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/nothing in here yet/i);
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 
@@ -356,7 +356,7 @@ describe('the board view', () => {
     const status = screen.getByRole('status');
     expect(status).toHaveTextContent(/no items match the filters/i);
     expect(status).toHaveTextContent(/holds 2 items/i);
-    expect(status).not.toHaveTextContent(/this folder is empty/i);
+    expect(status).not.toHaveTextContent(/nothing in here yet/i);
 
     // And the way out is on screen, rather than in the address bar the person cannot see.
     await user.click(screen.getByRole('button', { name: /clear filters/i }));

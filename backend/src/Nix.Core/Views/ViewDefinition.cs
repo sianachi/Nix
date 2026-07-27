@@ -7,8 +7,8 @@ namespace Nix.Core.Views;
 /// </summary>
 /// <remarks>
 /// A view is a way of rendering a container's children, not a place in the application. That is
-/// why it is stored on the container rather than being a route: "board" is something a folder can
-/// be shown as, and the same folder can be shown as a list a moment later without going anywhere.
+/// why it is stored on the container rather than being a route: "board" is something an item can
+/// be shown as, and the same item can be shown as a list a moment later without going anywhere.
 /// </remarks>
 public enum ViewKind
 {
@@ -199,7 +199,7 @@ public sealed record ViewDefinition(
     /// <remarks>
     /// A board grouping by a property that has since been deleted, or retyped to something that
     /// cannot be grouped, has no columns to draw. Asking here lets the interface say so plainly
-    /// rather than rendering an empty board that looks like an empty folder.
+    /// rather than rendering an empty board that looks like an item with nothing in it.
     /// </remarks>
     public bool CanRender(Nix.Core.Properties.PropertySchema schema)
     {

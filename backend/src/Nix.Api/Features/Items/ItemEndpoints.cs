@@ -60,7 +60,7 @@ internal static class ItemEndpoints
 
         workspaceItems.MapGet("/", ListItems)
             .WithName("ListItems")
-            .WithSummary("Children of a folder, or the workspace root")
+            .WithSummary("Children of an item, or the workspace root")
             .WithDescription(
                 "Returns the items directly under 'parentId', or the workspace's roots when it is "
                 + "omitted, in sibling order. Items the caller cannot read are omitted entirely - "
