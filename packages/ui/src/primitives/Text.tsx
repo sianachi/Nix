@@ -46,7 +46,10 @@ export type TextElement =
   // Description lists: a term and its definition are text like any other, and a caller who had to
   // drop out of the component to mark one up would be marking it up wrongly.
   | 'dt'
-  | 'dd';
+  | 'dd'
+  // A table's caption, for the same reason: it is the table's accessible name, so it has to be a
+  // real <caption> child of the <table> and cannot be a styled div sitting above it.
+  | 'caption';
 
 /** Variants that clear WCAG's large-text threshold and may carry base accent. */
 const DISPLAY_VARIANTS = ['h1', 'h2', 'h3'] as const satisfies readonly TextVariant[];
