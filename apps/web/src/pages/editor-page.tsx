@@ -1,6 +1,6 @@
 import { Button, Icon } from '@nix/ui';
 import { Settings2, TriangleAlert } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
@@ -69,7 +69,18 @@ interface OpenItemProps {
 }
 
 function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
-  const container = useContainer(itemId);
+  // Creation goes through the tree, which is the only thing that knows how to put a new item into
+  // the store the sidebar reads and expand its parent so it is visible. The container borrows it
+  // rather than growing a second one.
+  const createChild = useCallback(
+    async (title: string, properties?: Record<string, unknown>): Promise<string | null> => {
+      const { refusal } = await tree.create(itemId, title, 'note', properties);
+      return refusal;
+    },
+    [itemId, tree],
+  );
+
+  const container = useContainer(itemId, createChild);
   const { viewId, selectView } = useViewState();
   const [editing, setEditing] = useState<'schema' | 'views' | null>(null);
 

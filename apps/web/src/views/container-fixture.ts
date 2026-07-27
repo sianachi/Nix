@@ -21,6 +21,7 @@ export function aContainer(overrides: Partial<ContainerData> = {}): ContainerDat
     views: null,
     children: [],
     writeError: null,
+    create: () => Promise.resolve(null),
     setProperties: () => Promise.resolve(),
     setSchema: () => Promise.resolve(null),
     setViews: () => Promise.resolve(null),

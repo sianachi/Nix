@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Nix.Application.Items;
 using Nix.Application.Properties;
 using Nix.Application.Views;
@@ -118,6 +119,107 @@ public sealed class PropertyWriteTests : IAsyncLifetime
 
             Assert.True(cleared.IsSuccess, cleared.IsSuccess ? "" : cleared.Error.Message);
             Assert.DoesNotContain("Todo", cleared.Value.Properties, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task An_item_can_be_created_with_its_properties_already_set()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+            await DeclareStatusAsync(work, folder.Id);
+
+            // The gesture this exists for: a card made straight into a column, rather than made at
+            // the root and then dragged and then edited.
+            var created = await work.Resolve<CreateItem>().ExecuteAsync(
+                Workspace,
+                "note",
+                "Search ranking",
+                folder.Id,
+                new JsonObject { ["status"] = "Doing" },
+                Cancellation);
+
+            Assert.True(created.IsSuccess);
+            Assert.Contains("Doing", created.Value.Properties, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task A_property_supplied_on_creation_faces_the_same_schema_a_later_write_would()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+            await DeclareStatusAsync(work, folder.Id);
+
+            // Otherwise the way to store a value the schema refuses would be to supply it a moment
+            // earlier, which is not a rule so much as a delay.
+            var created = await work.Resolve<CreateItem>().ExecuteAsync(
+                Workspace,
+                "note",
+                "Search ranking",
+                folder.Id,
+                new JsonObject { ["status"] = "Nonsense" },
+                Cancellation);
+
+            Assert.True(created.IsFailure);
+            Assert.Equal("properties.invalid", created.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_required_property_does_not_have_to_be_supplied_at_creation()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+
+            await work.Resolve<SetItemSchema>().ExecuteAsync(
+                folder.Id,
+                new PropertySchema
+                {
+                    Inherit = true,
+                    Properties = [new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true)],
+                },
+                Cancellation);
+
+            // A required property is a statement about a finished item, not about a first
+            // keystroke. Enforced here, nothing could ever be created inside this folder - the
+            // ordinary act of making a note and then filling it in would be refused at step one.
+            var created = await work.Resolve<CreateItem>().ExecuteAsync(
+                Workspace,
+                "note",
+                "Untitled note",
+                folder.Id,
+                null,
+                Cancellation);
+
+            Assert.True(created.IsSuccess);
+        }
+    }
+
+    [Fact]
+    public async Task A_title_in_the_property_bag_does_not_override_the_one_that_was_named()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            // Every listing reads the promoted title. Two disagreeing spellings of it would show
+            // one name in the tree and another on the item.
+            var created = await work.Resolve<CreateItem>().ExecuteAsync(
+                Workspace,
+                "note",
+                "The real one",
+                null,
+                new JsonObject { ["title"] = "The impostor" },
+                Cancellation);
+
+            Assert.True(created.IsSuccess);
+            Assert.Equal("The real one", ItemProperties.ReadTitle(created.Value.Properties));
         }
     }
 
@@ -472,7 +574,7 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         string type = "note")
     {
         var created = await work.Resolve<CreateItem>()
-            .ExecuteAsync(Workspace, type, title, parentId, Cancellation);
+            .ExecuteAsync(Workspace, type, title, parentId, null, Cancellation);
 
         Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
         return created.Value;

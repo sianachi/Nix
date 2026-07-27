@@ -132,7 +132,7 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Children of a folder, or the workspace root
+     * Children of an item, or the workspace root
      * @description Returns the items directly under 'parentId', or the workspace's roots when it is omitted, in sibling order. Items the caller cannot read are omitted entirely - a query result is how you enumerate what exists, so redacted placeholders would disclose their existence. Soft-deleted items are excluded unless 'includeDeleted' is set.
      */
     get: operations['ListItems'];
@@ -269,7 +269,7 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an empty folder.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it.
      */
     get: operations['GetContainerViews'];
     /**
@@ -413,6 +413,7 @@ export interface components {
       title: string;
       /** Format: uuid */
       parentId: null | string;
+      properties: null | components['schemas']['JsonObject'];
     };
     CurrentPrincipalResponse: {
       /** Format: uuid */

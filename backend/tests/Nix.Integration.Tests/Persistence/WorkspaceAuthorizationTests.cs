@@ -94,7 +94,7 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Trespass", null, Cancellation);
+                .ExecuteAsync(AlphaWorkspace, "note", "Trespass", null, null, Cancellation);
 
             Assert.True(created.IsFailure);
             Assert.Equal("workspaces.not_found", created.Error.Code);
@@ -125,7 +125,7 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
             Assert.True(read.IsSuccess);
 
             var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Not mine to write", null, Cancellation);
+                .ExecuteAsync(AlphaWorkspace, "note", "Not mine to write", null, null, Cancellation);
             Assert.True(created.IsFailure);
 
             var renamed = await work.Resolve<RenameItem>()
@@ -145,7 +145,7 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
             Assert.True(read.IsSuccess);
 
             var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Written through a group", null, Cancellation);
+                .ExecuteAsync(AlphaWorkspace, "note", "Written through a group", null, null, Cancellation);
             Assert.True(created.IsSuccess);
         }
     }
@@ -162,7 +162,7 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
             Assert.True(read.IsSuccess);
 
             var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Administered", null, Cancellation);
+                .ExecuteAsync(AlphaWorkspace, "note", "Administered", null, null, Cancellation);
             Assert.True(created.IsSuccess);
         }
     }

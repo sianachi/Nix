@@ -388,7 +388,7 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
 
     private static async Task<Item> NewItemAsync(CreateItem create, string title, ItemId? parentId)
     {
-        var result = await create.ExecuteAsync(Workspace, "note", title, parentId, Cancellation);
+        var result = await create.ExecuteAsync(Workspace, "note", title, parentId, null, Cancellation);
         Assert.True(result.IsSuccess);
         return result.Value;
     }

@@ -30,6 +30,7 @@ export interface WorkspaceSidebarProps {
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   const { tree, selectedId, onSelect } = props;
   const [dragged, setDragged] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   /**
    * Where a new item goes.
@@ -57,7 +58,15 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     destination === null ? 'the workspace' : (tree.find(destination)?.title ?? 'this item');
 
   async function create(title: string, type: string): Promise<void> {
-    const created = await tree.create(destination, title, type);
+    setRefusal(null);
+    const { id: created, refusal: reason } = await tree.create(destination, title, type);
+
+    if (reason !== null) {
+      // Shown here, beside the control that was pressed. The refusal names the property at fault,
+      // and a message that names a field is only useful next to the thing that has fields.
+      setRefusal(reason);
+      return;
+    }
 
     // Selected on creation, so the thing that just appeared is the thing in front of you and its
     // name is ready to be typed over. Creating something and leaving it unfound in a tree is how
@@ -87,6 +96,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           Note
         </Button>
       </div>
+
+      {refusal === null ? null : (
+        <p role="alert" className="mx-2 mb-2 rounded-md bg-background px-3 py-2 text-xs">
+          {refusal}
+        </p>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <TreeBody

@@ -39,6 +39,18 @@ export interface TreeItem {
 
 export type TreeStatus = 'loading' | 'ready' | 'error';
 
+/**
+ * What a create came back with.
+ *
+ * An id or a reason, never neither and never both. `null` alone was ambiguous at the call site -
+ * it meant "refused", but the reason had gone into the tree's own error and rendered at the foot
+ * of the sidebar, so a caller could report that something failed and not what.
+ */
+export interface CreateOutcome {
+  readonly id: string | null;
+  readonly refusal: string | null;
+}
+
 export interface WorkspaceTree {
   readonly status: TreeStatus;
   readonly error: string | null;
@@ -79,7 +91,8 @@ export interface WorkspaceTree {
     parentId: string | null,
     title: string,
     type?: string,
-  ) => Promise<string | null>;
+    properties?: Record<string, unknown>,
+  ) => Promise<CreateOutcome>;
   readonly rename: (itemId: string, title: string) => Promise<void>;
   readonly move: (itemId: string, parentId: string | null, afterId: string | null) => Promise<void>;
   readonly remove: (itemId: string) => Promise<void>;
@@ -291,17 +304,34 @@ export function useWorkspaceTree(): WorkspaceTree {
   );
 
   const create = useCallback(
-    async (parentId: string | null, title: string, type = 'note'): Promise<string | null> => {
+    async (
+      parentId: string | null,
+      title: string,
+      type = 'note',
+      properties?: Record<string, unknown>,
+    ): Promise<CreateOutcome> => {
       setIsCreating(true);
       try {
         const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items`, {
           method: 'POST',
-          body: JSON.stringify({ type, title, parentId }),
+          // Sent explicitly as null rather than omitted, matching parentId. The contract lists it
+          // required-and-nullable, and JSON.stringify drops an undefined key entirely - so the
+          // published shape and what we actually send would quietly disagree.
+          body: JSON.stringify({ type, title, parentId, properties: properties ?? null }),
         });
 
         if (!response.ok) {
-          setError(`The item could not be created (${String(response.status)}).`);
-          return null;
+          // The server names which property is wrong and why. Reporting only the status code
+          // turned "Status must be one of Todo, Doing, Done" into "(422)", which tells somebody
+          // that something failed and nothing about what to change.
+          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+          const refusal =
+            problem?.detail ?? `The item could not be created (${String(response.status)}).`;
+
+          // Returned rather than pushed into the tree-wide error, which renders at the foot of the
+          // sidebar - a long way from a gesture made inside a view. The caller is standing where
+          // the person is looking.
+          return { id: null, refusal };
         }
 
         const created = toItem((await response.json()) as ItemPayload);
@@ -313,7 +343,7 @@ export function useWorkspaceTree(): WorkspaceTree {
           setExpanded((current) => new Set(current).add(parentId));
         }
 
-        return created.id;
+        return { id: created.id, refusal: null };
       } finally {
         setIsCreating(false);
       }

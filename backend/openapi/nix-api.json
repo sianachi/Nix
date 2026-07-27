@@ -1386,7 +1386,8 @@
         "required": [
           "type",
           "title",
-          "parentId"
+          "parentId",
+          "properties"
         ],
         "type": "object",
         "properties": {
@@ -1402,6 +1403,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "properties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
           }
         }
       },

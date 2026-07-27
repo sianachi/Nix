@@ -39,6 +39,18 @@ export interface ContainerData {
   readonly views: ContainerViews | null;
   readonly children: readonly Item[];
 
+  /**
+   * Makes a child of this container, optionally with values already set.
+   *
+   * Returns the reason it was refused, or null when it was made.
+   *
+   * **Not implemented here.** The item tree already owns creation, and it does two things a second
+   * implementation would get wrong: it puts the new item into the store the sidebar reads, and it
+   * expands the parent so a child made inside a collapsed item is not invisible. So the screen
+   * wires this to `tree.create`, and there is one create path rather than two that drift.
+   */
+  readonly create: (title: string, properties?: Record<string, unknown>) => Promise<string | null>;
+
   /** Writes property values onto one child and refreshes it in place. */
   readonly setProperties: (itemId: string, properties: Record<string, unknown>) => Promise<void>;
 
@@ -85,7 +97,18 @@ function readWorkspaceId(): string {
 
 const WORKSPACE_ID = readWorkspaceId();
 
-export function useContainer(containerId: string | null): ContainerData {
+/**
+ * How a container makes a child.
+ *
+ * Supplied by the screen rather than built here, because creation belongs to the item tree - see
+ * `ContainerData.create`.
+ */
+export type CreateChild = (
+  title: string,
+  properties?: Record<string, unknown>,
+) => Promise<string | null>;
+
+export function useContainer(containerId: string | null, createChild?: CreateChild): ContainerData {
   const { getAccessToken } = useAuth();
 
   const [status, setStatus] = useState<ContainerStatus>('loading');
@@ -303,9 +326,30 @@ export function useContainer(containerId: string | null): ContainerData {
     [containerId, setViews, views],
   );
 
+  const create = useCallback(
+    async (title: string, properties?: Record<string, unknown>): Promise<string | null> => {
+      if (createChild === undefined) {
+        return 'This container cannot hold items.';
+      }
+
+      const refusal = await createChild(title, properties);
+
+      // Reloaded here rather than by the caller, because this hook owns the children a view is
+      // drawing and the tree's own store is a different list. Skipped on a refusal: nothing
+      // changed, and a reload would only make the screen flicker to say so.
+      if (refusal === null) {
+        await load();
+      }
+
+      return refusal;
+    },
+    [createChild, load],
+  );
+
   return {
     status,
     error,
+    create,
     schema,
     views,
     children,

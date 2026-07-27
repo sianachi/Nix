@@ -8,6 +8,11 @@ namespace Nix.Api.Features.Items;
 /// nothing about what the item may contain: every item can hold children and offer views.
 /// </param>
 /// <param name="Title">The display name.</param>
+/// <param name="Properties">
+/// Values to give the item on creation, or absent for none. Checked against the schema it is about
+/// to fall under, exactly as a later write would be - creating a card already in a column must not
+/// be a way to store a value the schema refuses.
+/// </param>
 /// <param name="ParentId">
 /// The parent to create it under, or <see langword="null"/> to create it at the workspace root.
 /// </param>
@@ -16,4 +21,8 @@ namespace Nix.Api.Features.Items;
 /// be time-ordered, and places the item among its siblings itself; a client that could choose
 /// either would be able to collide with one it cannot see.
 /// </remarks>
-internal sealed record CreateItemRequest(string Type, string Title, Guid? ParentId);
+internal sealed record CreateItemRequest(
+    string Type,
+    string Title,
+    Guid? ParentId,
+    System.Text.Json.Nodes.JsonObject? Properties);

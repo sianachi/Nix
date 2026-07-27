@@ -192,6 +192,7 @@ internal static class ItemEndpoints
             request.Type,
             request.Title,
             request.ParentId is { } parent ? ItemId.From(parent) : null,
+            request.Properties,
             httpContext.RequestAborted).ConfigureAwait(false);
 
         return result.Match<Results<Created<ItemResponse>, ProblemHttpResult>>(

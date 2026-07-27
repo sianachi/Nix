@@ -47,7 +47,37 @@ public static class PropertyValidator
     /// <param name="properties">The bag as stored JSON, or <see langword="null"/>.</param>
     /// <param name="schema">The effective schema at the item's position.</param>
     /// <returns>Every violation found, empty when the bag is acceptable.</returns>
-    public static ImmutableArray<PropertyViolation> Validate(string? properties, PropertySchema schema)
+    public static ImmutableArray<PropertyViolation> Validate(string? properties, PropertySchema schema) =>
+        Validate(properties, schema, requireComplete: true);
+
+    /// <summary>
+    /// Every violation in the values that were supplied, ignoring the ones that were not.
+    /// </summary>
+    /// <param name="properties">The values being supplied, as JSON.</param>
+    /// <param name="schema">The schema in force.</param>
+    /// <returns>One violation per supplied value that does not fit its declaration.</returns>
+    /// <remarks>
+    /// <b>What a create asks, because a required property is a statement about a finished item
+    /// rather than about a first keystroke.</b> Checking completeness on create would mean an item
+    /// could not be made inside a container that requires anything - the ordinary flow of making a
+    /// note and then filling in its fields would be refused at the first step, and the only way to
+    /// create one would be to know every required field up front.
+    ///
+    /// <para>
+    /// Everything else is checked exactly as it would be later. A value supplied at creation faces
+    /// its declaration's type and options, so this is not a way to store something the schema would
+    /// refuse a moment afterwards.
+    /// </para>
+    /// </remarks>
+    public static ImmutableArray<PropertyViolation> ValidateSupplied(
+        string? properties,
+        PropertySchema schema) =>
+        Validate(properties, schema, requireComplete: false);
+
+    private static ImmutableArray<PropertyViolation> Validate(
+        string? properties,
+        PropertySchema schema,
+        bool requireComplete)
     {
         ArgumentNullException.ThrowIfNull(schema);
 
@@ -84,7 +114,7 @@ public static class PropertyValidator
 
             if (IsAbsent(value))
             {
-                if (definition.Required)
+                if (definition.Required && requireComplete)
                 {
                     violations.Add(new PropertyViolation(definition.Key, $"{definition.Label} is required."));
                 }

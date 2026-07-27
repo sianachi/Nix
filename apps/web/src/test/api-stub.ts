@@ -26,6 +26,17 @@ export interface StubItem {
   readonly updatedAt: string;
 }
 
+/**
+ * The id a created item is given.
+ *
+ * Uuid-shaped, because every route in this stub matches `[0-9a-f-]{36}` and a readable id like
+ * `created-1` is not hex - a freshly created item would be unreadable by id, which is exactly the
+ * path a create test walks next.
+ */
+function createdId(sequence: number): string {
+  return `cccccccc-0000-4000-8000-${String(sequence).padStart(12, '0')}`;
+}
+
 /** The workspace every stub item belongs to, matching what the app reads from its environment. */
 const STUB_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -41,6 +52,9 @@ export interface StubOptions {
   readonly profileFails?: boolean;
   /** Makes the tree request fail. */
   readonly treeFails?: boolean;
+
+  /** Makes every create fail, with this as the problem detail. */
+  readonly createRefusal?: string;
 
   /**
    * Views per item. Anything not listed offers none, which is what an item nobody has configured
@@ -81,12 +95,19 @@ export function stubCoreApi(options: StubOptions = {}): void {
     profileFails = false,
     treeFails = false,
     views = {},
+    createRefusal,
   } = options;
+
+  // The items the stub knows about. Mutable, because a create has to be visible to the reads that
+  // follow it - a stub whose POST returns an item that the next GET has never heard of tests the
+  // opposite of what a creation test means to.
+  const known = [...items];
 
   vi.stubGlobal(
     'fetch',
-    vi.fn((input: RequestInfo | URL) => {
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? 'GET').toUpperCase();
 
       if (url.includes('/api/v1/me')) {
         return Promise.resolve(
@@ -123,8 +144,38 @@ export function stubCoreApi(options: StubOptions = {}): void {
       // A single item by id, which is what revealing a deep link walks up through.
       const single = /\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(url);
       if (single !== null) {
-        const found = items.find((candidate) => candidate.id === single[1]);
+        const found = known.find((candidate) => candidate.id === single[1]);
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
+      }
+
+      // Creating. Dispatched on the method, which this stub used not to look at - so a POST fell
+      // through to the listing below and came back as a page envelope, and the caller built an item
+      // with an undefined id. That is why no test could assert a create had worked.
+      if (method === 'POST' && /\/api\/v1\/workspaces\/[0-9a-f-]{36}\/items$/.test(url)) {
+        if (createRefusal !== undefined) {
+          return Promise.resolve(json({ detail: createRefusal }, 422));
+        }
+
+        // `BodyInit` is a union that includes Blob and FormData, neither of which stringifies to
+        // anything useful. Every caller here sends JSON text, so narrowing to it says so.
+        const raw = typeof init?.body === 'string' ? init.body : '{}';
+        const body = JSON.parse(raw) as {
+          title?: string;
+          type?: string;
+          parentId?: string | null;
+          properties?: Record<string, unknown>;
+        };
+
+        const created = item({
+          id: createdId(known.length),
+          title: body.title ?? 'Untitled',
+          type: body.type ?? 'note',
+          parentId: body.parentId ?? null,
+          properties: { title: body.title ?? 'Untitled', ...body.properties },
+        });
+
+        known.push(created);
+        return Promise.resolve(json(created, 201));
       }
 
       if (url.includes('/items')) {
@@ -136,7 +187,7 @@ export function stubCoreApi(options: StubOptions = {}): void {
         // children and a request naming none gets the roots.
         const parent = /parentId=([^&]+)/.exec(url)?.[1] ?? null;
         return Promise.resolve(
-          json({ items: items.filter((candidate) => candidate.parentId === parent) }),
+          json({ items: known.filter((candidate) => candidate.parentId === parent) }),
         );
       }
 
