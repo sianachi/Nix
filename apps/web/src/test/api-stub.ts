@@ -17,6 +17,7 @@ export interface StubItem {
   readonly title: string;
   readonly type: string;
   readonly parentId: string | null;
+  readonly hasChildren: boolean;
   readonly seq: number;
   readonly lifecycleState: string;
 }
@@ -36,6 +37,10 @@ export function item(overrides: Partial<StubItem> & { id: string; title: string 
   return {
     type: 'note',
     parentId: null,
+
+    // Derived server-side from whether any child row exists. A stub item is a leaf unless a test
+    // says otherwise, which is what most of them are.
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     ...overrides,

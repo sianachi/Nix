@@ -24,6 +24,15 @@ export interface TreeItem {
   readonly title: string;
   readonly type: string;
   readonly parentId: string | null;
+
+  /**
+   * Whether the item has at least one child that is not deleted.
+   *
+   * What the expand control is drawn from. Every item can hold children, so without this the tree
+   * would either offer a control on every row - most of which would expand to nothing - or guess
+   * from the item's type, which is what it used to do and why a note could not hold anything.
+   */
+  readonly hasChildren: boolean;
   readonly seq: number;
   readonly lifecycleState: string;
 }
@@ -93,6 +102,7 @@ interface ItemPayload {
   readonly title: string;
   readonly type: string;
   readonly parentId: string | null;
+  readonly hasChildren: boolean;
   readonly seq: number;
   readonly lifecycleState: string;
 }
@@ -103,6 +113,7 @@ function toItem(payload: ItemPayload): TreeItem {
     title: payload.title,
     type: payload.type,
     parentId: payload.parentId,
+    hasChildren: payload.hasChildren,
     seq: payload.seq,
     lifecycleState: payload.lifecycleState,
   };

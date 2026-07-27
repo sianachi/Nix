@@ -66,6 +66,16 @@ export const itemSchema = z.object({
   parentId: z.uuid().nullable(),
   type: itemTypeSchema,
   title: z.string(),
+
+  /**
+   * Whether the item has at least one child that is not deleted.
+   *
+   * The tree draws its expand control from this rather than from the item's type, because every
+   * item can hold children - so without it every row would have to offer one, and most would
+   * expand to nothing.
+   */
+  hasChildren: z.boolean(),
+
   seq: itemSequenceSchema,
   lifecycleState: itemLifecycleStateSchema,
   properties: itemPropertiesSchema,

@@ -17,8 +17,13 @@ internal static class ItemMapping
 {
     /// <summary>Maps one item.</summary>
     /// <param name="item">The domain item.</param>
+    /// <param name="hasChildren">
+    /// Whether it has children of its own. Required rather than defaulted: the tree draws an expand
+    /// control from it, and a default would quietly make every caller that forgot say "no children"
+    /// - which looks like a working answer and is not.
+    /// </param>
     /// <returns>The published shape.</returns>
-    internal static ItemResponse ToResponse(Item item)
+    internal static ItemResponse ToResponse(Item item, bool hasChildren)
     {
         ArgumentNullException.ThrowIfNull(item);
 
@@ -28,6 +33,7 @@ internal static class ItemMapping
             item.ParentId?.Value,
             item.Type,
             ItemProperties.ReadTitle(item.Properties),
+            hasChildren,
             item.Seq,
             ToWireName(item.LifecycleState),
             ReadProperties(item.Properties),

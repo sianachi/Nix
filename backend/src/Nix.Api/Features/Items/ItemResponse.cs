@@ -10,6 +10,9 @@ namespace Nix.Api.Features.Items;
 /// <param name="ParentId">Its parent, or <see langword="null"/> for a workspace root.</param>
 /// <param name="Type">Its kind - <c>folder</c>, <c>note</c>, <c>task</c>, <c>board</c>, <c>file</c>.</param>
 /// <param name="Title">Its display name.</param>
+/// <param name="HasChildren">
+/// Whether this item has at least one child that is not deleted.
+/// </param>
 /// <param name="Seq">Its position among its siblings.</param>
 /// <param name="LifecycleState">Where it sits in the deletion lifecycle.</param>
 /// <param name="Properties">
@@ -45,6 +48,7 @@ internal sealed record ItemResponse(
     Guid? ParentId,
     string Type,
     string Title,
+    bool HasChildren,
     long Seq,
     string LifecycleState,
     JsonObject Properties,

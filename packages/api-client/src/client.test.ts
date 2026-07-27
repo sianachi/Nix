@@ -18,6 +18,7 @@ function itemPayload(title: string): Record<string, unknown> {
     parentId: null,
     type: 'note',
     title,
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     // The promoted field and the bag carry the same title, because the server sends both from one

@@ -138,6 +138,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<GetCurrentPrincipal>();
         services.AddScoped<DeleteItem>();
         services.AddScoped<GetItem>();
+        services.AddScoped<ItemsWithChildren>();
         services.AddScoped<ListItems>();
         services.AddScoped<MoveItem>();
         services.AddScoped<RenameItem>();

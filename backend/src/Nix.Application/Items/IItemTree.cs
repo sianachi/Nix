@@ -35,6 +35,29 @@ public interface IItemTree
     /// <returns>The item, or <see langword="null"/> when it does not exist or is not visible.</returns>
     public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken);
 
+    /// <summary>Which of these items have at least one child that is not deleted.</summary>
+    /// <param name="workspaceId">The workspace the items live in.</param>
+    /// <param name="parents">The items to ask about.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The subset that have children. Items with none are simply absent.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Asked about a page at a time, not about a row at a time.</b> The interface needs this to
+    /// decide whether an item gets an expand control, and an item that offers one and then expands
+    /// to nothing is the dishonest state the whole tree would otherwise be full of - every item can
+    /// hold children, so without this every item would have to claim it might.
+    /// </para>
+    /// <para>
+    /// Derived, and deliberately not a column on <c>Item</c>: it is a fact about other rows, it
+    /// changes when they do, and storing it would be a counter to keep correct through every move,
+    /// delete and restore.
+    /// </para>
+    /// </remarks>
+    public ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
+        WorkspaceId workspaceId,
+        IReadOnlyList<ItemId> parents,
+        CancellationToken cancellationToken);
+
     /// <summary>Reads one page of a parent's children, in sibling order.</summary>
     /// <param name="workspaceId">The workspace to read in.</param>
     /// <param name="parentId">The parent, or <see langword="null"/> for the workspace roots.</param>

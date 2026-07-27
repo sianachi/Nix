@@ -67,6 +67,48 @@ public sealed class ItemTree : IItemTree
             .ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
+        WorkspaceId workspaceId,
+        IReadOnlyList<ItemId> parents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(parents);
+
+        if (parents.Count == 0)
+        {
+            return new HashSet<ItemId>();
+        }
+
+        // Hand-written, and see TreeShapeSql for the plan that decided it: the LINQ spelling reads
+        // every child of every parent and deduplicates, so its cost grows with how full the
+        // containers are rather than with how many were asked about.
+        var ids = new Guid[parents.Count];
+        for (var index = 0; index < parents.Count; index++)
+        {
+            ids[index] = parents[index].Value;
+        }
+
+        var found = new HashSet<ItemId>(parents.Count);
+
+        var rows = _sql.QueryAsync<Guid, ItemIdMapper>(
+            TreeShapeSql.ParentsWithChildren,
+            default,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                Uuid("workspace_id", workspaceId.Value),
+                UuidArray("parent_ids", ids),
+            ],
+            cancellationToken);
+
+        await foreach (var id in rows.ConfigureAwait(false))
+        {
+            found.Add(ItemId.From(id));
+        }
+
+        return found;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlyList<Item>> ListChildrenAsync(
         WorkspaceId workspaceId,
         ItemId? parentId,
@@ -350,9 +392,23 @@ public sealed class ItemTree : IItemTree
                 ],
                 cancellationToken);
 
+    private static NpgsqlParameter UuidArray(string name, Guid[] values) =>
+        new(name, NpgsqlDbType.Uuid | NpgsqlDbType.Array) { Value = values };
+
     private static NpgsqlParameter Uuid(string name, Guid value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value };
 
     private static NpgsqlParameter NullableUuid(string name, Guid? value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value is { } present ? present : DBNull.Value };
+
+    /// <summary>Reads a single uuid column.</summary>
+    private readonly struct ItemIdMapper : INixRowMapper<Guid>
+    {
+        /// <inheritdoc />
+        public Guid Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+            return reader.GetGuid(0);
+        }
+    }
 }

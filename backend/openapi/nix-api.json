@@ -1578,6 +1578,7 @@
           "parentId",
           "type",
           "title",
+          "hasChildren",
           "seq",
           "lifecycleState",
           "properties",
@@ -1606,6 +1607,9 @@
           },
           "title": {
             "type": "string"
+          },
+          "hasChildren": {
+            "type": "boolean"
           },
           "seq": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

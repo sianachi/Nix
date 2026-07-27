@@ -39,12 +39,22 @@ describe('the item schema', () => {
     parentId: null,
     type: 'note',
     title: 'Kickoff',
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties: { title: 'Kickoff' },
     createdAt: '2026-07-26T09:30:00.000Z',
     updatedAt: '2026-07-26T09:30:00.000Z',
   };
+
+  it('refuses an item that does not say whether it has children', () => {
+    // Optional, it would parse as undefined and the tree would read that as "no children" - so
+    // every container would lose its expand control on the first build that forgot to send it.
+    const { hasChildren, ...withoutIt } = valid;
+
+    expect(hasChildren).toBe(false);
+    expect(itemSchema.safeParse(withoutIt).success).toBe(false);
+  });
 
   it('accepts a well formed item', () => {
     expect(itemSchema.safeParse(valid).success).toBe(true);

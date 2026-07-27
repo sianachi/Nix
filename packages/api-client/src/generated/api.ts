@@ -461,6 +461,7 @@ export interface components {
       parentId: null | string;
       type: string;
       title: string;
+      hasChildren: boolean;
       /** Format: int64 */
       seq: number | string;
       lifecycleState: string;

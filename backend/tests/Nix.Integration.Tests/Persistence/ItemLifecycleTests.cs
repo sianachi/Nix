@@ -273,6 +273,119 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task An_item_with_no_children_says_so()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var leaf = await NewItemAsync(work.Resolve<CreateItem>(), "Leaf", null);
+
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [leaf.Id], Cancellation);
+
+            // The whole point. Every item can hold children, so the tree would otherwise have to
+            // offer an expand control on all of them - and every leaf would expand to nothing.
+            Assert.DoesNotContain(leaf.Id, withChildren);
+        }
+    }
+
+    [Fact]
+    public async Task An_item_with_a_child_says_so()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var create = work.Resolve<CreateItem>();
+            var parent = await NewItemAsync(create, "Parent", null);
+            await NewItemAsync(create, "Child", parent.Id);
+
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+
+            Assert.Contains(parent.Id, withChildren);
+        }
+    }
+
+    [Fact]
+    public async Task An_item_whose_only_child_is_deleted_has_no_children()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var create = work.Resolve<CreateItem>();
+            var parent = await NewItemAsync(create, "Parent", null);
+            var child = await NewItemAsync(create, "Child", parent.Id);
+
+            await work.Resolve<DeleteItem>().ExecuteAsync(child.Id, Cancellation);
+
+            // Deletion is soft, so the row is still there. Counting it would leave an expand
+            // control on a parent whose contents are all in the bin, and expanding would show
+            // nothing - which is the dishonest state this exists to prevent, arriving by the back
+            // door.
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+
+            Assert.DoesNotContain(parent.Id, withChildren);
+        }
+    }
+
+    [Fact]
+    public async Task Restoring_the_child_brings_the_expand_control_back()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var create = work.Resolve<CreateItem>();
+            var parent = await NewItemAsync(create, "Parent", null);
+            var child = await NewItemAsync(create, "Child", parent.Id);
+
+            await work.Resolve<DeleteItem>().ExecuteAsync(child.Id, Cancellation);
+            await work.Resolve<RestoreItem>().ExecuteAsync(child.Id, Cancellation);
+
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+
+            Assert.Contains(parent.Id, withChildren);
+        }
+    }
+
+    [Fact]
+    public async Task A_page_is_answered_in_one_question()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var create = work.Resolve<CreateItem>();
+            var withKids = await NewItemAsync(create, "Has children", null);
+            var leafOne = await NewItemAsync(create, "Leaf one", null);
+            var leafTwo = await NewItemAsync(create, "Leaf two", null);
+            await NewItemAsync(create, "Child", withKids.Id);
+
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [withKids.Id, leafOne.Id, leafTwo.Id], Cancellation);
+
+            // Only the ones that have children come back, so the answer is the size of the answer
+            // rather than the size of the question.
+            Assert.Equal([withKids.Id], withChildren);
+        }
+    }
+
+    [Fact]
+    public async Task Asking_about_nothing_is_not_a_query()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            // An empty workspace lists no items, and the page-level lookup must not build a
+            // statement with an empty array for it.
+            var withChildren = await work.Resolve<ItemsWithChildren>()
+                .ExecuteAsync(Workspace, [], Cancellation);
+
+            Assert.Empty(withChildren);
+        }
+    }
+
     private static async Task<Item> NewItemAsync(CreateItem create, string title, ItemId? parentId)
     {
         var result = await create.ExecuteAsync(Workspace, "note", title, parentId, Cancellation);

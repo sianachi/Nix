@@ -145,6 +145,7 @@ internal static class ItemEndpoints
         Guid workspaceId,
         HttpContext httpContext,
         [FromServices] Application.Items.ListItems listItems,
+        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren,
         Guid? parentId = null,
         bool includeDeleted = false,
         string? cursor = null,
@@ -158,12 +159,26 @@ internal static class ItemEndpoints
             limit,
             httpContext.RequestAborted).ConfigureAwait(false);
 
-        return result.Match<Results<Ok<CursorPage<ItemResponse>>, ProblemHttpResult>>(
-            page => TypedResults.Ok(
-                new CursorPage<ItemResponse>(
-                    [.. page.Select(ItemMapping.ToResponse)],
-                    ItemCursor.NextFrom(page, limit))),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        var page = result.Value;
+
+        // One question for the whole page. Asked per row it would be a query per item in the tree,
+        // which is the shape this exists to avoid - see TreeShapeSql for the measurement.
+        var withChildren = await itemsWithChildren
+            .ExecuteAsync(
+                WorkspaceId.From(workspaceId),
+                [.. page.Select(item => item.Id)],
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(
+            new CursorPage<ItemResponse>(
+                [.. page.Select(item => ItemMapping.ToResponse(item, withChildren.Contains(item.Id)))],
+                ItemCursor.NextFrom(page, limit)));
     }
 
     private static async Task<Results<Created<ItemResponse>, ProblemHttpResult>> CreateItem(
@@ -180,38 +195,52 @@ internal static class ItemEndpoints
             httpContext.RequestAborted).ConfigureAwait(false);
 
         return result.Match<Results<Created<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Created($"/api/v1/items/{item.Id}", ItemMapping.ToResponse(item)),
+            // A new item is a leaf by construction - nothing can have been parented to it between
+            // the insert and this line - so this is provable rather than worth a query.
+            item => TypedResults.Created($"/api/v1/items/{item.Id}", ItemMapping.ToResponse(item, false)),
             error => TypedResults.Problem(Problem(httpContext, error)));
     }
 
     private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> GetItem(
         Guid itemId,
         HttpContext httpContext,
-        [FromServices] Application.Items.GetItem getItem)
+        [FromServices] Application.Items.GetItem getItem,
+        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
     {
         var result = await getItem
             .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        return TypedResults.Ok(
+            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
+                .ConfigureAwait(false));
     }
 
     private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> UpdateItem(
         Guid itemId,
         UpdateItemRequest request,
         HttpContext httpContext,
-        [FromServices] RenameItem renameItem)
+        [FromServices] RenameItem renameItem,
+        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
     {
         var result = await renameItem.ExecuteAsync(
             ItemId.From(itemId),
             request.Title,
             httpContext.RequestAborted).ConfigureAwait(false);
 
-        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        return TypedResults.Ok(
+            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
+                .ConfigureAwait(false));
     }
 
     /// <summary>
@@ -237,7 +266,8 @@ internal static class ItemEndpoints
         Guid itemId,
         MoveItemRequest request,
         HttpContext httpContext,
-        [FromServices] Application.Items.MoveItem moveItem)
+        [FromServices] Application.Items.MoveItem moveItem,
+        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
     {
         var result = await moveItem.ExecuteAsync(
             ItemId.From(itemId),
@@ -245,9 +275,14 @@ internal static class ItemEndpoints
             request.AfterId is { } after ? ItemId.From(after) : null,
             httpContext.RequestAborted).ConfigureAwait(false);
 
-        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        return TypedResults.Ok(
+            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
+                .ConfigureAwait(false));
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteItem(
@@ -269,14 +304,41 @@ internal static class ItemEndpoints
     private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> RestoreItem(
         Guid itemId,
         HttpContext httpContext,
-        [FromServices] Application.Items.RestoreItem restoreItem)
+        [FromServices] Application.Items.RestoreItem restoreItem,
+        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
     {
         var result = await restoreItem
             .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        return TypedResults.Ok(
+            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
+                .ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Maps one item, asking whether it has children.
+    /// </summary>
+    /// <remarks>
+    /// One indexed probe returning at most a row - see <c>TreeShapeSql</c>. Written once rather
+    /// than at each of the four endpoints that return a single existing item, because the failure
+    /// mode of forgetting it is not a compile error but a response that says "no children" and
+    /// costs the tree its expand control.
+    /// </remarks>
+    private static async Task<ItemResponse> Respond(
+        Core.Items.Item item,
+        Application.Items.ItemsWithChildren itemsWithChildren,
+        CancellationToken cancellationToken)
+    {
+        var withChildren = await itemsWithChildren
+            .ExecuteAsync(item.WorkspaceId, [item.Id], cancellationToken)
+            .ConfigureAwait(false);
+
+        return ItemMapping.ToResponse(item, withChildren.Contains(item.Id));
     }
 }

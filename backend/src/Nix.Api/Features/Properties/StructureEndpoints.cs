@@ -154,15 +154,24 @@ internal static class StructureEndpoints
         Guid itemId,
         SetPropertiesRequest request,
         HttpContext httpContext,
-        [FromServices] SetItemProperties setItemProperties)
+        [FromServices] SetItemProperties setItemProperties,
+        [FromServices] Nix.Application.Items.ItemsWithChildren itemsWithChildren)
     {
         var result = await setItemProperties
             .ExecuteAsync(ItemId.From(itemId), request.Properties.ToJsonString(), httpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        return result.Match<Results<Ok<ItemResponse>, ProblemHttpResult>>(
-            item => TypedResults.Ok(ItemMapping.ToResponse(item)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(Problem(httpContext, result.Error));
+        }
+
+        var item = result.Value;
+        var withChildren = await itemsWithChildren
+            .ExecuteAsync(item.WorkspaceId, [item.Id], httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(ItemMapping.ToResponse(item, withChildren.Contains(item.Id)));
     }
 
     private static async Task<Results<Ok<ContainerViewsResponse>, ProblemHttpResult>> GetViews(
