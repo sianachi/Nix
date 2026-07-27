@@ -27,8 +27,12 @@ const tagVariants = cva(
         neutral: 'border-divider text-foreground/70',
         /** Selected, current, or otherwise the one being pointed at. */
         accent: 'border-accent-700 text-accent-text',
-        /** Deliberately quiet - a detail that is present but not the point. */
-        muted: 'border-transparent bg-foreground/5 text-foreground/60',
+        /**
+         * Deliberately quiet - a detail that is present but not the point. Quiet is the neutral
+         * ramp rather than a translucent ink wash: at 11px an ink wash lands around 4:1 on the
+         * ground, under the 4.5:1 floor, and "quiet" must never mean "unreadable".
+         */
+        muted: 'border-transparent bg-foreground/5 text-neutral-700',
       },
     },
     defaultVariants: { tone: 'neutral' },

@@ -26,7 +26,8 @@ const inputVariants = cva(
     blueprintFrame,
     'w-full bg-background px-3 py-2',
     'font-body text-[14px] leading-[1.4] text-foreground',
-    'placeholder:text-foreground/45',
+    // The neutral ramp, not an ink wash: a placeholder at 4:1 is one people ask you to repeat.
+    'placeholder:text-neutral-600',
     'transition-colors',
     focusRing,
     disabledState,

@@ -54,9 +54,12 @@ export function Field(props: FieldProps): ReactNode {
 
   return (
     <div className={cn('flex flex-col gap-1', className)}>
+      {/* The neutral ramp rather than a translucent ink wash, here and on the hint below: at these
+          sizes an ink wash falls under the 4.5:1 contrast floor, and a label nobody can read is
+          not a subtle label. The Text primitive settled this the same way for the same reason. */}
       <label
         htmlFor={controlId}
-        className="font-heading text-[11px] uppercase tracking-[0.08em] text-foreground/70"
+        className="font-heading text-[11px] uppercase tracking-[0.08em] text-neutral-700"
       >
         {label}
         {required ? (
@@ -79,7 +82,7 @@ export function Field(props: FieldProps): ReactNode {
           {error}
         </p>
       ) : hint === undefined ? null : (
-        <p id={hintId} className="text-[12px] text-foreground/60">
+        <p id={hintId} className="text-[12px] text-neutral-700">
           {hint}
         </p>
       )}
