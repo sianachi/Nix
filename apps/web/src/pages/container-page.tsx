@@ -69,7 +69,7 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
         <div className="flex shrink-0 items-center gap-1 px-2">
           <Button
             variant="ghost"
-            className="px-2 py-1 text-[11px]"
+            className="px-2 py-1 text-xs"
             onClick={() => {
               setEditing('schema');
             }}
@@ -80,7 +80,7 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
 
           <Button
             variant="ghost"
-            className="px-2 py-1 text-[11px]"
+            className="px-2 py-1 text-xs"
             onClick={() => {
               setEditing('views');
             }}
@@ -112,7 +112,7 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
       {container.writeError === null ? null : (
         <p
           role="alert"
-          className="flex items-center gap-2 border-b border-divider px-4 py-2 text-[12px] text-foreground"
+          className="flex items-center gap-2 border-b border-divider px-4 py-2 text-sm text-foreground"
         >
           <Icon icon={TriangleAlert} size="sm" />
           {container.writeError}
@@ -168,8 +168,8 @@ function ViewProblem({
   return (
     <div role="alert" className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       <Icon icon={TriangleAlert} size="md" />
-      <p className="font-heading text-[15px] uppercase tracking-[0.06em]">{title}</p>
-      <p className="max-w-sm text-[13px] text-neutral-700">{detail}</p>
+      <p className="font-heading text-md uppercase tracking-[0.06em]">{title}</p>
+      <p className="max-w-sm text-base text-muted">{detail}</p>
     </div>
   );
 }

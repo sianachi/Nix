@@ -27,7 +27,7 @@ export function EditorPage(): ReactNode {
   if (selectedId === null || item === null) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <p className="max-w-sm text-sm text-neutral-700">
+        <p className="max-w-sm text-sm text-muted">
           {tree.status === 'loading'
             ? 'Loading the workspace…'
             : tree.childrenOf(null).length === 0
@@ -202,7 +202,7 @@ function NoteHeader({ tree, itemId, title, onNavigate }: NoteHeaderProps): React
             void tree.rename(itemId, draft);
           }
         }}
-        className="w-full bg-transparent font-heading text-[26px] uppercase leading-none outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="w-full bg-transparent font-heading text-2xl uppercase outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       />
     </header>
   );

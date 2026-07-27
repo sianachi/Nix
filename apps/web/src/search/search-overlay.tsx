@@ -76,7 +76,12 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-start justify-center bg-foreground/25 px-4 pt-[12vh]">
+    // The scrim is a fixed dark step rather than an ink wash, and it is the one place in this file
+    // that does not follow the ground. A wash of `--color-foreground` inverts with the theme, which
+    // for a hover tint is the point and for a scrim is the defect: on the dark ground it turned the
+    // page behind this panel into a milky haze instead of dimming it. `<Dialog>` settled the same
+    // question the same way.
+    <div className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-900/40 px-4 pt-[12vh]">
       {/* The backdrop closes on click, which is what everybody tries first. It is not the only
           way out: Escape works, and the close is also reachable by keyboard from the field. */}
       <button
@@ -108,11 +113,11 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
 
         <div className="max-h-[50vh] overflow-y-auto">
           {query.trim().length === 0 ? (
-            <p className="px-4 py-3 text-[12px] text-foreground/60">
+            <p className="px-4 py-3 text-sm text-muted">
               Type to search the notes in this workspace.
             </p>
           ) : results.length === 0 ? (
-            <p className="px-4 py-3 text-[12px] text-foreground/60">
+            <p className="px-4 py-3 text-sm text-muted">
               Nothing matches &ldquo;{query.trim()}&rdquo;.
             </p>
           ) : (
@@ -125,7 +130,7 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
                       onSelect(item.id);
                       close();
                     }}
-                    className="flex w-full items-center gap-2 border-b border-divider px-4 py-2 text-left text-[13px] hover:bg-accent-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+                    className="flex w-full items-center gap-2 border-b border-divider px-4 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
                   >
                     <Icon icon={item.type === 'folder' ? Folder : FileText} size="sm" />
                     <span className="truncate">{item.title || 'Untitled'}</span>
@@ -141,7 +146,7 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
 
         {/* Said out loud rather than implied, because the difference matters the moment a note
             exists that this cannot find. */}
-        <p className="border-t border-divider px-4 py-2 text-[11px] text-foreground/60">
+        <p className="border-t border-divider px-4 py-2 text-xs text-muted">
           {loaded
             ? 'Matches titles of the notes loaded in this workspace. Full-text search over every item arrives with the search index.'
             : 'Still loading this workspace; results will be incomplete until it finishes.'}

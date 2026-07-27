@@ -430,7 +430,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
                   cell === null ? (
                     <td
                       key={`${prefix}blank-${String(weekIndex)}-${String(dayIndex)}`}
-                      className="h-24 border border-divider bg-neutral-100/40 align-top"
+                      className="h-24 border border-divider bg-surface align-top"
                     />
                   ) : (
                     <DayCell
@@ -572,7 +572,7 @@ function DayCell(props: DayCellProps): ReactNode {
       }}
       className={cn(
         'h-24 border border-divider align-top',
-        isToday ? 'bg-accent-100' : '',
+        isToday ? 'bg-accent/18' : '',
         over && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
     >
@@ -632,12 +632,12 @@ function ItemCard(props: ItemCardProps): ReactNode {
       onDragEnd={() => {
         setDragged(null);
       }}
-      className="flex items-start gap-1 border border-divider bg-neutral-100 px-1"
+      className="flex items-start gap-1 border border-divider bg-surface px-1"
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <Button
           variant="ghost"
-          className="min-w-0 justify-start px-0 py-0.5 text-left text-[12px]"
+          className="min-w-0 justify-start px-0 py-0.5 text-left text-sm"
           onClick={() => {
             onOpen(item.id);
           }}
@@ -720,13 +720,13 @@ function RescheduleForm(props: RescheduleFormProps): ReactNode {
       </Field>
 
       <div className="flex flex-wrap items-center gap-1">
-        <Button type="submit" className="py-1 text-[12px]">
+        <Button type="submit" className="py-1 text-sm">
           Move
         </Button>
 
         <Button
           variant="secondary"
-          className="py-1 text-[12px]"
+          className="py-1 text-sm"
           onClick={() => {
             // Parity with dropping a card into the unscheduled list. A gesture the mouse has and
             // the keyboard does not is a gesture half the people here cannot perform.
@@ -736,7 +736,7 @@ function RescheduleForm(props: RescheduleFormProps): ReactNode {
           Remove date
         </Button>
 
-        <Button variant="ghost" className="py-1 text-[12px]" onClick={onCancel}>
+        <Button variant="ghost" className="py-1 text-sm" onClick={onCancel}>
           Cancel
         </Button>
       </div>

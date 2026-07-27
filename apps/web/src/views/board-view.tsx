@@ -183,7 +183,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
       {container.writeError === null ? null : (
         <div
           role="alert"
-          className="flex items-start gap-2 border border-divider p-3 font-body text-[13px] text-accent-text"
+          className="flex items-start gap-2 border border-divider p-3 font-body text-base text-accent-text"
         >
           <Icon icon={CircleAlert} size="sm" />
           <span>
@@ -406,10 +406,9 @@ function BoardCard(props: BoardCardProps): ReactNode {
           }}
           className={cn(
             blueprintFrame,
-            // A literal type size for the same reason Input carries one: the token sheet stops at
-            // families, spacing, radii and elevation, and the type scale lives in the components
-            // until it moves there.
-            'w-full bg-background px-2 py-1 font-body text-[13px] leading-[1.4] text-foreground',
+            // One step below the body copy around it, so a control repeated once per card does
+            // not out-weigh the card's own title. The line height is the step's own.
+            'w-full bg-background px-2 py-1 font-body text-base text-foreground',
             focusRing,
           )}
         >

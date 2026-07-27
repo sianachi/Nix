@@ -106,8 +106,8 @@ function PreviewSwitcher({ current }: { readonly current: StatePreview }): React
                   className={cn(
                     SEGMENT_BASE,
                     selected
-                      ? 'bg-accent text-neutral-100'
-                      : 'text-accent-text hover:bg-accent-100 active:bg-accent-200',
+                      ? 'bg-accent-fill text-background'
+                      : 'text-accent-text hover:bg-accent/10 active:bg-accent/18',
                   )}
                 >
                   {preview}

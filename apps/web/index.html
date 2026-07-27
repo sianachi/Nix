@@ -4,6 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nix</title>
+
+    <!--
+      The chosen ground, applied before the first paint.
+
+      Everything else about theming lives in the token sheet and in src/theme, and this is the one
+      piece that cannot: the application's own code runs after the browser has already painted, so
+      somebody who chose dark on a light machine would see a white page flash first. That flash is
+      not a polish problem - it is the whole screen, on every load.
+
+      Blocking and inline for the same reason: a deferred or external script paints first and
+      corrects afterwards, which is the flash it exists to prevent. It reads the same key and the
+      same values as theme-store.ts, which is the duplication the comment there points back at.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('nix.theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (error) {
+          // Storage refused - private browsing, or policy. The media query in the token sheet is
+          // still in force, so the page follows the machine rather than failing to load.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

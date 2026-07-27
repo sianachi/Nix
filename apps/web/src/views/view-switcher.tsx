@@ -57,11 +57,11 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
               onSelect(view.id);
             }}
             className={[
-              'flex items-center gap-1.5 border px-2 py-1 text-[12px]',
+              'flex items-center gap-1.5 border px-2 py-1 text-sm',
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
               active
                 ? 'border-divider bg-foreground/7 text-foreground'
-                : 'border-transparent text-neutral-700 hover:bg-foreground/5',
+                : 'border-transparent text-muted hover:bg-foreground/5',
             ].join(' ')}
           >
             <Icon icon={icon} size="sm" />

@@ -205,7 +205,7 @@ function SaveState({ state }: { readonly state: SyncState }): ReactNode {
       // Polite rather than assertive: the state changes on a timer, and an assertive region would
       // interrupt a screen-reader user mid-sentence every time it did.
       aria-live="polite"
-      className="border-t border-divider px-8 py-2 text-[11px] text-foreground/60"
+      className="border-t border-divider px-8 py-2 text-xs text-muted"
     >
       {message}
     </footer>
@@ -304,7 +304,7 @@ function SelectionToolbar({ editor }: { readonly editor: Editor }): ReactNode {
             // The Yjs history, so undo reverts your own edits and never a colleague's.
             undo(editor.state);
           }}
-          className="px-2 py-1 text-[11px] text-foreground/70 hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          className="px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           Undo
         </button>
@@ -314,7 +314,7 @@ function SelectionToolbar({ editor }: { readonly editor: Editor }): ReactNode {
           onClick={() => {
             redo(editor.state);
           }}
-          className="px-2 py-1 text-[11px] text-foreground/70 hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          className="px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           Redo
         </button>
@@ -395,12 +395,12 @@ function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
         onChange={(event) => {
           setQuery(event.target.value);
         }}
-        className="w-full border-b border-divider bg-transparent px-3 py-2 text-[13px] outline-none"
+        className="w-full border-b border-divider bg-transparent px-3 py-2 text-base outline-none"
         placeholder="Filter blocks"
       />
 
       {commands.length === 0 ? (
-        <p className="px-3 py-2 text-[12px] text-foreground/60">No block matches.</p>
+        <p className="px-3 py-2 text-sm text-muted">No block matches.</p>
       ) : (
         commands.map((command) => (
           <button
@@ -411,11 +411,11 @@ function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
             onClick={() => {
               insert(command);
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-accent-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
           >
             <Icon icon={command.icon} size="sm" />
             <span className="flex-1 truncate">{command.label}</span>
-            <span className="text-[11px] text-foreground/50">{command.hint}</span>
+            <span className="text-xs text-muted">{command.hint}</span>
           </button>
         ))
       )}

@@ -72,11 +72,11 @@ export function AuthCallbackPage(): ReactNode {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background px-6">
       {failure === null ? (
-        <p className="text-sm text-foreground/70">Completing sign-in…</p>
+        <p className="text-sm text-muted">Completing sign-in…</p>
       ) : (
         <div role="alert" className="max-w-md text-center">
           <p className="mb-2 font-heading text-xl uppercase">Sign-in failed</p>
-          <p className="text-sm text-foreground/70">{failure}</p>
+          <p className="text-sm text-muted">{failure}</p>
         </div>
       )}
     </main>

@@ -139,19 +139,19 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-neutral-700">
+        <p className="text-base text-muted">
           A view is a way of looking at this folder. Everybody who can see the folder sees the same
           views.
         </p>
 
         {error === null ? null : (
-          <p role="alert" className="border border-foreground px-3 py-2 text-[13px]">
+          <p role="alert" className="border border-foreground px-3 py-2 text-base">
             {error}
           </p>
         )}
 
         {draft.length === 0 ? (
-          <p className="text-[13px] text-neutral-700">
+          <p className="text-base text-muted">
             No views yet. Without one, this folder shows a plain list.
           </p>
         ) : null}
@@ -181,7 +181,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                     onChange={(event) => {
                       update(index, { kind: event.target.value });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {KINDS.map((kind) => (
                       <option key={kind.value} value={kind.value}>
@@ -249,7 +249,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                         groupOrder: [],
                       });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     <option value="">Choose a property</option>
                     {groupable.map((property) => (
@@ -281,7 +281,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                         dateProperty: dateProperty.length > 0 ? dateProperty : null,
                       });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     <option value="">Choose a property</option>
                     {dateProperties.map((property) => (

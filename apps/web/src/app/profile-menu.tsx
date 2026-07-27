@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
+import { ThemeChoice } from '../theme/theme-choice';
 import type { CurrentPrincipalState } from '../session/use-current-principal';
 
 /**
@@ -69,7 +70,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
         }}
         className={[
           'flex items-center gap-1.5 border border-transparent px-2 py-1',
-          'text-[11px] text-foreground/70',
+          'text-xs text-muted',
           'hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
         ].join(' ')}
       >
@@ -85,15 +86,15 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
           className="absolute right-0 z-20 mt-1 w-[240px] border border-divider bg-background shadow-md"
         >
           <div className="border-b border-divider px-3 py-2">
-            <p className="truncate text-[13px] text-foreground">{name}</p>
+            <p className="truncate text-base text-foreground">{name}</p>
             {/* Absent rather than blank: a machine identity has no address, and an empty line
                 where one should be reads as a bug. */}
             {principal.principal?.email === null ||
             principal.principal?.email === undefined ? null : (
-              <p className="truncate text-[11px] text-foreground/60">{principal.principal.email}</p>
+              <p className="truncate text-xs text-muted">{principal.principal.email}</p>
             )}
             {principal.status === 'error' ? (
-              <p role="alert" className="mt-1 text-[11px] text-foreground/70">
+              <p role="alert" className="mt-1 text-xs text-muted">
                 {principal.error}
               </p>
             ) : null}
@@ -106,12 +107,17 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
               onClick={() => {
                 setOpen(false);
               }}
-              className="flex items-center gap-2 px-3 py-2 text-[13px] text-foreground hover:bg-accent-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+              className="flex items-center gap-2 px-3 py-2 text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
             >
               <Icon icon={ShieldCheck} size="sm" />
               Admin · Audit
             </Link>
           ) : null}
+
+          {/* Appearance sits with the account rather than in a settings page: it belongs to the
+              person rather than to the workspace, and it is the kind of thing somebody changes on
+              impulse and wants immediately, not after a navigation. */}
+          <ThemeChoice />
 
           <button
             type="button"
@@ -120,7 +126,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
               setOpen(false);
               void signOut();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground hover:bg-accent-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
           >
             <Icon icon={LogOut} size="sm" />
             Sign out

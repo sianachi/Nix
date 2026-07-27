@@ -119,13 +119,13 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-neutral-700">
+        <p className="text-base text-muted">
           Everything inside this folder can carry these properties, and so can everything inside the
           folders below it.
         </p>
 
         {error === null ? null : (
-          <p role="alert" className="border border-foreground px-3 py-2 text-[13px]">
+          <p role="alert" className="border border-foreground px-3 py-2 text-base">
             {error}
           </p>
         )}
@@ -165,7 +165,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                         options: hasOptions(type) ? property.options : [],
                       });
                     }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -205,13 +205,13 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                       });
                     }}
                     rows={3}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 )}
               </Field>
             ) : null}
 
-            <label className="flex items-center gap-2 text-[13px]">
+            <label className="flex items-center gap-2 text-base">
               <input
                 type="checkbox"
                 checked={property.required}
@@ -240,7 +240,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
 
         {inheritedOnly.length === 0 ? null : (
           <div className="border-t border-divider pt-3">
-            <p className="mb-1 font-heading text-[11px] uppercase tracking-[0.08em] text-neutral-700">
+            <p className="mb-1 font-heading text-xs uppercase tracking-[0.08em] text-muted">
               Inherited from above
             </p>
             {/* Shown but not editable. Somebody needs to see why a property they did not declare is
@@ -248,13 +248,13 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                 and quietly sever it from the parent that actually owns it. */}
             <ul className="flex flex-col gap-1">
               {inheritedOnly.map((property) => (
-                <li key={property.key} className="text-[13px] text-neutral-700">
+                <li key={property.key} className="text-base text-muted">
                   {property.label} · {property.type}
                 </li>
               ))}
             </ul>
 
-            <label className="mt-2 flex items-center gap-2 text-[13px]">
+            <label className="mt-2 flex items-center gap-2 text-base">
               <input
                 type="checkbox"
                 checked={!inherit}

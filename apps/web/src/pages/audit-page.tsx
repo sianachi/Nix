@@ -1,3 +1,4 @@
+import { Table, type TableColumn } from '@nix/ui';
 import { type ReactNode } from 'react';
 
 /**
@@ -11,41 +12,50 @@ import { type ReactNode } from 'react';
  *
  * Showing a plausible-looking table of fake events would be the worst possible thing here.
  */
-const COLUMNS = ['Occurred', 'Actor', 'Action', 'Subject'] as const;
+
+/**
+ * One row of the audit trail, as the export goal will eventually hand it over.
+ *
+ * The shape is declared even though nothing produces it yet, so the columns below are the columns
+ * of a real table rather than four strings: when the read path lands, this file gains rows and
+ * nothing else.
+ */
+interface AuditEvent {
+  readonly id: string;
+  readonly occurred: string;
+  readonly actor: string;
+  readonly action: string;
+  readonly subject: string;
+}
+
+const COLUMNS: readonly TableColumn<AuditEvent>[] = [
+  { key: 'occurred', header: 'Occurred', cell: (event) => event.occurred, rowHeader: true },
+  { key: 'actor', header: 'Actor', cell: (event) => event.actor },
+  { key: 'action', header: 'Action', cell: (event) => event.action },
+  { key: 'subject', header: 'Subject', cell: (event) => event.subject },
+];
+
+const NO_EVENTS =
+  'No events can be shown. The audit trail is insert-only for this application: it can write ' +
+  'events and cannot read them back, by design. A read path needs its own role or a ' +
+  'security-definer view, which the audit export goal owns.';
 
 export function AuditPage(): ReactNode {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-divider px-6 py-3">
-        <span className="font-heading text-[15px] uppercase tracking-[0.06em]">Admin · Audit</span>
-        <span className="text-[11px] text-foreground/60">Tenant admin</span>
+        <span className="font-heading text-md uppercase tracking-[0.06em]">Admin · Audit</span>
+        <span className="text-xs text-muted">Tenant admin</span>
       </div>
 
       <div className="p-6">
-        <table className="w-full border border-divider text-left text-[13px]">
-          <thead>
-            <tr className="bg-neutral-100">
-              {COLUMNS.map((column) => (
-                <th
-                  key={column}
-                  scope="col"
-                  className="border-b border-divider px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-foreground/70"
-                >
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td colSpan={COLUMNS.length} className="px-3 py-6 text-[12px] text-foreground/60">
-                No events can be shown. The audit trail is insert-only for this application: it can
-                write events and cannot read them back, by design. A read path needs its own role or
-                a security-definer view, which the audit export goal owns.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <Table
+          caption="Audit events recorded for this tenant"
+          columns={COLUMNS}
+          rows={[]}
+          rowKey={(event) => event.id}
+          emptyMessage={NO_EVENTS}
+        />
       </div>
     </div>
   );

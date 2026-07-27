@@ -66,7 +66,7 @@ export function AppShell(): ReactNode {
           NX
         </Link>
 
-        <span className="text-[11px] uppercase tracking-[0.1em] text-foreground/60">
+        <span className="text-xs uppercase tracking-[0.1em] text-muted">
           Acme &middot; Engineering
         </span>
 
@@ -75,13 +75,13 @@ export function AppShell(): ReactNode {
           onClick={() => {
             setSearchOpen(true);
           }}
-          className="ml-auto flex items-center gap-2 border border-divider px-2 py-1 text-[11px] text-foreground/60 hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="ml-auto flex items-center gap-2 border border-divider px-2 py-1 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <Icon icon={Search} size="sm" />
           Search
           {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can
               discover is a shortcut nobody uses. */}
-          <kbd className="font-mono text-[10px] text-foreground/50">Ctrl K</kbd>
+          <kbd className="font-mono text-2xs text-muted">Ctrl K</kbd>
         </button>
 
         <ProfileMenu principal={principal} />
@@ -100,7 +100,7 @@ export function AppShell(): ReactNode {
       {/* The status strip says what is true right now rather than decorating: the tenant this
           session is pinned to, and the fact that isolation is enforced in the database rather
           than by this application. */}
-      <footer className="flex items-center gap-4 border-t border-divider px-[14px] py-1.5 text-[11px] text-foreground/60">
+      <footer className="flex items-center gap-4 border-t border-divider px-[14px] py-1.5 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block size-[7px] bg-accent" />
           Single tenant &middot; RLS-isolated

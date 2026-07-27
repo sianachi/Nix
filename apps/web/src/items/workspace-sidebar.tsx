@@ -72,7 +72,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   return (
     <aside
       aria-label="Workspace"
-      className="flex w-[264px] shrink-0 flex-col border-r border-divider bg-neutral-100"
+      className="flex w-[264px] shrink-0 flex-col border-r border-divider bg-surface"
     >
       <div className="flex items-center gap-1 border-b border-divider px-3 py-2">
         <span className="truncate text-xs uppercase tracking-[0.08em] text-muted">Workspace</span>
@@ -120,7 +120,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           away the items that loaded perfectly well. */}
       {tree.error === null ? null : (
         <div role="alert" className="border-t border-divider px-3 py-2">
-          <p className="text-[11px] text-foreground/70">{tree.error}</p>
+          <p className="text-xs text-muted">{tree.error}</p>
         </div>
       )}
     </aside>
@@ -139,16 +139,16 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   const { tree } = props;
 
   if (tree.status === 'loading') {
-    return <p className="px-3 py-2 text-[12px] text-foreground/60">Loading the workspace…</p>;
+    return <p className="px-3 py-2 text-sm text-muted">Loading the workspace…</p>;
   }
 
   if (tree.status === 'error') {
     return (
       <div role="alert" className="px-3 py-2">
-        <p className="mb-2 text-[12px] text-foreground/70">{tree.error}</p>
+        <p className="mb-2 text-sm text-muted">{tree.error}</p>
         <Button
           variant="secondary"
-          className="px-2 py-1 text-[11px]"
+          className="px-2 py-1 text-xs"
           onClick={() => {
             void tree.reload();
           }}
@@ -162,7 +162,7 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   const roots = tree.childrenOf(null);
   if (roots.length === 0) {
     return (
-      <p className="px-3 py-2 text-[12px] text-foreground/60">
+      <p className="px-3 py-2 text-sm text-muted">
         Nothing here yet. &ldquo;Note&rdquo; creates the first item.
       </p>
     );
@@ -235,7 +235,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         onDrop={onDrop}
         className={[
           'group flex items-center gap-1 pr-1',
-          selected ? 'bg-accent-100' : 'hover:bg-accent-100/60',
+          selected ? 'bg-accent/18' : 'hover:bg-accent/10',
           dropTarget && dragged !== null && dragged !== item.id
             ? 'outline-2 -outline-offset-2 outline-accent'
             : '',
@@ -249,7 +249,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             onClick={() => {
               void tree.toggle(item.id);
             }}
-            className="flex size-5 items-center justify-center text-foreground/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
           >
             <Icon icon={expanded ? ChevronDown : ChevronRight} size="sm" />
           </button>
@@ -262,7 +262,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           onClick={() => {
             onSelect(item.id);
           }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-[13px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
         >
           <Icon icon={isFolder ? Folder : FileText} size="sm" />
           <span className="truncate">{item.title || 'Untitled'}</span>
@@ -286,7 +286,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               void tree.remove(item.id);
             }
           }}
-          className="invisible flex size-5 items-center justify-center text-foreground/50 hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent group-hover:visible"
+          className="invisible flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent group-hover:visible"
         >
           <Icon icon={Trash2} size="sm" />
         </button>
@@ -296,14 +296,14 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         <ul role="group">
           {tree.isLoadingChildren(item.id) && children.length === 0 ? (
             <li
-              className="py-1 text-[12px] text-foreground/60"
+              className="py-1 text-sm text-muted"
               style={{ paddingLeft: `${String((depth + 1) * 12 + 26)}px` }}
             >
               Loading…
             </li>
           ) : children.length === 0 ? (
             <li
-              className="py-1 text-[12px] text-foreground/60"
+              className="py-1 text-sm text-muted"
               style={{ paddingLeft: `${String((depth + 1) * 12 + 26)}px` }}
             >
               Empty
