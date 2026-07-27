@@ -15,9 +15,9 @@ namespace Nix.Core.Items;
 /// discriminates behaviour; it does not discriminate storage.
 /// </para>
 /// <para>
-/// This goal lands the envelope only. Content bodies (<c>content_doc</c>), file bodies
-/// (<c>file_version</c>), property schemas, views, and saved queries arrive with the phases that
-/// build them, each in that phase's own migration.
+/// Content bodies (<c>content_doc</c>) and file bodies (<c>file_version</c>) live in their own
+/// tables. Property schemas and views are columns here, per ADR-0006. Saved cross-folder queries
+/// (<c>query</c>) arrive with the phase that builds them, in that phase's own migration.
 /// </para>
 /// </remarks>
 public sealed class Item
@@ -67,6 +67,29 @@ public sealed class Item
     /// property schemas owns the typed representation and the validation on write.
     /// </remarks>
     public string? Properties { get; init; }
+
+    /// <summary>
+    /// Gets the property schema this item declares for itself and its descendants, as a JSON
+    /// object, or <see langword="null"/> when it declares none.
+    /// </summary>
+    /// <remarks>
+    /// Held as a JSON string for the same reason <see cref="Properties"/> is: most reads of an
+    /// item do not want it, and parsing on every one would be paid by every listing.
+    /// <c>Nix.Core.Properties.PropertySchemaJson</c> owns the typed representation, and is the
+    /// only thing that should read this.
+    /// </remarks>
+    public string? Schema { get; init; }
+
+    /// <summary>
+    /// Gets the views this container offers, as a JSON object, or <see langword="null"/> when it
+    /// offers none.
+    /// </summary>
+    /// <remarks>
+    /// A view is a way of rendering this item's children, stored on the container because that is
+    /// what it belongs to - "board" is something a folder can be shown as, not a place in the
+    /// application. <c>Nix.Core.Views.ViewDefinitionsJson</c> owns the typed representation.
+    /// </remarks>
+    public string? Views { get; init; }
 
     /// <summary>Gets where the item sits in the deletion lifecycle.</summary>
     public required ItemLifecycleState LifecycleState { get; init; }

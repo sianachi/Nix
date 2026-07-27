@@ -5,9 +5,12 @@ using Nix.Application.Authorization;
 using Nix.Application.Identity;
 using Nix.Application.Items;
 using Nix.Application.Persistence;
+using Nix.Application.Properties;
+using Nix.Application.Views;
 using Nix.Infrastructure.Persistence.Authorization;
 using Nix.Infrastructure.Persistence.Identity;
 using Nix.Infrastructure.Persistence.Items;
+using Nix.Infrastructure.Persistence.Properties;
 using Nix.Infrastructure.Persistence.Rls;
 using Nix.Infrastructure.Persistence.Sql;
 using Npgsql;
@@ -113,6 +116,10 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
         services.AddScoped<IPrincipalDirectory, PrincipalDirectory>();
 
+        // Scoped because it memoises resolutions for the unit of work: a listing that renders
+        // twenty items under one parent resolves one schema rather than twenty.
+        services.AddScoped<ISchemaResolver, SchemaResolver>();
+
         // The one authorization code path. Scoped like the stores, and for a stronger reason: it
         // memoises answers for the lifetime of the unit of work, and a unit of work is one request
         // acting as one principal in one tenant.
@@ -135,6 +142,11 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<MoveItem>();
         services.AddScoped<RenameItem>();
         services.AddScoped<RestoreItem>();
+        services.AddScoped<GetEffectiveSchema>();
+        services.AddScoped<SetItemSchema>();
+        services.AddScoped<SetItemProperties>();
+        services.AddScoped<GetContainerViews>();
+        services.AddScoped<SetContainerViews>();
 
         return services;
     }

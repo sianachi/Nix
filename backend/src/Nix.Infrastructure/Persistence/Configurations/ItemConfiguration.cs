@@ -43,6 +43,9 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         builder.Property(item => item.ParentId).HasColumnName("parent_id");
         builder.Property(item => item.Seq).HasColumnName("seq");
 
+        builder.Property(item => item.Schema).HasColumnName("schema").HasColumnType("jsonb");
+        builder.Property(item => item.Views).HasColumnName("views").HasColumnType("jsonb");
+
         builder.Property(item => item.Properties)
             .HasColumnName("properties")
             .HasColumnType("jsonb");

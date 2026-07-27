@@ -113,6 +113,39 @@ public interface IItemTree
         DateTimeOffset at,
         CancellationToken cancellationToken);
 
+    /// <summary>Replaces the schema an item declares for its subtree.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="schema">The schema as JSON, or <see langword="null"/> to declare none.</param>
+    /// <param name="actor">Who made the change.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the row is updated.</returns>
+    /// <remarks>
+    /// Separate from <see cref="UpdatePropertiesAsync"/> because they are different things that
+    /// happen at different times: a schema is authored occasionally by somebody shaping a
+    /// workspace, and property values are written constantly by everybody using it.
+    /// </remarks>
+    public ValueTask UpdateSchemaAsync(
+        ItemId id,
+        string? schema,
+        Core.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
+    /// <summary>Replaces the views a container offers.</summary>
+    /// <param name="id">The container.</param>
+    /// <param name="views">The views as JSON, or <see langword="null"/> to offer none.</param>
+    /// <param name="actor">Who made the change.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the row is updated.</returns>
+    public ValueTask UpdateViewsAsync(
+        ItemId id,
+        string? views,
+        Core.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Whether making <paramref name="parentId"/> the parent of <paramref name="id"/> would put
     /// the item inside its own subtree.

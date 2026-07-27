@@ -28,6 +28,81 @@ namespace Nix.Core.Items;
 /// </remarks>
 public static class ItemProperties
 {
+    /// <summary>
+    /// Merges a set of changes into a property bag.
+    /// </summary>
+    /// <param name="properties">The stored bag, or <see langword="null"/> when the item has none.</param>
+    /// <param name="changes">The properties to set, as a JSON object.</param>
+    /// <returns>
+    /// The merged bag, or <see langword="null"/> when the changes are not a JSON object.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A merge rather than a replacement</b>, because a caller sets the properties it is
+    /// changing and knows nothing about the rest. A board that replaced the bag would drop every
+    /// property it does not display, which is most of them.
+    /// </para>
+    /// <para>
+    /// <b>An explicit null removes the key.</b> That is what a client clearing a field sends, and
+    /// keeping a null around would leave "set but empty" and "not set" indistinguishable to
+    /// everything downstream - including the required check, which would then be satisfiable by
+    /// sending null.
+    /// </para>
+    /// </remarks>
+    public static string? Merge(string? properties, string changes)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(changes);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (parsed is not JsonObject incoming)
+        {
+            return null;
+        }
+
+        var bag = ReadObject(properties) ?? new JsonObject();
+
+        foreach (var change in incoming)
+        {
+            if (change.Value is null)
+            {
+                bag.Remove(change.Key);
+                continue;
+            }
+
+            // Deep-cloned because a node belongs to exactly one parent: assigning it straight
+            // across would detach it from the document being read and leave that one malformed.
+            bag[change.Key] = change.Value.DeepClone();
+        }
+
+        return bag.ToJsonString();
+    }
+
+    private static JsonObject? ReadObject(string? properties)
+    {
+        if (string.IsNullOrWhiteSpace(properties))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonNode.Parse(properties) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The property an item's display name is stored under.</summary>
     public const string TitleKey = "title";
 

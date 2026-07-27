@@ -201,6 +201,40 @@ public sealed class ItemTree : IItemTree
     }
 
     /// <inheritdoc />
+    public async ValueTask UpdateSchemaAsync(
+        ItemId id,
+        string? schema,
+        PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Items
+            .Where(item => item.Id == id)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(item => item.Schema, schema)
+                    .SetProperty(item => item.LastModifiedBy, actor)
+                    .SetProperty(item => item.LastModifiedAt, at),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async ValueTask UpdateViewsAsync(
+        ItemId id,
+        string? views,
+        PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Items
+            .Where(item => item.Id == id)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(item => item.Views, views)
+                    .SetProperty(item => item.LastModifiedBy, actor)
+                    .SetProperty(item => item.LastModifiedAt, at),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
     public async ValueTask<bool> WouldCreateCycleAsync(
         ItemId id,
         ItemId parentId,
