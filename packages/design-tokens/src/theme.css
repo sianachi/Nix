@@ -91,9 +91,52 @@
   --color-accent-pressed: var(--color-accent-700);
   --color-accent-text: var(--color-accent-700);
 
+  /* Quiet copy. A role rather than a ramp step at the call site, because the
+     step that reads as quiet-but-legible against paper is nearly invisible
+     against ink - the neutral ramp is not symmetric, so the dark ground
+     points this at the other end of it. */
+  --color-muted: var(--color-neutral-700);
+
   /* ══ Type ═════════════════════════════════════════════════════════════ */
   --font-heading: 'Barlow Condensed', system-ui, sans-serif;
   --font-body: 'Barlow', system-ui, sans-serif;
+
+  /* ══ Type scale ═══════════════════════════════════════════════════════
+     Nine steps, derived from the Industry reference rather than invented:
+     its fourteen sizes cluster, and each step here is a cluster's rounded
+     centre. No step is more than 1px from a size the reference uses, with
+     one interpolation - 28px, where the reference jumps 22 to 40 and a
+     second-level heading needs somewhere to sit. See ADR-0008.
+
+     Rounding the reference's 14 and 14.5 up to 15 is the one visible
+     change: body copy becomes a single size rather than three that differ
+     by half a pixel. Half-pixel type is a rendering accident rather than a
+     design intention.
+
+     Tailwind v4 derives text-2xs ... text-3xl from these. A component that
+     still names a pixel size is reaching past the sheet. */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 40px;
+
+  /* Line heights, paired with the steps above. Tight for the condensed
+     headings, which are set large and would otherwise sit too far apart;
+     open for body copy, which is read in paragraphs. */
+  --text-2xs--line-height: 1.4;
+  --text-xs--line-height: 1.4;
+  --text-sm--line-height: 1.45;
+  --text-base--line-height: 1.5;
+  --text-md--line-height: 1.55;
+  --text-lg--line-height: 1.35;
+  --text-xl--line-height: 1.2;
+  --text-2xl--line-height: 1.15;
+  --text-3xl--line-height: 1.1;
 
   /* ══ Spacing — density 0.85x ══════════════════════════════════════════
      The sheet's spacing unit is 3.4px (4px base x 0.85 density). Tailwind
@@ -102,6 +145,15 @@
      --space-3 10.2px, --space-4 13.6px, --space-6 20.4px, --space-8 27.2px
      (p-1 ... p-8, gap-*, and friends). */
   --spacing: 3.4px;
+
+  /* ══ Control heights ══════════════════════════════════════════════════
+     Three steps. The middle one is 36px because that is what the button
+     already used, so nothing moves by default. 44px is the smallest target
+     that meets the touch guidance, which gives the responsive work a step
+     to reach for rather than a number to invent. See ADR-0008. */
+  --control-sm: 28px;
+  --control-md: 36px;
+  --control-lg: 44px;
 
   /* ══ Radius ═══════════════════════════════════════════════════════════ */
   --radius-sm: 2px;
@@ -131,4 +183,67 @@
   --space-4: 13.6px;
   --space-6: 20.4px;
   --space-8: 27.2px;
+}
+
+/* ══ Dark ground ═══════════════════════════════════════════════════════
+   Declared as a runtime override of the custom properties, not as a second
+   @theme block. Tailwind v4 flattens every @theme it finds regardless of
+   what wraps it, so a theme block inside a media query does not produce a
+   conditional palette - it produces a palette whose values are simply the
+   last ones declared. The utilities already resolve through var(), so
+   reassigning the roles here is what makes them conditional, and it emits
+   no extra utilities to do it.
+
+   Only the semantic roles move; the ramps do not. A component that says
+   bg-background text-foreground is therefore already correct in both
+   grounds, and one that says bg-neutral-100 is not - which is the property
+   worth protecting. Needing a dark: variant is the signal that a component
+   reached past the tokens for a colour. See ADR-0008.
+
+   The interaction steps invert their direction: on paper hover goes one
+   step deeper into the accent, on ink it goes lighter, because deeper would
+   move towards the ground rather than away from it. Muted copy crosses to
+   the other end of the neutral ramp for the same reason - the ramp is not
+   symmetric, and the step that reads as quiet against paper is nearly
+   invisible against ink. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #17181a;
+    --color-surface: #1f2123;
+    --color-text: #e8e9ea;
+    --color-divider: color-mix(in srgb, #e8e9ea 18%, transparent);
+
+    --color-accent-text: var(--color-accent-300);
+    --color-accent-hover: var(--color-accent-400);
+    --color-accent-pressed: var(--color-accent-300);
+    --color-muted: var(--color-neutral-400);
+  }
+}
+
+/* The same two grounds, chosen deliberately rather than inherited from the
+   operating system. The attribute wins over the media query in both
+   directions, which is what lets somebody on a dark desktop read a document
+   on a light ground without changing their machine's setting. */
+:root[data-theme='dark'] {
+  --color-bg: #17181a;
+  --color-surface: #1f2123;
+  --color-text: #e8e9ea;
+  --color-divider: color-mix(in srgb, #e8e9ea 18%, transparent);
+
+  --color-accent-text: var(--color-accent-300);
+  --color-accent-hover: var(--color-accent-400);
+  --color-accent-pressed: var(--color-accent-300);
+  --color-muted: var(--color-neutral-400);
+}
+
+:root[data-theme='light'] {
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  --color-accent-text: var(--color-accent-700);
+  --color-accent-hover: var(--color-accent-600);
+  --color-accent-pressed: var(--color-accent-700);
+  --color-muted: var(--color-neutral-700);
 }
