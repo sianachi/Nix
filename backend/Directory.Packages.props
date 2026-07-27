@@ -55,6 +55,22 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
   </ItemGroup>
 
+  <!--
+    Time, in the domain.
+
+    NodaTime is the one third-party dependency Nix.Core carries. The rule it bends says Core
+    references only the BCL, and the rule's purpose is to keep infrastructure - databases, HTTP,
+    ORMs - out of the domain. NodaTime is none of those: it is value types and a bundled tz
+    database, with no I/O. A domain that models time badly to keep a dependency count at zero has
+    the rule backwards. See ADR-0012.
+
+    Npgsql.NodaTime is deliberately absent. Timestamps live inside the properties jsonb blob as
+    text, so Npgsql never sees a NodaTime type and its type-mapping plugin would map nothing.
+  -->
+  <ItemGroup Label="Time">
+    <PackageVersion Include="NodaTime" Version="3.3.3" />
+  </ItemGroup>
+
   <ItemGroup Label="Integration test harness">
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0" />
     <PackageVersion Include="Respawn" Version="7.0.0" />

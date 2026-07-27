@@ -32,6 +32,7 @@ const TYPES = [
   { value: 'select', label: 'Select (one of a list)' },
   { value: 'multi_select', label: 'Multi-select (any of a list)' },
   { value: 'date', label: 'Date' },
+  { value: 'timestamp', label: 'Date and time' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'url', label: 'Link' },
 ] as const;

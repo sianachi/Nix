@@ -43,6 +43,17 @@ public enum PropertyType
 
     /// <summary>An absolute URL.</summary>
     Url = 6,
+
+    /// <summary>
+    /// A moment, keeping the local time it was written as and the zone it was written in. What a
+    /// calendar places by when the calendar has hours in it.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Date"/> rather than replacing it. A date means "the 3rd" and must
+    /// not shift for a reader in another zone; a timestamp means a moment, and must. Both belong on
+    /// a calendar, and conflating them would make one of them wrong.
+    /// </remarks>
+    Timestamp = 7,
 }
 
 /// <summary>
@@ -86,6 +97,9 @@ public static class PropertyTypes
             case "url":
                 type = PropertyType.Url;
                 return true;
+            case "timestamp":
+                type = PropertyType.Timestamp;
+                return true;
             default:
                 type = default;
                 return false;
@@ -105,6 +119,7 @@ public static class PropertyTypes
         PropertyType.Date => "date",
         PropertyType.Checkbox => "checkbox",
         PropertyType.Url => "url",
+        PropertyType.Timestamp => "timestamp",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -131,5 +146,6 @@ public static class PropertyTypes
     /// <summary>Whether a calendar may place items by this type.</summary>
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> for dates.</returns>
-    public static bool CanPlaceOnCalendar(this PropertyType type) => type is PropertyType.Date;
+    public static bool CanPlaceOnCalendar(this PropertyType type) =>
+        type is PropertyType.Date or PropertyType.Timestamp;
 }

@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using NodaTime;
+using NodaTime.Text;
 
 namespace Nix.Core.Properties;
 
@@ -154,6 +156,7 @@ public static class PropertyValidator
             : $"{definition.Label} must be true or false.",
 
         PropertyType.Date => CheckDate(definition, value),
+        PropertyType.Timestamp => CheckTimestamp(definition, value),
         PropertyType.Url => CheckUrl(definition, value),
         PropertyType.Select => CheckSelect(definition, value),
         PropertyType.MultiSelect => CheckMultiSelect(definition, value),
@@ -171,6 +174,79 @@ public static class PropertyValidator
             && DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
             ? null
             : $"{definition.Label} must be a date, as yyyy-MM-dd.";
+    }
+
+    /// <summary>
+    /// The zone database every stored timestamp is resolved against.
+    /// </summary>
+    /// <remarks>
+    /// NodaTime's own copy, not the host's. Zone rules change - governments move their clocks -
+    /// and a value that resolved one way on a developer's machine and another on a server would be
+    /// a bug nobody could reproduce.
+    /// </remarks>
+    private static readonly IDateTimeZoneProvider Zones = DateTimeZoneProviders.Tzdb;
+
+    /// <summary>
+    /// Reads a timestamp: a local time, the offset it was written at, and the zone it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The zone is stored because the instant alone is not enough.</b> A 09:00 Europe/London
+    /// standup kept only as a moment becomes 10:00 London the day the clocks change - the instant
+    /// was preserved and the meaning was thrown away. Keeping the zone keeps what somebody meant,
+    /// and the instant is derivable from it at any time.
+    /// </para>
+    /// <para>
+    /// RFC 9557, which is what Temporal and the JavaScript date libraries emit:
+    /// <c>2026-03-17T09:00:00+00:00[Europe/London]</c>. One string rather than an object, because a
+    /// property value flows through sorting, filtering and every view's cells, none of which know
+    /// what an object-shaped value is.
+    /// </para>
+    /// <para>
+    /// <b>The offset is checked against the zone.</b> A value whose offset disagrees with what its
+    /// zone was actually doing at that moment renders differently depending on which half is
+    /// believed, and there is no way to know which one was meant.
+    /// </para>
+    /// </remarks>
+    private static string? CheckTimestamp(PropertyDefinition definition, JsonNode? value)
+    {
+        const string Shape =
+            "must be a time with its zone, as 2026-03-17T09:00:00+00:00[Europe/London]";
+
+        var text = ReadString(value);
+        if (text is null)
+        {
+            return $"{definition.Label} {Shape}.";
+        }
+
+        var open = text.IndexOf('[', StringComparison.Ordinal);
+        if (open < 0 || !text.EndsWith(']'))
+        {
+            // A bare offset is not a zone. "+01:00" says what the clock read, not which rules it
+            // was following, so it cannot survive the next time those rules change.
+            return $"{definition.Label} {Shape}.";
+        }
+
+        var zoneId = text[(open + 1)..^1];
+        var zone = Zones.GetZoneOrNull(zoneId);
+        if (zone is null)
+        {
+            return $"{definition.Label} names the time zone '{zoneId}', which is not one this build knows.";
+        }
+
+        var moment = OffsetDateTimePattern.Rfc3339.Parse(text[..open]);
+        if (!moment.Success)
+        {
+            return $"{definition.Label} {Shape}.";
+        }
+
+        var written = moment.Value;
+        if (zone.GetUtcOffset(written.ToInstant()) != written.Offset)
+        {
+            return $"{definition.Label} has an offset that '{zoneId}' was not using at that moment.";
+        }
+
+        return null;
     }
 
     private static string? CheckUrl(PropertyDefinition definition, JsonNode? value)

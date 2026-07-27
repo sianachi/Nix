@@ -373,4 +373,81 @@ public sealed class PropertyValidatorTests
         bool required = false,
         ImmutableArray<string> options = default) =>
         new(key, label, type, options.IsDefault ? [] : options, required);
+
+    [Theory]
+    [InlineData("2026-03-17T09:00:00+00:00[Europe/London]")]
+    [InlineData("2026-07-17T09:00:00+01:00[Europe/London]")]
+    [InlineData("2026-03-17T09:00:00Z[Etc/UTC]")]
+    [InlineData("2026-03-17T09:00:00-10:00[Pacific/Honolulu]")]
+    public void A_timestamp_keeps_its_local_time_and_its_zone(string text)
+    {
+        var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
+
+        Assert.Empty(PropertyValidator.Validate($$"""{"at":"{{text}}"}""", schema));
+    }
+
+    [Fact]
+    public void The_same_wall_time_carries_a_different_offset_on_either_side_of_a_clock_change()
+    {
+        // Both are 09:00 in London, and they are an hour apart as instants. This is the whole
+        // reason the zone is stored rather than only the moment: keeping the instant alone would
+        // turn a 09:00 standup into a 10:00 one the day the clocks went forward.
+        var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
+
+        Assert.Empty(
+            PropertyValidator.Validate("""{"at":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
+        Assert.Empty(
+            PropertyValidator.Validate("""{"at":"2026-07-17T09:00:00+01:00[Europe/London]"}""", schema));
+    }
+
+    [Fact]
+    public void An_offset_the_zone_was_not_using_is_refused()
+    {
+        // London is on +01:00 in July. A value claiming +00:00 renders as one time if the offset is
+        // believed and another if the zone is, and there is no way to tell which was meant.
+        var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
+
+        var violations =
+            PropertyValidator.Validate("""{"at":"2026-07-17T09:00:00+00:00[Europe/London]"}""", schema);
+
+        Assert.Contains("Europe/London", Assert.Single(violations).Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("2026-03-17T09:00:00+00:00")]
+    [InlineData("2026-03-17T09:00:00Z")]
+    [InlineData("2026-03-17T09:00:00")]
+    public void A_timestamp_without_a_zone_is_refused(string text)
+    {
+        // An offset says what the clock read, not which rules it was following. It cannot survive
+        // the next time those rules change, which is the failure the whole type exists to avoid.
+        var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
+
+        Assert.Single(PropertyValidator.Validate($$"""{"at":"{{text}}"}""", schema));
+    }
+
+    [Fact]
+    public void A_zone_this_build_does_not_know_is_refused_by_name()
+    {
+        var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
+
+        var violations =
+            PropertyValidator.Validate("""{"at":"2026-03-17T09:00:00+00:00[Middle/Earth]"}""", schema);
+
+        // Named, because "invalid" leaves somebody guessing whether it was the date, the offset or
+        // the spelling of the zone.
+        Assert.Contains("Middle/Earth", Assert.Single(violations).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_date_still_refuses_everything_carrying_a_time()
+    {
+        // The two types stay distinct. A date means "the 3rd" and must not shift for a reader in
+        // another zone; a timestamp means a moment and must. Letting a date accept a timestamp
+        // would quietly make one of them wrong.
+        var schema = SchemaOf(Property("due", PropertyType.Date, "Due"));
+
+        Assert.Single(
+            PropertyValidator.Validate("""{"due":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
+    }
 }

@@ -113,7 +113,9 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
       label: 'Place by',
       emptyHint: 'There is no date property yet. Add one under Properties first.',
       hint: 'Items appear on the day this property names.',
-      accepts: (property) => property.type === 'date',
+      // Both, because a calendar places by either. A date is an all-day thing that must not
+      // shift for a reader in another zone; a timestamp is a moment that must.
+      accepts: (property) => property.type === 'date' || property.type === 'timestamp',
     },
   },
 ];

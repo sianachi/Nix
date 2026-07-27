@@ -1,6 +1,8 @@
 import { Field, Input, blueprintFrame, cn, disabledState, focusRing } from '@nix/ui';
 import { useState, type ReactNode } from 'react';
 
+import { readTimestampValue, readerZone, writeTimestampValue } from '../views/timestamps';
+
 import {
   readDateValue,
   readPropertyText,
@@ -53,6 +55,7 @@ const KNOWN_TYPES = [
   'select',
   'multi_select',
   'date',
+  'timestamp',
   'checkbox',
   'url',
 ] as const;
@@ -100,6 +103,9 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
 
     case 'date':
       return <DateValue {...props} />;
+
+    case 'timestamp':
+      return <TimestampValue {...props} />;
 
     case 'checkbox':
       return <CheckboxValue {...props} />;
@@ -321,6 +327,111 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
 
 /** A complete calendar date, which is the only thing worth sending. */
 const COMPLETE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A moment: a local time, and the zone it means.
+ *
+ * **The zone is shown and editable, not assumed.** A time with no zone is a time that changes
+ * meaning when somebody else reads it, and the reader's own zone is only the right default - never
+ * the right answer for a thing scheduled somewhere else.
+ *
+ * The offset is never typed. It is derived from the wall time and the zone when the value is
+ * written, so it cannot disagree with them - which is exactly what the server refuses.
+ */
+function TimestampValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, error = null } = props;
+
+  const stored = readTimestampValue(item.properties, property.key);
+  const raw = readPropertyText(item, property.key);
+  const zone = stored?.zone ?? readerZone();
+
+  // The wall clock as the local `datetime-local` field wants it, in the value's own zone rather
+  // than the reader's - editing a meeting set in another city should show the time it was set for.
+  const local = stored === null ? '' : stored.at.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
+
+  const [draft, setDraft] = useState(local);
+  const [draftZone, setDraftZone] = useState(zone);
+  const [seen, setSeen] = useState(local);
+
+  if (local !== seen) {
+    setSeen(local);
+    setDraft(local);
+    setDraftZone(zone);
+  }
+
+  // Something is stored and it is not a timestamp. Showing an empty field over it would claim the
+  // property is unset and offer to overwrite it without ever saying what was there.
+  if (stored === null && raw.length > 0) {
+    return (
+      <ReadOnlyValue
+        {...props}
+        note={`Stored as "${raw}", which is not a time this field can show. It is left as it is rather than being overwritten.`}
+      />
+    );
+  }
+
+  function commit(nextLocal: string, nextZone: string): void {
+    if (nextLocal.length === 0) {
+      onCommit(null);
+      return;
+    }
+
+    const written = writeTimestampValue(nextLocal, nextZone);
+    if (written !== null) {
+      onCommit(written);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <Input
+        type="datetime-local"
+        aria-label={property.label}
+        value={draft}
+        disabled={disabled}
+        aria-invalid={error === null ? undefined : true}
+        onChange={(event) => {
+          setDraft(event.target.value);
+        }}
+        onBlur={() => {
+          commit(draft, draftZone);
+        }}
+      />
+
+      <select
+        aria-label={`Time zone for ${property.label}`}
+        value={draftZone}
+        disabled={disabled}
+        onChange={(event) => {
+          setDraftZone(event.target.value);
+          commit(draft, event.target.value);
+        }}
+        className={selectClasses}
+      >
+        {zoneOptions(draftZone).map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * The zones offered, with the value's own always among them.
+ *
+ * Read from the platform rather than shipped: the browser already carries the IANA database, and a
+ * second copy would be bytes spent on something already installed. A build whose runtime cannot
+ * enumerate them still offers the two that matter - the reader's, and whatever is already stored.
+ */
+function zoneOptions(current: string): readonly string[] {
+  const supported =
+    typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+
+  const all = supported.length > 0 ? supported : [readerZone()];
+  return all.includes(current) ? all : [current, ...all];
+}
 
 function DateValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, error = null } = props;

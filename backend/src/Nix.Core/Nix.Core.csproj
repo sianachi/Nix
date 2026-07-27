@@ -1,2 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The domain's only package reference.
+
+    See ADR-0012 and the note in Directory.Packages.props: NodaTime is value types with no I/O, and
+    the BCL-only rule exists to keep infrastructure out of here rather than to keep the count at
+    zero. DependencyDirectionTests still refuses every infrastructure assembly by name.
+  -->
+  <ItemGroup>
+    <PackageReference Include="NodaTime" />
+  </ItemGroup>
+
 </Project>

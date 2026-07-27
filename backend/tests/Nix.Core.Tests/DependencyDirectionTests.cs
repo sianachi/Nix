@@ -5,8 +5,12 @@ namespace Nix.Core.Tests;
 public sealed class DependencyDirectionTests
 {
     [Fact]
-    public void Core_assembly_references_only_the_base_class_library()
+    public void Core_assembly_references_no_infrastructure()
     {
+        // Named for what it checks rather than for what it was once believed to check. Core carries
+        // exactly one third-party reference - NodaTime, which is value types and a tz database with
+        // no I/O - and the rule that matters is this list: no database, no web framework, and
+        // nothing from a layer above. See ADR-0012.
         var forbiddenPrefixes = new[]
         {
             "Nix.Application",
