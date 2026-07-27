@@ -34,7 +34,7 @@ function containerOf(
 }
 
 describe('the schema editor', () => {
-  it('shows the properties this folder declares', () => {
+  it('shows the fields this item declares', () => {
     render(
       <SchemaEditor
         container={containerOf({
@@ -70,7 +70,7 @@ describe('the schema editor', () => {
     expect(screen.queryByRole('textbox', { name: /name/i })).not.toBeInTheDocument();
   });
 
-  it('saves only what this folder declares, never what it inherits', async () => {
+  it('saves only what this item declares, never what it inherits', async () => {
     const user = userEvent.setup();
     const setSchema = vi.fn(() => Promise.resolve(null));
 
@@ -92,7 +92,7 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     // Saving the merged list would copy Owner onto this folder and silently turn inheritance into
     // a copy, after which changing the parent would stop reaching anything below.
@@ -116,7 +116,7 @@ describe('the schema editor', () => {
 
     await user.click(screen.getByRole('button', { name: /add a property/i }));
     await user.type(screen.getByRole('textbox', { name: /name/i }), 'Due date');
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     expect(setSchema).toHaveBeenCalledWith({
       inherit: true,
@@ -158,7 +158,7 @@ describe('the schema editor', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: /type/i }), 'select');
     await user.type(screen.getByRole('textbox', { name: /options/i }), 'Todo\nDone');
     await user.selectOptions(screen.getByRole('combobox', { name: /type/i }), 'text');
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     // Cleared at this boundary; the hook is what turns an empty list into the null the contract
     // wants. The server refuses a schema where a non-select carries options, so options left
@@ -189,7 +189,7 @@ describe('the schema editor', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /remove status/i }));
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     expect(setSchema).toHaveBeenCalledWith({ inherit: true, properties: [] });
   });
@@ -208,7 +208,7 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     // Verbatim, because the server names the property at fault and second-guessing it here would
     // be a second validator that can disagree with the first.
@@ -228,7 +228,7 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     expect(onClose).toHaveBeenCalled();
   });
@@ -252,10 +252,8 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.click(
-      screen.getByRole('checkbox', { name: /ignore properties from folders above/i }),
-    );
-    await user.click(screen.getByRole('button', { name: /save properties/i }));
+    await user.click(screen.getByRole('checkbox', { name: /ignore fields from items above/i }));
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     // The scratch-folder case: a subtree that would otherwise inherit a dozen required properties
     // and make every note in it invalid on arrival.

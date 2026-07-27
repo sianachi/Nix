@@ -1,8 +1,9 @@
-import { Button, Dialog, Field, Icon, Input } from '@nix/ui';
+import { Button, Field, Icon, Input, Select } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from './container-model';
+import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
 
 /**
@@ -23,6 +24,9 @@ export interface SchemaEditorProps {
   readonly container: ContainerData;
   readonly open: boolean;
   readonly onClose: () => void;
+
+  /** Renders as a column in the settings panel rather than as a dialog over the view. */
+  readonly inline?: boolean;
 }
 
 /** The types a person may choose, and what to call them. */
@@ -49,7 +53,12 @@ function keyFor(label: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): ReactNode {
+export function SchemaEditor({
+  container,
+  open,
+  onClose,
+  inline = false,
+}: SchemaEditorProps): ReactNode {
   const declared = container.schema?.declared ?? [];
   const effective = container.schema?.properties ?? [];
   const inheritedOnly = effective.filter(
@@ -99,25 +108,16 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
   }
 
   return (
-    <Dialog
+    <EditorShell
+      inline={inline}
       open={open}
-      title="Properties for this item"
+      title="Fields for the items inside this one"
       onClose={onClose}
-      actions={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              void save();
-            }}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : 'Save properties'}
-          </Button>
-        </>
-      }
+      onSave={() => {
+        void save();
+      }}
+      saving={saving}
+      saveLabel="Save fields"
     >
       <div className="flex flex-col gap-4">
         <p className="text-base text-muted">
@@ -154,7 +154,7 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
 
               <Field label="Type" className="w-[190px]">
                 {(control) => (
-                  <select
+                  <Select
                     {...control}
                     value={property.type}
                     onChange={(event) => {
@@ -166,14 +166,13 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                         options: hasOptions(type) ? property.options : [],
                       });
                     }}
-                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </Field>
 
@@ -206,7 +205,6 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                       });
                     }}
                     rows={3}
-                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 )}
               </Field>
@@ -264,11 +262,11 @@ export function SchemaEditor({ container, open, onClose }: SchemaEditorProps): R
                 }}
                 className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
-              Ignore properties from folders above this one
+              Ignore fields from items above this one
             </label>
           </div>
         )}
       </div>
-    </Dialog>
+    </EditorShell>
   );
 }

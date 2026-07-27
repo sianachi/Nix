@@ -11,6 +11,8 @@ export { Card, type CardProps } from './Card';
 export { Dialog, type DialogProps } from './Dialog';
 export { Field, type FieldControlProps, type FieldProps } from './Field';
 export { Input, type InputProps, type InputTone } from './Input';
+export { Segmented, type SegmentedOption, type SegmentedProps } from './Segmented';
+export { Select, type SelectProps } from './Select';
 export {
   Nav,
   type NavItem,

@@ -1,18 +1,18 @@
 import { Button, Icon } from '@nix/ui';
-import { Settings2, TriangleAlert } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { NoteEditor } from '../editor/note-editor';
-import { PropertyPanel } from '../properties/property-panel';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
 import { ContainerView } from '../views/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/container-model';
-import { SchemaEditor } from '../views/schema-editor';
 import { useContainer } from '../views/use-container';
-import { ViewEditor } from '../views/view-editor';
+import { ItemPanel } from './item-panel';
+import { browserStorage } from '../theme/theme-store';
+import { readPanelOpen, storePanelOpen } from './panel-state';
 import { useViewState } from '../views/view-state';
 import { ViewSwitcher } from '../views/view-switcher';
 
@@ -82,7 +82,19 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
 
   const container = useContainer(itemId, createChild);
   const { viewId, selectView } = useViewState();
-  const [editing, setEditing] = useState<'schema' | 'views' | null>(null);
+  // Remembered the way the tree's own collapse is, and for the same reason: somebody who closed it
+  // wanted the width back, and finding it open again would make the control feel like it had not
+  // worked.
+  const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(browserStorage()));
+
+  function togglePanel(): void {
+    setPanelOpen((current) => {
+      storePanelOpen(browserStorage(), !current);
+      return !current;
+    });
+  }
+
+  const details = useItemProperties(itemId);
 
   const views = useMemo(() => container.views?.views ?? [], [container.views]);
   const unrenderable = container.views?.unrenderable ?? [];
@@ -123,134 +135,45 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
           />
         </div>
 
-        {/* Both editors live here rather than in a settings page, because they configure this item
-            and nothing else. Somebody who wants a board wants it for the item they are looking at,
-            and sending them elsewhere to say so loses their place. */}
+        {/* One control rather than two, and the panel it opens configures this item and nothing
+            else. Somebody who wants a board wants it for the item they are looking at, and sending
+            them to a settings page to say so loses their place. */}
         <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"
-            onClick={() => {
-              setEditing('schema');
-            }}
+            aria-expanded={panelOpen}
+            onClick={togglePanel}
           >
             <Icon icon={Settings2} size="sm" />
-            Properties
-          </Button>
-
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            onClick={() => {
-              setEditing('views');
-            }}
-          >
-            Views
+            Settings
           </Button>
         </div>
       </div>
 
-      <SchemaEditor
-        container={container}
-        open={editing === 'schema'}
-        onClose={() => {
-          setEditing(null);
-        }}
-      />
-
-      <ViewEditor
-        container={container}
-        open={editing === 'views'}
-        onClose={() => {
-          setEditing(null);
-        }}
-      />
-
-      {showingDocument ? (
-        <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {showingDocument ? (
             <NoteEditor itemId={itemId} />
-          </div>
+          ) : (
+            <section aria-label="Container" className="flex min-h-0 flex-1 flex-col">
+              {/* A refused write is reported once, by the view that made it. The renderer knows what
+              snapped back and where, which is what somebody needs; this used to draw a second
+              banner saying the same thing in different words, directly under a comment claiming it
+              did not. */}
 
-          <ItemProperties itemId={itemId} onSaved={tree.reload} />
-        </div>
-      ) : (
-        <section aria-label="Container" className="flex min-h-0 flex-1 flex-col">
-          {/* A refused write. Reported once, by the view that made it - the renderer knows what
-              snapped back and where, which is what somebody needs, and a second banner above it
-              said the same thing in different words. */}
-          {container.writeError === null ? null : (
-            <p
-              role="alert"
-              className="mx-4 mt-3 flex items-center gap-2 rounded-md bg-surface px-4 py-2 text-sm text-foreground"
-            >
-              <Icon icon={TriangleAlert} size="sm" />
-              {container.writeError}
-            </p>
+              <div className="min-h-0 flex-1 overflow-auto">
+                <ContainerView container={container} view={active} onOpen={onOpen} />
+              </div>
+            </section>
           )}
+        </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
-            <ContainerView container={container} view={active} onOpen={onOpen} />
-          </div>
-        </section>
-      )}
+        {panelOpen ? (
+          <ItemPanel container={container} details={details} onClose={togglePanel} />
+        ) : null}
+      </div>
     </article>
-  );
-}
-
-/**
- * The item's properties, beside its body.
- *
- * Beside rather than above, because a property panel that pushed the document down the page would
- * cost every reader the top of every note to serve the far rarer act of editing a field.
- */
-function ItemProperties({
-  itemId,
-  onSaved,
-}: {
-  readonly itemId: string;
-  readonly onSaved: () => Promise<void>;
-}): ReactNode {
-  const { loading, schema, item, write } = useItemProperties(itemId);
-
-  // An item under no schema has nothing to show, and a panel saying so on every note would be a
-  // permanent apology. The Properties editor above is where somebody goes to change that.
-  if (!loading && (schema === null || schema.properties.length === 0)) {
-    return null;
-  }
-
-  // Still arriving. The panel draws its own loading state, but it needs an item to draw values
-  // from, and inventing an empty one would flash a panel of blank fields over real values.
-  if (item === null) {
-    return (
-      <aside aria-label="Properties" className="w-[280px] shrink-0 bg-surface px-4 py-4">
-        <p className="text-sm text-muted">Loading this item&rsquo;s properties…</p>
-      </aside>
-    );
-  }
-
-  return (
-    <aside
-      aria-label="Properties"
-      className="w-[280px] shrink-0 overflow-y-auto bg-surface px-4 py-4"
-    >
-      <PropertyPanel
-        item={item}
-        properties={schema?.properties ?? []}
-        loading={loading}
-        onChange={async (changes) => {
-          const refusal = await write(changes);
-
-          // Reloaded on success so the tree - and anything reading a title or a property from it -
-          // matches what was just written, rather than only this panel knowing.
-          if (refusal === null) {
-            await onSaved();
-          }
-
-          return refusal;
-        }}
-      />
-    </aside>
   );
 }
 

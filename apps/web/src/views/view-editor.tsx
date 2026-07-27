@@ -1,8 +1,9 @@
-import { Button, Dialog, Field, Icon, Input } from '@nix/ui';
+import { Button, Field, Icon, Input, Select } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import type { View } from './container-model';
+import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
 import { TEMPLATES, applyTemplate, type Template } from './templates';
 import { VIEW_KINDS, findViewKind } from './view-kinds';
@@ -24,6 +25,9 @@ export interface ViewEditorProps {
   readonly container: ContainerData;
   readonly open: boolean;
   readonly onClose: () => void;
+
+  /** Renders as a column in the settings panel rather than as a dialog over the view. */
+  readonly inline?: boolean;
 }
 
 /**
@@ -52,7 +56,12 @@ function idFor(name: string, taken: readonly string[]): string {
   return `${base}-${String(suffix)}`;
 }
 
-export function ViewEditor({ container, open, onClose }: ViewEditorProps): ReactNode {
+export function ViewEditor({
+  container,
+  open,
+  onClose,
+  inline = false,
+}: ViewEditorProps): ReactNode {
   const stored = container.views?.views ?? [];
   const schema = container.schema?.properties ?? [];
 
@@ -135,30 +144,20 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
   }
 
   return (
-    <Dialog
+    <EditorShell
+      inline={inline}
       open={open}
       title="Views for this item"
       onClose={onClose}
-      actions={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              void save();
-            }}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : 'Save views'}
-          </Button>
-        </>
-      }
+      onSave={() => {
+        void save();
+      }}
+      saving={saving}
+      saveLabel="Save views"
     >
       <div className="flex flex-col gap-4">
         <p className="text-base text-muted">
-          A view is a way of looking at this folder. Everybody who can see the folder sees the same
-          views.
+          A view is a way of looking at this item. Everybody who can see it sees the same views.
         </p>
 
         {error === null ? null : (
@@ -217,20 +216,19 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
 
               <Field label="Shown as" className="w-[150px]">
                 {(control) => (
-                  <select
+                  <Select
                     {...control}
                     value={view.kind}
                     onChange={(event) => {
                       update(index, { kind: event.target.value });
                     }}
-                    className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     {VIEW_KINDS.map((descriptor) => (
                       <option key={descriptor.kind} value={descriptor.kind}>
                         {descriptor.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </Field>
 
@@ -287,7 +285,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                   hint={usable.length === 0 ? configures.emptyHint : configures.hint}
                 >
                   {(control) => (
-                    <select
+                    <Select
                       {...control}
                       value={chosen}
                       onChange={(event) => {
@@ -297,7 +295,6 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                           ...configures.clears,
                         });
                       }}
-                      className="w-full rounded-md border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       <option value="">Choose a property</option>
                       {usable.map((property) => (
@@ -305,7 +302,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                           {property.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </Field>
               );
@@ -340,6 +337,6 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
           Add a view
         </Button>
       </div>
-    </Dialog>
+    </EditorShell>
   );
 }

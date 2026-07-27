@@ -65,9 +65,10 @@ describe('an item nobody has configured', () => {
     renderAt(<App />, `/?item=${NOTES.id}`);
 
     // This is the unification's point: a note is a container the moment somebody wants it to be,
-    // and it does not have to be converted into something else first.
-    expect(await screen.findByRole('button', { name: /properties/i })).toBeVisible();
-    expect(await screen.findByRole('button', { name: /^views$/i })).toBeVisible();
+    // and it does not have to be converted into something else first. One control now rather than
+    // two, because the panel it opens holds both - and "Properties" used to name two different
+    // things, which is the collision the rename settles.
+    expect(await screen.findByRole('button', { name: /settings/i })).toBeVisible();
   });
 });
 
