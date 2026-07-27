@@ -22,6 +22,7 @@ import { z } from 'zod';
  */
 
 export const VIEW_PARAM = 'view';
+const MODE_PARAM = 'mode';
 export const SORT_PARAM = 'sort';
 export const DIRECTION_PARAM = 'dir';
 export const FILTER_PREFIX = 'f.';
@@ -42,6 +43,16 @@ export interface ViewState {
   /** The view the URL names, or null to fall back to the container's first. */
   readonly viewId: string | null;
 
+  /**
+   * The calendar grain the URL names, or null to fall back to the view's own.
+   *
+   * In the address for the same reason the view is: it is a decision about how to look at
+   * something, and a link that says "look at this week" should open on that week. The month being
+   * *shown* is not - that is a scroll position through time, and freezing every recipient on the
+   * sender's month would be a link that ages badly.
+   */
+  readonly mode: string | null;
+
   /** The property key to sort by, or null for the view's own configured sort. */
   readonly sortBy: string | null;
 
@@ -53,6 +64,9 @@ export interface ViewState {
 
 export interface ViewStateControl extends ViewState {
   readonly selectView: (viewId: string) => void;
+  /** Names a calendar grain in the address. Replaces, because it is not a navigation. */
+  readonly setMode: (mode: string) => void;
+
   readonly setSort: (propertyKey: string, direction: SortDirection) => void;
   readonly clearSort: () => void;
   readonly setFilter: (propertyKey: string, values: readonly string[]) => void;
@@ -123,6 +137,7 @@ export function parseFilters(params: URLSearchParams): readonly ViewFilter[] {
  */
 export function clearViewState(params: URLSearchParams): void {
   params.delete(VIEW_PARAM);
+  params.delete(MODE_PARAM);
   params.delete(SORT_PARAM);
   params.delete(DIRECTION_PARAM);
 
@@ -138,8 +153,11 @@ export function parseViewState(params: URLSearchParams): ViewState {
   const viewId = params.get(VIEW_PARAM);
   const sortBy = params.get(SORT_PARAM);
 
+  const mode = params.get(MODE_PARAM);
+
   return {
     viewId: viewId !== null && viewId.length > 0 ? viewId : null,
+    mode: mode !== null && mode.length > 0 ? mode : null,
     sortBy: sortBy !== null && sortBy.length > 0 ? sortBy : null,
     direction: parseDirection(params.get(DIRECTION_PARAM)),
     filters: parseFilters(params),
@@ -168,6 +186,15 @@ export function useViewState(): ViewStateControl {
         clearViewState(next);
         next.set(VIEW_PARAM, viewId);
       }, true);
+    },
+    [write],
+  );
+
+  const setMode = useCallback(
+    (mode: string): void => {
+      write((next) => {
+        next.set(MODE_PARAM, mode);
+      }, false);
     },
     [write],
   );
@@ -211,5 +238,5 @@ export function useViewState(): ViewStateControl {
     }, false);
   }, [write]);
 
-  return { ...state, selectView, setSort, clearSort, setFilter, clearFilters };
+  return { ...state, selectView, setMode, setSort, clearSort, setFilter, clearFilters };
 }

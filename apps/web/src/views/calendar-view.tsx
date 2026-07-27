@@ -16,15 +16,22 @@ import { CreateItemControl } from './create-item-control';
 import {
   WEEKDAY_ABBREVIATIONS,
   WEEKDAY_NAMES,
+  addDays,
+  dayLabel,
   dayText,
   daysInMonth,
   monthEntry,
   monthLabel,
   monthPrefix,
   shiftMonth,
+  weekLabel,
+  weekOf,
   weekdayIndex,
+  type CalendarDay,
   type CalendarMonth,
 } from './calendar-dates';
+import { HourGrid } from './calendar-hours';
+import { readerZone } from './timestamps';
 import type { ContainerData } from './use-container';
 import { useViewState } from './view-state';
 
@@ -71,8 +78,15 @@ function today(): { readonly month: CalendarMonth; readonly text: string } {
   return { month, text: dayText({ ...month, day: now.getDate() }) };
 }
 
-function currentMonth(): CalendarMonth {
-  return today().month;
+/** Today as a whole day, which is what week and day modes anchor on. */
+function todayDay(): CalendarDay {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() };
+}
+
+/** The three grains, with anything unrecognised falling back to the one every view had. */
+function readMode(value: string | null): 'month' | 'week' | 'day' {
+  return value === 'week' || value === 'day' ? value : 'month';
 }
 
 const NO_DATE_PROPERTY =
@@ -113,8 +127,10 @@ function describeUnrenderable(
     return `This calendar places items by "${view.dateProperty}", and that property is not in this item's schema. It was probably removed. The items are all still here; a list view will show them.`;
   }
 
-  if (definition.type !== 'date') {
-    return `This calendar places items by "${definition.label}", which is a ${definition.type} property rather than a date. There is no day to put an item on, so nothing can be drawn.`;
+  // Both, because both name a day. A date is an all-day thing that must not shift for a reader in
+  // another zone; a timestamp is a moment that must, and carries an hour as well.
+  if (definition.type !== 'date' && definition.type !== 'timestamp') {
+    return `This calendar places items by "${definition.label}", which is a ${definition.type} property rather than a date or a time. There is no day to put an item on, so nothing can be drawn.`;
   }
 
   return null;
@@ -122,7 +138,7 @@ function describeUnrenderable(
 
 export function CalendarView(props: CalendarViewProps): ReactNode {
   const { container, view, onOpen } = props;
-  const { filters, clearFilters } = useViewState();
+  const { filters, clearFilters, mode: urlMode, setMode } = useViewState();
 
   /*
    * Which month is on screen is local state, and deliberately not in the URL.
@@ -134,7 +150,22 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
    * shared in March would still open on March in June, and the reader would have to notice and
    * correct it before believing anything on the screen.
    */
-  const [month, setMonth] = useState<CalendarMonth>(currentMonth);
+  const [anchor, setAnchor] = useState<CalendarDay>(todayDay);
+  const month: CalendarMonth = { year: anchor.year, month: anchor.month };
+
+  function setMonth(next: CalendarMonth | ((current: CalendarMonth) => CalendarMonth)): void {
+    setAnchor((current) => {
+      const asMonth = { year: current.year, month: current.month };
+      const chosen = typeof next === 'function' ? next(asMonth) : next;
+
+      // Clamped, because the 31st does not exist in every month and an anchor that fell off the end
+      // would silently roll into the next one.
+      return {
+        ...chosen,
+        day: Math.min(current.day, daysInMonth(chosen)),
+      };
+    });
+  }
   const [dragged, setDragged] = useState<string | null>(null);
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const unscheduledHeadingId = useId();
@@ -178,6 +209,9 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       <EmptyPanel
         title="Nothing in here yet"
         detail="There is nothing to place on a calendar yet. Items added to this one will appear on the day their date says."
+        // The empty state is when the way out of it matters most. Made without a date, so it lands
+        // in the unscheduled list rather than on a day nobody picked.
+        action={<CreateItemControl label="Add the first item" onCreate={container.create} />}
       />
     );
   }
@@ -254,6 +288,21 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // halfway through a render, and forty-two of them would be forty-two allocations for one fact.
   const todayText = today().text;
 
+  // The view's own grain, overridable by the address the way the view itself is - a link saying
+  // "look at this week" should open on a week.
+  const mode = readMode(urlMode ?? view.mode);
+  const zone = readerZone();
+
+  /** One step of whatever is on screen: a month, a week, or a day. */
+  function step(delta: number): void {
+    if (mode === 'month') {
+      setMonth(shiftMonth(month, delta));
+      return;
+    }
+
+    setAnchor((current) => addDays(current, delta * (mode === 'week' ? 7 : 1)));
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {container.writeError === null ? null : (
@@ -266,16 +315,45 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
 
       <div className="flex flex-wrap items-center gap-2">
         <Text variant="h4" as="h2">
-          {monthLabel(month)}
+          {mode === 'month'
+            ? monthLabel(month)
+            : mode === 'week'
+              ? weekLabel(anchor)
+              : dayLabel(anchor)}
         </Text>
+
+        {/* aria-current rather than a tablist, following the view switcher: these are three ways of
+            looking at one thing, and claiming to be tabs would owe arrow-key navigation nobody
+            asked for. */}
+        <nav aria-label="Calendar grain" className="flex items-center gap-0.5">
+          {(['month', 'week', 'day'] as const).map((grain) => (
+            <button
+              key={grain}
+              type="button"
+              aria-current={mode === grain ? 'page' : undefined}
+              onClick={() => {
+                setMode(grain);
+              }}
+              className={[
+                'rounded-sm px-2 py-1 text-xs capitalize',
+                'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
+                mode === grain
+                  ? 'bg-foreground/7 text-foreground'
+                  : 'text-muted hover:bg-foreground/7 hover:text-foreground',
+              ].join(' ')}
+            >
+              {grain}
+            </button>
+          ))}
+        </nav>
 
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
-            aria-label="Previous month"
+            aria-label={`Previous ${mode}`}
             className="px-2"
             onClick={() => {
-              setMonth(shiftMonth(month, -1));
+              step(-1);
             }}
           >
             <Icon icon={ChevronLeft} size="sm" />
@@ -285,7 +363,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             variant="secondary"
             className="py-1"
             onClick={() => {
-              setMonth(currentMonth());
+              setAnchor(todayDay());
             }}
           >
             Today
@@ -293,10 +371,10 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
 
           <Button
             variant="ghost"
-            aria-label="Next month"
+            aria-label={`Next ${mode}`}
             className="px-2"
             onClick={() => {
-              setMonth(shiftMonth(month, 1));
+              step(1);
             }}
           >
             <Icon icon={ChevronRight} size="sm" />
@@ -316,55 +394,69 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         </div>
       )}
 
-      <Blueprint className="overflow-x-auto p-3">
-        <table className="w-full table-fixed border-collapse">
-          <Text as="caption" variant="caption" className="sr-only">
-            {`${monthLabel(month)}, items placed on the day their date names`}
-          </Text>
+      {mode === 'month' ? (
+        <Blueprint className="overflow-x-auto p-3">
+          <table className="w-full table-fixed border-collapse">
+            <Text as="caption" variant="caption" className="sr-only">
+              {`${monthLabel(month)}, items placed on the day their date names`}
+            </Text>
 
-          <thead>
-            <tr>
-              {WEEKDAY_NAMES.map((name, index) => (
-                <th
-                  key={name}
-                  scope="col"
-                  aria-label={name}
-                  className="border border-divider p-1 text-left"
-                >
-                  <Text variant="kicker" as="span" tone="muted">
-                    {monthEntry(WEEKDAY_ABBREVIATIONS, index)}
-                  </Text>
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {buildWeeks(month).map((week, weekIndex) => (
-              <tr key={`${prefix}week-${String(weekIndex)}`}>
-                {week.map((cell, dayIndex) =>
-                  cell === null ? (
-                    <td
-                      key={`${prefix}blank-${String(weekIndex)}-${String(dayIndex)}`}
-                      className="h-24 border border-divider bg-surface align-top"
-                    />
-                  ) : (
-                    <DayCell
-                      key={cell.date}
-                      cell={cell}
-                      name={`${monthEntry(WEEKDAY_NAMES, dayIndex)} ${String(cell.day)} ${monthLabel(month)}`}
-                      isToday={cell.date === todayText}
-                      items={byDate.get(cell.date) ?? []}
-                      dragged={dragged}
-                      card={card}
-                    />
-                  ),
-                )}
+            <thead>
+              <tr>
+                {WEEKDAY_NAMES.map((name, index) => (
+                  <th
+                    key={name}
+                    scope="col"
+                    aria-label={name}
+                    className="border border-divider p-1 text-left"
+                  >
+                    <Text variant="kicker" as="span" tone="muted">
+                      {monthEntry(WEEKDAY_ABBREVIATIONS, index)}
+                    </Text>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Blueprint>
+            </thead>
+
+            <tbody>
+              {buildWeeks(month).map((week, weekIndex) => (
+                <tr key={`${prefix}week-${String(weekIndex)}`}>
+                  {week.map((cell, dayIndex) =>
+                    cell === null ? (
+                      <td
+                        key={`${prefix}blank-${String(weekIndex)}-${String(dayIndex)}`}
+                        className="h-24 border border-divider bg-surface align-top"
+                      />
+                    ) : (
+                      <DayCell
+                        key={cell.date}
+                        cell={cell}
+                        name={`${monthEntry(WEEKDAY_NAMES, dayIndex)} ${String(cell.day)} ${monthLabel(month)}`}
+                        isToday={cell.date === todayText}
+                        items={byDate.get(cell.date) ?? []}
+                        dragged={dragged}
+                        card={card}
+                      />
+                    ),
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Blueprint>
+      ) : (
+        <Blueprint className="flex min-h-[520px] flex-col overflow-hidden p-0">
+          <HourGrid
+            days={mode === 'week' ? weekOf(anchor) : [anchor]}
+            items={items}
+            dateProperty={dateProperty}
+            zone={zone}
+            today={todayText}
+            onOpen={onOpen}
+            onCreate={container.create}
+          />
+        </Blueprint>
+      )}
 
       <section
         aria-labelledby={unscheduledHeadingId}

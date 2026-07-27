@@ -22,7 +22,8 @@ internal static class ViewMapping
             view.GroupOrder,
             view.DateProperty,
             view.SortBy,
-            view.SortDescending);
+            view.SortDescending,
+            view.Mode);
     }
 
     /// <summary>
@@ -60,7 +61,8 @@ internal static class ViewMapping
                     view.GroupOrder is null ? [] : [.. view.GroupOrder],
                     view.DateProperty,
                     view.SortBy,
-                    view.SortDescending));
+                    view.SortDescending,
+                    view.Mode));
         }
 
         views = mapped.ToImmutable();

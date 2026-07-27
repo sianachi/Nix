@@ -70,13 +70,14 @@ describe('filters', () => {
 describe('the whole view state', () => {
   it('reads everything a shared link carries', () => {
     const state = parseViewState(
-      new URLSearchParams('view=by-status&sort=owner&dir=descending&f.status=Doing'),
+      new URLSearchParams('view=by-status&mode=week&sort=owner&dir=descending&f.status=Doing'),
     );
 
-    // The exit criterion in one assertion: the view, its sort and its filters all survive being
-    // pasted into a message.
+    // The exit criterion in one assertion: the view, the grain it is looked at in, its sort and its
+    // filters all survive being pasted into a message.
     expect(state).toEqual({
       viewId: 'by-status',
+      mode: 'week',
       sortBy: 'owner',
       direction: 'descending',
       filters: [{ propertyKey: 'status', values: ['Doing'] }],

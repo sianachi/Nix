@@ -40,6 +40,14 @@ export const ViewSchema = z.object({
   dateProperty: z.string().nullable(),
   sortBy: z.string().nullable(),
   sortDescending: z.boolean(),
+
+  /**
+   * For a calendar: `month`, `week` or `day`.
+   *
+   * Nullable rather than optional, and unrecognised values fall back to a month, because a view
+   * written by a newer build must not leave an older one with nothing to draw.
+   */
+  mode: z.string().nullable(),
 });
 
 export type View = z.infer<typeof ViewSchema>;

@@ -42,6 +42,7 @@ const BOARD = {
   dateProperty: null,
   sortBy: null,
   sortDescending: false,
+  mode: null,
 };
 
 describe('an item nobody has configured', () => {

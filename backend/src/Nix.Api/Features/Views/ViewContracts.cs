@@ -33,7 +33,8 @@ internal sealed record ViewResponse(
     IReadOnlyList<string> GroupOrder,
     string? DateProperty,
     string? SortBy,
-    bool SortDescending);
+    bool SortDescending,
+    string? Mode);
 
 /// <summary>
 /// The views a container offers.
@@ -90,4 +91,5 @@ internal sealed record ViewRequest(
     IReadOnlyList<string>? GroupOrder,
     string? DateProperty,
     string? SortBy,
-    bool SortDescending);
+    bool SortDescending,
+    string? Mode);

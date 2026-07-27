@@ -1944,7 +1944,8 @@
           "groupOrder",
           "dateProperty",
           "sortBy",
-          "sortDescending"
+          "sortDescending",
+          "mode"
         ],
         "type": "object",
         "properties": {
@@ -1995,6 +1996,12 @@
           },
           "sortDescending": {
             "type": "boolean"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2008,7 +2015,8 @@
           "groupOrder",
           "dateProperty",
           "sortBy",
-          "sortDescending"
+          "sortDescending",
+          "mode"
         ],
         "type": "object",
         "properties": {
@@ -2053,6 +2061,12 @@
           },
           "sortDescending": {
             "type": "boolean"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

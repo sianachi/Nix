@@ -282,6 +282,7 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                 dateProperty: null,
                 sortBy: null,
                 sortDescending: false,
+                mode: null,
               },
             ]);
           }}

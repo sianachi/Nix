@@ -158,8 +158,13 @@ public static class ViewKinds
 /// the schema declares.
 /// </param>
 /// <param name="DateProperty">For a calendar: the date property that places an item.</param>
+
 /// <param name="SortBy">The property key to order by, or <see langword="null"/> for sibling order.</param>
 /// <param name="SortDescending">Which way to order.</param>
+/// <param name="Mode">
+/// For a calendar: <c>month</c>, <c>week</c> or <c>day</c>. Anything else, including absent, means
+/// a month.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>One record for all three kinds, rather than a hierarchy.</b> The per-kind fields are nullable
@@ -189,7 +194,11 @@ public sealed record ViewDefinition(
     ImmutableArray<string> GroupOrder,
     string? DateProperty,
     string? SortBy,
-    bool SortDescending)
+    bool SortDescending,
+
+    // Last and defaulted, so every existing construction keeps working and absent keeps meaning
+    // "month" - which is what every view stored before this field existed.
+    string? Mode = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

@@ -87,6 +87,7 @@ public static class ViewDefinitionsJson
     private const string GroupByKey = "groupBy";
     private const string GroupOrderKey = "groupOrder";
     private const string DatePropertyKey = "dateProperty";
+    private const string ModeKey = "mode";
     private const string SortByKey = "sortBy";
     private const string SortDescendingKey = "sortDescending";
 
@@ -181,6 +182,11 @@ public static class ViewDefinitionsJson
                 entry[DatePropertyKey] = view.DateProperty;
             }
 
+            if (view.Mode is not null)
+            {
+                entry[ModeKey] = view.Mode;
+            }
+
             if (view.SortBy is not null)
             {
                 entry[SortByKey] = view.SortBy;
@@ -251,7 +257,8 @@ public static class ViewDefinitionsJson
             ReadStrings(view[GroupOrderKey]),
             ReadString(view[DatePropertyKey]),
             ReadString(view[SortByKey]),
-            view[SortDescendingKey] is JsonValue flag && flag.TryGetValue(out bool value) && value);
+            view[SortDescendingKey] is JsonValue flag && flag.TryGetValue(out bool value) && value,
+            ReadString(view[ModeKey]));
     }
 
     private static ImmutableArray<string> ReadStrings(JsonNode? node)
