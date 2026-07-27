@@ -76,15 +76,6 @@ export const ItemSchema = z.object({
 
 export type Item = z.infer<typeof ItemSchema>;
 
-/** The three kinds a view may be. Anything else is a view this build cannot render. */
-export const KNOWN_VIEW_KINDS = ['list', 'board', 'calendar'] as const;
-
-export type KnownViewKind = (typeof KNOWN_VIEW_KINDS)[number];
-
-export function isKnownViewKind(kind: string): kind is KnownViewKind {
-  return (KNOWN_VIEW_KINDS as readonly string[]).includes(kind);
-}
-
 /**
  * Reads one property value off an item, as text.
  *

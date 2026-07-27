@@ -202,16 +202,12 @@ public sealed class SetContainerViews
                 return PropertyErrors.InvalidViews("Every view needs a name.");
             }
 
-            var missing = view.Kind switch
+            // What each kind needs is declared once, in ViewKinds.All. A kind with no requirement,
+            // and a kind whose required field is set, both pass.
+            if (ViewKinds.Find(view.Kind)?.Requirement is { } requirement
+                && requirement.Read(view) is null)
             {
-                ViewKind.Board when view.GroupBy is null => "a board needs a property to group by",
-                ViewKind.Calendar when view.DateProperty is null => "a calendar needs a date property",
-                _ => null,
-            };
-
-            if (missing is not null)
-            {
-                return PropertyErrors.InvalidViews($"'{view.Name}': {missing}.");
+                return PropertyErrors.InvalidViews($"'{view.Name}': {requirement.Missing}.");
             }
         }
 

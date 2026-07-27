@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyFilters,
-  isKnownViewKind,
   readDateValue,
   readPropertyText,
   readSelectValue,
@@ -198,19 +197,5 @@ describe('sorting', () => {
     sortItems(items, null, false);
 
     expect(items.map((item) => item.id)).toEqual(['b', 'a']);
-  });
-});
-
-describe('view kinds', () => {
-  it('knows the three this build can draw', () => {
-    expect(isKnownViewKind('list')).toBe(true);
-    expect(isKnownViewKind('board')).toBe(true);
-    expect(isKnownViewKind('calendar')).toBe(true);
-  });
-
-  it('does not claim to know a kind from a newer build', () => {
-    // The container page explains such a view rather than drawing an empty one, which is only
-    // possible because this returns false rather than guessing.
-    expect(isKnownViewKind('canvas')).toBe(false);
   });
 });

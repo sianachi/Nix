@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 
 import type { View } from './container-model';
 import type { ContainerData } from './use-container';
+import { VIEW_KINDS, findViewKind } from './view-kinds';
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -23,12 +24,6 @@ export interface ViewEditorProps {
   readonly open: boolean;
   readonly onClose: () => void;
 }
-
-const KINDS = [
-  { value: 'list', label: 'List' },
-  { value: 'board', label: 'Board' },
-  { value: 'calendar', label: 'Calendar' },
-] as const;
 
 /**
  * An identifier for a new view.
@@ -73,10 +68,8 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
     }
   }
 
-  // Only a single-select can produce a bounded set of columns, and only a date can place an item
-  // on a month. Offering the rest would let somebody configure a view that cannot draw.
-  const groupable = schema.filter((property) => property.type === 'select');
-  const dateProperties = schema.filter((property) => property.type === 'date');
+  // Which properties a kind may be configured from is the kind's own business, declared once in
+  // the registry. Offering the rest would let somebody configure a view that cannot draw.
 
   function update(index: number, change: Partial<View>): void {
     setDraft((current) =>
@@ -183,9 +176,9 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
                     }}
                     className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
-                    {KINDS.map((kind) => (
-                      <option key={kind.value} value={kind.value}>
-                        {kind.label}
+                    {VIEW_KINDS.map((descriptor) => (
+                      <option key={descriptor.kind} value={descriptor.kind}>
+                        {descriptor.label}
                       </option>
                     ))}
                   </select>
@@ -225,74 +218,49 @@ export function ViewEditor({ container, open, onClose }: ViewEditorProps): React
               </Button>
             </div>
 
-            {view.kind === 'board' ? (
-              <Field
-                label="Group by"
-                hint={
-                  groupable.length === 0
-                    ? 'This folder has no select property yet. Add one under Properties first.'
-                    : 'Only a select property can become columns.'
-                }
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={view.groupBy ?? ''}
-                    onChange={(event) => {
-                      const groupBy = event.target.value;
-                      update(index, {
-                        groupBy: groupBy.length > 0 ? groupBy : null,
+            {/* One block for every kind that needs configuring, rather than one per kind. The two
+                that used to be here were the same control twice: a label, a hint that changed when
+                the schema had nothing to offer, and a select filtered to the property types the
+                kind can use. All four of those now come from the registry entry. */}
+            {(() => {
+              const configures = findViewKind(view.kind)?.configures;
 
-                        // The column list belonged to the old property and means nothing under a
-                        // new one. Cleared rather than carried, so the board falls back to the
-                        // property's own options.
-                        groupOrder: [],
-                      });
-                    }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <option value="">Choose a property</option>
-                    {groupable.map((property) => (
-                      <option key={property.key} value={property.key}>
-                        {property.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-            ) : null}
+              if (configures === undefined || configures === null) {
+                return null;
+              }
 
-            {view.kind === 'calendar' ? (
-              <Field
-                label="Place by"
-                hint={
-                  dateProperties.length === 0
-                    ? 'This folder has no date property yet. Add one under Properties first.'
-                    : 'Items appear on the day this property names.'
-                }
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={view.dateProperty ?? ''}
-                    onChange={(event) => {
-                      const dateProperty = event.target.value;
-                      update(index, {
-                        dateProperty: dateProperty.length > 0 ? dateProperty : null,
-                      });
-                    }}
-                    className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <option value="">Choose a property</option>
-                    {dateProperties.map((property) => (
-                      <option key={property.key} value={property.key}>
-                        {property.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-            ) : null}
+              const usable = schema.filter((property) => configures.accepts(property));
+              const chosen = view[configures.field] ?? '';
+
+              return (
+                <Field
+                  label={configures.label}
+                  hint={usable.length === 0 ? configures.emptyHint : configures.hint}
+                >
+                  {(control) => (
+                    <select
+                      {...control}
+                      value={chosen}
+                      onChange={(event) => {
+                        const key = event.target.value;
+                        update(index, {
+                          [configures.field]: key.length > 0 ? key : null,
+                          ...configures.clears,
+                        });
+                      }}
+                      className="w-full rounded-none border border-divider bg-background px-3 py-2 text-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      <option value="">Choose a property</option>
+                      {usable.map((property) => (
+                        <option key={property.key} value={property.key}>
+                          {property.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+              );
+            })()}
           </div>
         ))}
 

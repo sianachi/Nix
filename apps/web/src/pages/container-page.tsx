@@ -2,9 +2,8 @@ import { Button, Icon } from '@nix/ui';
 import { Settings2, TriangleAlert } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
-import { BoardView } from '../views/board-view';
-import { CalendarView } from '../views/calendar-view';
-import { isKnownViewKind, type View } from '../views/container-model';
+import type { View } from '../views/container-model';
+import { findViewKind } from '../views/view-kinds';
 import { ListView } from '../views/list-view';
 import { useContainer } from '../views/use-container';
 import { SchemaEditor } from '../views/schema-editor';
@@ -131,7 +130,12 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
       return <ListView container={container} view={null} onOpen={onOpen} />;
     }
 
-    if (!isKnownViewKind(active.kind)) {
+    // The registry decides, rather than a switch with a default arm. The arm used to catch 'list'
+    // and therefore also caught anything new, so a kind added to the type but not to the dispatch
+    // rendered as a list and looked like it worked.
+    const descriptor = findViewKind(active.kind);
+
+    if (descriptor === null) {
       return (
         <ViewProblem
           title="This build cannot render that view"
@@ -140,14 +144,7 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
       );
     }
 
-    switch (active.kind) {
-      case 'board':
-        return <BoardView container={container} view={active} onOpen={onOpen} />;
-      case 'calendar':
-        return <CalendarView container={container} view={active} onOpen={onOpen} />;
-      default:
-        return <ListView container={container} view={active} onOpen={onOpen} />;
-    }
+    return descriptor.render({ container, view: active, onOpen });
   }
 }
 

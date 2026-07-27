@@ -1,8 +1,9 @@
 import { Icon } from '@nix/ui';
-import { CalendarDays, Columns3, List as ListIcon, TriangleAlert } from 'lucide-react';
+import { List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { isKnownViewKind, type View } from './container-model';
+import type { View } from './container-model';
+import { findViewKind } from './view-kinds';
 
 /**
  * The per-container view switcher.
@@ -25,12 +26,6 @@ export interface ViewSwitcherProps {
   readonly onSelect: (viewId: string) => void;
 }
 
-const KIND_ICONS = {
-  list: ListIcon,
-  board: Columns3,
-  calendar: CalendarDays,
-} as const;
-
 export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
   const { views, unrenderable, activeViewId, onSelect } = props;
 
@@ -43,7 +38,9 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
       {views.map((view) => {
         const active = view.id === activeViewId;
         const broken = unrenderable.includes(view.id);
-        const icon = isKnownViewKind(view.kind) ? KIND_ICONS[view.kind] : ListIcon;
+        // A kind this build does not know still gets a tab - the view exists and hiding it would
+        // make it unreachable - but it borrows the list icon, since there is no glyph for it.
+        const icon = findViewKind(view.kind)?.icon ?? ListIcon;
 
         return (
           <button

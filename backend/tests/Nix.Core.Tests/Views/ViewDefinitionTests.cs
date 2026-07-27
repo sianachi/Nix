@@ -65,6 +65,45 @@ public sealed class ViewDefinitionTests
     }
 
     [Fact]
+    public void Every_kind_has_a_descriptor()
+    {
+        // The point of the descriptor table is that adding a view kind is one entry. This is what
+        // makes that true rather than merely intended: add a member to the enum and forget the
+        // table, and the kind has no text to be stored under, cannot be parsed back, and reports
+        // itself unrenderable - three runtime failures that this turns into one failing test.
+        foreach (var kind in Enum.GetValues<ViewKind>())
+        {
+            Assert.NotNull(ViewKinds.Find(kind));
+        }
+
+        Assert.Equal(Enum.GetValues<ViewKind>().Length, ViewKinds.All.Length);
+    }
+
+    [Fact]
+    public void No_two_kinds_share_a_stored_name()
+    {
+        // Two entries with the same text would make TryParse pick whichever came first, so one
+        // kind would silently become the other on the way back out of storage.
+        var names = ViewKinds.All.Select(descriptor => descriptor.Text).ToList();
+
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void A_kind_whose_requirement_names_a_field_reads_that_field()
+    {
+        // The requirement's Read is what both CanRender and the storability check use to find the
+        // configured property. If it pointed at the wrong field, a board would validate against a
+        // calendar's date and the failure would look like a schema problem.
+        var board = new ViewDefinition("v1", "By status", ViewKind.Board, [], "status", [], null, null, false);
+        var calendar = new ViewDefinition("v2", "When", ViewKind.Calendar, [], null, [], "due", null, false);
+
+        Assert.Equal("status", ViewKinds.Find(ViewKind.Board)?.Requirement?.Read(board));
+        Assert.Equal("due", ViewKinds.Find(ViewKind.Calendar)?.Requirement?.Read(calendar));
+        Assert.Null(ViewKinds.Find(ViewKind.List)?.Requirement);
+    }
+
+    [Fact]
     public void A_list_renders_against_any_schema_at_all()
     {
         // With no columns configured it falls back to the effective schema, and with no schema it

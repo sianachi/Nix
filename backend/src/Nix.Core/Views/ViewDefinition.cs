@@ -23,49 +23,120 @@ public enum ViewKind
 }
 
 /// <summary>
-/// Translates between <see cref="ViewKind"/> and the text stored in a view definition.
+/// What a kind needs from the schema before it can draw anything.
+/// </summary>
+/// <param name="Read">Which field on the view names the property this kind depends on.</param>
+/// <param name="Accepts">Which property types will serve.</param>
+/// <param name="Missing">
+/// How to finish the sentence "'&lt;view name&gt;': ..." when the field is not set.
+/// </param>
+/// <remarks>
+/// A list has no requirement: with no columns configured it falls back to the effective schema, and
+/// with no schema at all it still has titles to show. That is why this is nullable on the
+/// descriptor rather than every kind carrying a vacuous one.
+/// </remarks>
+public sealed record ViewRequirement(
+    Func<ViewDefinition, string?> Read,
+    Func<Nix.Core.Properties.PropertyType, bool> Accepts,
+    string Missing);
+
+/// <summary>
+/// Everything this build knows about one view kind, in one place.
+/// </summary>
+/// <param name="Kind">The kind.</param>
+/// <param name="Text">The name it is stored and published under.</param>
+/// <param name="Requirement">What it needs from the schema, or null when it needs nothing.</param>
+public sealed record ViewKindDescriptor(ViewKind Kind, string Text, ViewRequirement? Requirement);
+
+/// <summary>
+/// The kinds this build can draw, and what each one needs.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>One entry per kind, and adding a kind is one entry.</b> This knowledge used to be spread
+/// across four switch statements - parse, write, "can this render", and "is this storable" - which
+/// meant adding a kind was four edits in two projects and forgetting one of them compiled fine.
+/// The table is the single declaration; the four call sites read it.
+/// </para>
+/// <para>
 /// Stored as text, never as the ordinal, so renumbering the enum cannot reinterpret stored views.
 /// Parsing fails closed: a kind this build does not recognise is dropped, so an older instance
 /// offers fewer views rather than rendering one it does not understand.
+/// </para>
+/// <para>
+/// A kind added to <see cref="ViewKind"/> but not to this table has no text to be stored under, so
+/// <see cref="ToText"/> throws rather than inventing one. <c>Every_kind_has_a_descriptor</c> in the
+/// test suite is what turns that runtime bug into a build failure.
+/// </para>
 /// </remarks>
 public static class ViewKinds
 {
+    /// <summary>Every kind this build knows.</summary>
+    public static readonly ImmutableArray<ViewKindDescriptor> All =
+    [
+        new ViewKindDescriptor(ViewKind.List, "list", Requirement: null),
+
+        new ViewKindDescriptor(
+            ViewKind.Board,
+            "board",
+            new ViewRequirement(
+                static view => view.GroupBy,
+                static type => Nix.Core.Properties.PropertyTypes.CanGroupBy(type),
+                "a board needs a property to group by")),
+
+        new ViewKindDescriptor(
+            ViewKind.Calendar,
+            "calendar",
+            new ViewRequirement(
+                static view => view.DateProperty,
+                static type => Nix.Core.Properties.PropertyTypes.CanPlaceOnCalendar(type),
+                "a calendar needs a date property")),
+    ];
+
     /// <summary>Reads a stored kind.</summary>
     /// <param name="text">The stored text.</param>
     /// <param name="kind">The kind, when recognised.</param>
     /// <returns><see langword="true"/> when the text names a kind this build knows.</returns>
     public static bool TryParse(string? text, out ViewKind kind)
     {
-        switch (text)
+        // A scan rather than a dictionary: the table is a handful of entries, and an ordinal
+        // comparison over three strings beats hashing one.
+        foreach (var descriptor in All)
         {
-            case "list":
-                kind = ViewKind.List;
+            if (string.Equals(descriptor.Text, text, StringComparison.Ordinal))
+            {
+                kind = descriptor.Kind;
                 return true;
-            case "board":
-                kind = ViewKind.Board;
-                return true;
-            case "calendar":
-                kind = ViewKind.Calendar;
-                return true;
-            default:
-                kind = default;
-                return false;
+            }
         }
+
+        kind = default;
+        return false;
     }
 
     /// <summary>Writes a kind for storage.</summary>
     /// <param name="kind">The kind.</param>
     /// <returns>The stored text.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The kind is not one this build defines.</exception>
-    public static string ToText(ViewKind kind) => kind switch
+    public static string ToText(ViewKind kind) =>
+        Find(kind)?.Text
+        ?? throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown view kind.");
+
+    /// <summary>Finds what this build knows about a kind.</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>The descriptor, or <see langword="null"/> when the table has no entry for it.</returns>
+    public static ViewKindDescriptor? Find(ViewKind kind)
     {
-        ViewKind.List => "list",
-        ViewKind.Board => "board",
-        ViewKind.Calendar => "calendar",
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown view kind."),
-    };
+        foreach (var descriptor in All)
+        {
+            if (descriptor.Kind == kind)
+            {
+                return descriptor;
+            }
+        }
+
+        return null;
+    }
 }
 
 /// <summary>
@@ -134,19 +205,20 @@ public sealed record ViewDefinition(
     {
         ArgumentNullException.ThrowIfNull(schema);
 
-        return Kind switch
+        // A kind with no requirement always renders, and a kind this build has no descriptor for
+        // cannot be drawn at all - which is the safer answer than "yes" for something unknown.
+        if (ViewKinds.Find(Kind) is not { } descriptor)
         {
-            ViewKind.Board => GroupBy is { } key
-                && schema.Find(key) is { } grouping
-                && Nix.Core.Properties.PropertyTypes.CanGroupBy(grouping.Type),
+            return false;
+        }
 
-            ViewKind.Calendar => DateProperty is { } date
-                && schema.Find(date) is { } placement
-                && Nix.Core.Properties.PropertyTypes.CanPlaceOnCalendar(placement.Type),
+        if (descriptor.Requirement is not { } requirement)
+        {
+            return true;
+        }
 
-            // A list always renders: with no columns configured it falls back to the effective
-            // schema, and with no schema at all it still has titles to show.
-            _ => true,
-        };
+        return requirement.Read(this) is { } key
+            && schema.Find(key) is { } property
+            && requirement.Accepts(property.Type);
     }
 }
