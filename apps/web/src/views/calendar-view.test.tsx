@@ -72,6 +72,8 @@ function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {
     children: [],
     setProperties: vi.fn(() => Promise.resolve()),
     writeError: null,
+    setSchema: () => Promise.resolve(null),
+    setViews: () => Promise.resolve(null),
     reload: vi.fn(() => Promise.resolve()),
     ...overrides,
   };

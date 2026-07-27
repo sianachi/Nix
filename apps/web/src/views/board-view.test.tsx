@@ -79,6 +79,8 @@ function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {
     children: [],
     setProperties: () => Promise.resolve(),
     writeError: null,
+    setSchema: () => Promise.resolve(null),
+    setViews: () => Promise.resolve(null),
     reload: () => Promise.resolve(),
     ...overrides,
   };

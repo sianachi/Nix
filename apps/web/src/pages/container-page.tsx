@@ -1,12 +1,14 @@
-import { Icon } from '@nix/ui';
-import { TriangleAlert } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
+import { Button, Icon } from '@nix/ui';
+import { Settings2, TriangleAlert } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import { BoardView } from '../views/board-view';
 import { CalendarView } from '../views/calendar-view';
 import { isKnownViewKind, type View } from '../views/container-model';
 import { ListView } from '../views/list-view';
 import { useContainer } from '../views/use-container';
+import { SchemaEditor } from '../views/schema-editor';
+import { ViewEditor } from '../views/view-editor';
 import { useViewState } from '../views/view-state';
 import { ViewSwitcher } from '../views/view-switcher';
 
@@ -31,6 +33,7 @@ export interface ContainerPageProps {
 export function ContainerPage({ containerId, onOpen }: ContainerPageProps): ReactNode {
   const container = useContainer(containerId);
   const { viewId, selectView } = useViewState();
+  const [editing, setEditing] = useState<'schema' | 'views' | null>(null);
 
   // Memoised so the fallback array is not a new identity on every render, which would make the
   // active-view lookup below recompute for no reason.
@@ -50,11 +53,57 @@ export function ContainerPage({ containerId, onOpen }: ContainerPageProps): Reac
 
   return (
     <section className="flex min-w-0 flex-1 flex-col" aria-label="Container">
-      <ViewSwitcher
-        views={views}
-        unrenderable={unrenderable}
-        activeViewId={active?.id ?? null}
-        onSelect={selectView}
+      <div className="flex items-center border-b border-divider">
+        <div className="min-w-0 flex-1">
+          <ViewSwitcher
+            views={views}
+            unrenderable={unrenderable}
+            activeViewId={active?.id ?? null}
+            onSelect={selectView}
+          />
+        </div>
+
+        {/* Both editors live here rather than in a settings page, because they are configuration of
+            this folder and nothing else. A person who wants a board wants it for the folder they
+            are looking at, and sending them elsewhere to say so loses their place. */}
+        <div className="flex shrink-0 items-center gap-1 px-2">
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-[11px]"
+            onClick={() => {
+              setEditing('schema');
+            }}
+          >
+            <Icon icon={Settings2} size="sm" />
+            Properties
+          </Button>
+
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-[11px]"
+            onClick={() => {
+              setEditing('views');
+            }}
+          >
+            Views
+          </Button>
+        </div>
+      </div>
+
+      <SchemaEditor
+        container={container}
+        open={editing === 'schema'}
+        onClose={() => {
+          setEditing(null);
+        }}
+      />
+
+      <ViewEditor
+        container={container}
+        open={editing === 'views'}
+        onClose={() => {
+          setEditing(null);
+        }}
       />
 
       {/* A write the server refused. Shown at the top of the container rather than on the card,
