@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Nix.Core.Items;
 
 namespace Nix.Api.Features.Items;
@@ -28,8 +30,35 @@ internal static class ItemMapping
             ItemProperties.ReadTitle(item.Properties),
             item.Seq,
             ToWireName(item.LifecycleState),
+            ReadProperties(item.Properties),
             item.CreatedAt,
             item.LastModifiedAt);
+    }
+
+    /// <summary>
+    /// Reads the property bag, tolerating anything.
+    /// </summary>
+    /// <remarks>
+    /// A bag that will not parse reads as empty rather than failing the request that listed it.
+    /// Property values are client-influenced data and a malformed one is a display problem; a
+    /// listing that returned 500 because one of fifty items had a bad bag would be the worse
+    /// outcome by a wide margin.
+    /// </remarks>
+    private static JsonObject ReadProperties(string? properties)
+    {
+        if (string.IsNullOrWhiteSpace(properties))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonNode.Parse(properties) as JsonObject ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

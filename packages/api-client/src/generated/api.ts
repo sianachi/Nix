@@ -216,6 +216,74 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/schema': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The property schema in force at an item
+     * @description Returns the merged result of every ancestor's declaration, nearest winning, alongside the subset this item declares itself. Both are needed: an editor shown only the merged result would save inherited properties back onto the item and silently turn inheritance into a copy.
+     */
+    get: operations['GetEffectiveSchema'];
+    /**
+     * Declare the property schema for an item's subtree
+     * @description Replaces what this item declares. Ancestors are unaffected, and so are the property values already stored beneath it: a property removed from a schema stops being validated and stops being displayed, and returns intact if the schema does. Fails with 'schema.invalid' when the document cannot be stored.
+     */
+    put: operations['SetItemSchema'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/properties': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Write property values onto an item
+     * @description Merges the supplied properties into the item's bag: a member set to null clears that property, and anything not mentioned is left alone. This is what a board drag and a calendar drag both perform - the change is to the item, so it is visible in every view. Fails with 'properties.invalid' when a value does not fit the schema in force.
+     */
+    patch: operations['SetItemProperties'];
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/views': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The views a container offers
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an empty folder.
+     */
+    get: operations['GetContainerViews'];
+    /**
+     * Replace the views a container offers
+     * @description A whole-set replacement, because the order is part of what is being edited. Fails with 'views.invalid' when a view is not storable.
+     */
+    put: operations['SetContainerViews'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/permissions': {
     parameters: {
       query?: never;
@@ -335,6 +403,10 @@ export interface components {
       /** Format: uuid */
       inheritedFromItemId: null | string;
     };
+    ContainerViewsResponse: {
+      views: components['schemas']['ViewResponse'][];
+      unrenderable: string[];
+    };
     CreateItemRequest: {
       type: string;
       title: string;
@@ -362,6 +434,11 @@ export interface components {
       items: components['schemas']['WorkspaceResponse'][];
       nextCursor: null | string;
     };
+    EffectiveSchemaResponse: {
+      properties: components['schemas']['PropertyDefinitionResponse'][];
+      declared: components['schemas']['PropertyDefinitionResponse'][];
+      inherit: boolean;
+    };
     HealthCheckResponse: {
       name: string;
       status: string;
@@ -386,11 +463,13 @@ export interface components {
       /** Format: int64 */
       seq: number | string;
       lifecycleState: string;
+      properties: components['schemas']['JsonObject'];
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
       updatedAt: string;
     };
+    JsonObject: Record<string, never>;
     LivenessResponse: {
       status: string;
     };
@@ -412,6 +491,20 @@ export interface components {
       /** @description Identifier of the server-side trace that produced this failure. */
       traceId?: string;
     };
+    PropertyDefinitionRequest: {
+      key: string;
+      label: string;
+      type: string;
+      options: null | string[];
+      required: boolean;
+    };
+    PropertyDefinitionResponse: {
+      key: string;
+      label: string;
+      type: string;
+      options: string[];
+      required: boolean;
+    };
     RoleGrantResponse: {
       subjectType: string;
       /** Format: uuid */
@@ -427,6 +520,16 @@ export interface components {
       /** Format: date-time */
       utcNow: string;
     };
+    SetPropertiesRequest: {
+      properties: components['schemas']['JsonObject'];
+    };
+    SetSchemaRequest: {
+      properties: components['schemas']['PropertyDefinitionRequest'][];
+      inherit: boolean;
+    };
+    SetViewsRequest: {
+      views: components['schemas']['ViewRequest'][];
+    };
     UpdateItemRequest: {
       title: string;
     };
@@ -437,6 +540,28 @@ export interface components {
       role: string;
       effect: string;
       breaksInheritance: boolean;
+    };
+    ViewRequest: {
+      id: string;
+      name: string;
+      kind: string;
+      columns: null | string[];
+      groupBy: null | string;
+      groupOrder: null | string[];
+      dateProperty: null | string;
+      sortBy: null | string;
+      sortDescending: boolean;
+    };
+    ViewResponse: {
+      id: string;
+      name: string;
+      kind: string;
+      columns: string[];
+      groupBy: null | string;
+      groupOrder: string[];
+      dateProperty: null | string;
+      sortBy: null | string;
+      sortDescending: boolean;
     };
     WorkspaceResponse: {
       /** Format: uuid */
@@ -943,6 +1068,227 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetEffectiveSchema: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EffectiveSchemaResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetItemSchema: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetSchemaRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EffectiveSchemaResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetItemProperties: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetPropertiesRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetContainerViews: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ContainerViewsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetContainerViews: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetViewsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ContainerViewsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

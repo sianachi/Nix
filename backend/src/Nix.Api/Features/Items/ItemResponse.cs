@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace Nix.Api.Features.Items;
 
 /// <summary>
@@ -10,6 +12,9 @@ namespace Nix.Api.Features.Items;
 /// <param name="Title">Its display name.</param>
 /// <param name="Seq">Its position among its siblings.</param>
 /// <param name="LifecycleState">Where it sits in the deletion lifecycle.</param>
+/// <param name="Properties">
+/// Its property values, keyed by the schema's property keys. Empty when it has none.
+/// </param>
 /// <param name="CreatedAt">When it was created.</param>
 /// <param name="UpdatedAt">When it was last modified.</param>
 /// <remarks>
@@ -26,9 +31,12 @@ namespace Nix.Api.Features.Items;
 /// to render an unknown type generically instead of failing to parse it.
 /// </para>
 /// <para>
-/// Properties themselves are absent from this shape on purpose. They arrive with property schemas
-/// and their validation rules; publishing an untyped bag now would be a shape the client could not
-/// usefully do anything with, and one that would change when the real thing lands.
+/// <b><see cref="Properties"/> carries the whole bag, title included.</b> The promotion of
+/// <see cref="Title"/> to a first-class field is a convenience for the rows every client renders,
+/// not a claim that the title is stored separately - it is one property among the others, and a
+/// list view showing a "Title" column alongside the rest would find nothing there if the bag hid
+/// it. What a client should not do is write through both: renames go through the item's own
+/// operation, which is why the property write refuses to redeclare that key.
 /// </para>
 /// </remarks>
 internal sealed record ItemResponse(
@@ -39,5 +47,6 @@ internal sealed record ItemResponse(
     string Title,
     long Seq,
     string LifecycleState,
+    JsonObject Properties,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);

@@ -685,6 +685,307 @@
         }
       }
     },
+    "/api/v1/items/{itemId}/schema": {
+      "get": {
+        "tags": [
+          "Structure"
+        ],
+        "summary": "The property schema in force at an item",
+        "description": "Returns the merged result of every ancestor's declaration, nearest winning, alongside the subset this item declares itself. Both are needed: an editor shown only the merged result would save inherited properties back onto the item and silently turn inheritance into a copy.",
+        "operationId": "GetEffectiveSchema",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveSchemaResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Structure"
+        ],
+        "summary": "Declare the property schema for an item's subtree",
+        "description": "Replaces what this item declares. Ancestors are unaffected, and so are the property values already stored beneath it: a property removed from a schema stops being validated and stops being displayed, and returns intact if the schema does. Fails with 'schema.invalid' when the document cannot be stored.",
+        "operationId": "SetItemSchema",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSchemaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveSchemaResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/properties": {
+      "patch": {
+        "tags": [
+          "Structure"
+        ],
+        "summary": "Write property values onto an item",
+        "description": "Merges the supplied properties into the item's bag: a member set to null clears that property, and anything not mentioned is left alone. This is what a board drag and a calendar drag both perform - the change is to the item, so it is visible in every view. Fails with 'properties.invalid' when a value does not fit the schema in force.",
+        "operationId": "SetItemProperties",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPropertiesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/views": {
+      "get": {
+        "tags": [
+          "Structure"
+        ],
+        "summary": "The views a container offers",
+        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an empty folder.",
+        "operationId": "GetContainerViews",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerViewsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Structure"
+        ],
+        "summary": "Replace the views a container offers",
+        "description": "A whole-set replacement, because the order is part of what is being edited. Fails with 'views.invalid' when a view is not storable.",
+        "operationId": "SetContainerViews",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetViewsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerViewsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/permissions": {
       "get": {
         "tags": [
@@ -1056,6 +1357,27 @@
           }
         }
       },
+      "ContainerViewsResponse": {
+        "required": [
+          "views",
+          "unrenderable"
+        ],
+        "type": "object",
+        "properties": {
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewResponse"
+            }
+          },
+          "unrenderable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "CreateItemRequest": {
         "required": [
           "type",
@@ -1174,6 +1496,31 @@
           }
         }
       },
+      "EffectiveSchemaResponse": {
+        "required": [
+          "properties",
+          "declared",
+          "inherit"
+        ],
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertyDefinitionResponse"
+            }
+          },
+          "declared": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertyDefinitionResponse"
+            }
+          },
+          "inherit": {
+            "type": "boolean"
+          }
+        }
+      },
       "HealthCheckResponse": {
         "required": [
           "name",
@@ -1229,6 +1576,7 @@
           "title",
           "seq",
           "lifecycleState",
+          "properties",
           "createdAt",
           "updatedAt"
         ],
@@ -1266,6 +1614,9 @@
           "lifecycleState": {
             "type": "string"
           },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -1275,6 +1626,9 @@
             "format": "date-time"
           }
         }
+      },
+      "JsonObject": {
+        "type": "object"
       },
       "LivenessResponse": {
         "required": [
@@ -1359,6 +1713,69 @@
           }
         }
       },
+      "PropertyDefinitionRequest": {
+        "required": [
+          "key",
+          "label",
+          "type",
+          "options",
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "options": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PropertyDefinitionResponse": {
+        "required": [
+          "key",
+          "label",
+          "type",
+          "options",
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
       "RoleGrantResponse": {
         "required": [
           "subjectType",
@@ -1408,6 +1825,49 @@
           }
         }
       },
+      "SetPropertiesRequest": {
+        "required": [
+          "properties"
+        ],
+        "type": "object",
+        "properties": {
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          }
+        }
+      },
+      "SetSchemaRequest": {
+        "required": [
+          "properties",
+          "inherit"
+        ],
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertyDefinitionRequest"
+            }
+          },
+          "inherit": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetViewsRequest": {
+        "required": [
+          "views"
+        ],
+        "type": "object",
+        "properties": {
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewRequest"
+            }
+          }
+        }
+      },
       "UpdateItemRequest": {
         "required": [
           "title"
@@ -1443,6 +1903,128 @@
             "type": "string"
           },
           "breaksInheritance": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ViewRequest": {
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "columns",
+          "groupBy",
+          "groupOrder",
+          "dateProperty",
+          "sortBy",
+          "sortDescending"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "columns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupOrder": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "dateProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortDescending": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ViewResponse": {
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "columns",
+          "groupBy",
+          "groupOrder",
+          "dateProperty",
+          "sortBy",
+          "sortDescending"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupOrder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dateProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortDescending": {
             "type": "boolean"
           }
         }
@@ -1500,6 +2082,9 @@
     },
     {
       "name": "Items"
+    },
+    {
+      "name": "Structure"
     },
     {
       "name": "Permissions"

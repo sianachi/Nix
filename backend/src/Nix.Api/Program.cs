@@ -5,6 +5,7 @@ using Nix.Api.Features.Health;
 using Nix.Api.Features.Items;
 using Nix.Api.Features.Me;
 using Nix.Api.Features.Permissions;
+using Nix.Api.Features.Properties;
 using Nix.Api.Features.Roles;
 using Nix.Api.Features.Workspaces;
 using Nix.Api.Serialization;
@@ -30,6 +31,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(WorkspacesJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ItemsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(MeJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(StructureJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PermissionsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(RolesJsonContext.Default);
 });
@@ -128,6 +130,7 @@ if (persistenceConfigured)
 app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
 app.MapMeEndpoints();
+app.MapStructureEndpoints();
 app.MapPermissionEndpoints();
 app.MapRoleEndpoints();
 
