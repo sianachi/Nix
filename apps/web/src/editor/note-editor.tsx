@@ -1,5 +1,6 @@
 import { nixExtensions } from '@nix/editor-schema';
 import { Icon } from '@nix/ui';
+import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
@@ -19,6 +20,7 @@ import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
 import { startCollabSync, type SyncState } from './collab-sync';
+import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 import { filterSlashCommands, type SlashCommand } from './slash-menu';
 
 /**
@@ -43,6 +45,70 @@ export interface NoteEditorProps {
 
 const FRAGMENT_NAME = 'default';
 
+/**
+ * The schema's extensions, each carrying the class its nodes render with.
+ *
+ * **Why the classes are attached here rather than in the schema package.** The collaboration
+ * service builds the same schema in Node to check that an accepted update still parses, and it has
+ * no business knowing what a blockquote looks like. Keeping presentation on this side is what lets
+ * one definition of the document serve both, which is the whole reason that package exists.
+ *
+ * **Why per-extension configuration rather than a stylesheet.** ProseMirror renders the document
+ * itself, so React never sees the nodes and cannot put a className on them - and the repository
+ * permits no stylesheet to hang selectors off. TipTap's own `HTMLAttributes` is the seam that
+ * remains, and it is the supported one.
+ *
+ * Heading and callout are configured through `renderHTML` instead, because their class depends on
+ * an attribute - the level, the tone - which a fixed string cannot express.
+ */
+/**
+ * What TipTap hands a node's renderer.
+ *
+ * Named here because `extend` widens its argument to `any`, and the two renderers below read an
+ * attribute off the node - which is exactly the place an untyped argument would let a typo through
+ * silently.
+ */
+interface RenderArgs {
+  // Narrowed to the two attributes these renderers read, rather than an open bag: a typo in an
+  // attribute name is otherwise an `unknown` that stringifies to "[object Object]" in a class name
+  // and produces an element styled as nothing at all.
+  readonly node: { readonly attrs: { readonly level?: unknown; readonly tone?: unknown } };
+  readonly HTMLAttributes: Record<string, unknown>;
+}
+
+const styledExtensions = nixExtensions.map((extension) => {
+  if (extension.name === 'heading') {
+    return extension.extend({
+      renderHTML({ node, HTMLAttributes }: RenderArgs) {
+        const level = Number(node.attrs.level ?? 1);
+        return [
+          `h${String(level === 2 || level === 3 ? level : 1)}`,
+          mergeAttributes(HTMLAttributes, { class: headingClass(level) }),
+          0,
+        ];
+      },
+    });
+  }
+
+  if (extension.name === 'callout') {
+    return extension.extend({
+      renderHTML({ node, HTMLAttributes }: RenderArgs) {
+        const tone = typeof node.attrs.tone === 'string' ? node.attrs.tone : 'note';
+        return [
+          'aside',
+          mergeAttributes(HTMLAttributes, { 'data-callout': '', class: calloutClass(tone) }),
+          0,
+        ];
+      },
+    });
+  }
+
+  const className = proseClasses[extension.name];
+  return className === undefined
+    ? extension
+    : extension.configure({ HTMLAttributes: { class: className } });
+});
+
 export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
@@ -55,7 +121,7 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const editor = useEditor(
     {
       extensions: [
-        ...nixExtensions,
+        ...styledExtensions,
 
         // Editing behaviour, added here rather than in the schema package: the collaboration
         // service builds the same schema in Node and has no use for a gap cursor.
@@ -68,7 +134,7 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
       // insert it again on every client that opened the note.
       editorProps: {
         attributes: {
-          class: 'nix-prose min-h-full outline-none',
+          class: `${proseRoot} min-h-full outline-none`,
           'aria-label': 'Note body',
         },
       },
