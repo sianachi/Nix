@@ -1,11 +1,18 @@
 /*
  * @nix/design-tokens
  *
- * The Industry design system token sheet, transcribed as a Tailwind CSS v4
- * CSS-first theme. Source of truth: the Industry stylesheet's :root token
- * sheet ("Design language for Nix review" / _ds / industry / styles.css).
- * Every value here is a verbatim transcription of that sheet; nothing is
- * recomputed or invented. Retune the look there, then re-transcribe here.
+ * The design token sheet, as a Tailwind CSS v4 CSS-first theme.
+ *
+ * **This file is the source of truth, not the reference sheet.** It began as a
+ * verbatim transcription of the Industry stylesheet ("Design language for Nix
+ * review" / _ds / industry / styles.css), and the ramps, the spacing scale and
+ * the accent discipline are still exactly that. The typeface, the radius steps
+ * and the elevation deliberately are not: ADR-0011 softened them, and
+ * re-transcribing from the reference would silently revert that decision.
+ *
+ * So: change the look here. The reference is where the ramps came from and a
+ * useful record of the original intent; it is no longer somewhere to copy from
+ * wholesale.
  *
  * Usage, in an app's Tailwind entry stylesheet:
  *
