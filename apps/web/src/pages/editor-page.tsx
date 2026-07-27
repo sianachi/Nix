@@ -3,6 +3,8 @@ import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { NoteEditor } from '../editor/note-editor';
+import { PropertyPanel } from '../properties/property-panel';
+import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
 import { ContainerPage } from './container-page';
 
@@ -63,10 +65,75 @@ export function EditorPage(): ReactNode {
         title={item.title}
         onNavigate={select}
       />
-      {/* Keyed on the item so switching notes builds a new Yjs document rather than reusing one -
-          the failure that would otherwise carry one note's text into another. */}
-      <NoteEditor key={item.id} itemId={item.id} />
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Keyed on the item so switching notes builds a new Yjs document rather than reusing
+              one - the failure that would otherwise carry one note's text into another. */}
+          <NoteEditor key={item.id} itemId={item.id} />
+        </div>
+
+        <NoteProperties key={item.id} itemId={item.id} onSaved={tree.reload} />
+      </div>
     </article>
+  );
+}
+
+/**
+ * The note's properties, beside the note.
+ *
+ * Beside rather than above, because a property panel that pushed the document down the page would
+ * cost every reader the top of every note to serve the far rarer act of editing a field.
+ */
+function NoteProperties({
+  itemId,
+  onSaved,
+}: {
+  readonly itemId: string;
+  readonly onSaved: () => Promise<void>;
+}): ReactNode {
+  const { loading, schema, item, write } = useItemProperties(itemId);
+
+  // A note under no schema has nothing to show, and a panel saying so on every note would be a
+  // permanent apology. The folder's own property editor is where somebody goes to change that.
+  if (!loading && (schema === null || schema.properties.length === 0)) {
+    return null;
+  }
+
+  // Still arriving. The panel draws its own loading state, but it needs an item to draw values
+  // from, and inventing an empty one would flash a panel of blank fields over real values.
+  if (item === null) {
+    return (
+      <aside
+        aria-label="Properties"
+        className="w-[280px] shrink-0 border-l border-divider px-4 py-4"
+      >
+        <p className="text-sm text-muted">Loading this note&rsquo;s properties…</p>
+      </aside>
+    );
+  }
+
+  return (
+    <aside
+      aria-label="Properties"
+      className="w-[280px] shrink-0 overflow-y-auto border-l border-divider px-4 py-4"
+    >
+      <PropertyPanel
+        item={item}
+        properties={schema?.properties ?? []}
+        loading={loading}
+        onChange={async (changes) => {
+          const refusal = await write(changes);
+
+          // Reloaded on success so the tree - and anything reading a title or a property from it -
+          // matches what was just written, rather than only this panel knowing.
+          if (refusal === null) {
+            await onSaved();
+          }
+
+          return refusal;
+        }}
+      />
+    </aside>
   );
 }
 
