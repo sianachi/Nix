@@ -3,6 +3,8 @@ import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { NoteEditor } from '../editor/note-editor';
+import { useSelectedItem } from '../routing/selected-item';
+import { ContainerPage } from './container-page';
 
 /**
  * The note being written: a title, a trail of where it sits, and the body.
@@ -17,12 +19,13 @@ import { NoteEditor } from '../editor/note-editor';
  */
 export function EditorPage(): ReactNode {
   const { tree, selectedId } = useOutletContext<ShellContext>();
+  const { select } = useSelectedItem();
   const item = selectedId === null ? null : tree.find(selectedId);
 
   if (selectedId === null || item === null) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
-        <p className="max-w-sm text-sm text-foreground/60">
+        <p className="max-w-sm text-sm text-neutral-700">
           {tree.status === 'loading'
             ? 'Loading the workspace…'
             : tree.childrenOf(null).length === 0
@@ -34,18 +37,13 @@ export function EditorPage(): ReactNode {
   }
 
   if (item.type === 'folder') {
-    const children = tree.childrenOf(item.id);
-
+    // A folder is not a document, so it opens into its views rather than into an editor. Which
+    // view is a property of the folder and of the URL - see ContainerPage - and switching between
+    // them does not navigate anywhere, because the same folder is still open.
     return (
       <article className="flex min-w-0 flex-1 flex-col">
         <NoteHeader tree={tree} itemId={item.id} title={item.title} />
-        <div className="px-8 py-6">
-          <p className="text-sm text-foreground/60">
-            {children.length === 0
-              ? 'This folder is empty.'
-              : `${String(children.length)} item${children.length === 1 ? '' : 's'} inside.`}
-          </p>
-        </div>
+        <ContainerPage key={item.id} containerId={item.id} onOpen={select} />
       </article>
     );
   }
