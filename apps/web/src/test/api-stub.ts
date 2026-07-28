@@ -103,6 +103,16 @@ export function stubCoreApi(options: StubOptions = {}): void {
   // opposite of what a creation test means to.
   const known = [...items];
 
+  // What has been written back. Seeded from the options so a test can start with an item already
+  // configured, and updated by every PUT so the read that follows one agrees with it.
+  const stored: {
+    views: Record<string, { views: readonly unknown[]; default: string }>;
+    schema: Record<
+      string,
+      { properties: readonly unknown[]; declared: readonly unknown[]; inherit: boolean }
+    >;
+  } = { views: { ...views }, schema: {} };
+
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -125,9 +135,27 @@ export function stubCoreApi(options: StubOptions = {}): void {
 
       // Views and schema are read per item and degrade to nothing when absent, which is the
       // ordinary case rather than an error - see useContainer.
+      //
+      // Writes are kept, because a stub that answered a PUT with 200 and then served the old value
+      // on the next GET would make "apply a template" appear to work and change nothing - which is
+      // precisely the shape of bug a test here exists to catch.
       const viewsFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/views$/.exec(url);
       if (viewsFor !== null) {
-        const offered = views[viewsFor[1] ?? ''];
+        const id = viewsFor[1] ?? '';
+
+        if (method === 'PUT') {
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            views?: readonly unknown[];
+            default?: string | null;
+          };
+
+          stored.views[id] = {
+            views: body.views ?? [],
+            default: body.default ?? 'document',
+          };
+        }
+
+        const offered = stored.views[id];
         return Promise.resolve(
           json(
             offered === undefined
@@ -137,8 +165,26 @@ export function stubCoreApi(options: StubOptions = {}): void {
         );
       }
 
-      if (/\/api\/v1\/items\/[0-9a-f-]{36}\/schema$/.test(url)) {
-        return Promise.resolve(json({ properties: [], declared: [], inherit: true }));
+      const schemaFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/schema$/.exec(url);
+      if (schemaFor !== null) {
+        const id = schemaFor[1] ?? '';
+
+        if (method === 'PUT') {
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            properties?: readonly unknown[];
+            inherit?: boolean;
+          };
+
+          stored.schema[id] = {
+            properties: body.properties ?? [],
+            declared: body.properties ?? [],
+            inherit: body.inherit ?? true,
+          };
+        }
+
+        return Promise.resolve(
+          json(stored.schema[id] ?? { properties: [], declared: [], inherit: true }),
+        );
       }
 
       // A single item by id, which is what revealing a deep link walks up through.

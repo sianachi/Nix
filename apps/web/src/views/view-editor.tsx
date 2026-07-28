@@ -131,7 +131,19 @@ export function ViewEditor({
     setSaving(true);
     setError(null);
 
-    const refusal = await container.setViews(draft);
+    // **The first view an item is given becomes what it opens on.** Building a board and watching
+    // the screen not change is the whole of the bug this exists to prevent: the item kept opening
+    // on its document, because that is what it had always said, and the person had no reason to
+    // suspect a switcher had appeared above the thing they were already looking at.
+    //
+    // Only the first. Once an item offers views, "document" is a choice somebody can have made
+    // deliberately, and adding a second view must not overrule it.
+    const first = stored.length === 0 && draft.length > 0 ? draft[0]?.id : undefined;
+
+    const refusal =
+      first === undefined
+        ? await container.setViews(draft)
+        : await container.setViews(draft, first);
 
     setSaving(false);
 

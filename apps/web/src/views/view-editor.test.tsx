@@ -75,7 +75,33 @@ describe('the view editor', () => {
     await user.click(screen.getByRole('button', { name: /add a view/i }));
     await user.click(screen.getByRole('button', { name: /save views/i }));
 
-    expect(setViews).toHaveBeenCalledWith([expect.objectContaining({ kind: 'list' })]);
+    // The second argument is the point: the first view an item is given becomes what it opens on.
+    // Without it, somebody builds a board and the screen does not change - the item keeps opening
+    // on its document because that is what it had always said.
+    expect(setViews).toHaveBeenCalledWith(
+      [expect.objectContaining({ kind: 'list' })],
+      expect.any(String),
+    );
+  });
+
+  it('leaves the default alone once an item already offers views', async () => {
+    const user = userEvent.setup();
+    const setViews = vi.fn(() => Promise.resolve(null));
+
+    render(
+      <ViewEditor
+        container={containerOf([viewOf({ id: 'existing', name: 'Everything' })], setViews)}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /add a view/i }));
+    await user.click(screen.getByRole('button', { name: /save views/i }));
+
+    // Once there are views, "document" is a choice somebody can have made deliberately, and adding
+    // a second view must not overrule it.
+    expect(setViews).toHaveBeenCalledWith(expect.any(Array));
   });
 
   it('offers only select properties to group a board by', () => {
