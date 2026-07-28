@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// Creates an item in a workspace.

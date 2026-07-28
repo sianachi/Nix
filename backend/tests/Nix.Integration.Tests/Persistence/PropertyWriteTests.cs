@@ -1,12 +1,15 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
-using Nix.Application.Items;
-using Nix.Application.Properties;
-using Nix.Application.Views;
-using Nix.Core.Items;
-using Nix.Core.Properties;
-using Nix.Core.Tenancy;
-using Nix.Core.Views;
+using Nix.Domain.Items;
+using Nix.Domain.Primitives;
+using Nix.Domain.Properties;
+using Nix.Domain.Tenancy;
+using Nix.Domain.Views;
+using Nix.Features.Items;
+using Nix.Features.Properties;
+using Nix.Features.Views;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -50,8 +53,10 @@ public sealed class PropertyWriteTests : IAsyncLifetime
 
             var note = await NewItemAsync(work, "Note", folder.Id);
 
-            var written = await work.Resolve<SetItemProperties>()
-                .ExecuteAsync(note.Id, """{"status":"Doing"}""", Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var written = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":"Doing"}"""),
+                Cancellation);
 
             Assert.True(written.IsSuccess, written.IsSuccess ? "" : written.Error.Message);
             Assert.Contains("Doing", written.Value.Properties, StringComparison.Ordinal);
@@ -69,8 +74,10 @@ public sealed class PropertyWriteTests : IAsyncLifetime
 
             var note = await NewItemAsync(work, "Note", folder.Id);
 
-            var written = await work.Resolve<SetItemProperties>()
-                .ExecuteAsync(note.Id, """{"status":"Elsewhere"}""", Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var written = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":"Elsewhere"}"""),
+                Cancellation);
 
             Assert.True(written.IsFailure);
             Assert.Equal("properties.invalid", written.Error.Code);
@@ -87,10 +94,14 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             await DeclareStatusAsync(work, folder.Id);
 
             var note = await NewItemAsync(work, "Note", folder.Id);
-            var properties = work.Resolve<SetItemProperties>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            await properties.ExecuteAsync(note.Id, """{"status":"Todo"}""", Cancellation);
-            var second = await properties.ExecuteAsync(note.Id, """{"note":"a remark"}""", Cancellation);
+            await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":"Todo"}"""),
+                Cancellation);
+            var second = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"note":"a remark"}"""),
+                Cancellation);
 
             Assert.True(second.IsSuccess, second.IsSuccess ? "" : second.Error.Message);
 
@@ -112,10 +123,14 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             await DeclareStatusAsync(work, folder.Id);
 
             var note = await NewItemAsync(work, "Note", folder.Id);
-            var properties = work.Resolve<SetItemProperties>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            await properties.ExecuteAsync(note.Id, """{"status":"Todo"}""", Cancellation);
-            var cleared = await properties.ExecuteAsync(note.Id, """{"status":null}""", Cancellation);
+            await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":"Todo"}"""),
+                Cancellation);
+            var cleared = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":null}"""),
+                Cancellation);
 
             Assert.True(cleared.IsSuccess, cleared.IsSuccess ? "" : cleared.Error.Message);
             Assert.DoesNotContain("Todo", cleared.Value.Properties, StringComparison.Ordinal);
@@ -131,14 +146,17 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var folder = await NewItemAsync(work, "Project", null, "folder");
             await DeclareStatusAsync(work, folder.Id);
 
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // The gesture this exists for: a card made straight into a column, rather than made at
             // the root and then dragged and then edited.
-            var created = await work.Resolve<CreateItem>().ExecuteAsync(
-                Workspace,
-                "note",
-                "Search ranking",
-                folder.Id,
-                new JsonObject { ["status"] = "Doing" },
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(
+                    Workspace,
+                    "note",
+                    "Search ranking",
+                    folder.Id,
+                    new JsonObject { ["status"] = "Doing" }),
                 Cancellation);
 
             Assert.True(created.IsSuccess);
@@ -155,14 +173,17 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var folder = await NewItemAsync(work, "Project", null, "folder");
             await DeclareStatusAsync(work, folder.Id);
 
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // Otherwise the way to store a value the schema refuses would be to supply it a moment
             // earlier, which is not a rule so much as a delay.
-            var created = await work.Resolve<CreateItem>().ExecuteAsync(
-                Workspace,
-                "note",
-                "Search ranking",
-                folder.Id,
-                new JsonObject { ["status"] = "Nonsense" },
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(
+                    Workspace,
+                    "note",
+                    "Search ranking",
+                    folder.Id,
+                    new JsonObject { ["status"] = "Nonsense" }),
                 Cancellation);
 
             Assert.True(created.IsFailure);
@@ -178,24 +199,23 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            await work.Resolve<SetItemSchema>().ExecuteAsync(
-                folder.Id,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties = [new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true)],
-                },
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties = [new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true)],
+                    }),
                 Cancellation);
 
             // A required property is a statement about a finished item, not about a first
             // keystroke. Enforced here, nothing could ever be created inside this folder - the
             // ordinary act of making a note and then filling it in would be refused at step one.
-            var created = await work.Resolve<CreateItem>().ExecuteAsync(
-                Workspace,
-                "note",
-                "Untitled note",
-                folder.Id,
-                null,
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(Workspace, "note", "Untitled note", folder.Id, null),
                 Cancellation);
 
             Assert.True(created.IsSuccess);
@@ -208,14 +228,17 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // Every listing reads the promoted title. Two disagreeing spellings of it would show
             // one name in the tree and another on the item.
-            var created = await work.Resolve<CreateItem>().ExecuteAsync(
-                Workspace,
-                "note",
-                "The real one",
-                null,
-                new JsonObject { ["title"] = "The impostor" },
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(
+                    Workspace,
+                    "note",
+                    "The real one",
+                    null,
+                    new JsonObject { ["title"] = "The impostor" }),
                 Cancellation);
 
             Assert.True(created.IsSuccess);
@@ -231,19 +254,23 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            await work.Resolve<SetItemSchema>().ExecuteAsync(
-                folder.Id,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties = [new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true)],
-                },
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties = [new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true)],
+                    }),
                 Cancellation);
 
             var note = await NewItemAsync(work, "Note", folder.Id);
 
-            var written = await work.Resolve<SetItemProperties>()
-                .ExecuteAsync(note.Id, """{"note":"anything"}""", Cancellation);
+            var written = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"note":"anything"}"""),
+                Cancellation);
 
             Assert.True(written.IsFailure);
             Assert.Contains("Owner", written.Error.Message, StringComparison.Ordinal);
@@ -260,18 +287,24 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             await DeclareStatusAsync(work, folder.Id);
 
             var note = await NewItemAsync(work, "Note", folder.Id);
-            var properties = work.Resolve<SetItemProperties>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            await properties.ExecuteAsync(note.Id, """{"status":"Doing"}""", Cancellation);
+            await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"status":"Doing"}"""),
+                Cancellation);
 
             // The schema is edited out from under the value.
-            await work.Resolve<SetItemSchema>().ExecuteAsync(folder.Id, PropertySchema.Empty, Cancellation);
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(folder.Id, PropertySchema.Empty),
+                Cancellation);
 
             // The value survives, and the next write to the item still succeeds. The alternative -
             // invalidating stored data because somebody edited a definition - would mean one schema
             // edit breaks the next write to every item beneath it, on data the writer never
             // touched. See ADR-0007 §4.
-            var after = await properties.ExecuteAsync(note.Id, """{"note":"still fine"}""", Cancellation);
+            var after = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"note":"still fine"}"""),
+                Cancellation);
 
             Assert.True(after.IsSuccess, after.IsSuccess ? "" : after.Error.Message);
             Assert.Contains("Doing", after.Value.Properties, StringComparison.Ordinal);
@@ -286,13 +319,16 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            var declared = await work.Resolve<SetItemSchema>().ExecuteAsync(
-                folder.Id,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties = [new PropertyDefinition("title", "Name", PropertyType.Text, [], true)],
-                },
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            var declared = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties = [new PropertyDefinition("title", "Name", PropertyType.Text, [], true)],
+                    }),
                 Cancellation);
 
             // The title is promoted to a first-class field and written by the rename path. A schema
@@ -310,13 +346,16 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            var declared = await work.Resolve<SetItemSchema>().ExecuteAsync(
-                folder.Id,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties = [new PropertyDefinition("stage", "Stage", PropertyType.Select, [], false)],
-                },
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            var declared = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties = [new PropertyDefinition("stage", "Stage", PropertyType.Select, [], false)],
+                    }),
                 Cancellation);
 
             // It parses perfectly and then rejects every value anybody could give it, which looks
@@ -337,7 +376,10 @@ public sealed class PropertyWriteTests : IAsyncLifetime
 
             var child = await NewItemAsync(work, "Sub", folder.Id, "folder");
 
-            var read = await work.Resolve<GetEffectiveSchema>().ExecuteAsync(child.Id, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var read = await dispatcher.QueryAsync<GetEffectiveSchema, Result<EffectiveSchema>>(
+                new GetEffectiveSchema(child.Id),
+                Cancellation);
 
             Assert.True(read.IsSuccess);
 
@@ -359,22 +401,40 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var folder = await NewItemAsync(work, "Project", null, "folder");
             await DeclareStatusAsync(work, folder.Id);
 
-            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [
-                    new ViewDefinition("by-status", "By status", ViewKind.Board, [], "status", [], null, null, false),
-                ],
-                null,
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            var stored = await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [
+                        new ViewDefinition(
+                            "by-status",
+                            "By status",
+                            ViewKind.Board,
+                            [],
+                            "status",
+                            [],
+                            null,
+                            null,
+                            false),
+                    ],
+                    null),
                 Cancellation);
 
             Assert.True(stored.IsSuccess, stored.IsSuccess ? "" : stored.Error.Message);
 
-            var whileValid = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+            var whileValid = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(folder.Id),
+                Cancellation);
             Assert.Empty(whileValid.Value.Unrenderable);
 
-            await work.Resolve<SetItemSchema>().ExecuteAsync(folder.Id, PropertySchema.Empty, Cancellation);
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(folder.Id, PropertySchema.Empty),
+                Cancellation);
 
-            var afterDeletion = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+            var afterDeletion = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(folder.Id),
+                Cancellation);
 
             // Without this, the board renders empty - which is indistinguishable from an empty
             // folder, and sends somebody looking for their missing items rather than their missing
@@ -391,12 +451,15 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // Stored, it would resolve to the document on the very next read - so the person's
             // choice would appear to be taken and then quietly discarded. Refusing says so.
-            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false)],
-                "some-other-view",
+            var stored = await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false)],
+                    "some-other-view"),
                 Cancellation);
 
             Assert.True(stored.IsFailure);
@@ -412,13 +475,16 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // One field names either a view or the item's own body, so the word has to belong to
             // exactly one of them. Ids are slugs of names, and "Document" is a name somebody will
             // pick - without this it would become unreachable, shadowed by the body.
-            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [new ViewDefinition("document", "Document", ViewKind.List, [], null, [], null, null, false)],
-                null,
+            var stored = await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [new ViewDefinition("document", "Document", ViewKind.List, [], null, [], null, null, false)],
+                    null),
                 Cancellation);
 
             Assert.True(stored.IsFailure);
@@ -435,16 +501,30 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var folder = await NewItemAsync(work, "Project", null, "folder");
             await DeclareStatusAsync(work, folder.Id);
 
-            await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [
-                    new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
-                    new ViewDefinition("by-status", "By status", ViewKind.Board, [], "status", [], null, null, false),
-                ],
-                "by-status",
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [
+                        new ViewDefinition("all", "All", ViewKind.List, [], null, [], null, null, false),
+                        new ViewDefinition(
+                            "by-status",
+                            "By status",
+                            ViewKind.Board,
+                            [],
+                            "status",
+                            [],
+                            null,
+                            null,
+                            false),
+                    ],
+                    "by-status"),
                 Cancellation);
 
-            var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+            var read = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(folder.Id),
+                Cancellation);
 
             Assert.True(read.IsSuccess);
             Assert.Equal("by-status", read.Value.Default);
@@ -459,7 +539,10 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var read = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(folder.Id),
+                Cancellation);
 
             Assert.True(read.IsSuccess);
             Assert.Equal("document", read.Value.Default);
@@ -474,10 +557,13 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
 
-            var stored = await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [new ViewDefinition("b", "Board", ViewKind.Board, [], null, [], null, null, false)],
-                null,
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            var stored = await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [new ViewDefinition("b", "Board", ViewKind.Board, [], null, [], null, null, false)],
+                    null),
                 Cancellation);
 
             Assert.True(stored.IsFailure);
@@ -494,25 +580,30 @@ public sealed class PropertyWriteTests : IAsyncLifetime
             var folder = await NewItemAsync(work, "Project", null, "folder");
             await DeclareStatusAsync(work, folder.Id);
 
-            await work.Resolve<SetContainerViews>().ExecuteAsync(
-                folder.Id,
-                [
-                    new ViewDefinition("all", "All", ViewKind.List, ["status"], null, [], null, "status", true),
-                    new ViewDefinition(
-                        "by-status",
-                        "By status",
-                        ViewKind.Board,
-                        [],
-                        "status",
-                        ["Doing", "Todo"],
-                        null,
-                        null,
-                        false),
-                ],
-                null,
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [
+                        new ViewDefinition("all", "All", ViewKind.List, ["status"], null, [], null, "status", true),
+                        new ViewDefinition(
+                            "by-status",
+                            "By status",
+                            ViewKind.Board,
+                            [],
+                            "status",
+                            ["Doing", "Todo"],
+                            null,
+                            null,
+                            false),
+                    ],
+                    null),
                 Cancellation);
 
-            var read = await work.Resolve<GetContainerViews>().ExecuteAsync(folder.Id, Cancellation);
+            var read = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(folder.Id),
+                Cancellation);
 
             Assert.Equal(2, read.Value.Views.Length);
             Assert.Equal("All", read.Value.Views[0].Name);
@@ -532,36 +623,44 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var alphaItem = ItemId.From(M0SchemaSeed.Alpha.ItemId);
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var read = await work.Resolve<GetEffectiveSchema>().ExecuteAsync(alphaItem, Cancellation);
+            var read = await dispatcher.QueryAsync<GetEffectiveSchema, Result<EffectiveSchema>>(
+                new GetEffectiveSchema(alphaItem),
+                Cancellation);
             Assert.Equal("items.not_found", read.Error.Code);
 
-            var written = await work.Resolve<SetItemSchema>()
-                .ExecuteAsync(alphaItem, PropertySchema.Empty, Cancellation);
+            var written = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(alphaItem, PropertySchema.Empty),
+                Cancellation);
             Assert.Equal("items.not_found", written.Error.Code);
 
-            var views = await work.Resolve<GetContainerViews>().ExecuteAsync(alphaItem, Cancellation);
+            var views = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+                new GetContainerViews(alphaItem),
+                Cancellation);
             Assert.Equal("items.not_found", views.Error.Code);
         }
     }
 
     private static async Task DeclareStatusAsync(NixUnitOfWork work, ItemId itemId)
     {
-        var declared = await work.Resolve<SetItemSchema>().ExecuteAsync(
-            itemId,
-            new PropertySchema
-            {
-                Inherit = true,
-                Properties =
-                [
-                    new PropertyDefinition(
-                        "status",
-                        "Status",
-                        PropertyType.Select,
-                        ["Todo", "Doing", "Done"],
-                        false),
-                ],
-            },
+        var dispatcher = work.Resolve<NixDispatcher>();
+        var declared = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+            new SetItemSchema(
+                itemId,
+                new PropertySchema
+                {
+                    Inherit = true,
+                    Properties =
+                    [
+                        new PropertyDefinition(
+                            "status",
+                            "Status",
+                            PropertyType.Select,
+                            ["Todo", "Doing", "Done"],
+                            false),
+                    ],
+                }),
             Cancellation);
 
         Assert.True(declared.IsSuccess, declared.IsSuccess ? "" : declared.Error.Message);
@@ -573,8 +672,10 @@ public sealed class PropertyWriteTests : IAsyncLifetime
         ItemId? parentId,
         string type = "note")
     {
-        var created = await work.Resolve<CreateItem>()
-            .ExecuteAsync(Workspace, type, title, parentId, null, Cancellation);
+        var dispatcher = work.Resolve<NixDispatcher>();
+        var created = await dispatcher.SendAsync<CreateItem, Item>(
+            new CreateItem(Workspace, type, title, parentId, null),
+            Cancellation);
 
         Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
         return created.Value;

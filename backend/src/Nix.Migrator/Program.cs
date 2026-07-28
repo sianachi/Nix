@@ -1,9 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Nix.Infrastructure.Persistence.Migrations;
-using Nix.Migrator;
+using Nix.Persistence.Migrations;
 using Npgsql;
+
+namespace Nix.Migrator;
 
 // Nix migration job.
 //
@@ -19,66 +20,71 @@ using Npgsql;
 //
 // Exit code 0 means the schema is at the head revision. Any other code means it is not, and the
 // rollout must stop.
-
-const string ConnectionStringKey = "ConnectionString";
-const string ConnectionStringEnvironmentVariable = "NIX_MIGRATOR_CONNECTION_STRING";
-const string ApplicationRoleKey = "ApplicationRole";
-
-var builder = Host.CreateApplicationBuilder(args);
-using var host = builder.Build();
-
-var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Nix.Migrator");
-
-var connectionString = builder.Configuration[ConnectionStringKey]
-    ?? builder.Configuration[ConnectionStringEnvironmentVariable];
-
-if (string.IsNullOrWhiteSpace(connectionString))
+internal static class Migrator
 {
-    MigratorLog.MissingConnectionString(logger, ConnectionStringEnvironmentVariable, ConnectionStringKey);
-    return 2;
-}
-
-var applicationRole = builder.Configuration[ApplicationRoleKey]
-    ?? NixMigrationRunner.DefaultApplicationRoleName;
-
-using var cancellation = new CancellationTokenSource();
-Console.CancelKeyPress += (_, eventArgs) =>
-{
-    eventArgs.Cancel = true;
-    cancellation.Cancel();
-};
-
-try
-{
-    var target = new NpgsqlConnectionStringBuilder(connectionString);
-    MigratorLog.Starting(logger, target.Host ?? "(unspecified)", target.Database ?? "(unspecified)");
-
-    var outcome = await NixMigrationRunner
-        .RunAsync(connectionString, applicationRole, cancellation.Token)
-        .ConfigureAwait(false);
-
-    MigratorLog.Connected(logger, outcome.Role, outcome.AlreadyPresent.Count, outcome.AppliedNow.Count);
-
-    foreach (var migration in outcome.AppliedNow)
+    private static async Task<int> Main(string[] args)
     {
-        MigratorLog.Applied(logger, migration);
-    }
+        const string connectionStringKey = "ConnectionString";
+        const string connectionStringEnvironmentVariable = "NIX_MIGRATOR_CONNECTION_STRING";
+        const string applicationRoleKey = "ApplicationRole";
 
-    if (outcome.AppliedNow.Count == 0)
-    {
-        MigratorLog.UpToDate(logger);
-    }
+        var builder = Host.CreateApplicationBuilder(args);
+        using var host = builder.Build();
 
-    return 0;
-}
+        var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Nix.Migrator");
+
+        var connectionString = builder.Configuration[connectionStringKey]
+            ?? builder.Configuration[connectionStringEnvironmentVariable];
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            MigratorLog.MissingConnectionString(logger, connectionStringEnvironmentVariable, connectionStringKey);
+            return 2;
+        }
+
+        var applicationRole = builder.Configuration[applicationRoleKey]
+            ?? NixMigrationRunner.DefaultApplicationRoleName;
+
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+
+        try
+        {
+            var target = new NpgsqlConnectionStringBuilder(connectionString);
+            MigratorLog.Starting(logger, target.Host ?? "(unspecified)", target.Database ?? "(unspecified)");
+
+            var outcome = await NixMigrationRunner
+                .RunAsync(connectionString, applicationRole, cancellation.Token)
+                .ConfigureAwait(false);
+
+            MigratorLog.Connected(logger, outcome.Role, outcome.AlreadyPresent.Count, outcome.AppliedNow.Count);
+
+            foreach (var migration in outcome.AppliedNow)
+            {
+                MigratorLog.Applied(logger, migration);
+            }
+
+            if (outcome.AppliedNow.Count == 0)
+            {
+                MigratorLog.UpToDate(logger);
+            }
+
+            return 0;
+        }
 #pragma warning disable CA1031 // Do not catch general exception types
-// Justification: this is a process entry point. Every failure - a refused role, a bad connection
-// string, a migration that throws - must become a non-zero exit code and one logged error, so the
-// Job fails and the rollout stops. Letting it escape would produce an unhandled-exception dump
-// with the same effect and worse diagnostics.
-catch (Exception exception)
-{
-    MigratorLog.Failed(logger, exception);
-    return 1;
-}
+        // Justification: this is a process entry point. Every failure - a refused role, a bad connection
+        // string, a migration that throws - must become a non-zero exit code and one logged error, so the
+        // Job fails and the rollout stops. Letting it escape would produce an unhandled-exception dump
+        // with the same effect and worse diagnostics.
+        catch (Exception exception)
+        {
+            MigratorLog.Failed(logger, exception);
+            return 1;
+        }
 #pragma warning restore CA1031
+    }
+}

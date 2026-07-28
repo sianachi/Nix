@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Views;
+namespace Nix.Features.Views;
 
 /// <summary>
 /// One named way of looking at a container.

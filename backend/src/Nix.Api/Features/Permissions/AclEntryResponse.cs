@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Permissions;
+namespace Nix.Features.Permissions;
 
 /// <summary>
 /// One access control entry on an item.

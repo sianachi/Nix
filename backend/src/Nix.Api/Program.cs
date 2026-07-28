@@ -1,17 +1,17 @@
-using Nix.Api;
-using Nix.Api.Authentication;
-using Nix.Api.Errors;
-using Nix.Api.Features.Health;
-using Nix.Api.Features.Items;
-using Nix.Api.Features.Me;
-using Nix.Api.Features.Permissions;
-using Nix.Api.Features.Properties;
-using Nix.Api.Features.Roles;
-using Nix.Api.Features.Workspaces;
-using Nix.Api.Serialization;
-using Nix.Infrastructure.Persistence;
+using Nix;
+using Nix.Authentication;
+using Nix.Errors;
+using Nix.Features.Health;
+using Nix.Features.Items;
+using Nix.Features.Me;
+using Nix.Features.Permissions;
+using Nix.Features.Properties;
+using Nix.Features.Roles;
+using Nix.Features.Workspaces;
+using Nix.Persistence;
+using Nix.Serialization;
 
-const string NixConnectionStringName = "Nix";
+const string nixConnectionStringName = "Nix";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +23,12 @@ var builder = WebApplication.CreateBuilder(args);
 // instead of every feature appending to one shared file - the same reason routes are registered
 // per feature below. Order is irrelevant: a type appears in exactly one context, and the resolver
 // walks the chain until something claims it.
+//
+// Collapsing these into partial declarations of a single context was tried and reverted. The
+// compiler does merge attributes across partials, but System.Text.Json's source generator emits a
+// file per declaration and collides on hint names ("NixJsonSerializerContext.Boolean.g.cs must be
+// unique"), so the generated context never compiles. The chain is not redundancy - it is what the
+// generator supports.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Clear();
@@ -56,7 +62,7 @@ builder.Services.AddProblemDetails(options =>
 // a check that belongs in deployment.
 //
 // Note the migration is deliberately not run from here; see NixMigrationRunner.
-var nixConnectionString = builder.Configuration.GetConnectionString(NixConnectionStringName);
+var nixConnectionString = builder.Configuration.GetConnectionString(nixConnectionStringName);
 var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
@@ -115,7 +121,7 @@ var app = builder.Build();
 // visible in the meantime.
 if (!persistenceConfigured)
 {
-    ApiLog.PersistenceNotConfigured(app.Logger, NixConnectionStringName);
+    ApiLog.PersistenceNotConfigured(app.Logger, nixConnectionStringName);
 }
 
 // Unhandled exceptions and bare status codes both become problem details, so a

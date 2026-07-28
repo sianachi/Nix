@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Workspaces;
+namespace Nix.Features.Workspaces;
 
 /// <summary>
 /// A workspace as the API presents it.

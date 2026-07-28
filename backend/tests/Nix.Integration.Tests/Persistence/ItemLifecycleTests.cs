@@ -1,7 +1,10 @@
-using Nix.Application.Items;
-using Nix.Core.Items;
-using Nix.Core.Tenancy;
+using Nix.Abstractions;
+using Nix.Domain.Items;
+using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
+using Nix.Features.Items;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -40,17 +43,17 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var first = await NewItemAsync(create, "First", null);
-            var second = await NewItemAsync(create, "Second", null);
-            var third = await NewItemAsync(create, "Third", null);
+            var first = await NewItemAsync(dispatcher, "First", null);
+            var second = await NewItemAsync(dispatcher, "Second", null);
+            var third = await NewItemAsync(dispatcher, "Third", null);
 
-            var moved = await work.Resolve<MoveItem>()
-                .ExecuteAsync(third.Id, null, first.Id, Cancellation);
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(third.Id, null, first.Id), Cancellation);
             Assert.True(moved.IsSuccess);
 
-            var roots = await ListRootsAsync(work);
+            var roots = await ListRootsAsync(dispatcher);
 
             Assert.Equal([first.Id, third.Id, second.Id], roots);
         }
@@ -62,15 +65,15 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var move = work.Resolve<MoveItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var first = await NewItemAsync(create, "First", null);
-            var second = await NewItemAsync(create, "Second", null);
+            var first = await NewItemAsync(dispatcher, "First", null);
+            var second = await NewItemAsync(dispatcher, "Second", null);
 
-            Assert.True((await move.ExecuteAsync(second.Id, null, null, Cancellation)).IsSuccess);
+            Assert.True((await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(second.Id, null, null), Cancellation)).IsSuccess);
 
-            var roots = await ListRootsAsync(work);
+            var roots = await ListRootsAsync(dispatcher);
             Assert.Equal(second.Id, roots[0]);
             Assert.Equal(first.Id, roots[1]);
         }
@@ -85,13 +88,12 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var move = work.Resolve<MoveItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
             var items = new List<ItemId>();
             for (var index = 0; index < 4; index++)
             {
-                items.Add((await NewItemAsync(create, $"Item {index}", null)).Id);
+                items.Add((await NewItemAsync(dispatcher, $"Item {index}", null)).Id);
             }
 
             // Each pass sends the current last item to the front, so the front gap halves every
@@ -99,12 +101,13 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
             for (var pass = 0; pass < 20; pass++)
             {
                 var subject = items[^1];
-                Assert.True((await move.ExecuteAsync(subject, null, null, Cancellation)).IsSuccess);
+                Assert.True((await dispatcher.SendAsync<MoveItem, Item>(
+                    new MoveItem(subject, null, null), Cancellation)).IsSuccess);
 
                 items.RemoveAt(items.Count - 1);
                 items.Insert(0, subject);
 
-                Assert.Equal(items, await ListRootsAsync(work));
+                Assert.Equal(items, await ListRootsAsync(dispatcher));
             }
         }
     }
@@ -115,20 +118,21 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var folder = await NewItemAsync(create, "Folder", null);
-            var elsewhere = await NewItemAsync(create, "Elsewhere", null);
-            var subject = await NewItemAsync(create, "Subject", null);
+            var folder = await NewItemAsync(dispatcher, "Folder", null);
+            var elsewhere = await NewItemAsync(dispatcher, "Elsewhere", null);
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
-            var moved = await work.Resolve<MoveItem>()
-                .ExecuteAsync(subject.Id, folder.Id, elsewhere.Id, Cancellation);
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(subject.Id, folder.Id, elsewhere.Id), Cancellation);
 
             Assert.True(moved.IsFailure);
             Assert.Equal("items.sibling_not_in_destination", moved.Error.Code);
 
             // Refused means unchanged: the item is still where it was, not half-moved.
-            var unchanged = await work.Resolve<GetItem>().ExecuteAsync(subject.Id, Cancellation);
+            var unchanged = await dispatcher.QueryAsync<GetItem, Result<Item>>(
+                new GetItem(subject.Id), Cancellation);
             Assert.Null(unchanged.Value.ParentId);
         }
     }
@@ -139,15 +143,16 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var folder = await NewItemAsync(create, "Folder", null);
-            var subject = await NewItemAsync(create, "Subject", null);
+            var folder = await NewItemAsync(dispatcher, "Folder", null);
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
-            Assert.True((await work.Resolve<DeleteItem>().ExecuteAsync(folder.Id, Cancellation)).IsSuccess);
+            Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(folder.Id), Cancellation)).IsSuccess);
 
-            var moved = await work.Resolve<MoveItem>()
-                .ExecuteAsync(subject.Id, folder.Id, null, Cancellation);
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(subject.Id, folder.Id, null), Cancellation);
 
             Assert.True(moved.IsFailure);
             Assert.Equal("items.lifecycle_conflict", moved.Error.Code);
@@ -160,12 +165,13 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var subject = await NewItemAsync(work.Resolve<CreateItem>(), "Subject", null);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
             // Beta's item is in another tenant entirely, so this also confirms the refusal happens
             // before anything is written rather than being caught by a constraint afterwards.
-            var moved = await work.Resolve<MoveItem>()
-                .ExecuteAsync(subject.Id, ItemId.From(M0SchemaSeed.Beta.ItemId), null, Cancellation);
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(subject.Id, ItemId.From(M0SchemaSeed.Beta.ItemId), null), Cancellation);
 
             Assert.True(moved.IsFailure);
             Assert.Equal("items.parent_not_found", moved.Error.Code);
@@ -178,18 +184,21 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var subject = await NewItemAsync(work.Resolve<CreateItem>(), "Subject", null);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
-            Assert.True((await work.Resolve<DeleteItem>().ExecuteAsync(subject.Id, Cancellation)).IsSuccess);
-            Assert.DoesNotContain(subject.Id, await ListRootsAsync(work));
+            Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(subject.Id), Cancellation)).IsSuccess);
+            Assert.DoesNotContain(subject.Id, await ListRootsAsync(dispatcher));
 
             // Still there when asked for deliberately: soft deletion hides, it does not destroy.
-            Assert.Contains(subject.Id, await ListRootsAsync(work, includeDeleted: true));
+            Assert.Contains(subject.Id, await ListRootsAsync(dispatcher, includeDeleted: true));
 
-            var restored = await work.Resolve<RestoreItem>().ExecuteAsync(subject.Id, Cancellation);
+            var restored = await dispatcher.SendAsync<RestoreItem, Item>(
+                new RestoreItem(subject.Id), Cancellation);
             Assert.True(restored.IsSuccess);
             Assert.Equal(ItemLifecycleState.Active, restored.Value.LifecycleState);
-            Assert.Contains(subject.Id, await ListRootsAsync(work));
+            Assert.Contains(subject.Id, await ListRootsAsync(dispatcher));
         }
     }
 
@@ -199,17 +208,19 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
-            var folder = await NewItemAsync(create, "Folder", null);
-            var child = await NewItemAsync(create, "Child", folder.Id);
+            var folder = await NewItemAsync(dispatcher, "Folder", null);
+            var child = await NewItemAsync(dispatcher, "Child", folder.Id);
 
-            Assert.True((await work.Resolve<DeleteItem>().ExecuteAsync(folder.Id, Cancellation)).IsSuccess);
+            Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(folder.Id), Cancellation)).IsSuccess);
 
             // The child row is untouched: still active, still parented. It disappears from the
             // interface because the walk down stops at the deleted folder, which is what makes
             // restoring the folder a single flag flip rather than a reconstruction.
-            var stillThere = await work.Resolve<GetItem>().ExecuteAsync(child.Id, Cancellation);
+            var stillThere = await dispatcher.QueryAsync<GetItem, Result<Item>>(
+                new GetItem(child.Id), Cancellation);
             Assert.True(stillThere.IsSuccess);
             Assert.Equal(ItemLifecycleState.Active, stillThere.Value.LifecycleState);
             Assert.Equal(folder.Id, stillThere.Value.ParentId);
@@ -222,13 +233,15 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var subject = await NewItemAsync(work.Resolve<CreateItem>(), "Subject", null);
-            var delete = work.Resolve<DeleteItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
-            Assert.True((await delete.ExecuteAsync(subject.Id, Cancellation)).IsSuccess);
+            Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(subject.Id), Cancellation)).IsSuccess);
 
             // A client retrying after a dropped response asked for a state, and the state holds.
-            Assert.True((await delete.ExecuteAsync(subject.Id, Cancellation)).IsSuccess);
+            Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(subject.Id), Cancellation)).IsSuccess);
         }
     }
 
@@ -238,7 +251,8 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var subject = await NewItemAsync(work.Resolve<CreateItem>(), "Subject", null);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var subject = await NewItemAsync(dispatcher, "Subject", null);
 
             await work.Resolve<IItemTree>().SetLifecycleAsync(
                 subject.Id,
@@ -247,7 +261,8 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
                 DateTimeOffset.UtcNow,
                 Cancellation);
 
-            var restored = await work.Resolve<RestoreItem>().ExecuteAsync(subject.Id, Cancellation);
+            var restored = await dispatcher.SendAsync<RestoreItem, Item>(
+                new RestoreItem(subject.Id), Cancellation);
 
             Assert.True(restored.IsFailure);
             Assert.Equal("items.lifecycle_conflict", restored.Error.Code);
@@ -262,13 +277,18 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var moved = await work.Resolve<MoveItem>().ExecuteAsync(betaItem, null, null, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(
+                new MoveItem(betaItem, null, null), Cancellation);
             Assert.Equal("items.not_found", moved.Error.Code);
 
-            var deleted = await work.Resolve<DeleteItem>().ExecuteAsync(betaItem, Cancellation);
+            var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(betaItem), Cancellation);
             Assert.Equal("items.not_found", deleted.Error.Code);
 
-            var restored = await work.Resolve<RestoreItem>().ExecuteAsync(betaItem, Cancellation);
+            var restored = await dispatcher.SendAsync<RestoreItem, Item>(
+                new RestoreItem(betaItem), Cancellation);
             Assert.Equal("items.not_found", restored.Error.Code);
         }
     }
@@ -279,10 +299,11 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var leaf = await NewItemAsync(work.Resolve<CreateItem>(), "Leaf", null);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var leaf = await NewItemAsync(dispatcher, "Leaf", null);
 
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [leaf.Id], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, [leaf.Id]), Cancellation);
 
             // The whole point. Every item can hold children, so the tree would otherwise have to
             // offer an expand control on all of them - and every leaf would expand to nothing.
@@ -296,12 +317,12 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var parent = await NewItemAsync(create, "Parent", null);
-            await NewItemAsync(create, "Child", parent.Id);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var parent = await NewItemAsync(dispatcher, "Parent", null);
+            await NewItemAsync(dispatcher, "Child", parent.Id);
 
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, [parent.Id]), Cancellation);
 
             Assert.Contains(parent.Id, withChildren);
         }
@@ -313,18 +334,18 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var parent = await NewItemAsync(create, "Parent", null);
-            var child = await NewItemAsync(create, "Child", parent.Id);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var parent = await NewItemAsync(dispatcher, "Parent", null);
+            var child = await NewItemAsync(dispatcher, "Child", parent.Id);
 
-            await work.Resolve<DeleteItem>().ExecuteAsync(child.Id, Cancellation);
+            await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(child.Id), Cancellation);
 
             // Deletion is soft, so the row is still there. Counting it would leave an expand
             // control on a parent whose contents are all in the bin, and expanding would show
             // nothing - which is the dishonest state this exists to prevent, arriving by the back
             // door.
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, [parent.Id]), Cancellation);
 
             Assert.DoesNotContain(parent.Id, withChildren);
         }
@@ -336,15 +357,15 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var parent = await NewItemAsync(create, "Parent", null);
-            var child = await NewItemAsync(create, "Child", parent.Id);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var parent = await NewItemAsync(dispatcher, "Parent", null);
+            var child = await NewItemAsync(dispatcher, "Child", parent.Id);
 
-            await work.Resolve<DeleteItem>().ExecuteAsync(child.Id, Cancellation);
-            await work.Resolve<RestoreItem>().ExecuteAsync(child.Id, Cancellation);
+            await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(child.Id), Cancellation);
+            await dispatcher.SendAsync<RestoreItem, Item>(new RestoreItem(child.Id), Cancellation);
 
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [parent.Id], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, [parent.Id]), Cancellation);
 
             Assert.Contains(parent.Id, withChildren);
         }
@@ -356,14 +377,14 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var create = work.Resolve<CreateItem>();
-            var withKids = await NewItemAsync(create, "Has children", null);
-            var leafOne = await NewItemAsync(create, "Leaf one", null);
-            var leafTwo = await NewItemAsync(create, "Leaf two", null);
-            await NewItemAsync(create, "Child", withKids.Id);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var withKids = await NewItemAsync(dispatcher, "Has children", null);
+            var leafOne = await NewItemAsync(dispatcher, "Leaf one", null);
+            var leafTwo = await NewItemAsync(dispatcher, "Leaf two", null);
+            await NewItemAsync(dispatcher, "Child", withKids.Id);
 
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [withKids.Id, leafOne.Id, leafTwo.Id], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, [withKids.Id, leafOne.Id, leafTwo.Id]), Cancellation);
 
             // Only the ones that have children come back, so the answer is the size of the answer
             // rather than the size of the question.
@@ -377,18 +398,21 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // An empty workspace lists no items, and the page-level lookup must not build a
             // statement with an empty array for it.
-            var withChildren = await work.Resolve<ItemsWithChildren>()
-                .ExecuteAsync(Workspace, [], Cancellation);
+            var withChildren = await dispatcher.QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(Workspace, []), Cancellation);
 
             Assert.Empty(withChildren);
         }
     }
 
-    private static async Task<Item> NewItemAsync(CreateItem create, string title, ItemId? parentId)
+    private static async Task<Item> NewItemAsync(NixDispatcher dispatcher, string title, ItemId? parentId)
     {
-        var result = await create.ExecuteAsync(Workspace, "note", title, parentId, null, Cancellation);
+        var result = await dispatcher.SendAsync<CreateItem, Item>(
+            new CreateItem(Workspace, "note", title, parentId, null), Cancellation);
         Assert.True(result.IsSuccess);
         return result.Value;
     }
@@ -397,12 +421,12 @@ public sealed class ItemLifecycleTests : IAsyncLifetime
     /// The workspace roots in sibling order, minus the row the schema seed placed there.
     /// </summary>
     private static async Task<IReadOnlyList<ItemId>> ListRootsAsync(
-        NixUnitOfWork work,
+        NixDispatcher dispatcher,
         bool includeDeleted = false)
     {
         var seeded = ItemId.From(M0SchemaSeed.Alpha.ItemId);
-        var page = await work.Resolve<ListItems>()
-            .ExecuteAsync(Workspace, null, includeDeleted, null, 200, Cancellation);
+        var page = await dispatcher.QueryAsync<ListItems, Result<IReadOnlyList<Item>>>(
+            new ListItems(Workspace, null, includeDeleted, null, 200), Cancellation);
 
         Assert.True(page.IsSuccess);
         return [.. page.Value.Select(item => item.Id).Where(id => id != seeded)];

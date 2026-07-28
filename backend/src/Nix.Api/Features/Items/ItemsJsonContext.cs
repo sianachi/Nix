@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Contracts;
-using Nix.Api.Features.Items;
+using Nix.Contracts;
+using Nix.Features.Items;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The items feature's JSON contract, source-generated.

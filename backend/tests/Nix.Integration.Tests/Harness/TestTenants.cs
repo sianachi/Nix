@@ -1,6 +1,6 @@
-using Nix.Application.Persistence;
-using Nix.Core.Identity;
-using Nix.Core.Tenancy;
+using Nix.Abstractions;
+using Nix.Domain.Identity;
+using Nix.Domain.Tenancy;
 
 namespace Nix.Integration.Tests.Harness;
 

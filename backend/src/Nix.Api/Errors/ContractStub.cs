@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 
-namespace Nix.Api.Errors;
+namespace Nix.Errors;
 
 /// <summary>
 /// The response every endpoint whose contract is published but whose behaviour is not yet built

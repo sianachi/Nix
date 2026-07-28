@@ -1,13 +1,10 @@
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Nix.Api.Errors;
-using Nix.Api.Features.Items;
-using Nix.Api.Features.Views;
-using Nix.Application.Properties;
-using Nix.Core.Items;
-using Nix.Core.Primitives;
+using Nix.Domain.Primitives;
+using Nix.Errors;
+using Nix.Features.Items;
+using Nix.Features.Views;
 
-namespace Nix.Api.Features.Properties;
+namespace Nix.Features.Properties;
 
 /// <summary>
 /// Route registration for what gives an item structure: its schema, its property values, and the
@@ -35,7 +32,7 @@ internal static class StructureEndpoints
 
         var items = endpoints.MapGroup("/api/v1/items").WithTags("Structure");
 
-        items.MapGet("/{itemId:guid}/schema", GetSchema)
+        items.MapGet("/{itemId:guid}/schema", GetEffectiveSchemaEndpoint.Handle)
             .WithName("GetEffectiveSchema")
             .WithSummary("The property schema in force at an item")
             .WithDescription(
@@ -46,7 +43,7 @@ internal static class StructureEndpoints
             .Produces<EffectiveSchemaResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        items.MapPut("/{itemId:guid}/schema", SetSchema)
+        items.MapPut("/{itemId:guid}/schema", SetItemSchemaEndpoint.Handle)
             .WithName("SetItemSchema")
             .WithSummary("Declare the property schema for an item's subtree")
             .WithDescription(
@@ -59,7 +56,7 @@ internal static class StructureEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
-        items.MapPatch("/{itemId:guid}/properties", SetProperties)
+        items.MapPatch("/{itemId:guid}/properties", SetItemPropertiesEndpoint.Handle)
             .WithName("SetItemProperties")
             .WithSummary("Write property values onto an item")
             .WithDescription(
@@ -73,7 +70,7 @@ internal static class StructureEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
-        items.MapGet("/{itemId:guid}/views", GetViews)
+        items.MapGet("/{itemId:guid}/views", GetContainerViewsEndpoint.Handle)
             .WithName("GetContainerViews")
             .WithSummary("The views a container offers")
             .WithDescription(
@@ -84,7 +81,7 @@ internal static class StructureEndpoints
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
-        items.MapPut("/{itemId:guid}/views", SetViews)
+        items.MapPut("/{itemId:guid}/views", SetContainerViewsEndpoint.Handle)
             .WithName("SetContainerViews")
             .WithSummary("Replace the views a container offers")
             .WithDescription(
@@ -98,148 +95,18 @@ internal static class StructureEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<EffectiveSchemaResponse>, ProblemHttpResult>> GetSchema(
-        Guid itemId,
-        HttpContext httpContext,
-        [FromServices] GetEffectiveSchema getEffectiveSchema)
-    {
-        var result = await getEffectiveSchema
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return result.Match<Results<Ok<EffectiveSchemaResponse>, ProblemHttpResult>>(
-            schema => TypedResults.Ok(PropertyMapping.ToResponse(schema.Effective, schema.Declared)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static async Task<Results<Ok<EffectiveSchemaResponse>, ProblemHttpResult>> SetSchema(
-        Guid itemId,
-        SetSchemaRequest request,
-        HttpContext httpContext,
-        [FromServices] SetItemSchema setItemSchema,
-        [FromServices] GetEffectiveSchema getEffectiveSchema)
-    {
-        if (!PropertyMapping.TryToDomain(request, out var schema, out var unknownType))
-        {
-            // Refused rather than dropped. The stored-schema reader drops what it cannot interpret
-            // so a bad schema never makes items unreadable; a request somebody is waiting on an
-            // answer to is the opposite case.
-            return TypedResults.Problem(
-                Problem(
-                    httpContext,
-                    PropertyErrors.InvalidSchema($"'{unknownType}' is not a property type.")));
-        }
-
-        var stored = await setItemSchema
-            .ExecuteAsync(ItemId.From(itemId), schema, httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        if (stored.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, stored.Error));
-        }
-
-        // Re-resolved rather than echoing what was sent: what the caller now needs is the merged
-        // result, and only the resolver knows what the ancestors contribute.
-        var effective = await getEffectiveSchema
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return effective.Match<Results<Ok<EffectiveSchemaResponse>, ProblemHttpResult>>(
-            resolved => TypedResults.Ok(PropertyMapping.ToResponse(resolved.Effective, resolved.Declared)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> SetProperties(
-        Guid itemId,
-        SetPropertiesRequest request,
-        HttpContext httpContext,
-        [FromServices] SetItemProperties setItemProperties,
-        [FromServices] Nix.Application.Items.ItemsWithChildren itemsWithChildren)
-    {
-        var result = await setItemProperties
-            .ExecuteAsync(ItemId.From(itemId), request.Properties.ToJsonString(), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        var item = result.Value;
-        var withChildren = await itemsWithChildren
-            .ExecuteAsync(item.WorkspaceId, [item.Id], httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return TypedResults.Ok(ItemMapping.ToResponse(item, withChildren.Contains(item.Id)));
-    }
-
-    private static async Task<Results<Ok<ContainerViewsResponse>, ProblemHttpResult>> GetViews(
-        Guid itemId,
-        HttpContext httpContext,
-        [FromServices] Application.Views.GetContainerViews getContainerViews)
-    {
-        var result = await getContainerViews
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return result.Match<Results<Ok<ContainerViewsResponse>, ProblemHttpResult>>(
-            views => TypedResults.Ok(
-                new ContainerViewsResponse(
-                    [.. views.Views.Select(ViewMapping.ToResponse)],
-                    views.Unrenderable,
-                    views.Default)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static async Task<Results<Ok<ContainerViewsResponse>, ProblemHttpResult>> SetViews(
-        Guid itemId,
-        SetViewsRequest request,
-        HttpContext httpContext,
-        [FromServices] Application.Views.SetContainerViews setContainerViews,
-        [FromServices] Application.Views.GetContainerViews getContainerViews)
-    {
-        if (!ViewMapping.TryToDomain(request, out var views, out var unknownKind))
-        {
-            return TypedResults.Problem(
-                Problem(
-                    httpContext,
-                    PropertyErrors.InvalidViews($"'{unknownKind}' is not a view kind.")));
-        }
-
-        var stored = await setContainerViews
-            .ExecuteAsync(ItemId.From(itemId), views, request.Default, httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        if (stored.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, stored.Error));
-        }
-
-        // Read back so the response carries the unrenderable list, which the write path does not
-        // compute and the caller needs in order to say anything honest about what it just saved.
-        var reread = await getContainerViews
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return reread.Match<Results<Ok<ContainerViewsResponse>, ProblemHttpResult>>(
-            set => TypedResults.Ok(
-                new ContainerViewsResponse(
-                    [.. set.Views.Select(ViewMapping.ToResponse)],
-                    set.Unrenderable,
-                    set.Default)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
     /// <summary>
     /// Maps a use case's failure onto the status its stable code implies.
     /// </summary>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="error">Why the use case failed.</param>
+    /// <returns>Problem details describing the failure.</returns>
     /// <remarks>
     /// The code is the contract; the status is a consequence of it. A malformed schema or an
     /// invalid property value is 422 rather than 400: the request was understood and well-formed,
     /// and what it asked for is what could not be done.
     /// </remarks>
-    private static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error)
+    internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error)
     {
         var status = error.Code switch
         {

@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Nix.Api.Contracts;
-using Nix.Api.Errors;
+using Nix.Contracts;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Roles;
+namespace Nix.Features.Roles;
 
 /// <summary>
 /// Route registration for the two role layers above item access control: tenant-wide roles and

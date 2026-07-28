@@ -1,8 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Nix.Core.Items;
+using Nix.Domain.Items;
+using Nix.Messaging;
 
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// Maps a domain item onto the shape the contract publishes.
@@ -15,6 +16,36 @@ namespace Nix.Api.Features.Items;
 /// </remarks>
 internal static class ItemMapping
 {
+    /// <summary>
+    /// Maps one item, asking whether it has children.
+    /// </summary>
+    /// <param name="item">The domain item.</param>
+    /// <param name="dispatcher">Sends the children query to its handler.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The published shape.</returns>
+    /// <remarks>
+    /// One indexed probe returning at most a row - see <c>TreeShapeSql</c>. Written once rather
+    /// than at each of the four endpoints that return a single existing item, because the failure mode
+    /// of forgetting it is not a compile error but a response that says "no children" and costs the
+    /// tree its expand control.
+    /// </remarks>
+    internal static async Task<ItemResponse> RespondAsync(
+        Item item,
+        NixDispatcher dispatcher,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(dispatcher);
+
+        var withChildren = await dispatcher
+            .QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(item.WorkspaceId, [item.Id]),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return ToResponse(item, withChildren.Contains(item.Id));
+    }
+
     /// <summary>Maps one item.</summary>
     /// <param name="item">The domain item.</param>
     /// <param name="hasChildren">

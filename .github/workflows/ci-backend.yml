@@ -20,6 +20,7 @@ on:
       - 'Nix.slnx'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
+      - 'scripts/check-layering.sh'
       - '.github/workflows/ci-backend.yml'
   pull_request:
     paths:
@@ -27,6 +28,7 @@ on:
       - 'Nix.slnx'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
+      - 'scripts/check-layering.sh'
       - '.github/workflows/ci-backend.yml'
 
 concurrency:
@@ -74,6 +76,12 @@ jobs:
       - name: No-controllers guard (minimal APIs only, section 2.3)
         run: ./scripts/check-no-controllers.sh
 
+      # Replaces the three DependencyDirectionTests that the single-project
+      # collapse made unexpressible. Weaker than an assembly-reference check and
+      # deliberately so; see ADR-0015 for what it does and does not catch.
+      - name: Layering guard (Domain/ carries no infrastructure, ADR-0015)
+        run: ./scripts/check-layering.sh
+
   backend-unit:
     name: backend unit
     runs-on: ubuntu-latest
@@ -85,14 +93,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Explicit project list: Nix.Integration.Tests is excluded here on
-      # purpose - it needs Docker and runs in its own stage-3 job.
+      # Named explicitly rather than run across the solution: Nix.Integration.Tests
+      # needs Docker and runs in its own stage-3 job. Nix.Tests must stay free of
+      # Testcontainers so this job never needs a daemon - that is the whole reason
+      # the two suites are separate projects rather than one.
       - name: Unit tests
         working-directory: backend
-        run: |
-          dotnet test tests/Nix.Core.Tests/Nix.Core.Tests.csproj --configuration Release
-          dotnet test tests/Nix.Application.Tests/Nix.Application.Tests.csproj --configuration Release
-          dotnet test tests/Nix.Api.Tests/Nix.Api.Tests.csproj --configuration Release
+        run: dotnet test tests/Nix.Tests/Nix.Tests.csproj --configuration Release
 
   # ── Stage 3: integration ───────────────────────────────────────────────────
   # Everything that needs a real Postgres: the tenant isolation policies, the

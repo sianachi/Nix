@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// An item as the API presents it.

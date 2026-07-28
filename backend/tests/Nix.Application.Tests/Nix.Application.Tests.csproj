@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Nix.Application\Nix.Application.csproj" />
-  </ItemGroup>
-
-</Project>

@@ -1,6 +1,8 @@
 using System.Globalization;
-using Nix.Application.Identity;
+using Nix.Domain.Primitives;
+using Nix.Features.Me;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -41,7 +43,10 @@ public sealed class CurrentPrincipalTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var result = await work.Resolve<GetCurrentPrincipal>().ExecuteAsync(Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var result = await dispatcher.QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
+                new GetCurrentPrincipal(),
+                Cancellation);
 
             Assert.True(result.IsSuccess);
             Assert.Equal(M0SchemaSeed.Alpha.PrincipalId, result.Value.Id.Value);
@@ -57,7 +62,10 @@ public sealed class CurrentPrincipalTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var result = await work.Resolve<GetCurrentPrincipal>().ExecuteAsync(Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var result = await dispatcher.QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
+                new GetCurrentPrincipal(),
+                Cancellation);
 
             Assert.True(result.Value.IsTenantAdministrator);
         }
@@ -74,7 +82,10 @@ public sealed class CurrentPrincipalTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var result = await work.Resolve<GetCurrentPrincipal>().ExecuteAsync(Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var result = await dispatcher.QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
+                new GetCurrentPrincipal(),
+                Cancellation);
 
             Assert.True(result.IsSuccess);
             Assert.False(result.Value.IsTenantAdministrator);
@@ -96,7 +107,10 @@ public sealed class CurrentPrincipalTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var result = await work.Resolve<GetCurrentPrincipal>().ExecuteAsync(Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var result = await dispatcher.QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
+                new GetCurrentPrincipal(),
+                Cancellation);
 
             Assert.True(result.IsFailure);
             Assert.Equal("identity.principal_not_found", result.Error.Code);

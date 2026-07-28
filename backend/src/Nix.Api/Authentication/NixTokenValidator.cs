@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
-using Nix.Application.Identity;
+using Nix.Abstractions;
 
-namespace Nix.Api.Authentication;
+namespace Nix.Authentication;
 
 /// <summary>
 /// Validates a bearer token against the issuer that a tenant registered for it.

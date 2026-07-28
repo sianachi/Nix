@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
-using Nix.Application.Persistence;
-using Nix.Infrastructure.Persistence;
+using Nix.Abstractions;
+using Nix.Persistence;
 
 namespace Nix.Integration.Tests.Harness;
 

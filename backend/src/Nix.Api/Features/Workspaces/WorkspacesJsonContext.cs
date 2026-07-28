@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Contracts;
-using Nix.Api.Features.Workspaces;
+using Nix.Contracts;
+using Nix.Features.Workspaces;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The workspaces feature's JSON contract, source-generated.

@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Nix.Core.Views;
+using Nix.Domain.Views;
 
-namespace Nix.Api.Features.Views;
+namespace Nix.Features.Views;
 
 /// <summary>Maps between the view contract and the domain.</summary>
 internal static class ViewMapping

@@ -1,4 +1,4 @@
-using Nix.Infrastructure.Persistence.Sql;
+using Nix.Persistence.Sql;
 using Npgsql;
 using NpgsqlTypes;
 

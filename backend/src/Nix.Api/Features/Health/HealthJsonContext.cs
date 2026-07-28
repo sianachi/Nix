@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Features.Health;
+using Nix.Features.Health;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The health feature's JSON contract, source-generated.

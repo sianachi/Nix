@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
-using Nix.Infrastructure.Persistence;
+using Nix.Persistence;
 
 namespace Nix.Migrator;
 
@@ -18,13 +18,13 @@ namespace Nix.Migrator;
 /// </para>
 /// <code>
 /// dotnet ef migrations add &lt;Name&gt; \
-///   --project backend/src/Nix.Infrastructure \
+///   --project backend/src/Nix.Api \
 ///   --startup-project backend/src/Nix.Migrator \
 ///   --output-dir Persistence/Migrations/Generated
 /// </code>
 /// <para>
-/// Migrations are generated into <c>Nix.Infrastructure</c> so the runtime assembly carries them;
-/// this project only hosts the entry point.
+/// Migrations are generated into <c>Nix.Api</c> so the runtime assembly carries them; this
+/// project only hosts the entry point.
 /// </para>
 /// </remarks>
 [SuppressMessage(

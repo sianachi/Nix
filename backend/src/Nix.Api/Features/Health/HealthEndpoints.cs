@@ -2,9 +2,9 @@ using System.Collections.Frozen;
 using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Nix.Api.Errors;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Health;
+namespace Nix.Features.Health;
 
 /// <summary>
 /// Route registration for the health feature, and the template every later

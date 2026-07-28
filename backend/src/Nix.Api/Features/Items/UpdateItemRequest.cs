@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// Changes an item's own fields. Moving and deleting have their own operations.

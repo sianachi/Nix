@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
-namespace Nix.Api.Errors;
+namespace Nix.Errors;
 
 /// <summary>
 /// Teaches the OpenAPI document about the RFC 9457 extension members Nix always

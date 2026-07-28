@@ -1,12 +1,14 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using Nix.Application.Items;
-using Nix.Application.Properties;
-using Nix.Core.Identity;
-using Nix.Core.Items;
-using Nix.Core.Properties;
-using Nix.Core.Tenancy;
+using Nix.Abstractions;
+using Nix.Domain.Identity;
+using Nix.Domain.Items;
+using Nix.Domain.Properties;
+using Nix.Domain.Tenancy;
+using Nix.Features.Items;
+using Nix.Features.Properties;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -84,8 +86,7 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var tree = work.Resolve<IItemTree>();
-            var setSchema = work.Resolve<SetItemSchema>();
-            var moveItem = work.Resolve<MoveItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
             for (var index = 0; index < ItemCount; index++)
             {
@@ -106,7 +107,9 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
                 if (random.Next(2) == 0)
                 {
                     var schema = RandomSchema(random);
-                    var stored = await setSchema.ExecuteAsync(id, schema, Cancellation);
+                    var stored = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                        new SetItemSchema(id, schema),
+                        Cancellation);
 
                     Assert.True(stored.IsSuccess, stored.IsSuccess ? "" : stored.Error.Message);
                     declared[id] = schema;
@@ -131,7 +134,9 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
                     continue;
                 }
 
-                var outcome = await moveItem.ExecuteAsync(subject, destination, null, Cancellation);
+                var outcome = await dispatcher.SendAsync<MoveItem, Item>(
+                    new MoveItem(subject, destination, null),
+                    Cancellation);
                 Assert.True(outcome.IsSuccess, outcome.IsSuccess ? "" : outcome.Error.Message);
 
                 parents[subject] = destination;
@@ -158,7 +163,7 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var tree = work.Resolve<IItemTree>();
-            var setSchema = work.Resolve<SetItemSchema>();
+            var dispatcher = work.Resolve<NixDispatcher>();
             var resolver = work.Resolve<ISchemaResolver>();
 
             // workspace -> scratch -> note
@@ -170,8 +175,12 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
             await tree.InsertAsync(NewItem(scratch, workspace, top, actor, 1000), Cancellation);
             await tree.InsertAsync(NewItem(note, workspace, scratch, actor, 1000), Cancellation);
 
-            await setSchema.ExecuteAsync(top, Schema(true, ("owner", "Owner")), Cancellation);
-            await setSchema.ExecuteAsync(scratch, Schema(false, ("note", "Note")), Cancellation);
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(top, Schema(true, ("owner", "Owner"))),
+                Cancellation);
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(scratch, Schema(false, ("note", "Note"))),
+                Cancellation);
 
             var effective = await resolver.ResolveForItemAsync(note, Cancellation);
 
@@ -193,7 +202,7 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var tree = work.Resolve<IItemTree>();
-            var setSchema = work.Resolve<SetItemSchema>();
+            var dispatcher = work.Resolve<NixDispatcher>();
             var resolver = work.Resolve<ISchemaResolver>();
 
             var top = ItemId.Create();
@@ -204,33 +213,35 @@ public sealed class SchemaCascadePropertyTests : IAsyncLifetime
             await tree.InsertAsync(NewItem(project, workspace, top, actor, 1000), Cancellation);
             await tree.InsertAsync(NewItem(note, workspace, project, actor, 1000), Cancellation);
 
-            await setSchema.ExecuteAsync(
-                top,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties =
-                    [
-                        new PropertyDefinition("status", "Status", PropertyType.Text, [], false),
-                    ],
-                },
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    top,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties =
+                        [
+                            new PropertyDefinition("status", "Status", PropertyType.Text, [], false),
+                        ],
+                    }),
                 Cancellation);
 
-            await setSchema.ExecuteAsync(
-                project,
-                new PropertySchema
-                {
-                    Inherit = true,
-                    Properties =
-                    [
-                        new PropertyDefinition(
-                            "status",
-                            "Stage",
-                            PropertyType.Select,
-                            ["Todo", "Done"],
-                            true),
-                    ],
-                },
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    project,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties =
+                        [
+                            new PropertyDefinition(
+                                "status",
+                                "Stage",
+                                PropertyType.Select,
+                                ["Todo", "Done"],
+                                true),
+                        ],
+                    }),
                 Cancellation);
 
             var effective = await resolver.ResolveForItemAsync(note, Cancellation);

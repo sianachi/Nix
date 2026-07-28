@@ -1,5 +1,5 @@
-using Nix.Infrastructure.Persistence.Migrations;
 using Nix.Integration.Tests.Harness;
+using Nix.Persistence.Migrations;
 
 namespace Nix.Integration.Tests.Persistence;
 

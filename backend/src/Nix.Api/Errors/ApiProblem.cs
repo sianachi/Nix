@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Nix.Api.Errors;
+namespace Nix.Errors;
 
 /// <summary>
 /// Single factory for every RFC 9457 problem-details response the API emits.

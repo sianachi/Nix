@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Permissions;
+namespace Nix.Features.Permissions;
 
 /// <summary>
 /// Grants or refuses a role to a subject on an item, replacing any entry that subject already has

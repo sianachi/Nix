@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// Moves an item to a new parent, optionally at a chosen position among its new siblings.

@@ -1,12 +1,14 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
-using Nix.Application.Items;
-using Nix.Core.Identity;
-using Nix.Core.Items;
-using Nix.Core.Tenancy;
-using Nix.Infrastructure.Persistence.Sql;
-using Nix.Infrastructure.Persistence.Sql.Statements;
+using Nix.Abstractions;
+using Nix.Domain.Identity;
+using Nix.Domain.Items;
+using Nix.Domain.Tenancy;
+using Nix.Features.Items;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
+using Nix.Persistence.Sql;
+using Nix.Persistence.Sql.Statements;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -87,7 +89,7 @@ public sealed class ItemClosurePropertyTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var tree = work.Resolve<IItemTree>();
-            var moveItem = work.Resolve<MoveItem>();
+            var dispatcher = work.Resolve<NixDispatcher>();
 
             for (var index = 0; index < ItemCount; index++)
             {
@@ -132,7 +134,9 @@ public sealed class ItemClosurePropertyTests : IAsyncLifetime
                 // placement and closure rewrite together - and not just the store method underneath
                 // it. A closure that stayed correct while the use case skipped a step would pass
                 // the port-level version of this test and ship the bug.
-                var outcome = await moveItem.ExecuteAsync(subject, destination, null, Cancellation);
+                var outcome = await dispatcher.SendAsync<MoveItem, Item>(
+                    new MoveItem(subject, destination, null),
+                    Cancellation);
 
                 if (wouldCycle)
                 {

@@ -1,12 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
-using Nix.Api.Errors;
-using Nix.Application.Identity;
-using Nix.Application.Persistence;
-using Nix.Core.Identity;
-using Nix.Infrastructure.Persistence;
+using Nix.Abstractions;
+using Nix.Domain.Identity;
+using Nix.Errors;
+using Nix.Persistence;
 
-namespace Nix.Api.Authentication;
+namespace Nix.Authentication;
 
 /// <summary>
 /// Turns a bearer token into a tenant-scoped unit of work, and commits it if the request succeeds.

@@ -1,13 +1,9 @@
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Nix.Api.Contracts;
-using Nix.Api.Errors;
-using Nix.Application.Items;
-using Nix.Core.Items;
-using Nix.Core.Primitives;
-using Nix.Core.Tenancy;
+using Nix.Contracts;
+using Nix.Domain.Primitives;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// Route registration for the items feature: the tree, and the operations that reshape it.
@@ -58,7 +54,7 @@ internal static class ItemEndpoints
         var workspaceItems = endpoints.MapGroup("/api/v1/workspaces/{workspaceId:guid}/items")
             .WithTags("Items");
 
-        workspaceItems.MapGet("/", ListItems)
+        workspaceItems.MapGet("/", ListItemsEndpoint.Handle)
             .WithName("ListItems")
             .WithSummary("Children of an item, or the workspace root")
             .WithDescription(
@@ -71,7 +67,7 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        workspaceItems.MapPost("/", CreateItem)
+        workspaceItems.MapPost("/", CreateItemEndpoint.Handle)
             .WithName("CreateItem")
             .WithSummary("Create an item")
             .WithDescription(
@@ -85,7 +81,7 @@ internal static class ItemEndpoints
         var items = endpoints.MapGroup("/api/v1/items")
             .WithTags("Items");
 
-        items.MapGet("/{itemId:guid}", GetItem)
+        items.MapGet("/{itemId:guid}", GetItemEndpoint.Handle)
             .WithName("GetItem")
             .WithSummary("One item")
             .WithDescription(
@@ -95,7 +91,7 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        items.MapPatch("/{itemId:guid}", UpdateItem)
+        items.MapPatch("/{itemId:guid}", RenameItemEndpoint.Handle)
             .WithName("UpdateItem")
             .WithSummary("Rename an item")
             .WithDescription("Changes the item's own fields. Moving and deleting are separate operations.")
@@ -103,7 +99,7 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        items.MapPost("/{itemId:guid}/move", MoveItem)
+        items.MapPost("/{itemId:guid}/move", MoveItemEndpoint.Handle)
             .WithName("MoveItem")
             .WithSummary("Move an item to a new parent")
             .WithDescription(
@@ -116,7 +112,7 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        items.MapDelete("/{itemId:guid}", DeleteItem)
+        items.MapDelete("/{itemId:guid}", DeleteItemEndpoint.Handle)
             .WithName("DeleteItem")
             .WithSummary("Soft-delete an item")
             .WithDescription(
@@ -127,7 +123,7 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        items.MapPost("/{itemId:guid}/restore", RestoreItem)
+        items.MapPost("/{itemId:guid}/restore", RestoreItemEndpoint.Handle)
             .WithName("RestoreItem")
             .WithSummary("Restore a soft-deleted item")
             .WithDescription(
@@ -141,117 +137,17 @@ internal static class ItemEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<CursorPage<ItemResponse>>, ProblemHttpResult>> ListItems(
-        Guid workspaceId,
-        HttpContext httpContext,
-        [FromServices] Application.Items.ListItems listItems,
-        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren,
-        Guid? parentId = null,
-        bool includeDeleted = false,
-        string? cursor = null,
-        int limit = CursorPaging.DefaultLimit)
-    {
-        var result = await listItems.ExecuteAsync(
-            WorkspaceId.From(workspaceId),
-            parentId is { } parent ? ItemId.From(parent) : null,
-            includeDeleted,
-            ItemCursor.Decode(cursor),
-            limit,
-            httpContext.RequestAborted).ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        var page = result.Value;
-
-        // One question for the whole page. Asked per row it would be a query per item in the tree,
-        // which is the shape this exists to avoid - see TreeShapeSql for the measurement.
-        var withChildren = await itemsWithChildren
-            .ExecuteAsync(
-                WorkspaceId.From(workspaceId),
-                [.. page.Select(item => item.Id)],
-                httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return TypedResults.Ok(
-            new CursorPage<ItemResponse>(
-                [.. page.Select(item => ItemMapping.ToResponse(item, withChildren.Contains(item.Id)))],
-                ItemCursor.NextFrom(page, limit)));
-    }
-
-    private static async Task<Results<Created<ItemResponse>, ProblemHttpResult>> CreateItem(
-        Guid workspaceId,
-        CreateItemRequest request,
-        HttpContext httpContext,
-        [FromServices] Application.Items.CreateItem createItem)
-    {
-        var result = await createItem.ExecuteAsync(
-            WorkspaceId.From(workspaceId),
-            request.Type,
-            request.Title,
-            request.ParentId is { } parent ? ItemId.From(parent) : null,
-            request.Properties,
-            httpContext.RequestAborted).ConfigureAwait(false);
-
-        return result.Match<Results<Created<ItemResponse>, ProblemHttpResult>>(
-            // A new item is a leaf by construction - nothing can have been parented to it between
-            // the insert and this line - so this is provable rather than worth a query.
-            item => TypedResults.Created($"/api/v1/items/{item.Id}", ItemMapping.ToResponse(item, false)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> GetItem(
-        Guid itemId,
-        HttpContext httpContext,
-        [FromServices] Application.Items.GetItem getItem,
-        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
-    {
-        var result = await getItem
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        return TypedResults.Ok(
-            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
-                .ConfigureAwait(false));
-    }
-
-    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> UpdateItem(
-        Guid itemId,
-        UpdateItemRequest request,
-        HttpContext httpContext,
-        [FromServices] RenameItem renameItem,
-        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
-    {
-        var result = await renameItem.ExecuteAsync(
-            ItemId.From(itemId),
-            request.Title,
-            httpContext.RequestAborted).ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        return TypedResults.Ok(
-            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
-                .ConfigureAwait(false));
-    }
-
     /// <summary>
     /// Maps a use case's failure onto the status its stable code implies.
     /// </summary>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="error">Why the use case failed.</param>
+    /// <returns>Problem details describing the failure.</returns>
     /// <remarks>
     /// The code is the contract; the status is a consequence of it. Deciding the status here, in
     /// one place, is what stops two endpoints answering the same failure differently.
     /// </remarks>
-    private static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error)
+    internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error)
     {
         var status = error.Code switch
         {
@@ -261,85 +157,5 @@ internal static class ItemEndpoints
         };
 
         return ApiProblem.Create(httpContext, status, error.Code, "Request refused", error.Message);
-    }
-
-    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> MoveItem(
-        Guid itemId,
-        MoveItemRequest request,
-        HttpContext httpContext,
-        [FromServices] Application.Items.MoveItem moveItem,
-        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
-    {
-        var result = await moveItem.ExecuteAsync(
-            ItemId.From(itemId),
-            request.ParentId is { } parent ? ItemId.From(parent) : null,
-            request.AfterId is { } after ? ItemId.From(after) : null,
-            httpContext.RequestAborted).ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        return TypedResults.Ok(
-            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
-                .ConfigureAwait(false));
-    }
-
-    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteItem(
-        Guid itemId,
-        HttpContext httpContext,
-        [FromServices] Application.Items.DeleteItem deleteItem)
-    {
-        var result = await deleteItem
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        // No body on success, including when the item was already deleted. The status is the whole
-        // answer, and a client retrying after a dropped response gets the same one.
-        return result.Match<Results<NoContent, ProblemHttpResult>>(
-            _ => TypedResults.NoContent(),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static async Task<Results<Ok<ItemResponse>, ProblemHttpResult>> RestoreItem(
-        Guid itemId,
-        HttpContext httpContext,
-        [FromServices] Application.Items.RestoreItem restoreItem,
-        [FromServices] Application.Items.ItemsWithChildren itemsWithChildren)
-    {
-        var result = await restoreItem
-            .ExecuteAsync(ItemId.From(itemId), httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        if (result.IsFailure)
-        {
-            return TypedResults.Problem(Problem(httpContext, result.Error));
-        }
-
-        return TypedResults.Ok(
-            await Respond(result.Value, itemsWithChildren, httpContext.RequestAborted)
-                .ConfigureAwait(false));
-    }
-
-    /// <summary>
-    /// Maps one item, asking whether it has children.
-    /// </summary>
-    /// <remarks>
-    /// One indexed probe returning at most a row - see <c>TreeShapeSql</c>. Written once rather
-    /// than at each of the four endpoints that return a single existing item, because the failure
-    /// mode of forgetting it is not a compile error but a response that says "no children" and
-    /// costs the tree its expand control.
-    /// </remarks>
-    private static async Task<ItemResponse> Respond(
-        Core.Items.Item item,
-        Application.Items.ItemsWithChildren itemsWithChildren,
-        CancellationToken cancellationToken)
-    {
-        var withChildren = await itemsWithChildren
-            .ExecuteAsync(item.WorkspaceId, [item.Id], cancellationToken)
-            .ConfigureAwait(false);
-
-        return ItemMapping.ToResponse(item, withChildren.Contains(item.Id));
     }
 }

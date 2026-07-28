@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Me;
+namespace Nix.Features.Me;
 
 /// <summary>
 /// The signed-in caller, as the API presents them to themselves.

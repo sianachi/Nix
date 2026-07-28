@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Nix.Api.Errors;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Permissions;
+namespace Nix.Features.Permissions;
 
 /// <summary>
 /// Route registration for item sharing.

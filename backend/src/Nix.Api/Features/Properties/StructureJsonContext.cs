@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Features.Properties;
-using Nix.Api.Features.Views;
+using Nix.Features.Properties;
+using Nix.Features.Views;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The structure feature's JSON contract, source-generated.

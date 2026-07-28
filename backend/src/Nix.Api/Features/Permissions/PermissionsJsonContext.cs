@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Features.Permissions;
+using Nix.Features.Permissions;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The sharing feature's JSON contract, source-generated.

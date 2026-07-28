@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Health;
+namespace Nix.Features.Health;
 
 /// <summary>
 /// Identity and clock of the running service. Used by operators and by the

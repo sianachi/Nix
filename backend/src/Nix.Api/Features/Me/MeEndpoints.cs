@@ -1,10 +1,8 @@
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Nix.Api.Errors;
-using Nix.Application.Identity;
-using Nix.Core.Primitives;
+using Nix.Domain.Primitives;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Me;
+namespace Nix.Features.Me;
 
 /// <summary>
 /// Route registration for the caller's own profile.
@@ -27,7 +25,7 @@ internal static class MeEndpoints
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        endpoints.MapGet("/api/v1/me", GetCurrentPrincipal)
+        endpoints.MapGet("/api/v1/me", GetCurrentPrincipalEndpoint.Handle)
             .WithTags("Me")
             .WithName("GetCurrentPrincipal")
             .WithSummary("The signed-in caller")
@@ -45,26 +43,11 @@ internal static class MeEndpoints
         return endpoints;
     }
 
-    private static async Task<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>> GetCurrentPrincipal(
-        HttpContext httpContext,
-        [FromServices] Application.Identity.GetCurrentPrincipal getCurrentPrincipal)
-    {
-        var result = await getCurrentPrincipal
-            .ExecuteAsync(httpContext.RequestAborted)
-            .ConfigureAwait(false);
-
-        return result.Match<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>>(
-            principal => TypedResults.Ok(
-                new CurrentPrincipalResponse(
-                    principal.Id.Value,
-                    principal.TenantId.Value,
-                    principal.DisplayName,
-                    principal.Email,
-                    principal.IsTenantAdministrator)),
-            error => TypedResults.Problem(Problem(httpContext, error)));
-    }
-
-    private static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error) =>
+    /// <summary>Builds the problem details for a failed read of the caller's own profile.</summary>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="error">Why the read failed.</param>
+    /// <returns>Problem details describing the failure.</returns>
+    internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error) =>
         ApiProblem.Create(
             httpContext,
             StatusCodes.Status404NotFound,

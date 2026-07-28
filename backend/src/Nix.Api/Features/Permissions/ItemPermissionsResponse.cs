@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Permissions;
+namespace Nix.Features.Permissions;
 
 /// <summary>
 /// Everything a sharing panel needs about one item's access, decided by the server.

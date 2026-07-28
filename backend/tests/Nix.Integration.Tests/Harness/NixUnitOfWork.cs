@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
-using Nix.Application.Persistence;
-using Nix.Infrastructure.Persistence;
-using Nix.Infrastructure.Persistence.Sql;
-using Nix.Infrastructure.Persistence.Sql.Statements;
+using Nix.Abstractions;
+using Nix.Persistence;
+using Nix.Persistence.Sql;
+using Nix.Persistence.Sql.Statements;
 using Npgsql;
 
 namespace Nix.Integration.Tests.Harness;

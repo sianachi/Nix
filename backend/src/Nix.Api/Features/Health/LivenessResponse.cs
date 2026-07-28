@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Health;
+namespace Nix.Features.Health;
 
 /// <summary>
 /// Body of the liveness probe. Deliberately the smallest useful payload: the

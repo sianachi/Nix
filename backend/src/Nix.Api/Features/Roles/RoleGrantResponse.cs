@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Roles;
+namespace Nix.Features.Roles;
 
 /// <summary>
 /// One role held by a principal or a group, at tenant or workspace level.

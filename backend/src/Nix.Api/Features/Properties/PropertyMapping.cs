@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Nix.Core.Properties;
+using Nix.Domain.Properties;
 
-namespace Nix.Api.Features.Properties;
+namespace Nix.Features.Properties;
 
 /// <summary>
 /// Maps between the property contract and the domain.

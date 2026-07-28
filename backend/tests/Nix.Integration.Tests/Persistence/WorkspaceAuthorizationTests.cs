@@ -1,9 +1,11 @@
 using System.Globalization;
-using Nix.Application.Authorization;
-using Nix.Application.Items;
-using Nix.Core.Items;
-using Nix.Core.Tenancy;
+using Nix.Abstractions;
+using Nix.Domain.Items;
+using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
+using Nix.Features.Items;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -72,15 +74,17 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(ContextFor(Outsider), Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var listing = await work.Resolve<ListItems>()
-                .ExecuteAsync(AlphaWorkspace, null, false, null, 50, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var listing = await dispatcher.QueryAsync<ListItems, Result<IReadOnlyList<Item>>>(
+                new ListItems(AlphaWorkspace, null, false, null, 50),
+                Cancellation);
 
             Assert.True(listing.IsFailure);
             Assert.Equal("workspaces.not_found", listing.Error.Code);
 
             // The item exists, is in this principal's own tenant, and is therefore visible to
             // row-level security. Only the membership check keeps it out of the answer.
-            var read = await work.Resolve<GetItem>().ExecuteAsync(AlphaItem, Cancellation);
+            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
 
             Assert.True(read.IsFailure);
             Assert.Equal("items.not_found", read.Error.Code);
@@ -93,8 +97,10 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(ContextFor(Outsider), Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Trespass", null, null, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(AlphaWorkspace, "note", "Trespass", null, null),
+                Cancellation);
 
             Assert.True(created.IsFailure);
             Assert.Equal("workspaces.not_found", created.Error.Code);
@@ -107,8 +113,10 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var listing = await work.Resolve<ListItems>()
-                .ExecuteAsync(AlphaWorkspace, null, false, null, 50, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var listing = await dispatcher.QueryAsync<ListItems, Result<IReadOnlyList<Item>>>(
+                new ListItems(AlphaWorkspace, null, false, null, 50),
+                Cancellation);
 
             Assert.True(listing.IsSuccess);
             Assert.Contains(listing.Value, item => item.Id == AlphaItem);
@@ -121,15 +129,18 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(ContextFor(Viewer), Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var read = await work.Resolve<GetItem>().ExecuteAsync(AlphaItem, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
             Assert.True(read.IsSuccess);
 
-            var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Not mine to write", null, null, Cancellation);
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(AlphaWorkspace, "note", "Not mine to write", null, null),
+                Cancellation);
             Assert.True(created.IsFailure);
 
-            var renamed = await work.Resolve<RenameItem>()
-                .ExecuteAsync(AlphaItem, "Renamed by a reader", Cancellation);
+            var renamed = await dispatcher.SendAsync<RenameItem, Item>(
+                new RenameItem(AlphaItem, "Renamed by a reader"),
+                Cancellation);
             Assert.True(renamed.IsFailure);
         }
     }
@@ -140,12 +151,15 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         var work = await _fixture.Application.BeginUnitOfWorkAsync(ContextFor(GroupMember), Cancellation);
         await using (work.ConfigureAwait(false))
         {
+            var dispatcher = work.Resolve<NixDispatcher>();
+
             // Never named in workspace_member; admitted entirely by being in a group that is.
-            var read = await work.Resolve<GetItem>().ExecuteAsync(AlphaItem, Cancellation);
+            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
             Assert.True(read.IsSuccess);
 
-            var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Written through a group", null, null, Cancellation);
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(AlphaWorkspace, "note", "Written through a group", null, null),
+                Cancellation);
             Assert.True(created.IsSuccess);
         }
     }
@@ -158,11 +172,13 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         {
             Assert.True(await work.Resolve<IPermissionResolver>().IsTenantAdministratorAsync(Cancellation));
 
-            var read = await work.Resolve<GetItem>().ExecuteAsync(AlphaItem, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
             Assert.True(read.IsSuccess);
 
-            var created = await work.Resolve<CreateItem>()
-                .ExecuteAsync(AlphaWorkspace, "note", "Administered", null, null, Cancellation);
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(AlphaWorkspace, "note", "Administered", null, null),
+                Cancellation);
             Assert.True(created.IsSuccess);
         }
     }
@@ -175,7 +191,8 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         {
             // The membership row exists and names this principal. The role text does not parse, so
             // it confers nothing - a build older than the data refuses rather than guesses.
-            var read = await work.Resolve<GetItem>().ExecuteAsync(AlphaItem, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
 
             Assert.True(read.IsFailure);
             Assert.Equal("items.not_found", read.Error.Code);
@@ -198,14 +215,16 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
         {
             Assert.False(await work.Resolve<IPermissionResolver>().IsTenantAdministratorAsync(Cancellation));
 
-            var listing = await work.Resolve<ListItems>()
-                .ExecuteAsync(AlphaWorkspace, null, false, null, 50, Cancellation);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var listing = await dispatcher.QueryAsync<ListItems, Result<IReadOnlyList<Item>>>(
+                new ListItems(AlphaWorkspace, null, false, null, 50),
+                Cancellation);
 
             Assert.True(listing.IsFailure);
         }
     }
 
-    private static Nix.Application.Persistence.NixSessionContext ContextFor(Guid principalId) =>
+    private static Nix.Abstractions.NixSessionContext ContextFor(Guid principalId) =>
         TestTenants.ContextFor(M0SchemaSeed.Alpha.TenantId, M0SchemaSeed.Alpha.WorkspaceId, principalId);
 
     private async Task SeedPrincipalsAsync()

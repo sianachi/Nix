@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Nix.Api.Features.Me;
+using Nix.Features.Me;
 
-namespace Nix.Api.Serialization;
+namespace Nix.Serialization;
 
 /// <summary>
 /// The profile feature's JSON contract, source-generated.

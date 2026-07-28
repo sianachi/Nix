@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace Nix.Api;
+namespace Nix;
 
 /// <summary>
 /// Structured log messages for the API host. Source-generated, so a message costs no allocation

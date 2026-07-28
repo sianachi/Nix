@@ -1,9 +1,45 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <ItemGroup>
-    <ProjectReference Include="..\Nix.Application\Nix.Application.csproj" />
-    <ProjectReference Include="..\Nix.Infrastructure\Nix.Infrastructure.csproj" />
-  </ItemGroup>
+  <!--
+    The backend, in one project.
+
+    Nix.Core, Nix.Application and Nix.Infrastructure were folded in here; their
+    package references are absorbed below. Folders carry the layering that
+    project boundaries used to: Domain/ is the model, Abstractions/ holds the
+    ports, Persistence/ implements them, Features/ holds the vertical slices.
+
+    That boundary is no longer enforced by the compiler. Three
+    DependencyDirectionTests used to assert against assembly references and
+    cannot exist in a single assembly; scripts/check-layering.sh replaces them
+    with a source-level check, which is weaker on purpose and knowingly. See
+    ADR-0015.
+  -->
+  <PropertyGroup>
+    <!-- The assembly stays Nix.Api: the OpenAPI target below derives its staged
+         document name from the project name, and WebApplicationFactory<Program>
+         hosts this assembly by name from the test project. The root namespace
+         drops the .Api suffix because this project is no longer only the API. -->
+    <RootNamespace>Nix</RootNamespace>
+
+    <!--
+      CA1515 wants an application's types internal, on the premise that nothing
+      outside the assembly references them. That premise held while the domain,
+      the use cases and the persistence adapters were three class libraries;
+      folding them into this executable made the rule fire on essentially every
+      type in the backend at once.
+
+      Justification: the premise is false here. Nix.Tests and Nix.Integration.Tests
+      are real external consumers of these types, and CLAUDE.md requires tests
+      that query behavior rather than reach through visibility loopholes. The
+      alternative - marking ~200 types internal and opening them back up with
+      InternalsVisibleTo - would relocate the same public surface into a place
+      where no analyzer can see it, which is worse than declaring it.
+
+      Test projects already suppress this rule in backend/Directory.Build.props
+      for the adjacent reason that xUnit1000 requires public test classes.
+    -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
@@ -14,6 +50,21 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <!-- Absorbed from Nix.Infrastructure. Only Persistence/ may use these; the
+       layering guard fails the build if Domain/ names EF Core or Npgsql. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <!-- Absorbed from Nix.Core. Value types and a tz database, no I/O - the one
+       third-party dependency the domain was ever allowed. See ADR-0012. -->
+  <ItemGroup>
+    <PackageReference Include="NodaTime" />
   </ItemGroup>
 
   <!--

@@ -1,7 +1,7 @@
 using System.Globalization;
-using Nix.Core.Items;
+using Nix.Domain.Items;
 
-namespace Nix.Api.Features.Items;
+namespace Nix.Features.Items;
 
 /// <summary>
 /// The opaque cursor for paging a folder's children.

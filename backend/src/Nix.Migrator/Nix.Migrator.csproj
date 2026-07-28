@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Nix.Infrastructure\Nix.Infrastructure.csproj" />
+    <ProjectReference Include="..\Nix.Api\Nix.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

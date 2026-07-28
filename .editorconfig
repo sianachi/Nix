@@ -32,3 +32,17 @@ indent_size = 2
 
 [Makefile]
 indent_style = tab
+
+# CA1716 rejects namespaces that collide with a reserved word in another .NET
+# language; "Me" is Visual Basic's `this`. The rule started firing here only when
+# the backend collapsed into one assembly and GetCurrentPrincipal became a public
+# type in this namespace - the folder and namespace predate that and mirror the
+# published route /api/v1/me.
+#
+# Justification: scoped to this one folder rather than suppressed project-wide,
+# so the rule still catches a genuinely awkward namespace elsewhere. Nix has no
+# Visual Basic consumer and no plan for one; the only generated client is
+# TypeScript, built from backend/openapi/nix-api.json. Renaming the namespace
+# away from the route it serves would cost more clarity than the rule buys.
+[backend/src/Nix.Api/Features/Me/*.cs]
+dotnet_diagnostic.CA1716.severity = none

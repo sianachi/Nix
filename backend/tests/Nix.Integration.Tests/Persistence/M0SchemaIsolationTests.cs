@@ -1,12 +1,12 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
-using Nix.Application.Persistence;
-using Nix.Core.Audit;
-using Nix.Core.Identity;
-using Nix.Core.Tenancy;
-using Nix.Infrastructure.Persistence;
+using Nix.Abstractions;
+using Nix.Domain.Audit;
+using Nix.Domain.Identity;
+using Nix.Domain.Tenancy;
 using Nix.Integration.Tests.Harness;
+using Nix.Persistence;
 using Npgsql;
 
 namespace Nix.Integration.Tests.Persistence;

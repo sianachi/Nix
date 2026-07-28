@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Nix.Infrastructure\Nix.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Nix.Api\Nix.Api.csproj" />
   </ItemGroup>
 

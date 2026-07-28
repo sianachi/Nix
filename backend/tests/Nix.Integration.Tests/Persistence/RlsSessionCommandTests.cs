@@ -1,6 +1,6 @@
-using Nix.Application.Persistence;
-using Nix.Infrastructure.Persistence.Rls;
+using Nix.Abstractions;
 using Nix.Integration.Tests.Harness;
+using Nix.Persistence.Rls;
 
 namespace Nix.Integration.Tests.Persistence;
 

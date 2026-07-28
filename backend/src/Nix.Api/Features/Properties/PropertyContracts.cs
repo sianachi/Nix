@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace Nix.Api.Features.Properties;
+namespace Nix.Features.Properties;
 
 /// <summary>
 /// One property a schema declares, as the API presents it.

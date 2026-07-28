@@ -1,4 +1,4 @@
-namespace Nix.Api.Features.Health;
+namespace Nix.Features.Health;
 
 /// <summary>
 /// Result of one named health check. Named checks exist so an operator can probe

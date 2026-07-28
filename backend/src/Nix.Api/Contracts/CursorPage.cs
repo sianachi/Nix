@@ -1,4 +1,4 @@
-namespace Nix.Api.Contracts;
+namespace Nix.Contracts;
 
 /// <summary>
 /// One slice of a list, and an opaque cursor for the next.

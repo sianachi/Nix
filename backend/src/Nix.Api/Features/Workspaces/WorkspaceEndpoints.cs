@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Nix.Api.Contracts;
-using Nix.Api.Errors;
+using Nix.Contracts;
+using Nix.Errors;
 
-namespace Nix.Api.Features.Workspaces;
+namespace Nix.Features.Workspaces;
 
 /// <summary>
 /// Route registration for the workspaces feature.

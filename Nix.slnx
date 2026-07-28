@@ -28,16 +28,11 @@
 
   <Folder Name="/backend/src/">
     <Project Path="backend/src/Nix.Api/Nix.Api.csproj" />
-    <Project Path="backend/src/Nix.Application/Nix.Application.csproj" />
-    <Project Path="backend/src/Nix.Core/Nix.Core.csproj" />
-    <Project Path="backend/src/Nix.Infrastructure/Nix.Infrastructure.csproj" />
     <Project Path="backend/src/Nix.Migrator/Nix.Migrator.csproj" />
   </Folder>
 
   <Folder Name="/backend/tests/">
-    <Project Path="backend/tests/Nix.Api.Tests/Nix.Api.Tests.csproj" />
-    <Project Path="backend/tests/Nix.Application.Tests/Nix.Application.Tests.csproj" />
-    <Project Path="backend/tests/Nix.Core.Tests/Nix.Core.Tests.csproj" />
+    <Project Path="backend/tests/Nix.Tests/Nix.Tests.csproj" />
     <Project Path="backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj" />
   </Folder>
 

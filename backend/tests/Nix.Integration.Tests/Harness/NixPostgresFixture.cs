@@ -1,4 +1,4 @@
-using Nix.Infrastructure.Persistence.Migrations;
+using Nix.Persistence.Migrations;
 using Npgsql;
 using Respawn;
 using Testcontainers.PostgreSql;
