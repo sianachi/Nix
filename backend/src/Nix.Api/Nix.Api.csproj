@@ -19,9 +19,9 @@
   <!--
     OpenAPI contract artifact.
 
-    REGENERATE WITH (from the backend/ directory):
+    REGENERATE WITH (from the repository root):
 
-        dotnet build src/Nix.Api/Nix.Api.csproj
+        dotnet build backend/src/Nix.Api/Nix.Api.csproj
 
     That is the whole command - generation is wired into Build, so any ordinary
     `dotnet build` refreshes backend/openapi/nix-api.json. CI runs the same build

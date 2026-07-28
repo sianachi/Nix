@@ -5,6 +5,11 @@
 # parallel without contending for one file. Path filters mean a frontend-only
 # change does not queue a .NET toolchain run, and vice versa. Files shared by
 # both lanes (the guard scripts, the workflows themselves) trigger both.
+#
+# Nix.slnx sits at the repository root rather than under backend/ so that one
+# IDE window covers both lanes. That puts it outside the backend/** filter, so
+# it is listed on its own below; the steps that name it run from the checkout
+# root while the per-project steps still run from backend/.
 name: CI backend
 
 on:
@@ -12,12 +17,14 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'Nix.slnx'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
       - '.github/workflows/ci-backend.yml'
   pull_request:
     paths:
       - 'backend/**'
+      - 'Nix.slnx'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
       - '.github/workflows/ci-backend.yml'
@@ -46,11 +53,9 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Verify formatting (dotnet format)
-        working-directory: backend
         run: dotnet format Nix.slnx --verify-no-changes
 
       - name: Build (analyzers + warnings-as-errors)
-        working-directory: backend
         run: dotnet build Nix.slnx --configuration Release
 
       # The build above regenerates backend/openapi/nix-api.json (see the OpenAPI
