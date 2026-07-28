@@ -7,6 +7,11 @@
 docs
 Design language for Nix review/
 
+# Per-checkout list of paths scripts/new-goal-worktree.sh links into a lane.
+# Untracked by nature: it names what this checkout has and the repository does
+# not carry.
+.worktree-links
+
 # --- OS ---
 .DS_Store
 Thumbs.db

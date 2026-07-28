@@ -15,7 +15,7 @@
 # Creates:
 #   ../nix-lanes/<slug>        the worktree
 #   goal/<slug>                the branch
-#   docs                       a symlink back to this checkout
+#   .worktree-links paths      symlinks back to this checkout
 #
 # Removing one when the goal has merged:
 #   git worktree remove ../nix-lanes/<slug> && git branch -d goal/<slug>
@@ -72,8 +72,24 @@ git worktree add -b "$branch" "$worktree" "$base" >/dev/null
 # Symlinked rather than copied so there is one copy: an agent updating the goal
 # board updates the board, not a private fork of it. .gitignore matches these
 # without a trailing slash, so the links themselves stay untracked.
-for link in docs; do
-  if [ -e "$repo_root/$link" ]; then
+#
+# Which paths get linked is a property of the checkout rather than of the
+# repository - the whole point is to carry across what the repository does not
+# contain, and that differs per machine. List them one to a line in
+# .worktree-links (untracked, '#' comments allowed); with no such file the docs
+# are linked and nothing else. A path that is not present is skipped silently,
+# so a partial list costs nothing.
+link_list() {
+  if [ -f "$repo_root/.worktree-links" ]; then
+    sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$repo_root/.worktree-links"
+  else
+    echo docs
+  fi
+}
+
+link_list | while IFS= read -r link; do
+  [ -n "$link" ] || continue
+  if [ -e "$repo_root/$link" ] && [ ! -e "$worktree/$link" ]; then
     ln -s "$repo_root/$link" "$worktree/$link"
     echo "worktree: linked $link"
   fi
