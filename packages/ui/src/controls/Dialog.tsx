@@ -192,13 +192,19 @@ export function Dialog(props: DialogProps): ReactNode {
         // Opaque, unlike a card: a transparent line drawing over live content is unreadable, and
         // this is the one place in the system where a surface has to sit on top of another.
         'bg-background text-foreground',
+        // design-token-exempt: 560px is a comfortable reading measure for a modal, not a step on
+        // any scale - the same category as the shell's sidebar and panel widths, which
+        // apps/web/src/app/layout.ts keeps out of the token sheet for the same reason. Making it a
+        // token would have the design system carry one number used in one place, and the gutter
+        // beside it already comes from `--spacing`.
         'w-[min(560px,calc(100vw-var(--spacing)*8))]',
         // The scrim is the one colour in the library that must *not* follow the ground. It exists
         // to dim what is behind the modal, and an ink wash of `--color-foreground` stops doing
         // that the moment the foreground is paper: on the dark ground it would be a light veil
         // that brightens the page instead of pushing it back. The neutral ramp does not move
         // between grounds (ADR-0008), so its deepest step is the one thing here that darkens on
-        // both - which is why this is a ramp step rather than a role, and the only one left.
+        // both - which is why this is a ramp step rather than a role. It is one of exactly two:
+        // the other is `<Duotone>`, whose two tones must not move for the same kind of reason.
         'backdrop:bg-neutral-900/40',
         className,
       )}
