@@ -140,10 +140,10 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             .ResolveForChildrenAsync(parentId, cancellationToken)
             .ConfigureAwait(false);
 
-        // Supplied rather than complete: a required property is a statement about a finished item,
-        // and enforcing it here would make an item impossible to create inside any container that
-        // requires anything. Everything actually supplied faces its declaration exactly as a later
-        // write would.
+        // A create owes no required value at all: a required property is a statement about a
+        // finished item, and demanding one here would make an item impossible to create inside any
+        // container that requires anything. Everything actually supplied faces its declaration
+        // exactly as a later write would.
         var violations = PropertyValidator.ValidateSupplied(bag, schema);
         if (!violations.IsEmpty)
         {

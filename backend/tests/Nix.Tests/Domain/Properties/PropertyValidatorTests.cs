@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using Nix.Domain.Items;
 using Nix.Domain.Properties;
 
 namespace Nix.Tests.Domain.Properties;
@@ -40,7 +41,7 @@ public sealed class PropertyValidatorTests
              "legacy":{"nested":[1,2,3]},"stage":"Shipped"}
             """;
 
-        Assert.Empty(PropertyValidator.Validate(bag, schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied(bag, schema));
     }
 
     [Fact]
@@ -50,51 +51,83 @@ public sealed class PropertyValidatorTests
         // returns to when one is deleted. Neither is a reason to refuse the next rename.
         var bag = """{"title":"Notes","status":"Doing","estimate":3}""";
 
-        Assert.Empty(PropertyValidator.Validate(bag, PropertySchema.Empty));
+        Assert.Empty(PropertyValidator.ValidateSupplied(bag, PropertySchema.Empty));
     }
 
     [Fact]
-    public void A_required_property_with_no_value_at_all_is_refused()
+    public void A_write_that_clears_a_required_property_is_refused()
     {
+        // Null is what a client clearing a field sends, and the merge removes the key, so by the
+        // time the bag is checked "cleared" and "never set" look identical. Only the change
+        // document tells them apart - which is why the write is checked against it and not just
+        // against its result.
         var schema = SchemaOf(Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]));
 
-        var violation = Assert.Single(PropertyValidator.Validate("""{"title":"Notes"}""", schema));
+        var violation = Assert.Single(
+            PropertyValidator.ValidateWrite(WriteOf("""{"title":"Notes"}""", """{"status":null}"""), schema));
 
         Assert.Equal("status", violation.Key);
         Assert.Equal("Status is required.", violation.Reason);
     }
 
     [Fact]
-    public void A_required_property_set_to_null_is_refused_in_the_same_terms()
+    public void A_write_is_not_refused_for_a_required_property_it_did_not_touch()
     {
-        // Null is what a client clearing a field sends, so it has to mean absent. If it meant
-        // "present but empty", every required property in the system would be satisfiable by
-        // sending null - a rule the interface enforces and the server does not.
-        var schema = SchemaOf(Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]));
+        // The whole point of the goal. Declaring a property required must not write-lock the items
+        // that already exist: a board drag setting "status" is not the moment to demand an "owner"
+        // the board does not draw, cannot supply, and was never asked about.
+        var schema = SchemaOf(
+            Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]),
+            Property("owner", PropertyType.Text, "Owner", required: true));
 
-        var violation = Assert.Single(PropertyValidator.Validate("""{"status":null}""", schema));
-
-        Assert.Equal("status", violation.Key);
-        Assert.Equal("Status is required.", violation.Reason);
+        Assert.Empty(
+            PropertyValidator.ValidateWrite(
+                WriteOf("""{"title":"Notes"}""", """{"status":"Todo"}"""),
+                schema));
     }
 
     [Fact]
-    public void An_optional_property_set_to_null_is_a_property_that_is_not_set()
+    public void A_write_that_sets_a_required_property_to_a_real_value_is_accepted()
+    {
+        var schema = SchemaOf(Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]));
+
+        Assert.Empty(
+            PropertyValidator.ValidateWrite(WriteOf(null, """{"status":"Todo"}"""), schema));
+    }
+
+    [Fact]
+    public void A_write_that_clears_an_optional_property_is_a_property_that_is_not_set()
     {
         var schema = SchemaOf(Property("due", PropertyType.Date, "Due date"));
 
-        Assert.Empty(PropertyValidator.Validate("""{"due":null}""", schema));
+        Assert.Empty(
+            PropertyValidator.ValidateWrite(WriteOf("""{"title":"Notes"}""", """{"due":null}"""), schema));
     }
 
     [Fact]
-    public void A_bag_with_no_bag_at_all_still_owes_the_required_properties()
+    public void A_write_that_names_nothing_owes_nothing()
     {
+        // An empty change document is a write that touched no key, so there is no required value
+        // it could be refused over. Pinned because it is the boundary of the rule rather than an
+        // afterthought: the old check would have refused this whenever anything required was
+        // missing, over a request that changed not one thing.
+        var schema = SchemaOf(Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]));
+
+        Assert.Empty(PropertyValidator.ValidateWrite(WriteOf("""{"title":"Notes"}""", "{}"), schema));
+    }
+
+    [Fact]
+    public void A_create_owes_no_required_value_at_all()
+    {
+        // A required property is a statement about a finished item rather than about a first
+        // keystroke. Demanding them here would mean nothing could be created inside a container
+        // that requires anything.
         var schema = SchemaOf(
             Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]),
             Property("due", PropertyType.Date, "Due date"));
 
-        Assert.Single(PropertyValidator.Validate(null, schema));
-        Assert.Empty(PropertyValidator.Validate(null, SchemaOf(Property("due", PropertyType.Date, "Due date"))));
+        Assert.Empty(PropertyValidator.ValidateSupplied(null, schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied("""{"title":"Notes"}""", schema));
     }
 
     [Fact]
@@ -108,11 +141,33 @@ public sealed class PropertyValidatorTests
             Property("estimate", PropertyType.Number, "Estimate"),
             Property("owner", PropertyType.Text, "Owner", required: true));
 
-        var violations = PropertyValidator.Validate(
-            """{"status":"Shipped","due":"yesterday","estimate":"three"}""",
+        // All four keys are named by the write, so all four are its business: three hold values
+        // that do not fit, and the fourth is being cleared while required.
+        var violations = PropertyValidator.ValidateWrite(
+            WriteOf(
+                """{"owner":"Ada"}""",
+                """{"status":"Shipped","due":"yesterday","estimate":"three","owner":null}"""),
             schema);
 
         string[] expected = ["status", "due", "estimate", "owner"];
+        Assert.Equal(expected, violations.Select(violation => violation.Key).ToArray());
+    }
+
+    [Fact]
+    public void Violations_come_back_in_the_order_the_schema_declares_them()
+    {
+        // Not in the order the change document happens to list them: the schema is the order a
+        // person authored and the order a form draws, so a list of problems that followed the
+        // request body would jump around between one write and the next.
+        var schema = SchemaOf(
+            Property("status", PropertyType.Select, "Status", options: ["Todo"]),
+            Property("estimate", PropertyType.Number, "Estimate"));
+
+        var violations = PropertyValidator.ValidateWrite(
+            WriteOf(null, """{"estimate":"three","status":"Shipped"}"""),
+            schema);
+
+        string[] expected = ["status", "estimate"];
         Assert.Equal(expected, violations.Select(violation => violation.Key).ToArray());
     }
 
@@ -123,7 +178,7 @@ public sealed class PropertyValidatorTests
         // date" is actionable; "due_at_utc must be a date" is a leak of the storage key.
         var schema = SchemaOf(Property("due_at", PropertyType.Date, "Due date"));
 
-        var violation = Assert.Single(PropertyValidator.Validate("""{"due_at":"2026-13-01"}""", schema));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied("""{"due_at":"2026-13-01"}""", schema));
 
         Assert.Equal("due_at", violation.Key);
         Assert.Equal("Due date must be a date, as yyyy-MM-dd.", violation.Reason);
@@ -220,7 +275,7 @@ public sealed class PropertyValidatorTests
     {
         var schema = SchemaOf(Property("field", PropertyType.Select, "Field", options: ["Todo", "Done"]));
 
-        Assert.Empty(PropertyValidator.Validate("""{"field":"Done"}""", schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied("""{"field":"Done"}""", schema));
     }
 
     [Theory]
@@ -232,7 +287,7 @@ public sealed class PropertyValidatorTests
     {
         var schema = SchemaOf(Property("field", PropertyType.Select, "Field", options: ["Todo", "Done"]));
 
-        var violation = Assert.Single(PropertyValidator.Validate($$"""{"field":{{value}}}""", schema));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied($$"""{"field":{{value}}}""", schema));
 
         Assert.Equal(reason, violation.Reason);
     }
@@ -245,7 +300,7 @@ public sealed class PropertyValidatorTests
     {
         var schema = SchemaOf(Property("field", PropertyType.MultiSelect, "Field", options: ["Todo", "Done"]));
 
-        Assert.Empty(PropertyValidator.Validate($$"""{"field":{{value}}}""", schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied($$"""{"field":{{value}}}""", schema));
     }
 
     [Theory]
@@ -263,7 +318,7 @@ public sealed class PropertyValidatorTests
     {
         var schema = SchemaOf(Property("field", PropertyType.MultiSelect, "Field", options: ["Todo", "Done"]));
 
-        var violation = Assert.Single(PropertyValidator.Validate($$"""{"field":{{value}}}""", schema));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied($$"""{"field":{{value}}}""", schema));
 
         Assert.Equal(reason, violation.Reason);
     }
@@ -277,7 +332,7 @@ public sealed class PropertyValidatorTests
     {
         // Reported against the empty key because no single property is at fault. The endpoint turns
         // that into a problem document about the request body rather than about a field.
-        var violation = Assert.Single(PropertyValidator.Validate(properties, PropertySchema.Empty));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied(properties, PropertySchema.Empty));
 
         Assert.Equal(string.Empty, violation.Key);
         Assert.Equal("The properties must be a JSON object.", violation.Reason);
@@ -293,7 +348,7 @@ public sealed class PropertyValidatorTests
     {
         // A parse failure here is a bad request, not a fault: the bytes came from a client, so the
         // answer is a 400 naming the problem, never an exception surfacing as a 500.
-        var violation = Assert.Single(PropertyValidator.Validate(properties, PropertySchema.Empty));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied(properties, PropertySchema.Empty));
 
         Assert.Equal(string.Empty, violation.Key);
         Assert.Equal("The properties are not valid JSON.", violation.Reason);
@@ -305,7 +360,7 @@ public sealed class PropertyValidatorTests
         var bag = BagOfSize(PropertyValidator.MaximumBytes, 'a');
 
         Assert.Equal(PropertyValidator.MaximumBytes, Encoding.UTF8.GetByteCount(bag));
-        Assert.Empty(PropertyValidator.Validate(bag, PropertySchema.Empty));
+        Assert.Empty(PropertyValidator.ValidateSupplied(bag, PropertySchema.Empty));
     }
 
     [Fact]
@@ -314,10 +369,16 @@ public sealed class PropertyValidatorTests
         // Checked here as well as by the column so an oversized bag is a problem document naming
         // the limit, rather than a constraint violation arriving as a 500. It is also the reason
         // the size check comes first: a bag too large to store is not worth parsing.
+        //
+        // The schema declares the bag's own "title" as a number, which the oversized bag holds as
+        // text. That is a second, live violation - so Assert.Single is what proves the size check
+        // returned early rather than merely running first. Declaring some other property required
+        // would not: required-ness is enforced only on keys a write names, so it would be silently
+        // inert here and the assertion would pass against a method that had stopped short-circuiting.
         var bag = BagOfSize(PropertyValidator.MaximumBytes + 1, 'a');
-        var schema = SchemaOf(Property("status", PropertyType.Select, "Status", required: true, options: ["Todo"]));
+        var schema = SchemaOf(Property("title", PropertyType.Number, "Title"));
 
-        var violation = Assert.Single(PropertyValidator.Validate(bag, schema));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied(bag, schema));
 
         Assert.Equal(string.Empty, violation.Key);
         Assert.Equal($"A property bag may be at most {PropertyValidator.MaximumBytes} bytes.", violation.Reason);
@@ -331,24 +392,40 @@ public sealed class PropertyValidatorTests
         var bag = BagOfSize(PropertyValidator.MaximumBytes, 'é');
 
         Assert.True(Encoding.UTF8.GetByteCount(bag) > PropertyValidator.MaximumBytes);
-        Assert.Single(PropertyValidator.Validate(bag, PropertySchema.Empty));
+        Assert.Single(PropertyValidator.ValidateSupplied(bag, PropertySchema.Empty));
     }
 
     private static void AssertAccepted(PropertyType type, string value)
     {
         var schema = SchemaOf(Property("field", type, "Field"));
 
-        Assert.Empty(PropertyValidator.Validate($$"""{"field":{{value}}}""", schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied($$"""{"field":{{value}}}""", schema));
     }
 
     private static void AssertRefused(PropertyType type, string value, string reason)
     {
         var schema = SchemaOf(Property("field", type, "Field"));
 
-        var violation = Assert.Single(PropertyValidator.Validate($$"""{"field":{{value}}}""", schema));
+        var violation = Assert.Single(PropertyValidator.ValidateSupplied($$"""{"field":{{value}}}""", schema));
 
         Assert.Equal("field", violation.Key);
         Assert.Equal(reason, violation.Reason);
+    }
+
+    /// <summary>
+    /// A write, built the way the request path builds one.
+    /// </summary>
+    /// <remarks>
+    /// Through the real merge rather than by hand-pairing a bag with a key list. That pairing is
+    /// what the rule turns on - which keys were named, against what the bag ended up as - and a
+    /// test that assembled the two itself could assert a combination the merge cannot produce.
+    /// </remarks>
+    private static PropertyWrite WriteOf(string? stored, string changes)
+    {
+        var write = ItemProperties.Merge(stored, changes);
+
+        Assert.NotNull(write);
+        return write.Value;
     }
 
     /// <summary>A syntactically valid bag whose text is exactly <paramref name="length"/> characters.</summary>
@@ -383,7 +460,7 @@ public sealed class PropertyValidatorTests
     {
         var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
 
-        Assert.Empty(PropertyValidator.Validate($$"""{"at":"{{text}}"}""", schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied($$"""{"at":"{{text}}"}""", schema));
     }
 
     [Fact]
@@ -395,9 +472,9 @@ public sealed class PropertyValidatorTests
         var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
 
         Assert.Empty(
-            PropertyValidator.Validate("""{"at":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
+            PropertyValidator.ValidateSupplied("""{"at":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
         Assert.Empty(
-            PropertyValidator.Validate("""{"at":"2026-07-17T09:00:00+01:00[Europe/London]"}""", schema));
+            PropertyValidator.ValidateSupplied("""{"at":"2026-07-17T09:00:00+01:00[Europe/London]"}""", schema));
     }
 
     [Fact]
@@ -408,7 +485,7 @@ public sealed class PropertyValidatorTests
         var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
 
         var violations =
-            PropertyValidator.Validate("""{"at":"2026-07-17T09:00:00+00:00[Europe/London]"}""", schema);
+            PropertyValidator.ValidateSupplied("""{"at":"2026-07-17T09:00:00+00:00[Europe/London]"}""", schema);
 
         Assert.Contains("Europe/London", Assert.Single(violations).Reason, StringComparison.Ordinal);
     }
@@ -423,7 +500,7 @@ public sealed class PropertyValidatorTests
         // the next time those rules change, which is the failure the whole type exists to avoid.
         var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
 
-        Assert.Single(PropertyValidator.Validate($$"""{"at":"{{text}}"}""", schema));
+        Assert.Single(PropertyValidator.ValidateSupplied($$"""{"at":"{{text}}"}""", schema));
     }
 
     [Fact]
@@ -432,7 +509,7 @@ public sealed class PropertyValidatorTests
         var schema = SchemaOf(Property("at", PropertyType.Timestamp, "At"));
 
         var violations =
-            PropertyValidator.Validate("""{"at":"2026-03-17T09:00:00+00:00[Middle/Earth]"}""", schema);
+            PropertyValidator.ValidateSupplied("""{"at":"2026-03-17T09:00:00+00:00[Middle/Earth]"}""", schema);
 
         // Named, because "invalid" leaves somebody guessing whether it was the date, the offset or
         // the spelling of the zone.
@@ -448,6 +525,6 @@ public sealed class PropertyValidatorTests
         var schema = SchemaOf(Property("due", PropertyType.Date, "Due"));
 
         Assert.Single(
-            PropertyValidator.Validate("""{"due":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
+            PropertyValidator.ValidateSupplied("""{"due":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
     }
 }

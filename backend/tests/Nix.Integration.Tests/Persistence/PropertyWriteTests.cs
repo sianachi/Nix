@@ -247,13 +247,59 @@ public sealed class PropertyWriteTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_required_property_must_be_supplied()
+    public async Task A_required_property_declared_later_does_not_lock_the_items_that_already_exist()
     {
+        // The whole reason the write path stopped asking for a complete bag. This used to fail:
+        // the note predates the requirement, has no owner, and a write touching something else
+        // was refused over it. Declaring a property required would have write-locked every item
+        // beneath the folder, and the only way out was a write supplying every missing required
+        // value at once - which no screen in the product offers.
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var folder = await NewItemAsync(work, "Project", null, "folder");
+            var dispatcher = work.Resolve<NixDispatcher>();
 
+            var note = await NewItemAsync(work, "Note", folder.Id);
+
+            // The requirement arrives after the note, which is the ordinary order: people author a
+            // schema once there is something to describe.
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties =
+                        [
+                            new PropertyDefinition("owner", "Owner", PropertyType.Text, [], true),
+                            new PropertyDefinition("stage", "Stage", PropertyType.Text, [], false),
+                        ],
+                    }),
+                Cancellation);
+
+            var written = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"stage":"Drafting"}"""),
+                Cancellation);
+
+            Assert.True(written.IsSuccess);
+            Assert.Contains("Drafting", written.Value.Properties, StringComparison.Ordinal);
+
+            // And the required key it never mentioned is still absent. Asserted so that a future
+            // "helpfully fill in the required value" would fail here rather than pass quietly.
+            Assert.DoesNotContain("owner", written.Value.Properties, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task A_write_that_clears_a_required_property_is_still_refused()
+    {
+        // The other half, and what keeps "required" meaning anything: you are not blocked by a
+        // required value somebody else left empty, but you cannot empty one yourself.
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
             var dispatcher = work.Resolve<NixDispatcher>();
 
             await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
@@ -268,12 +314,61 @@ public sealed class PropertyWriteTests : IAsyncLifetime
 
             var note = await NewItemAsync(work, "Note", folder.Id);
 
+            var filled = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"owner":"Ada"}"""),
+                Cancellation);
+            Assert.True(filled.IsSuccess);
+
+            var cleared = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(note.Id, """{"owner":null}"""),
+                Cancellation);
+
+            Assert.True(cleared.IsFailure);
+            Assert.Equal("properties.invalid", cleared.Error.Code);
+            Assert.Contains("Owner", cleared.Error.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task A_write_setting_a_required_property_to_a_value_that_does_not_fit_is_refused()
+    {
+        // Loosening which values are owed must not loosen how a supplied value is checked.
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(
+                    folder.Id,
+                    new PropertySchema
+                    {
+                        Inherit = true,
+                        Properties =
+                        [
+                            new PropertyDefinition(
+                                "stage",
+                                "Stage",
+                                PropertyType.Select,
+                                ["Drafting", "Shipped"],
+                                true),
+                        ],
+                    }),
+                Cancellation);
+
+            var note = await NewItemAsync(work, "Note", folder.Id);
+
             var written = await dispatcher.SendAsync<SetItemProperties, Item>(
-                new SetItemProperties(note.Id, """{"note":"anything"}"""),
+                new SetItemProperties(note.Id, """{"stage":"Abandoned"}"""),
                 Cancellation);
 
             Assert.True(written.IsFailure);
-            Assert.Contains("Owner", written.Error.Message, StringComparison.Ordinal);
+            Assert.Equal("properties.invalid", written.Error.Code);
+
+            // Named, not just coded: a refusal that does not say which property is at fault sends
+            // the reader to look at all of them.
+            Assert.Contains("Stage", written.Error.Message, StringComparison.Ordinal);
         }
     }
 

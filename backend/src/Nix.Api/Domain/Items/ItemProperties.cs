@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Nix.Domain.Properties;
 
 namespace Nix.Domain.Items;
 
@@ -34,7 +36,8 @@ public static class ItemProperties
     /// <param name="properties">The stored bag, or <see langword="null"/> when the item has none.</param>
     /// <param name="changes">The properties to set, as a JSON object.</param>
     /// <returns>
-    /// The merged bag, or <see langword="null"/> when the changes are not a JSON object.
+    /// The merged bag and the keys the changes named, or <see langword="null"/> when the changes
+    /// are not a usable JSON object.
     /// </returns>
     /// <remarks>
     /// <para>
@@ -45,45 +48,60 @@ public static class ItemProperties
     /// <para>
     /// <b>An explicit null removes the key.</b> That is what a client clearing a field sends, and
     /// keeping a null around would leave "set but empty" and "not set" indistinguishable to
-    /// everything downstream - including the required check, which would then be satisfiable by
-    /// sending null.
+    /// everything downstream.
+    /// </para>
+    /// <para>
+    /// <b>The touched keys come back with the bag because only this method can still see them.</b>
+    /// Once a null has removed a key, the merged bag cannot tell "cleared" from "never set", and
+    /// that distinction is the whole of the required-value rule
+    /// (<see cref="PropertyValidator.ValidateWrite"/>). Returning both together also means the two
+    /// cannot disagree: there is no way to hand a validator the bag from one write and the key list
+    /// from another, which would fail silently rather than loudly.
     /// </para>
     /// </remarks>
-    public static string? Merge(string? properties, string changes)
+    public static PropertyWrite? Merge(string? properties, string changes)
     {
         ArgumentNullException.ThrowIfNull(changes);
 
-        JsonNode? parsed;
         try
         {
-            parsed = JsonNode.Parse(changes);
+            if (JsonNode.Parse(changes) is not JsonObject incoming)
+            {
+                return null;
+            }
+
+            var bag = ReadObject(properties) ?? new JsonObject();
+            var touched = ImmutableArray.CreateBuilder<string>(incoming.Count);
+
+            foreach (var change in incoming)
+            {
+                touched.Add(change.Key);
+
+                if (change.Value is null)
+                {
+                    bag.Remove(change.Key);
+                    continue;
+                }
+
+                // Deep-cloned because a node belongs to exactly one parent: assigning it straight
+                // across would detach it from the document being read and leave that one malformed.
+                bag[change.Key] = change.Value.DeepClone();
+            }
+
+            return new PropertyWrite(bag.ToJsonString(), touched.MoveToImmutable());
         }
         catch (JsonException)
         {
             return null;
         }
-
-        if (parsed is not JsonObject incoming)
+        catch (ArgumentException)
         {
+            // A document naming the same member twice - {"owner":"Ada","owner":null} - parses, and
+            // then throws here on enumeration rather than at the parse. These are client bytes, so
+            // the answer is the same 422 any other malformed body gets, never an unhandled
+            // exception surfacing as a 500.
             return null;
         }
-
-        var bag = ReadObject(properties) ?? new JsonObject();
-
-        foreach (var change in incoming)
-        {
-            if (change.Value is null)
-            {
-                bag.Remove(change.Key);
-                continue;
-            }
-
-            // Deep-cloned because a node belongs to exactly one parent: assigning it straight
-            // across would detach it from the document being read and leave that one malformed.
-            bag[change.Key] = change.Value.DeepClone();
-        }
-
-        return bag.ToJsonString();
     }
 
     private static JsonObject? ReadObject(string? properties)

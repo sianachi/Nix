@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Nix.Domain.Items;
+using Nix.Domain.Properties;
 
 namespace Nix.Tests.Domain.Items;
 
@@ -126,6 +127,33 @@ public sealed class ItemPropertiesTests
     }
 
     [Fact]
+    public void A_change_naming_the_same_property_twice_merges_to_nothing_at_all()
+    {
+        // This one parses and then throws on enumeration rather than at the parse, so it slips
+        // past a catch written for JsonException alone. These are client bytes: the answer is the
+        // same refusal any other malformed body gets, never an unhandled exception arriving as a
+        // 500.
+        Assert.Null(ItemProperties.Merge(
+            """{"title":"Notes"}""",
+            """{"owner":"Ada","owner":null}"""));
+    }
+
+    [Fact]
+    public void A_merge_reports_every_key_the_change_named_including_the_ones_it_cleared()
+    {
+        // The cleared key is the reason this is returned at all: the merged bag has no trace of
+        // "status" afterwards, so nothing downstream could tell it was deliberately emptied rather
+        // than never set.
+        var write = ItemProperties.Merge(
+            """{"title":"Notes","status":"Todo"}""",
+            """{"owner":"Ada","status":null}""");
+
+        Assert.NotNull(write);
+        Assert.Equal(["owner", "status"], write.Value.Touched);
+        Assert.DoesNotContain("status", write.Value.Merged, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_change_that_says_nothing_leaves_the_bag_as_it_was()
     {
         var merged = Parse(ItemProperties.Merge("""{"title":"Notes","status":"Todo"}""", "{}"));
@@ -147,9 +175,9 @@ public sealed class ItemPropertiesTests
         Assert.Equal("""{"kept":true}""", merged["retired"]?.ToJsonString());
     }
 
-    private static JsonObject Parse(string? merged)
+    private static JsonObject Parse(PropertyWrite? write)
     {
-        Assert.NotNull(merged);
-        return Assert.IsType<JsonObject>(JsonNode.Parse(merged));
+        Assert.NotNull(write);
+        return Assert.IsType<JsonObject>(JsonNode.Parse(write.Value.Merged));
     }
 }
