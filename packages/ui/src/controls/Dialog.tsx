@@ -192,6 +192,11 @@ export function Dialog(props: DialogProps): ReactNode {
         // Opaque, unlike a card: a transparent line drawing over live content is unreadable, and
         // this is the one place in the system where a surface has to sit on top of another.
         'bg-background text-foreground',
+        // design-token-exempt: 560px is a comfortable reading measure for a modal, not a step on
+        // any scale - the same category as the shell's sidebar and panel widths, which
+        // apps/web/src/app/layout.ts keeps out of the token sheet for the same reason. Making it a
+        // token would have the design system carry one number used in one place, and the gutter
+        // beside it already comes from `--spacing`.
         'w-[min(560px,calc(100vw-var(--spacing)*8))]',
         // The scrim is the one colour in the library that must *not* follow the ground. It exists
         // to dim what is behind the modal, and an ink wash of `--color-foreground` stops doing
