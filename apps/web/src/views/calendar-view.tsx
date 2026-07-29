@@ -310,7 +310,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
               }}
               className={[
                 'rounded-sm px-2 py-1 text-xs capitalize',
-                'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
+                'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
                 mode === grain
                   ? 'bg-foreground/7 text-foreground'
                   : 'text-muted hover:bg-foreground/7 hover:text-foreground',

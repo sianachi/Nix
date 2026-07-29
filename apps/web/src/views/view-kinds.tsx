@@ -1,11 +1,13 @@
-import { Columns3, LayoutList, CalendarDays } from 'lucide-react';
+import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { BoardView } from './board-view';
 import { CalendarView } from './calendar-view';
 import type { PropertyDefinition, View } from './container-model';
+import { GalleryView } from './gallery-view';
 import { ListView } from './list-view';
+import { TimelineView } from './timeline-view';
 import type { ContainerData } from './use-container';
 
 /**
@@ -37,15 +39,15 @@ export interface ViewRendererProps {
 }
 
 /**
- * The one property a kind needs before it can draw, and which properties will serve.
+ * One property a kind can be configured from, and which properties will serve.
  *
- * A list has none - with no columns configured it falls back to the effective schema, and with no
- * schema at all it still has titles to show - which is why this is nullable on the descriptor
- * rather than every kind carrying an empty one.
+ * A list needs none - with no columns configured it falls back to the effective schema, and with no
+ * schema at all it still has titles to show - which is why a kind's list of these may be empty
+ * rather than every kind carrying a vacuous one.
  */
 export interface ViewConfiguration {
   /** The field on the view that names the property. */
-  readonly field: 'groupBy' | 'dateProperty';
+  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty';
 
   readonly label: string;
 
@@ -54,6 +56,24 @@ export interface ViewConfiguration {
 
   /** Said when it does. */
   readonly hint: string;
+
+  /**
+   * What the "nothing chosen" option is called.
+   *
+   * **The copy itself, not a flag that picks between two spellings of it.** This began as
+   * `optional?: boolean`, which was three states - true, false, absent - standing in for a
+   * two-state decision, forced the editor to test `=== true`, and made a test assert the *absence
+   * of a key* rather than a piece of wording. Holding the label removes the branch, removes the
+   * defensiveness, and puts this kind's copy in the registry beside the rest of its copy.
+   *
+   * The distinction it carries: "Choose a property" for something the view is waiting on, "None"
+   * for something the view is complete without. A gallery offered "Choose a property" would read as
+   * unfinished, and somebody would go looking for what was broken.
+   *
+   * It says nothing about validation. The server decides what is storable and each renderer decides
+   * what it can draw; a third opinion here could only disagree with one of them.
+   */
+  readonly emptyChoice: string;
 
   /** Which declared properties may be chosen. */
   readonly accepts: (property: PropertyDefinition) => boolean;
@@ -78,7 +98,27 @@ export interface ViewKindDescriptor {
 
   readonly render: (props: ViewRendererProps) => ReactNode;
 
-  readonly configures: ViewConfiguration | null;
+  /**
+   * Every property this kind can be configured from, in the order the editor should offer them.
+   *
+   * **An array from the start, not a single slot that grows one later.** This was `ViewConfiguration
+   * | null`, which was true of the three kinds that existed and was a shape rather than a rule: the
+   * table's whole stated purpose is that adding a kind is one entry, and a shape that forces a type
+   * change on the next kind fails that purpose whether or not the kind that trips it has landed yet.
+   *
+   * **What this actually buys, stated honestly, because the overclaim is tempting.** It makes the
+   * editor's configuration block per-*property* rather than per-*kind*, so a kind needing two
+   * properties - the timeline, with a start and an end - costs no change here and no second copy of
+   * that block. It does *not* make a kind that needs a brand-new field cheap, and the timeline is
+   * the receipt: `endDateProperty` had to be threaded through the `field` union below, the Zod
+   * schema, the view record and its two contracts, the stored-JSON reader and writer, the OpenAPI
+   * document, the generated client and every fixture. That threading is the cost of the flat view
+   * record, which `ViewDefinition.cs` justifies on its own terms; changing it is an ADR, not a
+   * refactor.
+   *
+   * Empty for a list, which needs nothing configured to draw.
+   */
+  readonly configures: readonly ViewConfiguration[];
 }
 
 export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
@@ -87,36 +127,108 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     label: 'List',
     icon: LayoutList,
     render: (props) => <ListView {...props} />,
-    configures: null,
+    configures: [],
   },
   {
     kind: 'board',
     label: 'Board',
     icon: Columns3,
     render: (props) => <BoardView {...props} />,
-    configures: {
-      field: 'groupBy',
-      label: 'Group by',
-      emptyHint: 'There is no select property yet. Add one under Properties first.',
-      hint: 'Only a select property can become columns.',
-      accepts: (property) => property.type === 'select',
-      clears: { groupOrder: [] },
-    },
+    configures: [
+      {
+        field: 'groupBy',
+        label: 'Group by',
+        emptyHint: 'There is no select property yet. Add one under Properties first.',
+        hint: 'Only a select property can become columns.',
+        emptyChoice: 'Choose a property',
+        accepts: (property) => property.type === 'select',
+        clears: { groupOrder: [] },
+      },
+    ],
   },
   {
     kind: 'calendar',
     label: 'Calendar',
     icon: CalendarDays,
     render: (props) => <CalendarView {...props} />,
-    configures: {
-      field: 'dateProperty',
-      label: 'Place by',
-      emptyHint: 'There is no date property yet. Add one under Properties first.',
-      hint: 'Items appear on the day this property names.',
-      // Both, because a calendar places by either. A date is an all-day thing that must not
-      // shift for a reader in another zone; a timestamp is a moment that must.
-      accepts: (property) => property.type === 'date' || property.type === 'timestamp',
-    },
+    configures: [
+      {
+        field: 'dateProperty',
+        label: 'Place by',
+        emptyHint: 'There is no date property yet. Add one under Properties first.',
+        hint: 'Items appear on the day this property names.',
+        emptyChoice: 'Choose a property',
+        // Both, because a calendar places by either. A date is an all-day thing that must not
+        // shift for a reader in another zone; a timestamp is a moment that must.
+        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+      },
+    ],
+  },
+  {
+    kind: 'gallery',
+    label: 'Gallery',
+    icon: LayoutGrid,
+    render: (props) => <GalleryView {...props} />,
+    configures: [
+      {
+        field: 'coverProperty',
+        label: 'Cover',
+        // Both hints say the gallery works either way, because it does. A hint telling somebody to
+        // go and add a property first would be describing a board.
+        //
+        // "Picture" rather than "image": that is what the Properties panel calls the type, and a
+        // hint naming the wire word sends somebody looking for a choice that is not in the list.
+        emptyHint:
+          'There is no picture property yet. Add one under Properties to give these cards covers; without one they show titles.',
+        // Not "cards whose items have no picture show their title" - every card shows its title,
+        // always. What a card without a value shows *as well* is a frame saying so, and promising
+        // otherwise would have somebody read a grid of "No cover" frames as a fault.
+        hint: 'Each card shows this picture. A card whose item has none says so.',
+        // Not "Choose a property": the gallery is complete without one.
+        emptyChoice: 'None',
+        accepts: (property) => property.type === 'image',
+      },
+    ],
+  },
+  {
+    kind: 'timeline',
+    label: 'Timeline',
+    icon: ChartGantt,
+    render: (props) => <TimelineView {...props} />,
+    // The first kind configured from two properties, which is what the array shape above exists
+    // for. **No `clears` on either.** The start is the calendar's own `dateProperty` under the
+    // calendar's own name, so switching a view between the two kinds has to carry it across
+    // untouched; and the `week`/`month` grains the two share overlap on purpose, so clearing the
+    // mode would throw away a choice that still means something.
+    configures: [
+      {
+        field: 'dateProperty',
+        // "Starts on" rather than the calendar's "Place by": a bar has two ends, and the pair has
+        // to read as a pair in the form that sets them.
+        label: 'Starts on',
+        emptyHint: 'There is no date property yet. Add one under Properties first.',
+        hint: 'Each bar begins on the day this property names.',
+        // The view is genuinely waiting on this one: with no start there is no position, and the
+        // timeline says so instead of drawing.
+        emptyChoice: 'Choose a property',
+        // Both, exactly as the calendar accepts both, and the server's requirement is the
+        // calendar's verbatim. A date is an all-day thing that must not shift for a reader in
+        // another zone; a timestamp is a moment that must.
+        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+      },
+      {
+        field: 'endDateProperty',
+        label: 'Ends on',
+        // Neither hint sends somebody to add a property first, because the view does not need one.
+        emptyHint:
+          'There is no second date property yet. Without one every item is drawn as a milestone on its start day.',
+        hint: 'Each bar runs to the day this property names. An item without one is a milestone.',
+        // Not "Choose a property": a timeline of milestones is complete, and calling it unfinished
+        // would send somebody looking for what was broken.
+        emptyChoice: 'None',
+        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+      },
+    ],
   },
 ];
 

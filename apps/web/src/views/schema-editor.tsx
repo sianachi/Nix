@@ -1,9 +1,10 @@
-import { Button, Field, Icon, Input, Select } from '@nix/ui';
+import { Button, Field, Icon, Input, Select, focusRing } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from './container-model';
 import { EditorShell } from './editor-shell';
+import { PROPERTY_TYPES, propertyTypeLabel } from './property-types';
 import type { ContainerData } from './use-container';
 
 /**
@@ -28,18 +29,6 @@ export interface SchemaEditorProps {
   /** Renders as a column in the settings panel rather than as a dialog over the view. */
   readonly inline?: boolean;
 }
-
-/** The types a person may choose, and what to call them. */
-const TYPES = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'select', label: 'Select (one of a list)' },
-  { value: 'multi_select', label: 'Multi-select (any of a list)' },
-  { value: 'date', label: 'Date' },
-  { value: 'timestamp', label: 'Date and time' },
-  { value: 'checkbox', label: 'Checkbox' },
-  { value: 'url', label: 'Link' },
-] as const;
 
 function hasOptions(type: string): boolean {
   return type === 'select' || type === 'multi_select';
@@ -167,7 +156,7 @@ export function SchemaEditor({
                       });
                     }}
                   >
-                    {TYPES.map((type) => (
+                    {PROPERTY_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
                       </option>
@@ -217,7 +206,7 @@ export function SchemaEditor({
                 onChange={(event) => {
                   update(index, { required: event.target.checked });
                 }}
-                className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className={focusRing}
               />
               Required
             </label>
@@ -239,7 +228,7 @@ export function SchemaEditor({
 
         {inheritedOnly.length === 0 ? null : (
           <div className="border-t border-divider pt-3">
-            <p className="mb-1 font-heading text-xs uppercase tracking-[0.08em] text-muted">
+            <p className="mb-1 font-heading text-xs uppercase tracking-wider text-muted">
               Inherited from above
             </p>
             {/* Shown but not editable. Somebody needs to see why a property they did not declare is
@@ -248,7 +237,7 @@ export function SchemaEditor({
             <ul className="flex flex-col gap-1">
               {inheritedOnly.map((property) => (
                 <li key={property.key} className="text-base text-muted">
-                  {property.label} · {property.type}
+                  {property.label} · {propertyTypeLabel(property.type)}
                 </li>
               ))}
             </ul>
@@ -260,7 +249,7 @@ export function SchemaEditor({
                 onChange={(event) => {
                   setInherit(!event.target.checked);
                 }}
-                className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className={focusRing}
               />
               Ignore fields from items above this one
             </label>

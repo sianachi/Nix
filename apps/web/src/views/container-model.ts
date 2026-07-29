@@ -42,12 +42,37 @@ export const ViewSchema = z.object({
   sortDescending: z.boolean(),
 
   /**
-   * For a calendar: `month`, `week` or `day`.
+   * The per-kind grain: a calendar's `month`, `week` or `day`; a timeline's `week`, `month` or
+   * `quarter`.
    *
-   * Nullable rather than optional, and unrecognised values fall back to a month, because a view
-   * written by a newer build must not leave an older one with nothing to draw.
+   * Nullable rather than optional, and unrecognised values fall back to each kind's own default,
+   * because a view written by a newer build must not leave an older one with nothing to draw. The
+   * two vocabularies overlapping is deliberate - it is what lets a view switched between the two
+   * kinds keep the grain it had rather than being reset to a default nobody chose.
    */
   mode: z.string().nullable(),
+
+  /**
+   * For a gallery: the image property each card shows as its cover.
+   *
+   * Null is the ordinary state and not a broken one - a gallery with no cover property is a grid of
+   * titled cards. So nothing downstream may treat this as a precondition for drawing the view; the
+   * cards are the view, and the cover is what a card may additionally show.
+   */
+  coverProperty: z.string().nullable(),
+
+  /**
+   * For a timeline: the date each bar ends on.
+   *
+   * The start is `dateProperty` - the calendar's field, under the calendar's name - and that is
+   * what makes switching a view between the two kinds lossless in both directions. Renaming it to
+   * something a timeline would prefer would break every calendar already stored.
+   *
+   * Null is an ordinary state rather than a broken one: an item with a start and no end is a
+   * milestone, and a timeline of milestones is a perfectly good timeline. So nothing may treat this
+   * as a precondition for drawing the view.
+   */
+  endDateProperty: z.string().nullable(),
 });
 
 export type View = z.infer<typeof ViewSchema>;

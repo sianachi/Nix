@@ -1,4 +1,4 @@
-import { Icon, focusRing } from '@nix/ui';
+import { Icon, Text, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
@@ -107,7 +107,7 @@ export function AppShell(): ReactNode {
         Skip to content
       </a>
 
-      <header className="flex shrink-0 items-center gap-3 px-[14px] py-2">
+      <header className="flex shrink-0 items-center gap-3 px-4 py-2">
         {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
             with the thing it controls cannot bring it back. */}
         <button
@@ -115,7 +115,7 @@ export function AppShell(): ReactNode {
           aria-label={sidebar.collapsed ? 'Show the workspace tree' : 'Hide the workspace tree'}
           aria-expanded={!sidebar.collapsed}
           onClick={sidebar.toggle}
-          className={`flex size-[26px] items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+          className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
           <Icon icon={sidebar.collapsed ? PanelLeftOpen : PanelLeftClose} size="sm" />
         </button>
@@ -123,14 +123,14 @@ export function AppShell(): ReactNode {
         <Link
           to="/"
           aria-label="Nix home"
-          className={`inline-flex size-[26px] items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
+          className={`inline-flex size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
         >
           NX
         </Link>
 
-        <span className="text-xs uppercase tracking-[0.1em] text-muted">
+        <Text variant="caption" as="span" tone="muted" className="uppercase tracking-widest">
           Acme &middot; Engineering
-        </span>
+        </Text>
 
         <button
           type="button"

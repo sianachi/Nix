@@ -20,7 +20,7 @@
  * honouring .gitignore, which means it never looks inside node_modules. @nix/ui
  * resolves through a pnpm workspace symlink that lands there, so every class
  * used only inside packages/ui - control heights, button padding, the table
- * border model, the body face's tracking - was absent from this stylesheet
+ * border model, the heading face's tracking - was absent from this stylesheet
  * while looking perfectly correct in the source. Storybook has always declared
  * this (packages/ui/.storybook/tailwind.css), which is why the library rendered
  * one way there and another way here.

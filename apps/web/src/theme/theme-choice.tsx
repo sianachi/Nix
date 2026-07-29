@@ -34,7 +34,7 @@ export function ThemeChoice(): ReactNode {
 
       <p
         aria-hidden="true"
-        className="mb-1.5 font-heading text-2xs uppercase tracking-[0.08em] text-muted"
+        className="mb-1.5 font-heading text-2xs uppercase tracking-wider text-muted"
       >
         Appearance
       </p>

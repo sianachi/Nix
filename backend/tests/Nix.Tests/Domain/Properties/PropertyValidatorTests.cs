@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json.Nodes;
 using Nix.Domain.Items;
 using Nix.Domain.Properties;
 
@@ -268,6 +269,74 @@ public sealed class PropertyValidatorTests
         // One render away from being a link somebody clicks. The schema is the only place this can
         // be stopped once, for every view that ever displays the property.
         AssertRefused(PropertyType.Url, "\"javascript:alert(1)\"", "Field must be an http or https address.");
+    }
+
+    [Theory]
+    [InlineData("\"https://images.example.test/cover.jpg\"")]
+    [InlineData("\"http://images.example.test/cover\"")]
+    [InlineData("\"https://images.example.test/render?id=7&w=800\"")]
+    public void Image_accepts_an_address_a_browser_can_fetch(string value)
+    {
+        // The third one has no file extension on purpose. Most image hosts serve from a path that
+        // ends in an identifier, and refusing those would refuse addresses that work - an extension
+        // is not a promise about what comes back, and this build never fetches it to find out.
+        AssertAccepted(PropertyType.Image, value);
+    }
+
+    [Theory]
+    [InlineData("\"images.example.test/cover.jpg\"")]
+    [InlineData("\"/uploads/cover.jpg\"")]
+    [InlineData("\"ftp://images.example.test/cover.jpg\"")]
+    [InlineData("42")]
+    [InlineData("true")]
+    public void Image_refuses_an_address_that_is_relative_or_off_the_web(string value) =>
+        AssertRefused(
+            PropertyType.Image,
+            value,
+            "Field must be a link to an image, over http or https.");
+
+    [Theory]
+    [InlineData("\"javascript:alert(1)\"")]
+    [InlineData("\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\"")]
+    public void Image_refuses_a_scheme_that_would_be_fetched_or_inlined_by_the_render(string value)
+    {
+        // Stricter in consequence than the link type even though the rule is the same: nobody
+        // clicks a cover. It goes into an img src and the browser fetches it unprompted, so a
+        // scheme that gets through here is a scheme that runs without anybody choosing it.
+        AssertRefused(
+            PropertyType.Image,
+            value,
+            "Field must be a link to an image, over http or https.");
+    }
+
+    [Fact]
+    public void Every_type_this_build_defines_refuses_a_value_of_the_wrong_shape()
+    {
+        // The net under the per-type cases above, and the reason the validator's fall-through arm
+        // throws instead of returning null. An enum member with no arm of its own used to be
+        // *accepted* - any JSON at all, unchecked, for a type nothing had taught the validator
+        // about - and nothing on the accept path would ever have said so. A JSON object is the one
+        // shape no type wants: not text, not a number, not a bool, not an array of options.
+        var wrong = new JsonObject { ["not"] = "a value" }.ToJsonString();
+
+        foreach (var type in Enum.GetValues<PropertyType>())
+        {
+            var schema = SchemaOf(Property("field", type, "Field"));
+
+            Assert.Single(PropertyValidator.Validate($$"""{"field":{{wrong}}}""", schema));
+        }
+    }
+
+    [Fact]
+    public void A_type_the_enum_does_not_define_is_a_bug_rather_than_an_accepted_value()
+    {
+        // The asymmetry that matters: unrecognised *text* is a fact about stored data and drops the
+        // property, but an undefined enum member is a fact about this process. Silently accepting
+        // its values is how an unvalidated string reaches an img src.
+        var schema = SchemaOf(Property("field", (PropertyType)99, "Field"));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PropertyValidator.Validate("""{"field":"anything at all"}""", schema));
     }
 
     [Fact]

@@ -139,7 +139,7 @@ export function SearchOverlay(props: SearchOverlayProps): ReactNode {
                       onSelect(item.id);
                       close();
                     }}
-                    className="flex w-full items-center gap-2 border-b border-divider px-4 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+                    className="flex w-full items-center gap-2 border-b border-divider px-4 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                   >
                     <Icon icon={FileText} size="sm" />
                     <span className="truncate">{item.title || 'Untitled'}</span>

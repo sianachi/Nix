@@ -87,6 +87,8 @@ public static class ViewDefinitionsJson
     private const string GroupByKey = "groupBy";
     private const string GroupOrderKey = "groupOrder";
     private const string DatePropertyKey = "dateProperty";
+    private const string EndDatePropertyKey = "endDateProperty";
+    private const string CoverPropertyKey = "coverProperty";
     private const string ModeKey = "mode";
     private const string SortByKey = "sortBy";
     private const string SortDescendingKey = "sortDescending";
@@ -182,6 +184,19 @@ public static class ViewDefinitionsJson
                 entry[DatePropertyKey] = view.DateProperty;
             }
 
+            // Behind the same null guard as every other per-kind field: a stored calendar carries no
+            // endDateProperty at all rather than an explicit null, so the column stays small and a
+            // later reader never has to tell an absent field from a deliberately cleared one.
+            if (view.EndDateProperty is not null)
+            {
+                entry[EndDatePropertyKey] = view.EndDateProperty;
+            }
+
+            if (view.CoverProperty is not null)
+            {
+                entry[CoverPropertyKey] = view.CoverProperty;
+            }
+
             if (view.Mode is not null)
             {
                 entry[ModeKey] = view.Mode;
@@ -258,7 +273,9 @@ public static class ViewDefinitionsJson
             ReadString(view[DatePropertyKey]),
             ReadString(view[SortByKey]),
             view[SortDescendingKey] is JsonValue flag && flag.TryGetValue(out bool value) && value,
-            ReadString(view[ModeKey]));
+            ReadString(view[ModeKey]),
+            ReadString(view[CoverPropertyKey]),
+            ReadString(view[EndDatePropertyKey]));
     }
 
     private static ImmutableArray<string> ReadStrings(JsonNode? node)

@@ -54,6 +54,8 @@ const LIST_VIEW = {
   sortBy: null,
   sortDescending: false,
   mode: null,
+  coverProperty: null,
+  endDateProperty: null,
 };
 
 /** Opens the container on its list view, and waits until the rows are really there. */

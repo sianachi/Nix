@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,14 +47,13 @@ const require = createRequire(import.meta.url);
 // carries Tailwind's escaping scheme - `.h-\(--control-md\)` - so a test written
 // against it breaks when that escaping changes and reports a styling regression
 // that has not happened. What matters is that the rule reached the stylesheet.
-//
-// Patterns rather than literals for the same reason one step further out. What
-// this test knows is "the library's rules are being compiled"; it does not get
-// to care whether a value is written inline or has since been moved onto a
+// Patterns rather than literals, and for the same reason one step further out.
+// What this test knows is "the library's rules are being compiled"; it does not
+// get to care whether a value is written inline or has since been moved onto a
 // token, because moving one there is exactly the change the design system is
-// supposed to be able to make. The tracking step is the live example: it was
+// supposed to be able to make. The tracking step is the worked example: it was
 // `-0.015em` in Text.tsx and became `var(--tracking-tight)` when the scale
-// landed, and a test pinned to the literal would have called that a regression.
+// landed, and a test pinned to either spelling calls the other a regression.
 const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   // Table.tsx: the border model the hairline row rules depend on.
   ['the table border model', /border-collapse:\s*separate/],
@@ -63,8 +62,34 @@ const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   ['the control height', /height:\s*var\(--control-md\)/],
   // Button.tsx: the horizontal padding, off the spacing scale.
   ['the button padding', /padding-inline:\s*calc\(var\(--spacing\)\s*\*\s*3\.6\)/],
-  // Text.tsx: the body face's negative tracking, inline or via the scale.
+  // Text.tsx: the body face's negative tracking, inline or through the scale.
   ['the body tracking', /letter-spacing:\s*(-0?\.015em|var\(--tracking-tight\))/],
+];
+
+/**
+ * The utilities the declarations above stand for, as an app-side exclusion list.
+ *
+ * Every entry in `LIBRARY_ONLY` is a canary: it means something only while
+ * `apps/web` does not ask for the same utility itself. The day a component here
+ * writes `tracking-tight`, that declaration appears in the stylesheet whether
+ * the `@source` line exists or not, and the assertion above quietly stops
+ * testing anything.
+ *
+ * That is not hypothetical. `apps/web` had no letter-spacing vocabulary at all
+ * until the sweep that moved it onto the scale, and it now names four of the
+ * six tracking steps; `min-w-(--control-md)` appeared in the same sweep, one
+ * keystroke from the `h-` spelling below.
+ *
+ * So the canaries are checked for what they are. When this fails, the fix is to
+ * pick a different declaration that is still library-only - not to delete the
+ * assertion it protects.
+ */
+const CANARY_UTILITIES = [
+  'border-separate',
+  'border-spacing-',
+  'h-(--control-md)',
+  'px-3.6',
+  'tracking-tight',
 ];
 
 let workDir: string;
@@ -124,5 +149,35 @@ describe('the web entry', () => {
     );
 
     expect(missing).toEqual([]);
+  });
+
+  it('keeps those rules library-only, so the check above still checks something', () => {
+    const sourceRoot = join(appDir, 'src');
+
+    function sourceFiles(directory: string): readonly string[] {
+      return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(directory, entry.name);
+
+        if (entry.isDirectory()) {
+          return sourceFiles(path);
+        }
+
+        // Test files are excluded from the probe's scan, so a canary named in
+        // one - this file names all five - never reaches the stylesheet.
+        return /\.(ts|tsx|css)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)
+          ? [path]
+          : [];
+      });
+    }
+
+    const claimed = sourceFiles(sourceRoot).flatMap((path) => {
+      const contents = readFileSync(path, 'utf8');
+
+      return CANARY_UTILITIES.filter((utility) => contents.includes(utility)).map(
+        (utility) => `${path.slice(sourceRoot.length + 1)}: ${utility}`,
+      );
+    });
+
+    expect(claimed).toEqual([]);
   });
 });

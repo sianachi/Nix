@@ -23,7 +23,9 @@ internal static class ViewMapping
             view.DateProperty,
             view.SortBy,
             view.SortDescending,
-            view.Mode);
+            view.Mode,
+            view.CoverProperty,
+            view.EndDateProperty);
     }
 
     /// <summary>
@@ -62,7 +64,9 @@ internal static class ViewMapping
                     view.DateProperty,
                     view.SortBy,
                     view.SortDescending,
-                    view.Mode));
+                    view.Mode,
+                    view.CoverProperty,
+                    view.EndDateProperty));
         }
 
         views = mapped.ToImmutable();

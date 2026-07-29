@@ -337,7 +337,7 @@ function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
       onClick={control.run}
       className={[
         'flex size-7 items-center justify-center rounded-sm',
-        'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
+        'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         disabled
           ? 'cursor-not-allowed text-muted opacity-40'
           : control.active === true

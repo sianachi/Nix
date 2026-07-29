@@ -66,7 +66,11 @@ describe('the schema editor', () => {
     // Visible, so a person can see why a property they did not declare appears on their notes -
     // and not in a field, so they cannot accidentally claim it.
     expect(screen.getByText(/inherited from above/i)).toBeVisible();
-    expect(screen.getByText(/Owner · text/)).toBeVisible();
+
+    // Named the way the Type control names it, not by the stored token. Somebody reading this list
+    // has just chosen types from a select that says "Picture" and "Date and time"; showing them
+    // "image" and "timestamp" here would be a second vocabulary for the same nine things.
+    expect(screen.getByText(/Owner · Text/)).toBeVisible();
     expect(screen.queryByRole('textbox', { name: /name/i })).not.toBeInTheDocument();
   });
 

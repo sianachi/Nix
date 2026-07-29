@@ -1,4 +1,4 @@
-import { Button, Icon } from '@nix/ui';
+import { Button, Icon, Text } from '@nix/ui';
 import { ChevronDown, ChevronRight, FilePlus, FileText, Trash2 } from 'lucide-react';
 import {
   useState,
@@ -82,7 +82,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       className="flex w-[264px] shrink-0 flex-col overflow-hidden bg-surface"
     >
       <div className="flex shrink-0 items-center gap-1 px-3 py-2">
-        <span className="truncate text-xs uppercase tracking-[0.08em] text-muted">Workspace</span>
+        <Text
+          variant="caption"
+          as="span"
+          tone="muted"
+          className="truncate uppercase tracking-wider"
+        >
+          Workspace
+        </Text>
 
         {/* The label names where the item will land. Two identical buttons whose meaning depends on
             an invisible selection is the kind of control people press twice and then undo. */}
@@ -120,7 +127,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           away the items that loaded perfectly well. */}
       {tree.error === null ? null : (
         <div role="alert" className="mx-2 mb-2 rounded-md bg-background px-3 py-2">
-          <p className="text-xs text-muted">{tree.error}</p>
+          <Text variant="caption" as="p" tone="muted">
+            {tree.error}
+          </Text>
         </div>
       )}
     </aside>
@@ -197,6 +206,69 @@ interface TreeNodeProps extends TreeBodyProps {
 type DropZone = 'before' | 'inside' | 'after';
 
 const EDGE_BAND = 0.25;
+
+/**
+ * How far a row is pushed in for its depth, enumerated as classes.
+ *
+ * The tree used to compute `paddingLeft` and set it through `style`. Inline styles are banned
+ * repository-wide (`app.css` says so, and the rule is why there is one stylesheet), and a CSS
+ * custom property assigned through `style` is still an inline style - it moves the value, not the
+ * attribute. So the depths are written out.
+ *
+ * The steps are the drawing's 6px base and 12px per level, rounded onto the spacing scale: a 2-unit
+ * base and 3.5 units per level. `--spacing` is 3.4px, so `ROW_INDENT` runs 0.8px wide at the root
+ * and closes to exactly the drawn value by its last step.
+ *
+ * `CHILD_NOTICE_INDENT` is that ladder one level down plus the row's own gutter - the expand chevron
+ * (`size-5`) and the gap beside it, 6 units together - so "Loading…" and "Empty" line up with the
+ * titles of the children they stand in for rather than with their chevrons. It runs 1.1px wide at
+ * the root and 0.4px at its last step: the gutter was written as a round 26px and the chevron and
+ * gap it stands for actually measure 20.4px, so these notices end up a hair better aligned than
+ * they were drawn. That is the only entry in this file that moves by more than a pixel.
+ *
+ * **Bounded, deliberately.** Depth is unbounded in principle and the sidebar is 264px wide, so it
+ * cannot be unbounded in practice: nine levels already spend 102px of the width, and a tenth would
+ * be taken from the title. Past the bound the indent stops growing and deeper rows share the last
+ * step. Depth is still carried where it is load-bearing - `role="treeitem"`, `aria-expanded`, and
+ * each level's own `role="group"` - so what a tenth level loses is the picture of its depth, not
+ * the fact of it, and assistive technology is told the same thing either way.
+ *
+ * **The two ladders have to stop at the same place**, which is why this one is a step shorter.
+ * `CHILD_NOTICE_INDENT[i]` stands for a row at depth `i + 1`, so it runs out one level sooner: with
+ * a ninth entry, a notice under a depth-8 node sat 11.9px further in than the children that then
+ * replaced it, and the placeholder visibly jumped as they loaded.
+ *
+ * Both of those are relationships between the two ladders rather than facts about either, so they
+ * are asserted in `tree-indent.test.ts` rather than only described here - which is also why all
+ * three names below are exported.
+ */
+export const ROW_INDENT = [
+  'pl-2',
+  'pl-5.5',
+  'pl-9',
+  'pl-12.5',
+  'pl-16',
+  'pl-19.5',
+  'pl-23',
+  'pl-26.5',
+  'pl-30',
+] as const;
+
+export const CHILD_NOTICE_INDENT = [
+  'pl-11.5',
+  'pl-15',
+  'pl-18.5',
+  'pl-22',
+  'pl-25.5',
+  'pl-29',
+  'pl-32.5',
+  'pl-36',
+] as const;
+
+/** The step for a depth, clamped to the deepest one the sidebar has room to draw. */
+export function indentAt(scale: readonly [string, ...string[]], depth: number): string {
+  return scale[Math.min(Math.max(depth, 0), scale.length - 1)] ?? scale[0];
+}
 
 export function dropZoneAt(offsetY: number, height: number): DropZone {
   if (height <= 0) {
@@ -320,10 +392,10 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         onDrop={onDrop}
         className={[
           'group relative flex items-center gap-1 pr-1',
+          indentAt(ROW_INDENT, depth),
           selected ? 'bg-accent/18' : 'hover:bg-accent/10',
           dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
         ].join(' ')}
-        style={{ paddingLeft: `${String(depth * 12 + 6)}px` }}
       >
         {/* A line where the item would land, rather than an outline round the row it would land
             beside. An outline says "into this"; a line between two rows says "between them", which
@@ -345,7 +417,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             onClick={() => {
               void tree.toggle(item.id);
             }}
-            className="flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={expanded ? ChevronDown : ChevronRight} size="sm" />
           </button>
@@ -362,7 +434,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
           // control that only looks like one.
           onKeyDown={onKeyDown}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
           <Icon icon={FileText} size="sm" />
           <span className="truncate">{item.title || 'Untitled'}</span>
@@ -386,7 +458,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               void tree.remove(item.id);
             }
           }}
-          className="invisible flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent group-hover:visible"
+          className="invisible flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent group-hover:visible"
         >
           <Icon icon={Trash2} size="sm" />
         </button>
@@ -395,17 +467,11 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       {expanded ? (
         <ul role="group">
           {tree.isLoadingChildren(item.id) && children.length === 0 ? (
-            <li
-              className="py-1 text-sm text-muted"
-              style={{ paddingLeft: `${String((depth + 1) * 12 + 26)}px` }}
-            >
+            <li className={`py-1 text-sm text-muted ${indentAt(CHILD_NOTICE_INDENT, depth)}`}>
               Loading…
             </li>
           ) : children.length === 0 ? (
-            <li
-              className="py-1 text-sm text-muted"
-              style={{ paddingLeft: `${String((depth + 1) * 12 + 26)}px` }}
-            >
+            <li className={`py-1 text-sm text-muted ${indentAt(CHILD_NOTICE_INDENT, depth)}`}>
               Empty
             </li>
           ) : (

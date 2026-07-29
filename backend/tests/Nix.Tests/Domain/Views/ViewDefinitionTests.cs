@@ -36,6 +36,8 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.List, "list")]
     [InlineData(ViewKind.Board, "board")]
     [InlineData(ViewKind.Calendar, "calendar")]
+    [InlineData(ViewKind.Gallery, "gallery")]
+    [InlineData(ViewKind.Timeline, "timeline")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));
@@ -49,12 +51,19 @@ public sealed class ViewDefinitionTests
     [InlineData("   ")]
     [InlineData("List")]
     [InlineData("kanban")]
-    [InlineData("gallery")]
+    [InlineData("grid")]
     [InlineData("1")]
     public void A_kind_this_build_does_not_know_is_not_a_kind(string? name)
     {
-        // Fails closed: a newer build's "timeline" leaves an older instance offering fewer views,
-        // never rendering one it has no renderer for.
+        // Fails closed: a newer build's kind leaves an older instance offering fewer views, never
+        // rendering one it has no renderer for.
+        //
+        // The negative cases are near misses on purpose - "kanban" and "grid" are what somebody
+        // would reasonably guess a board and a gallery are called - and they have to be names no
+        // build will ever have. "gallery" used to be here and became a kind, which is the trap: a
+        // negative case that a later goal turns positive stops testing anything and starts
+        // blocking the goal. "timeline" was the next one on the plan and is now a kind too, so a
+        // name added here has to be one nothing on the roadmap is called.
         Assert.False(ViewKinds.TryParse(name, out _));
     }
 
@@ -101,6 +110,11 @@ public sealed class ViewDefinitionTests
         Assert.Equal("status", ViewKinds.Find(ViewKind.Board)?.Requirement?.Read(board));
         Assert.Equal("due", ViewKinds.Find(ViewKind.Calendar)?.Requirement?.Read(calendar));
         Assert.Null(ViewKinds.Find(ViewKind.List)?.Requirement);
+
+        // A gallery has none either, and that is a decision rather than an omission. A requirement
+        // is a property whose absence leaves nothing on screen; a gallery with no cover property is
+        // a grid of titled cards, which is readable and is what most galleries are on day one.
+        Assert.Null(ViewKinds.Find(ViewKind.Gallery)?.Requirement);
     }
 
     [Fact]
@@ -148,8 +162,10 @@ public sealed class ViewDefinitionTests
     [InlineData(PropertyType.Number)]
     [InlineData(PropertyType.MultiSelect)]
     [InlineData(PropertyType.Date)]
+    [InlineData(PropertyType.Timestamp)]
     [InlineData(PropertyType.Checkbox)]
     [InlineData(PropertyType.Url)]
+    [InlineData(PropertyType.Image)]
     public void A_board_grouping_by_a_type_that_cannot_be_grouped_cannot_render(PropertyType type)
     {
         // Retyping a select to text is one edit in a schema panel and it is enough. Grouping by
@@ -187,6 +203,7 @@ public sealed class ViewDefinitionTests
     [InlineData(PropertyType.MultiSelect)]
     [InlineData(PropertyType.Checkbox)]
     [InlineData(PropertyType.Url)]
+    [InlineData(PropertyType.Image)]
     public void A_calendar_placing_items_by_anything_but_a_date_cannot_render(PropertyType type)
     {
         // Text that happens to hold "2026-07-27" is not a date: nothing has checked it, so half the
@@ -218,6 +235,122 @@ public sealed class ViewDefinitionTests
         Assert.True(board.CanRender(schema));
         Assert.True(calendar.CanRender(schema));
     }
+
+    [Fact]
+    public void A_gallery_renders_whether_or_not_it_has_a_cover_property()
+    {
+        // All four arrangements, because the whole decision this test guards is that none of them
+        // is a failure: a gallery is a grid of cards, and the cover is what a card may additionally
+        // show. Refusing any of these would take every item off the screen to report a missing
+        // picture, which is the trade a board makes for a reason a gallery does not have.
+        var bare = new ViewDefinition("v1", "Covers", ViewKind.Gallery, [], null, [], null, null, false);
+        var configured = Gallery("cover");
+
+        Assert.True(bare.CanRender(PropertySchema.Empty));
+        Assert.True(configured.CanRender(SchemaOf(Property("cover", PropertyType.Image))));
+
+        // Deleted, and retyped to something that is not a picture. Both are one edit in the schema
+        // panel, made by somebody who has never seen this gallery, and both leave every item here.
+        Assert.True(configured.CanRender(PropertySchema.Empty));
+        Assert.True(configured.CanRender(SchemaOf(Property("cover", PropertyType.Number))));
+    }
+
+    [Fact]
+    public void A_timeline_needs_a_date_to_start_from()
+    {
+        // The one requirement the kind has, and the whole of it. A bar is placed by its start, so a
+        // timeline naming no start property has nothing to place - which is the test this codebase
+        // applies to a requirement: the property whose absence leaves nothing on screen.
+        //
+        // The same requirement drives two call sites - CanRender here, and the storability refusal
+        // in SetContainerViewsHandler - so the sentence is asserted alongside the behaviour. It is
+        // the timeline's own rather than the calendar's, because the two views ask for the same
+        // property and mean visibly different things by it.
+        var requirement = ViewKinds.Find(ViewKind.Timeline)?.Requirement;
+
+        Assert.NotNull(requirement);
+        Assert.Equal("a timeline needs a date to start from", requirement.Missing);
+        Assert.Equal("starts", requirement.Read(Timeline("starts", "ends")));
+
+        var unconfigured = new ViewDefinition("v1", "Delivery", ViewKind.Timeline, [], null, [], null, null, false);
+
+        Assert.False(unconfigured.CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+        Assert.True(Timeline("starts", "ends").CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+    }
+
+    [Fact]
+    public void A_timeline_with_no_end_date_property_is_still_renderable()
+    {
+        // Every item on it is a milestone: a start with no end is a point on the axis, which is a
+        // real and drawable thing rather than half a bar. Refusing here would take every item off
+        // the screen over a field that was never required - the trade a board makes for a reason a
+        // timeline does not have.
+        var milestones = Timeline("starts", endDateProperty: null);
+
+        Assert.True(milestones.CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+
+        // And an end property that has since been deleted or retyped is the same case arrived at
+        // from the other direction: the bars become milestones, and the view still draws.
+        var spanning = Timeline("starts", "ends");
+
+        Assert.True(spanning.CanRender(SchemaOf(Property("starts", PropertyType.Timestamp))));
+        Assert.True(
+            spanning.CanRender(
+                SchemaOf(Property("starts", PropertyType.Date), Property("ends", PropertyType.Number))));
+    }
+
+    [Fact]
+    public void Switching_a_view_between_calendar_and_timeline_keeps_its_date_property()
+    {
+        // The reason `DateProperty` is not renamed to something the timeline would prefer. Both
+        // kinds read the same field through the same requirement, so changing only the kind carries
+        // the configuration across intact and back again - and a stored calendar written by an
+        // older build needs no migration to become a timeline.
+        var calendar = Calendar("due");
+        var asTimeline = calendar with { Kind = ViewKind.Timeline, EndDateProperty = "ends" };
+        var backAgain = asTimeline with { Kind = ViewKind.Calendar };
+
+        var schema = SchemaOf(Property("due", PropertyType.Date), Property("ends", PropertyType.Date));
+
+        Assert.Equal("due", asTimeline.DateProperty);
+        Assert.True(asTimeline.CanRender(schema));
+
+        Assert.Equal("due", backAgain.DateProperty);
+        Assert.True(backAgain.CanRender(schema));
+
+        // The end property is carried rather than cleared. A switch to a calendar and back must not
+        // be the thing that loses half a timeline's configuration.
+        Assert.Equal("ends", backAgain.EndDateProperty);
+    }
+
+    private static ViewDefinition Timeline(string dateProperty, string? endDateProperty) =>
+        new(
+            "v1",
+            "Delivery",
+            ViewKind.Timeline,
+            [],
+            null,
+            [],
+            dateProperty,
+            null,
+            false,
+            Mode: null,
+            CoverProperty: null,
+            EndDateProperty: endDateProperty);
+
+    private static ViewDefinition Gallery(string coverProperty) =>
+        new(
+            "v1",
+            "Gallery",
+            ViewKind.Gallery,
+            [],
+            null,
+            [],
+            null,
+            null,
+            false,
+            Mode: null,
+            CoverProperty: coverProperty);
 
     private static ViewDefinition Board(string groupBy) =>
         new("v1", "Board", ViewKind.Board, [], groupBy, [], null, null, false);

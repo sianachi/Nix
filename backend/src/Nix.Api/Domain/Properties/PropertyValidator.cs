@@ -229,8 +229,23 @@ public static class PropertyValidator
         PropertyType.Url => CheckUrl(definition, value),
         PropertyType.Select => CheckSelect(definition, value),
         PropertyType.MultiSelect => CheckMultiSelect(definition, value),
+        PropertyType.Image => CheckImage(definition, value),
 
-        _ => null,
+        // A type this build defines and this switch does not handle is a bug here, not a value the
+        // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
+        // It used to be `_ => null`, which is "accepted": an unhandled member let any JSON node
+        // through, unchecked, straight into whatever renders that property. Throwing matches
+        // PropertyTypes.ToText, which already treats an undefined member as a bug, and
+        // Every_type_this_build_defines_refuses_a_value_of_the_wrong_shape turns it into a failing
+        // test rather than a production surprise. The arm cannot simply be deleted: a switch
+        // expression over an enum warns CS8509 without one, and warnings are errors here.
+        // The parameter name, not `nameof(definition.Type)`: CA2208 requires paramName to be an
+        // actual parameter of this method, and the member is carried by the value argument instead
+        // - so the exception still reports which type it was.
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(definition),
+            definition.Type,
+            "Unknown property type."),
     };
 
     private static string? CheckDate(PropertyDefinition definition, JsonNode? value)
@@ -330,6 +345,52 @@ public static class PropertyValidator
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
             ? null
             : $"{definition.Label} must be an http or https address.";
+    }
+
+    /// <summary>
+    /// Reads a cover image: an address a browser may fetch and draw.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>http and https only, and this is a security check rather than a tidiness rule.</b> A URL
+    /// property is text somebody chooses to click; this value goes into an <c>img src</c> and is
+    /// fetched by every reader's browser without anybody deciding to. <c>javascript:</c> and
+    /// <c>data:</c> are one render away from being executed or inlined.
+    /// </para>
+    /// <para>
+    /// <b>It is not the only check, and must not be described as one.</b> Values are validated
+    /// against the declaration in force when they are written, and a schema edit deliberately does
+    /// not revalidate what is already stored - that asymmetry is ADR-0007 §4 and this class's own
+    /// opening remark. So a value written while the property was text or a link survives a retype
+    /// to <see cref="PropertyType.Image"/> having never met this method. The renderer checks the
+    /// scheme again for exactly that reason; see <c>isFetchableAddress</c> in
+    /// <c>apps/web/src/views/gallery-view.tsx</c>, which is the layer that holds regardless of the
+    /// order somebody made two independent edits in.
+    /// </para>
+    /// <para>
+    /// <b>The file extension is deliberately not checked.</b> A URL with no extension serves images
+    /// perfectly well - most image hosts and every content-negotiating endpoint have none - and an
+    /// extension guarantees nothing about what comes back, because the server does not fetch it.
+    /// Validating one would be a claim this build cannot back, and it would refuse addresses that
+    /// work.
+    /// </para>
+    /// <para>
+    /// <b>An address today; a file reference at MVP-6.</b> There is no media model to reference
+    /// yet. When there is one, this is where a reference is recognised alongside an address, and
+    /// the stored values migrate - the type itself does not move.
+    /// </para>
+    /// </remarks>
+    private static string? CheckImage(PropertyDefinition definition, JsonNode? value)
+    {
+        var text = ReadString(value);
+
+        return text is not null
+            && Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? null
+            // Its own sentence rather than the link one: somebody who has been told to enter "an
+            // http or https address" has no reason to think a picture was wanted.
+            : $"{definition.Label} must be a link to an image, over http or https.";
     }
 
     private static string? CheckSelect(PropertyDefinition definition, JsonNode? value)

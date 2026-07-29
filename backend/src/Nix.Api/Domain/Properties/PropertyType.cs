@@ -7,9 +7,9 @@ namespace Nix.Domain.Properties;
 /// <para>
 /// <b>A closed set, chosen here because no document specifies one.</b> The specification assumes a
 /// select type (boards group by one) and a date type (calendars place by one) and never enumerates
-/// the rest. These seven are the set that makes the three MVP-2 views work and nothing more:
-/// anything that cannot be sorted, grouped, or placed on a calendar would be a type with no view
-/// to render it.
+/// the rest. Every member earns its place by being what some view needs: a type that could not be
+/// sorted, grouped, placed on a calendar or shown as a cover would be a type with no view to
+/// render it.
 /// </para>
 /// <para>
 /// <b>Stored as text, never as this ordinal.</b> See <see cref="PropertyTypes"/>. A migration that
@@ -54,6 +54,24 @@ public enum PropertyType
     /// a calendar, and conflating them would make one of them wrong.
     /// </remarks>
     Timestamp = 7,
+
+    /// <summary>A picture, as an http or https address. What a gallery card shows as its cover.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its own type rather than a <see cref="Url"/> with a convention on top.</b> A link and a
+    /// picture are read differently by everything that meets them: a link is text somebody clicks,
+    /// and this is fetched and rendered by the browser without anybody deciding to. The schema
+    /// saying which one it is, is what lets a gallery offer covers from the properties that are
+    /// covers rather than from every link in the workspace.
+    /// </para>
+    /// <para>
+    /// <b>It holds an address today and becomes a file reference at MVP-6</b>, when there is a
+    /// media model to reference. There is no file or media model in the backend at all yet, so
+    /// storing a reference now would be storing an identifier for a table nothing writes to.
+    /// Changing the value's shape later is a migration of the values, not of this member.
+    /// </para>
+    /// </remarks>
+    Image = 8,
 }
 
 /// <summary>
@@ -100,6 +118,9 @@ public static class PropertyTypes
             case "timestamp":
                 type = PropertyType.Timestamp;
                 return true;
+            case "image":
+                type = PropertyType.Image;
+                return true;
             default:
                 type = default;
                 return false;
@@ -120,6 +141,7 @@ public static class PropertyTypes
         PropertyType.Checkbox => "checkbox",
         PropertyType.Url => "url",
         PropertyType.Timestamp => "timestamp",
+        PropertyType.Image => "image",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
