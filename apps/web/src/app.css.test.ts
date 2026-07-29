@@ -47,16 +47,24 @@ const require = createRequire(import.meta.url);
 // carries Tailwind's escaping scheme - `.h-\(--control-md\)` - so a test written
 // against it breaks when that escaping changes and reports a styling regression
 // that has not happened. What matters is that the rule reached the stylesheet.
-const LIBRARY_ONLY = [
+//
+// Patterns rather than literals for the same reason one step further out. What
+// this test knows is "the library's rules are being compiled"; it does not get
+// to care whether a value is written inline or has since been moved onto a
+// token, because moving one there is exactly the change the design system is
+// supposed to be able to make. The tracking step is the live example: it was
+// `-0.015em` in Text.tsx and became `var(--tracking-tight)` when the scale
+// landed, and a test pinned to the literal would have called that a regression.
+const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   // Table.tsx: the border model the hairline row rules depend on.
-  'border-collapse: separate',
-  'border-spacing:',
+  ['the table border model', /border-collapse:\s*separate/],
+  ['the table border spacing', /border-spacing:/],
   // Button.tsx, Input.tsx, Select.tsx: every control's height.
-  'height: var(--control-md)',
+  ['the control height', /height:\s*var\(--control-md\)/],
   // Button.tsx: the horizontal padding, off the spacing scale.
-  'padding-inline: calc(var(--spacing) * 3.6)',
-  // Text.tsx: the body face's negative tracking.
-  'letter-spacing: -0.015em',
+  ['the button padding', /padding-inline:\s*calc\(var\(--spacing\)\s*\*\s*3\.6\)/],
+  // Text.tsx: the body face's negative tracking, inline or via the scale.
+  ['the body tracking', /letter-spacing:\s*(-0?\.015em|var\(--tracking-tight\))/],
 ];
 
 let workDir: string;
@@ -111,7 +119,9 @@ afterAll(() => {
 
 describe('the web entry', () => {
   it('compiles the rules the component library depends on', () => {
-    const missing = LIBRARY_ONLY.filter((declaration) => !output.includes(declaration));
+    const missing = LIBRARY_ONLY.filter(([, pattern]) => !pattern.test(output)).map(
+      ([label]) => label,
+    );
 
     expect(missing).toEqual([]);
   });
