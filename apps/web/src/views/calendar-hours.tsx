@@ -115,7 +115,7 @@ export function HourGrid(props: HourGridProps): ReactNode {
             {HOURS.map((hour) => (
               <div
                 key={hour}
-                style={{ height: `${String(ROW_HEIGHT)}px` }}
+                style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it // design-token-exempt: an hour's height is the grid's unit; the labels must share it exactly or the columns drift apart down the day
                 className="pr-1 text-right"
               >
                 <Text variant="caption" as="span" tone="muted">
@@ -196,13 +196,13 @@ function DayColumn(props: {
     <div
       aria-label={dayLabel(day)}
       className="relative min-w-0 flex-1 border-l border-divider"
-      style={{ height: `${String(HOURS.length * ROW_HEIGHT)}px` }}
+      style={{ height: `${String(HOURS.length * ROW_HEIGHT)}px` }} // design-token-exempt: twenty-four hours of grid, computed from the row height rather than restated by hand
     >
       {HOURS.map((hour) => (
         <div
           key={hour}
           className="group/slot border-b border-divider"
-          style={{ height: `${String(ROW_HEIGHT)}px` }}
+          style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it
         >
           {/* One per hour, revealed on hover and on focus. Always in the tree, because a way to add
               something that exists only for a pointer is not a way everybody has. */}
@@ -223,7 +223,7 @@ function DayColumn(props: {
           onClick={() => {
             onOpen(entry.item.id);
           }}
-          style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }}
+          style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }} // design-token-exempt: where an item sits is its own time - 09:30 is half a row down - a position read off the data, computed at runtime, so not a token
           className="absolute inset-x-1 flex flex-col items-start gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
           <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>

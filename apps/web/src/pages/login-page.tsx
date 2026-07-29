@@ -72,7 +72,9 @@ export function LoginPage({
       <FauxTitleBar />
 
       <div className={`relative flex flex-1 items-center justify-center ${GRAPH_PAPER} px-6 py-12`}>
-        <div className="grid w-full max-w-[700px] grid-cols-1 border border-divider bg-background shadow-md md:grid-cols-[400px_300px]">
+        <div
+          className="grid w-full max-w-[700px] grid-cols-1 border border-divider bg-background shadow-md md:grid-cols-[400px_300px]" // design-token-exempt: the two column widths are this one screen's proportions, the same kind of value as the panel widths the rule already leaves alone
+        >
           <section className="flex flex-col border-divider p-11 md:border-r">
             <Blueprint className="mb-6.5 inline-flex size-15.5 items-center justify-center">
               <span className="font-heading text-2xl font-semibold tracking-slight">NX</span>
