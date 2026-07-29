@@ -7,6 +7,7 @@ using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
 using Nix.Domain.Views;
+using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Me;
 using Nix.Features.Properties;
@@ -165,6 +166,9 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SetContainerViews, ImmutableArray<ViewDefinition>>, SetContainerViewsHandler>();
 
         services.AddScoped<IQueryHandler<GetCurrentPrincipal, Result<CurrentPrincipal>>, GetCurrentPrincipalHandler>();
+
+        services.AddScoped<IQueryHandler<GetItemAuthorization, Result<ItemAuthorization>>, GetItemAuthorizationHandler>();
+        services.AddScoped<ICommandHandler<TouchItem, ItemId>, TouchItemHandler>();
 
         return services;
     }

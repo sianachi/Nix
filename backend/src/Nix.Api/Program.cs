@@ -2,6 +2,7 @@ using Nix;
 using Nix.Authentication;
 using Nix.Errors;
 using Nix.Features.Health;
+using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Me;
 using Nix.Features.Permissions;
@@ -40,6 +41,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(StructureJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PermissionsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(RolesJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(InternalJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -153,12 +155,36 @@ if (persistenceConfigured)
                 StringComparison.OrdinalIgnoreCase),
         static branch => branch.UseMiddleware<NixUnitOfWorkMiddleware>());
 }
+
+// The service-to-service surface: a shared secret proves the caller is a trusted service, then
+// the same unit-of-work pipeline as every public route validates the forwarded user token. The
+// boundary middleware runs regardless of persistence so an unconfigured host still answers 404
+// rather than reaching a handler with no session behind it.
+app.UseWhen(
+    static context =>
+        context.Request.Path.StartsWithSegments("/internal", StringComparison.OrdinalIgnoreCase),
+    branch =>
+    {
+        branch.UseMiddleware<InternalBoundaryMiddleware>();
+        if (persistenceConfigured)
+        {
+            branch.UseMiddleware<NixUnitOfWorkMiddleware>();
+        }
+    });
+if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBoundaryMiddleware.SecretConfigurationKey]))
+{
+    ApiLog.InternalSurfaceDisabled(
+        app.Logger,
+        Nix.Authentication.InternalBoundaryMiddleware.SecretConfigurationKey);
+}
+
 app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
 app.MapMeEndpoints();
 app.MapStructureEndpoints();
 app.MapPermissionEndpoints();
 app.MapRoleEndpoints();
+app.MapInternalEndpoints();
 
 app.Run();
 

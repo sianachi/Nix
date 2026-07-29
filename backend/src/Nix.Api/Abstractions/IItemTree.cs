@@ -169,6 +169,23 @@ public interface IItemTree
         DateTimeOffset at,
         CancellationToken cancellationToken);
 
+    /// <summary>Stamps an item as modified, without changing anything else about it.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="actor">Who modified it.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the row is updated.</returns>
+    /// <remarks>
+    /// Exists for the body seam: the collaboration service owns the content tables and Core owns
+    /// the envelope, so when a body flush lands the envelope's modification stamp is bumped
+    /// through this rather than by anything reading the body.
+    /// </remarks>
+    public ValueTask TouchAsync(
+        ItemId id,
+        Nix.Domain.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Whether making <paramref name="parentId"/> the parent of <paramref name="id"/> would put
     /// the item inside its own subtree.
