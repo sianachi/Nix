@@ -323,7 +323,7 @@ public sealed class PropertyValidatorTests
         {
             var schema = SchemaOf(Property("field", type, "Field"));
 
-            Assert.Single(PropertyValidator.Validate($$"""{"field":{{wrong}}}""", schema));
+            Assert.Single(PropertyValidator.ValidateSupplied($$"""{"field":{{wrong}}}""", schema));
         }
     }
 
@@ -336,7 +336,7 @@ public sealed class PropertyValidatorTests
         var schema = SchemaOf(Property("field", (PropertyType)99, "Field"));
 
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => PropertyValidator.Validate("""{"field":"anything at all"}""", schema));
+            () => PropertyValidator.ValidateSupplied("""{"field":"anything at all"}""", schema));
     }
 
     [Fact]
