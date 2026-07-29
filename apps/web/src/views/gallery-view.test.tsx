@@ -81,6 +81,13 @@ const WITH_COVER = itemOf({
   properties: { cover: SHOT, owner: 'Ada' },
 });
 
+const WITH_OTHER_COVER = itemOf({
+  id: 'i3',
+  title: 'Quay at noon',
+  seq: 1500,
+  properties: { cover: `${SHOT}?second`, owner: 'Ada' },
+});
+
 const WITHOUT_COVER = itemOf({
   id: 'i2',
   title: 'Notes from the site visit',
@@ -298,6 +305,35 @@ describe('the gallery view', () => {
     // grid they are in.
     expect(cover).toHaveAttribute('loading', 'lazy');
     expect(cover).toHaveAttribute('decoding', 'async');
+  });
+
+  it('draws a cover through the duotone treatment rather than as a bare photograph', () => {
+    // The design grammar's answer for any image: a wall of arbitrary third-party photographs is
+    // the one thing most able to make a considered interface look like a search result, and the
+    // treatment maps them onto two token colours so they read as one surface.
+    //
+    // Asserted through the filter reference rather than by looking for the element, because a
+    // component that merely wrapped the picture and applied nothing would pass that. The id is
+    // generated per instance, so this also pins that two covers cannot share one filter.
+    renderAt(galleryOf({ items: [WITH_COVER, WITH_OTHER_COVER] }));
+
+    const covers = screen
+      .getAllByRole('presentation', { hidden: true })
+      .filter((element) => element.tagName === 'IMG');
+
+    expect(covers).toHaveLength(2);
+
+    // Read off the attribute rather than `style.filter`: jsdom does not parse `filter` into the
+    // style object, so the property reads empty and an assertion on it would pass against a bare
+    // photograph. The library's own tests read it the same way.
+    // Quotes optional: the DOM serialises the property back as `url("#id")`, so a pattern written
+    // for the unquoted form finds nothing and reports a bare photograph.
+    const references = covers.map(
+      (cover) => /url\(["']?#([^"')]+)["']?\)/.exec(cover.getAttribute('style') ?? '')?.[1],
+    );
+
+    expect(references.filter((reference) => reference !== undefined)).toHaveLength(2);
+    expect(new Set(references).size).toBe(2);
   });
 
   it('names a cover nothing rather than repeating the title beside it', () => {

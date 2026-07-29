@@ -1,25 +1,27 @@
+import { Duotone } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 /**
- * The one place a cover picture is drawn - and the seam `<Duotone>` drops into.
+ * The one place a cover picture is drawn.
  *
- * **This is the Duotone seam, and the swap is one import.** The design grammar says images go
- * through `<Duotone>` from `@nix/ui` (CLAUDE.md, styling rules). That component is being built in a
- * parallel goal and does not exist in this build yet, so this renders a plain `<img>` in the
- * meantime - deliberately, rather than this goal inventing a second Duotone that would then have to
- * be reconciled with the real one. The props below are *exactly* the interface that goal is
- * implementing, so when it lands the change here is:
+ * **Covers go through `<Duotone>`**, which is the design grammar's answer for any image
+ * (CLAUDE.md, styling rules): it maps the picture's luminance onto two token colours so a wall of
+ * arbitrary photographs reads as one surface rather than as somebody's camera roll. This file
+ * existed first as a seam - a plain `<img>` with exactly Duotone's interface - because the two were
+ * built in parallel and the treatment did not exist yet. It now forwards to the real thing, and the
+ * props did not have to move.
  *
- *   -  import type { ReactNode } from 'react';
- *   +  import { Duotone } from '@nix/ui';
+ * **A component rather than an `<img>` inlined in the card**, so that seam is one place. A gallery
+ * that wrote its own picture per state would have three by the time the covers, their failures and
+ * their empty case were all drawn, and this swap would have been three edits with two chances to
+ * leave one behind.
  *
- * and the `<img>` becomes a `<Duotone>` with the same props forwarded. Nothing else in the gallery
- * moves, because nothing else in the gallery renders a picture.
- *
- * **A component rather than an `<img>` inlined in the card**, purely so that seam is one place. A
- * gallery that wrote its own `<img>` per state would have three of them by the time the covers,
- * their failures and their empty case were all drawn, and the swap would be three edits with two
- * chances to leave one behind.
+ * **What moved off this file and into Duotone**, because they belong to whatever renders a picture
+ * rather than to the gallery: `referrerPolicy="no-referrer"` - a privacy boundary and not a nicety,
+ * since a cover URL is arbitrary third-party and without it every reader's browser announces a
+ * workspace address carrying the item id to a host nobody here controls or can audit - along with
+ * `decoding="async"` and the lazy default. Duotone sets all three and its own tests hold them, so
+ * this file no longer restates them.
  */
 
 export interface CoverImageProps {
@@ -36,8 +38,16 @@ export interface CoverImageProps {
 
   readonly className?: string;
 
-  /** Called when the picture cannot be fetched or decoded. */
-  readonly onError?: () => void;
+  /**
+   * Called when the picture cannot be fetched or decoded.
+   *
+   * **Required here, though Duotone types it optional.** A failed image with a non-empty `alt`
+   * stops being a replaced element, so the caller's sizing is discarded and the box collapses to
+   * the width of the alt text - which in a grid reflows every card around it. The gallery's answer
+   * is to replace the frame rather than let a broken one sit in the layout, and it can only do that
+   * if it is told. A caller that does not care what failure looks like has not thought about it.
+   */
+  readonly onError: () => void;
 
   readonly loading?: 'lazy' | 'eager';
 }
@@ -49,23 +59,17 @@ export function CoverImage({
   onError,
   loading = 'lazy',
 }: CoverImageProps): ReactNode {
+  // `className` is spread rather than passed, because under `exactOptionalPropertyTypes` an
+  // optional prop is either given or not given: handing it an explicit `undefined` is a different
+  // thing from omitting it, and Duotone declares it optional. The same idiom appears on the list
+  // view's `sort`.
   return (
-    <img
+    <Duotone
       src={src}
       alt={alt}
-      className={className}
       loading={loading}
-      // Decoded off the main thread. A wall of covers decoded synchronously blocks the scroll of
-      // the very grid they are in.
-      decoding="async"
-      // **A privacy boundary, not a nicety.** A cover URL is arbitrary and third-party - somebody
-      // pasted it into a property - and without this every reader's browser announces the page it
-      // came from, which is a workspace address carrying the item id, to a host the workspace does
-      // not control and cannot audit. It is the same argument app.css makes for refusing a font
-      // CDN: a third party should not learn who is reading what merely because a picture is on the
-      // page. This stays on whatever renders the picture, including after the Duotone swap.
-      referrerPolicy="no-referrer"
-      {...(onError === undefined ? {} : { onError })}
+      onError={onError}
+      {...(className === undefined ? {} : { className })}
     />
   );
 }
