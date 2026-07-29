@@ -23,6 +23,7 @@ on:
       - '.prettierrc'
       - '.prettierignore'
       - 'scripts/check-raw-design-values.sh'
+      - 'scripts/check-raw-design-values.test.sh'
       - '.github/workflows/ci-frontend.yml'
   pull_request:
     paths:
@@ -37,6 +38,7 @@ on:
       - '.prettierrc'
       - '.prettierignore'
       - 'scripts/check-raw-design-values.sh'
+      - 'scripts/check-raw-design-values.test.sh'
       - '.github/workflows/ci-frontend.yml'
 
 concurrency:
@@ -72,7 +74,12 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Design-token guard (no raw hex outside packages/design-tokens)
+      # The guard's own tests run first: a broken matcher and a dirty tree both
+      # turn this job red, and only the order tells them apart.
+      - name: Design-token guard self-test
+        run: ./scripts/check-raw-design-values.test.sh
+
+      - name: Design-token guard (no raw hex, length, tracking or inline style)
         run: ./scripts/check-raw-design-values.sh
 
   frontend-unit:
