@@ -1,24 +1,20 @@
-import { Blueprint, Button, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
 
+import { PartialNotice } from '../components/states/status-panels';
 import {
-  EmptyPanel,
-  ErrorPanel,
-  LoadingPanel,
-  PartialNotice,
-} from '../components/states/status-panels';
-import {
-  applyFilters,
+  UNSET_LABEL,
+  UNSET_VALUE,
   readPropertyText,
   readSelectValue,
-  sortItems,
   type Item,
   type PropertyDefinition,
   type View,
 } from './container-model';
 import { CreateItemControl } from './create-item-control';
 import type { ContainerData } from './use-container';
+import { drawable, resolveViewChrome, undrawable } from './view-chrome';
 import { useViewState } from './view-state';
 
 /**
@@ -48,18 +44,6 @@ export interface BoardViewProps {
   readonly onOpen: (itemId: string) => void;
 }
 
-/**
- * The unset column's value in the move control.
- *
- * The empty string is safe as the sentinel rather than a made-up token: `readSelectValue` already
- * treats an empty string as no value, so no real option can collide with it, and there is no
- * `__none__` for a property to accidentally declare.
- */
-const UNSET_VALUE = '';
-
-/** The unset column's heading, and its option in every move control. */
-const UNSET_LABEL = 'Unset';
-
 interface BoardColumn {
   /** The property value this column writes, or null for the unset column. */
   readonly value: string | null;
@@ -76,79 +60,46 @@ export function BoardView(props: BoardViewProps): ReactNode {
   // and not in the URL or in a store.
   const [dragged, setDragged] = useState<string | null>(null);
 
-  if (container.status === 'loading') {
-    return <LoadingPanel label="this board" />;
-  }
-
-  if (container.status === 'error') {
-    return (
-      <ErrorPanel
-        title="This board could not be loaded"
-        detail={container.error ?? 'The item behind this board did not load.'}
-        action={
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void container.reload();
-            }}
-          >
-            Try again
-          </Button>
-        }
-      />
-    );
-  }
-
-  // Before anything about items: can this board be drawn at all? An empty board and a broken
-  // board look identical if you let them, and somebody staring at an empty board goes looking for
-  // their missing items rather than for the missing property.
+  // Whether the board can be drawn at all is resolved before the chrome so the chrome can report
+  // it, and handed back by the chrome so this does not have to check it twice. An empty board and a
+  // broken board look identical if you let them, and somebody staring at an empty board goes
+  // looking for their missing items rather than for the missing property.
   const grouping = resolveGrouping(container, view);
-  if (grouping.kind !== 'ready') {
-    const { title, detail } = describeUnrenderable(grouping, view);
-    return <ErrorPanel title={title} detail={detail} />;
-  }
-
-  const { property } = grouping;
-  const key = property.key;
-
-  if (container.children.length === 0) {
-    return (
-      <EmptyPanel
-        title="Nothing in here yet"
-        detail="Nothing has been added here yet. Items added to this one appear on the board as cards."
-        // An empty state is exactly when somebody most needs the way out of it. Without a column to
-        // add to there is no value to set, so this makes an item with none - it lands in the unset
-        // column, which is where an item with no status belongs.
-        action={<CreateItemControl label="Add the first item" onCreate={container.create} />}
-      />
-    );
-  }
-
-  const visible = applyFilters(container.children, viewState.filters);
 
   // The URL's sort wins over the view's own, because it is the more specific statement - somebody
   // chose it just now, possibly in a link they were handed.
-  const sortBy = viewState.sortBy ?? view.sortBy;
-  const descending =
-    viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending';
-  const sorted = sortItems(visible, sortBy, descending);
+  const chrome = resolveViewChrome({
+    container,
+    viewState,
+    subject: 'this board',
+    drawable:
+      grouping.kind === 'ready'
+        ? drawable(grouping.property)
+        : undrawable<PropertyDefinition>(describeUnrenderable(grouping, view)),
+    emptyTitle: 'Nothing in here yet',
+    emptyDetail:
+      'Nothing has been added here yet. Items added to this one appear on the board as cards.',
+    // Without a column to add to there is no value to set, so this makes an item with none - it
+    // lands in the unset column, which is where an item with no status belongs.
+    emptyAction: <CreateItemControl label="Add the first item" onCreate={container.create} />,
+    filtered: (total) => ({
+      title: 'No items match the filters',
+      detail: `This holds ${String(total)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`,
+    }),
+    sortBy: viewState.sortBy ?? view.sortBy,
+    descending:
+      viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
+  });
 
-  if (sorted.length === 0) {
-    return (
-      <EmptyPanel
-        title="No items match the filters"
-        detail={`This holds ${String(container.children.length)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`}
-        action={
-          <Button variant="secondary" onClick={viewState.clearFilters}>
-            Clear filters
-          </Button>
-        }
-      />
-    );
+  if (chrome.kind === 'chrome') {
+    return chrome.node;
   }
 
+  const property = chrome.drawable;
+  const key = property.key;
+
   const buckets = new Map<string | null, Item[]>();
-  for (const item of sorted) {
+  for (const item of chrome.items) {
     const value = readSelectValue(item, key);
     const bucket = buckets.get(value);
     if (bucket === undefined) {
@@ -197,6 +148,10 @@ export function BoardView(props: BoardViewProps): ReactNode {
           </span>
         </div>
       )}
+
+      {/* Two different partial states, said separately: the chrome's is about what the address is
+          hiding, and the board's own is about what its columns cannot hold. */}
+      {chrome.notice}
 
       {hidden.length === 0 ? null : (
         <PartialNotice

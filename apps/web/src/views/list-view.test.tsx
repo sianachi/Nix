@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { type ReactNode } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -63,6 +63,53 @@ function viewOf(overrides: Partial<View> = {}): View {
 
 function containerData(overrides: Partial<ContainerData> = {}): ContainerData {
   return aContainer(overrides);
+}
+
+/**
+ * A list wired to a stand-in for `useContainer`: the write is optimistic, and a refusal puts the
+ * value back and answers with the reason.
+ *
+ * The round trip is a real one rather than a resolved promise, because the rollback only *is* a
+ * rollback if the optimistic value reached the screen first - which is exactly the sequence a cell
+ * has to survive.
+ */
+function listWith(options: {
+  readonly items: readonly Item[];
+  readonly schema: EffectiveSchema;
+  readonly refuse?: string;
+  readonly writeError?: string;
+}): ReactElement {
+  function Harness(): ReactNode {
+    const [children, setChildren] = useState<readonly Item[]>(options.items);
+
+    const container = containerData({
+      schema: options.schema,
+      children,
+      ...(options.writeError === undefined ? {} : { writeError: options.writeError }),
+      setProperties: async (itemId, properties) => {
+        setChildren((current) =>
+          current.map((entry) =>
+            entry.id === itemId
+              ? { ...entry, properties: { ...entry.properties, ...properties } }
+              : entry,
+          ),
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        if (options.refuse === undefined) {
+          return null;
+        }
+
+        setChildren(options.items);
+        return options.refuse;
+      },
+    });
+
+    return <ListView container={container} view={null} onOpen={vi.fn()} />;
+  }
+
+  return <Harness />;
 }
 
 /** Reports the address back to the test, so a URL-held sort can be asserted on as a fact. */
@@ -308,7 +355,7 @@ describe('ListView', () => {
   it('says there is nothing here when there is nothing here', () => {
     renderAt(<ListView container={containerData()} view={null} onOpen={vi.fn()} />);
 
-    expect(screen.getByText('Nothing in here yet.')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Nothing in here yet');
     expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
   });
 
@@ -317,9 +364,11 @@ describe('ListView', () => {
       <ListView container={containerData({ status: 'loading' })} view={null} onOpen={vi.fn()} />,
     );
 
-    expect(screen.queryByText('Nothing in here yet.')).not.toBeInTheDocument();
-    expect(screen.getByText('Loading the contents')).toBeInTheDocument();
-    expect(screen.getByRole('table')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText(/nothing in here yet/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Loading this list')).toBeInTheDocument();
+    // A header row over an unanswered question reads as a folder with nothing in it, which is the
+    // one thing we do not yet know.
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('reports contents that could not be read instead of drawing an empty table', () => {
@@ -367,6 +416,113 @@ describe('ListView', () => {
     await user.click(screen.getByRole('button', { name: 'Alpha' }));
 
     expect(onOpen).toHaveBeenCalledWith('item-a');
+  });
+
+  it('commits a cell edit on blur and leaves the other cells alone', async () => {
+    const user = userEvent.setup();
+    const setProperties = vi.fn(() => Promise.resolve(null));
+
+    renderAt(
+      <ListView
+        container={containerData({
+          schema: schemaOf(property('owner', 'Owner', 'text'), property('note', 'Note', 'text')),
+          children: [item('item-1', 'Billing', 1, { owner: 'Ada', note: 'untouched' })],
+          setProperties,
+        })}
+        view={null}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const owner = screen.getByRole('textbox', { name: 'Owner for Billing' });
+    await user.clear(owner);
+    await user.type(owner, 'Grace');
+    await user.tab();
+
+    // One request for one finished edit, carrying only the property that was edited: a control
+    // that wrote per keystroke would put five requests behind the word above.
+    expect(setProperties).toHaveBeenCalledTimes(1);
+    expect(setProperties).toHaveBeenCalledWith('item-1', { owner: 'Grace' });
+    expect(screen.getByRole('textbox', { name: 'Note for Billing' })).toHaveValue('untouched');
+  });
+
+  it('names each editable cell by its property and its row', () => {
+    renderAt(
+      <ListView
+        container={containerData({
+          schema: schemaOf(property('owner', 'Owner', 'text')),
+          children: [ZETA, ALPHA],
+        })}
+        view={viewOf({ columns: ['owner'] })}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    // A column of controls all called "Owner" is a column neither a screen reader user nor a test
+    // can operate: the row has to be part of the name.
+    expect(screen.getByRole('textbox', { name: 'Owner for Zeta' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Owner for Alpha' })).toBeInTheDocument();
+  });
+
+  it("shows the server's refusal in the cell that caused it, and puts the old value back", async () => {
+    const user = userEvent.setup();
+
+    renderAt(
+      listWith({
+        schema: schemaOf(property('owner', 'Owner', 'text')),
+        items: [item('item-1', 'Billing', 1, { owner: 'Ada' })],
+        refuse: 'You do not have permission to change this item.',
+      }),
+    );
+
+    const owner = screen.getByRole('textbox', { name: 'Owner for Billing' });
+    await user.clear(owner);
+    await user.type(owner, 'Grace{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You do not have permission to change this item.',
+    );
+    // The stored value is what is really there, so it is what the field shows.
+    expect(screen.getByRole('textbox', { name: 'Owner for Billing' })).toHaveValue('Ada');
+  });
+
+  it('does not draw a second banner for a refusal a cell has already reported', async () => {
+    const user = userEvent.setup();
+
+    renderAt(
+      listWith({
+        schema: schemaOf(property('owner', 'Owner', 'text')),
+        items: [item('item-1', 'Billing', 1, { owner: 'Ada' })],
+        refuse: 'That change could not be saved.',
+        // The drag channel, which this view does not use. A list that rendered both would say the
+        // same thing twice for one failure.
+        writeError: 'That change could not be saved.',
+      }),
+    );
+
+    const owner = screen.getByRole('textbox', { name: 'Owner for Billing' });
+    await user.clear(owner);
+    await user.type(owner, 'Grace{Enter}');
+
+    expect(await screen.findAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('does not offer an edit for a property type this build does not know', () => {
+    renderAt(
+      <ListView
+        container={containerData({
+          schema: schemaOf(property('rating', 'Rating', 'constellation')),
+          children: [item('item-r', 'Rated', 1, { rating: 'four of five' })],
+        })}
+        view={null}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    // The value is shown as stored - a type this build cannot draw a control for is a missing
+    // presentation, not a missing value - and no control claims it can change it.
+    expect(screen.getByRole('cell', { name: 'four of five' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /rating/i })).not.toBeInTheDocument();
   });
 
   it('renders the value of a property type this build has never heard of', () => {

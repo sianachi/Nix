@@ -2,9 +2,7 @@ import { Blueprint, Button, Field, Icon, Input, Text, cn } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useState, type DragEvent, type ReactNode } from 'react';
 
-import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
 import {
-  applyFilters,
   readDateValue,
   readPropertyText,
   type ContainerViews,
@@ -33,6 +31,7 @@ import {
 import { HourGrid } from './calendar-hours';
 import { readerZone } from './timestamps';
 import type { ContainerData } from './use-container';
+import { drawable, resolveViewChrome, undrawable } from './view-chrome';
 import { useViewState } from './view-state';
 
 /**
@@ -138,7 +137,8 @@ function describeUnrenderable(
 
 export function CalendarView(props: CalendarViewProps): ReactNode {
   const { container, view, onOpen } = props;
-  const { filters, clearFilters, mode: urlMode, setMode } = useViewState();
+  const viewState = useViewState();
+  const { mode: urlMode, setMode } = viewState;
 
   /*
    * Which month is on screen is local state, and deliberately not in the URL.
@@ -170,69 +170,43 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const unscheduledHeadingId = useId();
 
-  if (container.status === 'loading') {
-    return <LoadingPanel label="this calendar" />;
-  }
-
-  if (container.status === 'error') {
-    return (
-      <ErrorPanel
-        title="This calendar could not be loaded"
-        detail={container.error ?? 'The contents could not be read.'}
-        action={
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void container.reload();
-            }}
-          >
-            Try again
-          </Button>
-        }
-      />
-    );
-  }
-
   const reason = describeUnrenderable(view, container.schema, container.views);
   const configured = view.dateProperty;
 
-  if (configured === null || reason !== null) {
-    return <ErrorPanel title="This calendar cannot be drawn" detail={reason ?? NO_DATE_PROPERTY} />;
+  const chrome = resolveViewChrome({
+    container,
+    viewState,
+    subject: 'this calendar',
+    drawable:
+      configured === null || reason !== null
+        ? undrawable<string>({
+            title: 'This calendar cannot be drawn',
+            detail: reason ?? NO_DATE_PROPERTY,
+          })
+        : drawable(configured),
+    emptyTitle: 'Nothing in here yet',
+    emptyDetail:
+      'There is nothing to place on a calendar yet. Items added to this one will appear on the day their date says.',
+    // Made without a date, so it lands in the unscheduled list rather than on a day nobody picked.
+    emptyAction: <CreateItemControl label="Add the first item" onCreate={container.create} />,
+    filtered: (total) => ({
+      title: 'No items match the current filters',
+      detail: `This holds ${String(total)} items, and the filters in the address hide every one of them. Clearing the filters brings them back.`,
+    }),
+    // A calendar is ordered by the grid, not by a column header: within a day, items keep the order
+    // somebody arranged them in.
+    sortBy: null,
+    descending: false,
+  });
+
+  if (chrome.kind === 'chrome') {
+    return chrome.node;
   }
 
-  // Re-declared with its type stated so the closures below see a key rather than a maybe-key: a
-  // narrowing does not follow a `const` into a function that is created later in the body.
-  const dateProperty: string = configured;
-
-  if (container.children.length === 0) {
-    return (
-      <EmptyPanel
-        title="Nothing in here yet"
-        detail="There is nothing to place on a calendar yet. Items added to this one will appear on the day their date says."
-        // The empty state is when the way out of it matters most. Made without a date, so it lands
-        // in the unscheduled list rather than on a day nobody picked.
-        action={<CreateItemControl label="Add the first item" onCreate={container.create} />}
-      />
-    );
-  }
-
-  const items = applyFilters(container.children, filters);
-
-  if (items.length === 0) {
-    // Not the same statement as an empty folder, and drawn differently on purpose: everything is
-    // still here, the filters are simply hiding all of it.
-    return (
-      <EmptyPanel
-        title="No items match the current filters"
-        detail={`This holds ${String(container.children.length)} items, and the filters in the address hide every one of them. Clearing the filters brings them back.`}
-        action={
-          <Button variant="secondary" onClick={clearFilters}>
-            Clear filters
-          </Button>
-        }
-      />
-    );
-  }
+  // Named with its type stated so the closures below see a key rather than a maybe-key: a narrowing
+  // does not follow a `const` into a function that is created later in the body.
+  const dateProperty: string = chrome.drawable;
+  const items = chrome.items;
 
   const byDate = new Map<string, Item[]>();
   const unscheduled: Item[] = [];
@@ -381,6 +355,10 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           </Button>
         </div>
       </div>
+
+      {/* What the address is hiding, said separately from what the grid is: one is a filter
+          somebody set, the other is a month somebody paged away from. */}
+      {chrome.notice}
 
       {elsewhere === 0 ? null : (
         // A month grid can only show a month. Saying how much is off-screen is the difference

@@ -1,7 +1,6 @@
-import { Icon } from '@nix/ui';
-import { TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { ErrorPanel } from '../components/states/status-panels';
 import type { View } from './container-model';
 import { ListView } from './list-view';
 import type { ContainerData } from './use-container';
@@ -38,8 +37,11 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
   const descriptor = findViewKind(view.kind);
 
   if (descriptor === null) {
+    // The shared error panel rather than a local shape of this file's own. A view that cannot be
+    // drawn is the same fact whether the kind is unknown to this build or the configuration has
+    // drifted, and the two used to be drawn differently for no reason but where they were written.
     return (
-      <ViewProblem
+      <ErrorPanel
         title="This build cannot render that view"
         detail={`"${view.name}" is a ${view.kind} view, which this version of Nix does not know how to draw. It has not been changed or removed.`}
       />
@@ -47,27 +49,4 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
   }
 
   return descriptor.render({ container, view, onOpen });
-}
-
-/**
- * A view that cannot be drawn, explained.
- *
- * Says what is wrong and, where it applies, that nothing has been lost. A view that simply rendered
- * nothing would be indistinguishable from an item with no children, and somebody would go looking
- * for their missing items rather than for the missing configuration.
- */
-function ViewProblem({
-  title,
-  detail,
-}: {
-  readonly title: string;
-  readonly detail: string;
-}): ReactNode {
-  return (
-    <div role="alert" className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-      <Icon icon={TriangleAlert} size="md" />
-      <p className="font-heading text-md uppercase tracking-[0.06em]">{title}</p>
-      <p className="max-w-sm text-base text-muted">{detail}</p>
-    </div>
-  );
 }

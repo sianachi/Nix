@@ -355,6 +355,23 @@ describe('a property input', () => {
     expect(screen.getByRole('textbox', { name: 'Owner' })).toHaveAttribute('aria-invalid', 'true');
   });
 
+  it('renders at cell density without a second border', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ owner: 'Ada' })}
+        property={propertyOf({ key: 'owner', label: 'Owner' })}
+        onCommit={vi.fn()}
+        density="cell"
+      />,
+    );
+
+    // The column header is the label, so the control names itself after its row instead - and the
+    // cell already has a rule under it, so a framed box inside it would read as a double rule.
+    const control = screen.getByRole('textbox', { name: 'Owner for Kickoff' });
+    expect(control).toHaveClass('border-transparent');
+    expect(screen.queryByText('Owner')).not.toBeInTheDocument();
+  });
+
   it('does not offer to write anything when writing is not permitted', () => {
     render(
       <PropertyInput

@@ -51,8 +51,22 @@ export interface ContainerData {
    */
   readonly create: (title: string, properties?: Record<string, unknown>) => Promise<string | null>;
 
-  /** Writes property values onto one child and refreshes it in place. */
-  readonly setProperties: (itemId: string, properties: Record<string, unknown>) => Promise<void>;
+  /**
+   * Writes property values onto one child and refreshes it in place.
+   *
+   * Returns the reason it was refused, or null when it was stored - the same shape every other
+   * mutation here returns, and for the same reason: the caller frequently has somewhere better to
+   * put the refusal than the view does. A cell that was edited can say so in the cell; a card that
+   * was dragged cannot, because nobody awaits a gesture.
+   *
+   * **Two channels, deliberately.** `writeError` below is the drag channel - a refusal for a caller
+   * that fired and forgot. This return value is the awaited-edit channel. A caller uses one or the
+   * other and never both: rendering both is two banners for one failure.
+   */
+  readonly setProperties: (
+    itemId: string,
+    properties: Record<string, unknown>,
+  ) => Promise<string | null>;
 
   /**
    * Replaces the schema this container declares.
@@ -82,7 +96,13 @@ export interface ContainerData {
    */
   readonly setDefaultView: (viewId: string) => Promise<string | null>;
 
-  /** The last property write that failed, for a view to report without losing the item. */
+  /**
+   * The last property write that failed, for a view to report without losing the item.
+   *
+   * The drag channel: a gesture nobody awaits still has to be answered somewhere, and a card that
+   * has already snapped back to its old column is not a place to put a sentence. A view whose edits
+   * *are* awaited - the list's cells - reads the return value instead and leaves this alone.
+   */
   readonly writeError: string | null;
 
   readonly reload: () => Promise<void>;
@@ -201,7 +221,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   }, [load]);
 
   const setProperties = useCallback(
-    async (itemId: string, properties: Record<string, unknown>): Promise<void> => {
+    async (itemId: string, properties: Record<string, unknown>): Promise<string | null> => {
       setWriteError(null);
 
       // Optimistic: the card moves under the pointer and the request follows. A drag that waited
@@ -223,18 +243,25 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
 
       if (!response.ok) {
         const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+        const refusal = problem?.detail ?? 'That change could not be saved.';
 
         // Put it back exactly where it was and say why. Leaving the card in its new column after
         // the server refused would be a lie that survives until the next reload.
         setChildren(previous);
-        setWriteError(problem?.detail ?? 'That change could not be saved.');
-        return;
+
+        // Said twice, to two different kinds of caller - see the two channels on `setProperties`.
+        // Setting both is safe because no view reads both: the one that awaits the answer renders
+        // it where the edit happened, and stops reading `writeError` for exactly that reason.
+        setWriteError(refusal);
+        return refusal;
       }
 
       const updated = ItemSchema.safeParse(await response.json());
       if (updated.success) {
         setChildren((current) => current.map((item) => (item.id === itemId ? updated.data : item)));
       }
+
+      return null;
     },
     [children, request],
   );

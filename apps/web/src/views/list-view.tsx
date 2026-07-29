@@ -1,34 +1,39 @@
-import { Button, Table, Tag, Text, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
+import { Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
 import { type ReactNode } from 'react';
 
+import { isKnownPropertyType } from '../properties/property-input';
 import {
-  applyFilters,
   readPropertyText,
-  readSelectValue,
-  sortItems,
   type EffectiveSchema,
   type Item,
   type PropertyDefinition,
+  type PropertyValue,
   type View,
 } from './container-model';
 import { CreateItemControl } from './create-item-control';
+import { ListCell } from './list-cell';
 import type { ContainerData } from './use-container';
+import { drawable, resolveViewChrome } from './view-chrome';
 import { useViewState, type SortDirection } from './view-state';
 
 /**
- * The list view: a container's children as a table.
+ * The list view: a container's children as a table, edited in place.
  *
  * The plainest of the three views and the one every container falls back to, so it is also the one
  * that has to be right about the least interesting things - what the columns are, what order the
- * rows are in, and above all what it says when there are no rows.
+ * rows are in, and above all what it says when there are no rows. Those five answers are not
+ * decided here: they are the shared view chrome, which the board and the calendar also ask, because
+ * four copies of one decision is four chances to drop the branch nobody meets while building.
  *
- * **Four answers, four messages.** "We are still asking", "this item is empty", "it could
- * not be read" and "your filters are hiding everything" are four different facts, and three of them
- * are actionable in different directions. The last is the one worth spending words on: somebody who
- * followed a filtered link, or filtered down and forgot, and is told "nothing in here yet" will go
- * looking for notes they think have been deleted. So the empty message is chosen from what we know
- * - the folder had children and the filters removed all of them is not emptiness - and the state
- * carries the one control that gets out of it.
+ * **Every cell is a control, always drawn as one.** Not click-to-edit: that needs a focus transfer
+ * effect of its own, and it hides from a screen reader the one fact the table is trying to convey,
+ * which is that these values can be changed. The cost is a tab stop per cell, which a following
+ * goal buys back with arrow-key navigation.
+ *
+ * **Plain table semantics.** A real `<table>` with `<th scope="row">` row headers, not `role="grid"`
+ * with a roving tabindex. A roving tabindex is focus state with no source - it cannot come from the
+ * URL - so it would be local state plus an effect moving DOM focus, and focus jumping on a re-sort,
+ * on an optimistic update or on a refusal rollback is worse than a long tab order.
  *
  * **The sort is not held here.** It lives in the URL, because a sorted table that cannot be linked
  * or restored by the back button is a table somebody has to re-sort every time they arrive. This
@@ -68,36 +73,32 @@ export function ListView(props: ListViewProps): ReactNode {
         ? 'descending'
         : 'ascending';
 
-  const visible = applyFilters(container.children, viewState.filters);
-  const rows = sortItems(visible, sortBy, direction === 'descending');
+  const chrome = resolveViewChrome({
+    container,
+    viewState,
+    subject: 'this list',
+    // A list needs nothing configured to be drawable: it has titles to show even with no schema,
+    // which is exactly why it is what every container falls back to.
+    drawable: drawable(null),
+    emptyTitle: 'Nothing in here yet',
+    emptyDetail: 'Items added to this one appear here as rows.',
+    emptyAction: <CreateItemControl label="Add an item" onCreate={container.create} />,
+    filtered: (total) => ({
+      title: 'No items match the filters',
+      // Says how many are hidden, because "no items match" leaves open the possibility that the
+      // item was empty all along, and the count is the proof that it was not.
+      detail: hiddenByFilters(total),
+    }),
+    sortBy,
+    descending: direction === 'descending',
+  });
 
-  // Emptiness we caused, rather than emptiness we found. Only claimable once the answer has
-  // arrived: mid-load there is nothing to hide and nothing to say about it.
-  const filteredToNothing =
-    container.status === 'ready' &&
-    rows.length === 0 &&
-    container.children.length > 0 &&
-    viewState.filters.length > 0;
+  if (chrome.kind === 'chrome') {
+    return chrome.node;
+  }
 
-  if (container.status === 'error') {
-    // The table is not rendered at all rather than rendered empty. A header row over a failure
-    // reads as a folder with no items in it, which is the one thing we know it is not - and the
-    // columns come from a schema that did not arrive either, so they would be a guess.
-    return (
-      <div role="alert" className="max-w-md">
-        <Text variant="bodySmall" tone="muted" className="mb-3">
-          {container.error ?? 'The contents could not be loaded.'}
-        </Text>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            void container.reload();
-          }}
-        >
-          Try again
-        </Button>
-      </div>
-    );
+  function write(itemId: string, key: string, value: PropertyValue): Promise<string | null> {
+    return container.setProperties(itemId, { [key]: value });
   }
 
   return (
@@ -106,20 +107,17 @@ export function ListView(props: ListViewProps): ReactNode {
     // `min-w-0` parent. Now that the pane scrolls only vertically, this is the sole owner of the
     // wide axis.
     <div className="min-w-0 overflow-x-auto">
+      {chrome.notice}
+
       <Table<Item>
         caption="Items in this one"
-        columns={buildColumns(view, container.schema, onOpen)}
-        rows={rows}
+        columns={buildColumns(view, container.schema, onOpen, write)}
+        rows={chrome.items}
         rowKey={(item) => item.id}
-        loading={container.status === 'loading'}
-        loadingMessage="Loading the contents"
-        emptyMessage={
-          filteredToNothing ? hiddenByFilters(container.children.length) : 'Nothing in here yet.'
-        }
-        // Spread rather than passed as `undefined`: under `exactOptionalPropertyTypes` an optional
-        // prop is either given or not given, and the distinction matters here - an absent `sort`
-        // has the headers offer a sort rather than claim one, because the rows are then in the
-        // order somebody arranged them by hand, which is not a column's doing.
+        // Never reached: the chrome above answers loading, empty and filtered-to-nothing before
+        // this renders, so the table only ever receives rows. Required by the prop, and worded so
+        // that it would still be true rather than alarming if it ever showed.
+        emptyMessage="Nothing in here yet."
         {...(sortBy === null ? {} : { sort: { columnKey: sortBy, direction } })}
         onSortChange={(next: TableSort) => {
           // The table decides *what* the click asked for - reverse this column, start any other
@@ -129,35 +127,19 @@ export function ListView(props: ListViewProps): ReactNode {
         }}
       />
 
-      {filteredToNothing ? (
-        // The way out. A state that explains itself and then offers nothing to do about it is only
-        // half an answer, and the filters are in the URL - not somewhere this screen can point at.
-        <Button
-          variant="secondary"
-          className="mt-3"
-          onClick={() => {
-            viewState.clearFilters();
-          }}
-        >
-          Clear filters
-        </Button>
-      ) : null}
-
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
           enter the row-header inventory that eleven assertions compare against exactly - so it
           would be a create affordance that broke tests about columns. */}
-      {container.status === 'ready' ? (
-        <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
-      ) : null}
+      <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
     </div>
   );
 }
 
 /**
- * What the table says when the filters have removed everything.
+ * What the list says when the filters have removed everything.
  *
- * Says how many are hidden, because "no items match" leaves open the possibility that the item
- * was empty all along, and the count is the proof that it was not.
+ * Says how many are hidden, because "no items match" leaves open the possibility that the item was
+ * empty all along, and the count is the proof that it was not.
  */
 function hiddenByFilters(total: number): string {
   return total === 1
@@ -182,6 +164,7 @@ function buildColumns(
   view: View | null,
   schema: EffectiveSchema | null,
   onOpen: (itemId: string) => void,
+  write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
 ): readonly TableColumn<Item>[] {
   const definitions = new Map(
     (schema?.properties ?? []).map((definition) => [definition.key, definition]),
@@ -199,6 +182,10 @@ function buildColumns(
       rowHeader: true,
       sortable: true,
       cell: (item) => (
+        // Read-only, unlike every other column, and deliberately: renaming an item goes through the
+        // tree rather than through a property write, and the row header has to stay the row's
+        // primary affordance - a text box here would put an edit where a person expects a link.
+        //
         // A button in the cell rather than a click handler on the row: a clickable <tr> cannot be
         // reached by a keyboard and announces nothing to a screen reader, so the affordance goes
         // on the one thing in the row that already names the destination.
@@ -222,7 +209,7 @@ function buildColumns(
           key,
           header: definition?.label ?? key,
           sortable: true,
-          cell: (item) => renderProperty(item, key, definition),
+          cell: (item) => renderProperty(item, key, definition, write),
 
           // Numbers read right-aligned so their digits line up; everything else keeps the table's
           // own default rather than restating it.
@@ -233,23 +220,28 @@ function buildColumns(
 }
 
 /**
- * One property cell.
+ * One property cell: a control where this build knows the property type, and the stored value where
+ * it does not.
  *
- * Everything goes through `readPropertyText` unless there is a reason for it not to, which is what
- * makes a property type this build has never heard of render its value instead of an error: the
- * type only ever selects a *presentation*, and the absence of a match is a missing presentation,
- * not a missing value. A select is the one case worth drawing differently - a state reads as a
- * state at a glance - and it is drawn with the same tag the rest of the product uses.
+ * The unknown case reads rather than edits, and it renders as bare text rather than through the
+ * read-only floor `PropertyInput` falls back to. That floor explains itself in a sentence, and a
+ * sentence inside a table cell becomes part of the cell's accessible name - so the cell holding
+ * "four of five" would announce a paragraph about property types instead of the value.
+ *
+ * A column the schema does not describe at all has no type to dispatch on and no label to name a
+ * control with, so it reads too.
  */
 function renderProperty(
   item: Item,
   key: string,
   definition: PropertyDefinition | undefined,
+  write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
 ): ReactNode {
-  if (definition?.type === 'select') {
-    const value = readSelectValue(item, key);
-    return value === null ? null : <Tag>{value}</Tag>;
+  if (definition === undefined || !isKnownPropertyType(definition.type)) {
+    return readPropertyText(item, key);
   }
 
-  return readPropertyText(item, key);
+  return (
+    <ListCell item={item} property={definition} onWrite={(value) => write(item.id, key, value)} />
+  );
 }

@@ -22,7 +22,7 @@ export function aContainer(overrides: Partial<ContainerData> = {}): ContainerDat
     children: [],
     writeError: null,
     create: () => Promise.resolve(null),
-    setProperties: () => Promise.resolve(),
+    setProperties: () => Promise.resolve(null),
     setSchema: () => Promise.resolve(null),
     setViews: () => Promise.resolve(null),
     setDefaultView: () => Promise.resolve(null),
