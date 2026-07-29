@@ -2,12 +2,7 @@ import { Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../components/states/status-panels';
-import {
-  readPropertyText,
-  type Item,
-  type PropertyDefinition,
-  type View,
-} from './container-model';
+import { readPropertyText, type Item, type PropertyDefinition, type View } from './container-model';
 import { CoverImage } from './cover-image';
 import { CreateItemControl } from './create-item-control';
 import { propertyTypeLabel } from './property-types';
@@ -242,9 +237,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     //
     // `relative` is load-bearing - it is what the title button's stretched hit area is measured
     // against - and `shadow-sm` is the resting elevation every other card in the product has.
-    <li
-      className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}
-    >
+    <li className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}>
       {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
           which item that was about - the status arriving ahead of its subject. `order-first` puts
@@ -279,7 +272,10 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           for a picture that was never coming, which reads as a load that never finished. */}
       {cover.kind === 'ready' ? (
         <div className="order-first">
-          <CoverPane src={readPropertyText(item, cover.property.key)} label={cover.property.label} />
+          <CoverPane
+            src={readPropertyText(item, cover.property.key)}
+            label={cover.property.label}
+          />
         </div>
       ) : null}
 
@@ -302,13 +298,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
 }
 
 /** The card's picture region: the cover, or the words that say why there is not one. */
-function CoverPane({
-  src,
-  label,
-}: {
-  readonly src: string;
-  readonly label: string;
-}): ReactNode {
+function CoverPane({ src, label }: { readonly src: string; readonly label: string }): ReactNode {
   // **The state is the address that failed, not a flag plus a copy of the address.** Holding a
   // boolean would need a mirrored `src` beside it to know when to clear, which is a prop copied
   // into state by hand - the thing the state ladder exists to avoid - and it would need a
