@@ -1,4 +1,4 @@
-import { Icon, Segmented } from '@nix/ui';
+import { Icon, Segmented, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -41,11 +41,16 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
   const [pane, setPane] = useState<Pane>('details');
 
   return (
+    // The panel clips and the pane content inside it scrolls, rather than the panel itself
+    // scrolling. With the scroller on the aside, the pane switcher and the only control that closes
+    // the panel scrolled away with the fields - so on a container with a long schema you could edit
+    // your way to a position with no visible way back. The workspace tree is built the same way,
+    // for the same reason.
     <aside
       aria-label="Item settings"
-      className="flex w-[340px] shrink-0 flex-col gap-3 overflow-y-auto bg-surface px-3 py-3"
+      className="flex w-[340px] shrink-0 flex-col overflow-hidden bg-surface"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <Segmented
           label="What to configure"
           options={PANES}
@@ -58,22 +63,24 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
           type="button"
           aria-label="Hide the settings panel"
           onClick={onClose}
-          className="flex size-7 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className={`flex size-7 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
           <Icon icon={PanelRightClose} size="sm" />
         </button>
       </div>
 
-      {pane === 'details' ? (
-        <DetailsPane container={container} details={details} />
-      ) : pane === 'fields' ? (
-        // Both editors render inline now rather than as modals. `open` stays in their contract
-        // because it is what re-seeds their draft, and a pane that is not showing is closed as far
-        // as they are concerned.
-        <SchemaEditor container={container} open onClose={onClose} inline />
-      ) : (
-        <ViewEditor container={container} open onClose={onClose} inline />
-      )}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
+        {pane === 'details' ? (
+          <DetailsPane container={container} details={details} />
+        ) : pane === 'fields' ? (
+          // Both editors render inline now rather than as modals. `open` stays in their contract
+          // because it is what re-seeds their draft, and a pane that is not showing is closed as
+          // far as they are concerned.
+          <SchemaEditor container={container} open onClose={onClose} inline />
+        ) : (
+          <ViewEditor container={container} open onClose={onClose} inline />
+        )}
+      </div>
     </aside>
   );
 }

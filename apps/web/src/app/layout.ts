@@ -43,11 +43,20 @@ export const paneClip = 'min-h-0 min-w-0 overflow-hidden';
 export const paneColumn = `flex flex-1 flex-col ${paneClip}`;
 
 /**
- * The one scroller a pane is allowed, on the one axis a pane may own.
+ * A pane's scroller.
  *
- * Vertical only. The horizontal axis belongs to whichever view is inside,
- * because only the view knows what its wide axis is - columns on a board,
- * properties on a table - and two boxes competing for the same gesture means
- * the outer one wins and the inner one feels broken.
+ * `overflow-y-auto` states the intent - the pane exists to scroll vertically -
+ * but it is worth knowing that CSS does not honour it as a restriction. Per CSS
+ * Overflow 3, when one axis is not `visible` the other's `visible` computes to
+ * `auto`, so this element is a scroll container on *both* axes and
+ * `overflow-y-auto` and `overflow-auto` compute identically. Verified in a
+ * browser, not assumed.
+ *
+ * What actually keeps the horizontal axis out of the pane's hands is the view
+ * inside it: `min-w-0` lets the pane shrink to the space available, and every
+ * view wide enough to need it carries its own `overflow-x-auto`, which
+ * constrains its content to the pane's width so the pane's own horizontal
+ * scroller never has anything to scroll. A wide view that does *not* bring one
+ * falls back to this - which is the degraded case, not the design.
  */
-export const paneScrollY = 'min-h-0 min-w-0 flex-1 overflow-y-auto';
+export const paneScroller = 'min-h-0 min-w-0 flex-1 overflow-y-auto';

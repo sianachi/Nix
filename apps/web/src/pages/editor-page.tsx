@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
-import { paneClip, paneColumn, paneScrollY } from '../app/layout';
+import { paneClip, paneColumn, paneScroller } from '../app/layout';
 import { NoteEditor } from '../editor/note-editor';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
@@ -163,11 +163,11 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
               banner saying the same thing in different words, directly under a comment claiming it
               did not. */}
 
-              {/* The pane's scroller, and it is y-only on purpose. When this took both axes it
-                  competed with the board's own `overflow-x-auto` for every horizontal gesture and
-                  won, so the columns felt stuck while the whole page slid sideways instead. The
-                  view owns its wide axis; the pane owns the tall one. */}
-              <div className={paneScrollY}>
+              {/* The pane's scroller. It is written y-only to say what it is for, though CSS makes
+                  it a scroll container on both axes either way - what keeps the horizontal one
+                  dormant is that the view inside brings its own and this can shrink to fit around
+                  it. See `paneScroller`. */}
+              <div className={paneScroller}>
                 <ContainerView container={container} view={active} onOpen={onOpen} />
               </div>
             </section>

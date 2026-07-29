@@ -27,13 +27,22 @@ import { RequireSession } from './require-session';
  * supply MemoryRouter, which is what makes the URL-state convention testable
  * without a browser.
  *
- * The outer element carries the token-backed page defaults - light ground, ink
- * foreground, Barlow body - so they survive even when a crash replaces the
- * whole route tree with the error fallback.
+ * The outer element carries the token-backed page defaults - the ground, the ink
+ * and the body face - so they survive even when a crash replaces the whole route
+ * tree with the error fallback.
+ *
+ * `min-h-dvh` is part of that promise rather than layout left over from an older
+ * shell. Nothing sets a background on html or body, so this element is the only
+ * thing painting the page, and the error fallback has no height of its own:
+ * without a minimum, an app-level crash paints a ground the height of its own
+ * error message and leaves the rest of the window browser-white - which on the
+ * dark ground is a dark card on a white sheet. It does not fight the shell's
+ * `h-dvh` either, because a minimum on the parent still leaves the child's
+ * height definite.
  */
 export function App(): ReactElement {
   return (
-    <div className="bg-background font-body text-foreground">
+    <div className="min-h-dvh bg-background font-body text-foreground">
       <AppErrorBoundary>
         <AuthProvider>
           <Routes>

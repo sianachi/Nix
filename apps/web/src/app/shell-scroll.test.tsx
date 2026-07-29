@@ -96,21 +96,21 @@ describe('the shell scroll model', () => {
     expect(sidebar.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
   });
 
-  it('scrolls the container pane vertically and leaves the horizontal axis to the view', async () => {
+  it('gives the container pane one scroller, and the view inside it owns the wide axis', async () => {
     await openContainer();
 
     const pane = screen.getByRole('region', { name: 'Container' });
-    const scrollers = pane.querySelectorAll('.overflow-y-auto');
 
-    // Exactly one, and it is y-only. This is the regression the file exists
-    // for: as `overflow-auto` it took both axes, so it competed with the
-    // board's own horizontal scroller for every sideways gesture and won - the
-    // columns felt stuck while the whole page slid instead.
-    expect(scrollers).toHaveLength(1);
-    expect(pane.querySelectorAll('.overflow-auto')).toHaveLength(0);
+    // One scroller in the pane, not two stacked ones.
+    expect(pane.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
 
-    // The view inside it owns the wide axis, because only the view knows what
-    // its wide axis is.
+    // The load-bearing half. A wide view must bring its own horizontal
+    // scroller, because the pane's cannot be restricted to one axis: CSS
+    // Overflow 3 computes the other axis to `auto` as soon as one leaves
+    // `visible`, so `overflow-y-auto` and `overflow-auto` are the same scroll
+    // container. What keeps the pane's horizontal axis dormant is that this
+    // inner scroller constrains the table to the pane's width, leaving the
+    // pane's own nothing to scroll.
     expect(within(pane).getByRole('table').closest('.overflow-x-auto')).not.toBeNull();
   });
 

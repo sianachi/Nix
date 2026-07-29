@@ -28,9 +28,15 @@ import { useSidebar } from './use-sidebar';
  * ## The shell owns the viewport
  *
  * Exactly one element is `h-dvh`, exactly one element clips, and each pane owns exactly one
- * scroller on exactly one axis. **Vertical belongs to the pane. Horizontal belongs to the view**,
- * because only the view knows what its wide axis is - a board scrolls through columns, a table
- * through property columns, and the pane cannot know which.
+ * scroller. **Vertical belongs to the pane. Horizontal belongs to the view**, because only the view
+ * knows what its wide axis is - a board scrolls through columns, a table through property columns,
+ * and the pane cannot know which.
+ *
+ * That division is a convention the views keep, not something the CSS enforces. A pane's
+ * `overflow-y-auto` makes it a scroll container on *both* axes - per CSS Overflow 3, one axis
+ * leaving `visible` takes the other with it - so what actually keeps the horizontal axis quiet is
+ * that every wide view brings its own `overflow-x-auto` and `min-w-0` lets the pane shrink to fit
+ * around it. See `paneScroller` in `./layout`.
  *
  * This was previously unimplemented rather than mis-tuned, and it failed in two directions at once.
  * The root was `min-h-dvh`, so `flex-1` never had a definite height and no descendant's
@@ -40,13 +46,13 @@ import { useSidebar } from './use-sidebar';
  * slid the whole page, carrying the fixed sidebar off-screen while view content took the pixels it
  * had been holding - which read as content overflowing into the tree.
  *
- * **Not yet settled: a view that wants to own its vertical axis.** The calendar's hour grid is 24
- * rows deep and has an `overflow-y-auto` of its own (`calendar-hours.tsx`), so in week and day
- * modes there are two vertical scrollers in one column and neither owns the axis outright. Making
- * that view's root take a definite height would settle it, but it is a change to how the calendar
- * lays out rather than to the shell, so it is left alone here and named rather than pretended
- * about. No view currently claims its own vertical axis, and the shell does not yet offer a rule
- * for one that wants to.
+ * **No view owns its own vertical axis today, and the one that looks like it does, does not.** The
+ * calendar's hour grid carries an `overflow-y-auto` (`calendar-hours.tsx`), but the `Blueprint`
+ * above it has no definite height, so the grid's 24 rows size that element instead of scrolling
+ * inside it and the pane ends up carrying the whole thing. There are not two vertical scrollers
+ * competing - there is one, and it is the pane's. Nothing is unreachable, so this is left alone
+ * rather than restructured from the shell; a view that genuinely wants its own vertical axis would
+ * need a definite height first, and that is a decision for the view.
  */
 export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
@@ -85,10 +91,18 @@ export function AppShell(): ReactNode {
     <div className="flex h-dvh flex-col overflow-hidden bg-background font-body text-foreground">
       {/* First focusable thing in the document, for everybody, on every screen. It used to live in
           a layout element that the route tree had stopped rendering, so in practice the app had no
-          skip link at all. */}
+          skip link at all.
+
+          Every box property is re-applied under `focus:`, which looks redundant and is not:
+          `.focus\:not-sr-only:focus` sets `padding: 0` at two-class specificity, so a plain `px-4`
+          loses to it and the link paints as bare text in the very corner of the viewport - with the
+          top and left of its focus ring outside the window, which is the one thing a focus
+          indicator may not be. Offset from the corner and given elevation because it covers the
+          header rather than sitting in the layout; `z-50` clears the profile menu at 20 and the
+          search overlay at 30, both of which come later in the DOM. */}
       <a
         href="#main"
-        className={`sr-only px-4 py-2 focus:not-sr-only focus:absolute focus:bg-background ${focusRing}`}
+        className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
       >
         Skip to content
       </a>
@@ -101,7 +115,7 @@ export function AppShell(): ReactNode {
           aria-label={sidebar.collapsed ? 'Show the workspace tree' : 'Hide the workspace tree'}
           aria-expanded={!sidebar.collapsed}
           onClick={sidebar.toggle}
-          className="flex size-[26px] items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className={`flex size-[26px] items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
           <Icon icon={sidebar.collapsed ? PanelLeftOpen : PanelLeftClose} size="sm" />
         </button>
@@ -109,7 +123,7 @@ export function AppShell(): ReactNode {
         <Link
           to="/"
           aria-label="Nix home"
-          className="inline-flex size-[26px] items-center justify-center rounded-md border border-divider font-heading text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className={`inline-flex size-[26px] items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
         >
           NX
         </Link>
@@ -123,7 +137,7 @@ export function AppShell(): ReactNode {
           onClick={() => {
             setSearchOpen(true);
           }}
-          className="ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className={`ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 ${focusRing}`}
         >
           <Icon icon={Search} size="sm" />
           Search
