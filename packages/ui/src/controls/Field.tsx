@@ -61,7 +61,7 @@ export function Field(props: FieldProps): ReactNode {
           primitive settled this the same way for the same reason. */}
       <label
         htmlFor={controlId}
-        className="font-heading text-xs uppercase tracking-[0.08em] text-muted"
+        className="font-heading text-xs uppercase tracking-wider text-muted"
       >
         {label}
         {required ? (

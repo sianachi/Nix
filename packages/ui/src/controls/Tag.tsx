@@ -18,7 +18,7 @@ import { cn } from '../lib/cn';
 const tagVariants = cva(
   cn(
     'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5',
-    'font-heading text-xs uppercase tracking-[0.08em]',
+    'font-heading text-xs uppercase tracking-wider',
   ),
   {
     variants: {
