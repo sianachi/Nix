@@ -1,4 +1,4 @@
-import { Button, Icon } from '@nix/ui';
+import { Button, Icon, focusRing } from '@nix/ui';
 import { Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router';
@@ -221,7 +221,7 @@ function ItemHeader({ tree, itemId, title, onNavigate }: ItemHeaderProps): React
                 onClick={() => {
                   onNavigate(ancestor.id);
                 }}
-                className="text-muted underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className={`text-muted underline-offset-2 hover:text-foreground hover:underline ${focusRing}`}
               >
                 {ancestor.title || 'Untitled'}
               </button>
@@ -247,7 +247,12 @@ function ItemHeader({ tree, itemId, title, onNavigate }: ItemHeaderProps): React
             void tree.rename(itemId, draft);
           }
         }}
-        className="w-full bg-transparent font-heading text-2xl uppercase outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        // No `outline-none` beside the ring. In Tailwind v4 that utility sets `--tw-outline-style:
+        // none` on the element, and `focus-visible:outline-2` resolves its style through the same
+        // variable - so the two together left the field that renames an item with no visible focus
+        // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
+        // point of the primitive.
+        className={`w-full bg-transparent font-heading text-2xl uppercase ${focusRing}`}
       />
     </header>
   );

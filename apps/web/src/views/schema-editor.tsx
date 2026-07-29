@@ -1,4 +1,4 @@
-import { Button, Field, Icon, Input, Select } from '@nix/ui';
+import { Button, Field, Icon, Input, Select, focusRing } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -206,7 +206,7 @@ export function SchemaEditor({
                 onChange={(event) => {
                   update(index, { required: event.target.checked });
                 }}
-                className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className={focusRing}
               />
               Required
             </label>
@@ -228,7 +228,7 @@ export function SchemaEditor({
 
         {inheritedOnly.length === 0 ? null : (
           <div className="border-t border-divider pt-3">
-            <p className="mb-1 font-heading text-xs uppercase tracking-[0.08em] text-muted">
+            <p className="mb-1 font-heading text-xs uppercase tracking-wider text-muted">
               Inherited from above
             </p>
             {/* Shown but not editable. Somebody needs to see why a property they did not declare is
@@ -249,7 +249,7 @@ export function SchemaEditor({
                 onChange={(event) => {
                   setInherit(!event.target.checked);
                 }}
-                className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className={focusRing}
               />
               Ignore fields from items above this one
             </label>

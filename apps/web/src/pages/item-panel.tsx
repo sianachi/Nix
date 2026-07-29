@@ -1,4 +1,4 @@
-import { Icon, Segmented } from '@nix/ui';
+import { Icon, Segmented, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -58,7 +58,7 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
           type="button"
           aria-label="Hide the settings panel"
           onClick={onClose}
-          className="flex size-7 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className={`flex size-7 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
           <Icon icon={PanelRightClose} size="sm" />
         </button>

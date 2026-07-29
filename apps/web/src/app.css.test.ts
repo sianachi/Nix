@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,8 +55,39 @@ const LIBRARY_ONLY = [
   'height: var(--control-md)',
   // Button.tsx: the horizontal padding, off the spacing scale.
   'padding-inline: calc(var(--spacing) * 3.6)',
-  // Text.tsx: the body face's negative tracking.
-  'letter-spacing: -0.015em',
+  // Text.tsx: the heading face's negative tracking. Written as the token
+  // reference because that is what Tailwind now emits - `Text` says
+  // `tracking-tight` since the letter-spacing scale moved into the sheet, and
+  // the literal `-0.015em` survives only as the `@theme` variable's own
+  // definition, which is a different declaration and does not contain this
+  // string.
+  'letter-spacing: var(--tracking-tight)',
+];
+
+/**
+ * The utilities the declarations above stand for, as an app-side exclusion list.
+ *
+ * Every entry in `LIBRARY_ONLY` is a canary: it means something only while
+ * `apps/web` does not ask for the same utility itself. The day a component here
+ * writes `tracking-tight`, that declaration appears in the stylesheet whether
+ * the `@source` line exists or not, and the assertion above quietly stops
+ * testing anything.
+ *
+ * That is not hypothetical. `apps/web` had no letter-spacing vocabulary at all
+ * until the sweep that moved it onto the scale, and it now names four of the
+ * six tracking steps; `min-w-(--control-md)` appeared in the same sweep, one
+ * keystroke from the `h-` spelling below.
+ *
+ * So the canaries are checked for what they are. When this fails, the fix is to
+ * pick a different declaration that is still library-only - not to delete the
+ * assertion it protects.
+ */
+const CANARY_UTILITIES = [
+  'border-separate',
+  'border-spacing-',
+  'h-(--control-md)',
+  'px-3.6',
+  'tracking-tight',
 ];
 
 let workDir: string;
@@ -114,5 +145,35 @@ describe('the web entry', () => {
     const missing = LIBRARY_ONLY.filter((declaration) => !output.includes(declaration));
 
     expect(missing).toEqual([]);
+  });
+
+  it('keeps those rules library-only, so the check above still checks something', () => {
+    const sourceRoot = join(appDir, 'src');
+
+    function sourceFiles(directory: string): readonly string[] {
+      return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(directory, entry.name);
+
+        if (entry.isDirectory()) {
+          return sourceFiles(path);
+        }
+
+        // Test files are excluded from the probe's scan, so a canary named in
+        // one - this file names all five - never reaches the stylesheet.
+        return /\.(ts|tsx|css)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)
+          ? [path]
+          : [];
+      });
+    }
+
+    const claimed = sourceFiles(sourceRoot).flatMap((path) => {
+      const contents = readFileSync(path, 'utf8');
+
+      return CANARY_UTILITIES.filter((utility) => contents.includes(utility)).map(
+        (utility) => `${path.slice(sourceRoot.length + 1)}: ${utility}`,
+      );
+    });
+
+    expect(claimed).toEqual([]);
   });
 });

@@ -24,6 +24,30 @@
  * component that owns them: hoisting them would have `items/` depend on `app/`
  * while `app/` already depends on `items/`, which is a cycle bought for nothing.
  *
+ * ## Why those widths are still written as pixels
+ *
+ * The standard is CLAUDE.md's: never hard-code a px value **the tokens carry**.
+ * So the question at every raw number is which token would carry it, and the
+ * sheet's answer is bounded - a type scale, a control-height scale and a
+ * spacing base (ADR-0008). Those answer "how big is this text", "how tall is
+ * this control" and "how much room is between things", and every one of those
+ * in the shell and the views is a class off a scale.
+ *
+ * None of them answers "how wide is the sidebar". **The test a reader applies
+ * is whether the number is a step of rhythm or a dimension chosen against the
+ * screen.** A step of rhythm belongs to the scale and has to come from it. A
+ * dimension - a panel's width, an overlay's cap, a popover's height - was
+ * picked by looking at a composition, is checked by looking at one, and is
+ * written as the pixel value it is. Restating it as a multiple of `--spacing`
+ * would turn a number a reader can measure off a screenshot into one they
+ * cannot, and would claim a scale membership the sheet does not grant.
+ *
+ * Two consequences worth naming. Giving those dimensions tokens is a change to
+ * the token sheet rather than to a component, so it is decided there and not
+ * here. And narrowing them for small screens is the responsive goal's work: a
+ * fixed sidebar width is on the MVP-2.5 defect list already, and it is a
+ * behaviour change rather than a taste one.
+ *
  * See the scroll model documented on `AppShell`. In short: one element is
  * `h-dvh`, one clips, and each pane owns one scroller on one axis.
  */

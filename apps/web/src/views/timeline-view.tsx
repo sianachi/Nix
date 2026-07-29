@@ -640,7 +640,7 @@ function ColumnHeading({ column, isToday }: ColumnHeadingProps): ReactNode {
       aria-label={column.name}
       aria-current={isToday ? 'date' : undefined}
       className={cn(
-        'min-w-[2.25rem] border-b border-divider p-1 text-center',
+        'min-w-(--control-md) border-b border-divider p-1 text-center',
         isToday ? 'bg-accent/18' : '',
       )}
     >

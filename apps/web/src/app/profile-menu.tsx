@@ -1,4 +1,4 @@
-import { Icon } from '@nix/ui';
+import { Icon, focusRing } from '@nix/ui';
 import { ChevronDown, LogOut, ShieldCheck, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -71,7 +71,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
         className={[
           'flex items-center gap-1.5 border border-transparent px-2 py-1',
           'text-xs text-muted',
-          'hover:bg-foreground/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+          `hover:bg-foreground/7 ${focusRing}`,
         ].join(' ')}
       >
         <Icon icon={User} size="sm" />
@@ -107,7 +107,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
               onClick={() => {
                 setOpen(false);
               }}
-              className="flex items-center gap-2 px-3 py-2 text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+              className="flex items-center gap-2 px-3 py-2 text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
               <Icon icon={ShieldCheck} size="sm" />
               Admin · Audit
@@ -126,7 +126,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
               setOpen(false);
               void signOut();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={LogOut} size="sm" />
             Sign out

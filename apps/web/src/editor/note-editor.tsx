@@ -303,7 +303,7 @@ function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
             onClick={() => {
               insert(command);
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={command.icon} size="sm" />
             <span className="flex-1 truncate">{command.label}</span>

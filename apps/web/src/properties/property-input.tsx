@@ -411,7 +411,7 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
         className={
           density === 'cell'
             ? 'sr-only'
-            : 'font-heading text-xs uppercase tracking-[0.08em] text-muted'
+            : 'font-heading text-xs uppercase tracking-wider text-muted'
         }
       >
         {controlName(density, item, property)}

@@ -1,4 +1,4 @@
-import { Blueprint, Button, Icon, Text } from '@nix/ui';
+import { Blueprint, Button, Icon, Text, focusRing } from '@nix/ui';
 import { ArrowRight, Lock } from 'lucide-react';
 import { type ReactNode } from 'react';
 
@@ -41,6 +41,21 @@ export interface LoginPageProps {
   readonly error?: string | null;
 }
 
+/**
+ * The graph paper the sign-in card sits on, drawn as two gradients.
+ *
+ * The colour is a role rather than a value: 5% of the accent mixed towards transparent, so the grid
+ * follows the ground like everything else on the screen. It used to be written out as an rgb
+ * triple, and it was the one colour here that could not follow.
+ *
+ * **The two lengths stay raw, and should.** 1px is a device hairline - the thinnest rule a screen
+ * can draw, and not a quantity the spacing scale has an opinion about. 34px is the tile the design
+ * file draws its graph paper at. A background tile is a picture rather than a step of rhythm, and
+ * the sheet carries no length for one, so there is no token here to reach for.
+ */
+const GRAPH_PAPER =
+  'bg-[linear-gradient(to_right,var(--grid-rule)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-rule)_1px,transparent_1px)] [--grid-rule:color-mix(in_srgb,var(--color-accent)_5%,transparent)] bg-[length:34px_34px]'; // design-token-exempt: a 1px hairline and the design file's own 34px tile, neither of which is a spacing step - see above.
+
 export function LoginPage({
   organisation,
   onSignIn,
@@ -56,21 +71,18 @@ export function LoginPage({
     <main className="flex min-h-dvh flex-col bg-background">
       <FauxTitleBar />
 
-      {/* The blueprint grid, at the same 5% accent the design file draws it at - mixed from the
-          accent role rather than written out as its rgb triple, which was the one colour on this
-          screen that could not follow the ground. */}
-      <div className="relative flex flex-1 items-center justify-center bg-[linear-gradient(to_right,var(--grid-rule)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-rule)_1px,transparent_1px)] [--grid-rule:color-mix(in_srgb,var(--color-accent)_5%,transparent)] bg-[length:34px_34px] px-6 py-12">
+      <div className={`relative flex flex-1 items-center justify-center ${GRAPH_PAPER} px-6 py-12`}>
         <div className="grid w-full max-w-[700px] grid-cols-1 border border-divider bg-background shadow-md md:grid-cols-[400px_300px]">
           <section className="flex flex-col border-divider p-11 md:border-r">
-            <Blueprint className="mb-[22px] inline-flex size-[52px] items-center justify-center">
-              <span className="font-heading text-2xl font-semibold tracking-[0.04em]">NX</span>
+            <Blueprint className="mb-6.5 inline-flex size-15.5 items-center justify-center">
+              <span className="font-heading text-2xl font-semibold tracking-slight">NX</span>
             </Blueprint>
 
             <Text variant="h1" as="h1" className="mb-2 uppercase">
               Sign in
             </Text>
 
-            <Text variant="body" tone="muted" className="mb-[26px]">
+            <Text variant="body" tone="muted" className="mb-7.5">
               Authentication is handled by your organisation&rsquo;s identity provider. Nix stores
               no passwords.
             </Text>
@@ -78,7 +90,7 @@ export function LoginPage({
             <div className="mb-4">
               <label
                 htmlFor="organisation"
-                className="mb-[5px] block text-xs uppercase tracking-[0.06em] text-muted"
+                className="mb-1.5 block text-xs uppercase tracking-wide text-muted"
               >
                 Organisation
               </label>
@@ -88,7 +100,7 @@ export function LoginPage({
                   name="organisation"
                   readOnly
                   value={organisation}
-                  className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className={`min-w-0 flex-1 bg-transparent px-3 py-2 text-sm ${focusRing}`}
                 />
                 <span className="inline-flex items-center border-l border-divider bg-surface px-3 text-sm text-muted">
                   .nix.app
@@ -107,17 +119,17 @@ export function LoginPage({
             </Button>
 
             {error === null ? (
-              <p className="mt-[10px] text-xs text-muted">
+              <p className="mt-3 text-xs text-muted">
                 Redirects to {organisation}&rsquo;s IdP (OIDC). Tokens from unregistered issuers are
                 rejected.
               </p>
             ) : (
-              <p role="alert" className="mt-[10px] text-xs text-accent-text">
+              <p role="alert" className="mt-3 text-xs text-accent-text">
                 {error}
               </p>
             )}
 
-            <div className="mt-auto flex items-center gap-[14px] pt-7 text-xs text-muted">
+            <div className="mt-auto flex items-center gap-4 pt-7 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Icon icon={Lock} size="sm" />
                 Single tenant &middot; RLS-isolated
@@ -126,15 +138,15 @@ export function LoginPage({
             </div>
           </section>
 
-          <aside className="flex flex-col bg-surface py-[22px]">
-            <div className="border-b border-divider px-[22px] pb-3 text-xs uppercase tracking-[0.08em] text-muted">
+          <aside className="flex flex-col bg-surface py-6.5">
+            <div className="border-b border-divider px-6.5 pb-3 text-xs uppercase tracking-wider text-muted">
               Recent workspaces
             </div>
 
             {recentWorkspaces.length === 0 ? (
               // Honest empty state rather than invented rows: on a first visit there is nothing to
               // resume, and pretending otherwise is exactly the dishonesty the UI rules forbid.
-              <p className="px-[22px] py-4 text-xs text-muted">
+              <p className="px-6.5 py-4 text-xs text-muted">
                 None yet. Workspaces you open will be listed here for next time.
               </p>
             ) : (
@@ -144,9 +156,9 @@ export function LoginPage({
                     <button
                       type="button"
                       onClick={onSignIn}
-                      className="flex w-full items-center gap-[11px] border-b border-divider px-[22px] py-3 text-left hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className={`flex w-full items-center gap-3 border-b border-divider px-6.5 py-3 text-left hover:bg-accent/10 ${focusRing}`}
                     >
-                      <span className="inline-flex size-[26px] items-center justify-center border border-divider font-heading text-xs">
+                      <span className="inline-flex size-(--control-sm) items-center justify-center border border-divider font-heading text-xs">
                         {workspace.initials}
                       </span>
                       <span className="flex flex-col">
@@ -159,14 +171,14 @@ export function LoginPage({
               </ul>
             )}
 
-            <div className="mt-auto flex flex-col gap-1 px-[22px] pt-4 text-xs text-muted">
+            <div className="mt-auto flex flex-col gap-1 px-6.5 pt-4 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <span
                   aria-hidden="true"
                   className={
                     serverReachable
-                      ? 'inline-block size-[7px] bg-accent'
-                      : 'inline-block size-[7px] bg-muted'
+                      ? 'inline-block size-2 bg-accent'
+                      : 'inline-block size-2 bg-muted'
                   }
                 />
                 {serverReachable ? 'Server reachable' : 'Server unreachable'}
@@ -189,14 +201,14 @@ function FauxTitleBar(): ReactNode {
   return (
     <div
       aria-hidden="true"
-      className="flex h-[34px] items-center border-b border-divider bg-surface px-[14px]"
+      className="flex h-10 items-center border-b border-divider bg-surface px-4"
     >
-      <span className="inline-flex gap-[7px]">
-        <span className="size-[10px] border border-muted" />
-        <span className="size-[10px] border border-muted" />
-        <span className="size-[10px] border border-muted" />
+      <span className="inline-flex gap-2">
+        <span className="size-3 border border-muted" />
+        <span className="size-3 border border-muted" />
+        <span className="size-3 border border-muted" />
       </span>
-      <span className="mx-auto -translate-x-[26px] text-xs uppercase tracking-[0.1em] text-muted">
+      <span className="mx-auto -translate-x-7.5 text-xs uppercase tracking-widest text-muted">
         Nix
       </span>
     </div>

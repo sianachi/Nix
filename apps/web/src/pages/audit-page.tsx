@@ -44,7 +44,7 @@ export function AuditPage(): ReactNode {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-divider px-6 py-3">
-        <span className="font-heading text-md uppercase tracking-[0.06em]">Admin · Audit</span>
+        <span className="font-heading text-md uppercase tracking-wide">Admin · Audit</span>
         <span className="text-xs text-muted">Tenant admin</span>
       </div>
 

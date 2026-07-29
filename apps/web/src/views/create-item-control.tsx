@@ -121,7 +121,7 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
         className={[
           'flex items-center gap-1 rounded-sm px-2 py-1 text-xs text-muted',
           'hover:bg-foreground/7 hover:text-foreground',
-          'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
+          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
           className ?? '',
         ].join(' ')}
       >

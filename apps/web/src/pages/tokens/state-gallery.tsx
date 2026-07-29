@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { AsyncSection } from '../../components/states/async-section';
 import type { AsyncStatus } from '../../lib/async-status';
 import { empty, failed, loading, partial, ready } from '../../lib/async-status';
-import { Blueprint, Card, Text, cn } from '@nix/ui';
+import { Blueprint, Card, Text, cn, focusRing } from '@nix/ui';
 
 import {
   STATE_PREVIEWS,
@@ -87,8 +87,7 @@ function ItemList({ items }: { readonly items: readonly DemoItem[] }): ReactElem
 }
 
 const SEGMENT_BASE =
-  'block px-4 py-2 font-heading text-xs tracking-widest uppercase transition-colors ' +
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+  'block px-4 py-2 font-heading text-xs tracking-widest uppercase transition-colors ' + focusRing;
 
 function PreviewSwitcher({ current }: { readonly current: StatePreview }): ReactElement {
   return (

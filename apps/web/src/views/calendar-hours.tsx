@@ -26,6 +26,24 @@ import { formatTime, minutesFor, readTimestampValue, writeTimestampValue } from 
 /** The rows. A full day, so a 23:00 item is reachable by scrolling rather than absent. */
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
+/**
+ * The height of one hour, in pixels, and **the one place in the app that still sets `style`**.
+ *
+ * The grid is a coordinate space rather than a rhythm, which is what makes it the exception to the
+ * ban in `app.css`. An item at 09:30 sits at `9.5 * ROW_HEIGHT` down the column - a number that
+ * exists only once its timestamp has been read and converted into the reader's zone, so it is
+ * computed at render. Expressing that as a class would need one utility per reachable offset, 1440
+ * of them at minute resolution, and Tailwind's extractor cannot see a class name assembled from a
+ * variable anyway - so the sheet would ship none of them. Rounding to a coarser set would place
+ * items at times they are not at, which is the one thing a calendar must not do.
+ *
+ * It is 44px because a row is a click target and that is `--control-lg`, but it is used in
+ * arithmetic rather than applied as a length, so it is written as the scalar the arithmetic needs.
+ *
+ * The row heights below could be classes; they are not, because they have to agree with the offsets
+ * exactly. The same number said twice, once in a class and once in arithmetic, is how a grid drifts
+ * an hour at a time.
+ */
 const ROW_HEIGHT = 44;
 
 export interface HourGridProps {
@@ -206,7 +224,7 @@ function DayColumn(props: {
             onOpen(entry.item.id);
           }}
           style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }}
-          className="absolute inset-x-1 flex flex-col items-start gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+          className="absolute inset-x-1 flex flex-col items-start gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
           <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
           <span className="text-muted">{timeLabel(entry, zone)}</span>
@@ -280,7 +298,7 @@ function AllDayBand(props: {
                 onClick={() => {
                   onOpen(item.id);
                 }}
-                className="block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+                className="block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
               >
                 {readPropertyText(item, 'title')}
               </button>

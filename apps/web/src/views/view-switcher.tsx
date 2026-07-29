@@ -1,4 +1,4 @@
-import { Icon } from '@nix/ui';
+import { Icon, focusRing } from '@nix/ui';
 import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -103,7 +103,7 @@ function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps
       onClick={onSelect}
       className={[
         'flex items-center gap-1.5 border px-2 py-1 text-sm',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        focusRing,
         active
           ? 'border-divider bg-foreground/7 text-foreground'
           : 'border-transparent text-muted hover:bg-foreground/5',
