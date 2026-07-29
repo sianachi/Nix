@@ -32,7 +32,27 @@ const PROBE_CLASSES = [
   'shadow-lg',
   'p-4',
   'gap-2',
+  'tracking-tight',
+  'tracking-normal',
+  'tracking-slight',
+  'tracking-wide',
+  'tracking-wider',
+  'tracking-widest',
 ].join(' ');
+
+// The tracking ladder, and the value each step must still resolve to. Held here
+// as literals rather than read back from the sheet, because the point of the
+// assertion is that these numbers do not move: every step but `normal` is
+// tracking that live type already renders with, so a step edited here retracks
+// a screen with no component touched.
+const TRACKING_STEPS: readonly (readonly [string, string])[] = [
+  ['tight', '-0.015em'],
+  ['normal', '0em'],
+  ['slight', '0.04em'],
+  ['wide', '0.06em'],
+  ['wider', '0.08em'],
+  ['widest', '0.1em'],
+];
 
 let workDir: string;
 let output: string;
@@ -90,6 +110,24 @@ describe('Tailwind v4 compiles the theme', () => {
     expect(output).toContain('--radius-md: 8px;');
     expect(output).toContain('.rounded-md');
     expect(output).toContain('.p-4');
+  });
+
+  it.each(TRACKING_STEPS)('emits the %s tracking step and resolves it to %s', (step, value) => {
+    expect(output).toContain(`--tracking-${step}: ${value};`);
+    expect(output).toContain(`.tracking-${step}`);
+    expect(output).toContain(`letter-spacing: var(--tracking-${step})`);
+  });
+
+  it('leaves no tracking utility resolving to a Tailwind default', () => {
+    // Tailwind ships its own --tracking-* namespace, so a step the sheet forgot
+    // would still generate a working utility - at Tailwind's value, silently.
+    // These are the four defaults the sheet overrides; seeing one here means a
+    // step stopped being declared rather than that it changed.
+    for (const stale of ['-0.025em', '0.025em', '0.05em', '-0.05em']) {
+      expect(output).not.toContain(`--tracking-tight: ${stale};`);
+      expect(output).not.toContain(`--tracking-wide: ${stale};`);
+      expect(output).not.toContain(`--tracking-wider: ${stale};`);
+    }
   });
 
   it('carries the elevation token value into the shadow utility', () => {
