@@ -198,7 +198,8 @@ export function Dialog(props: DialogProps): ReactNode {
         // that the moment the foreground is paper: on the dark ground it would be a light veil
         // that brightens the page instead of pushing it back. The neutral ramp does not move
         // between grounds (ADR-0008), so its deepest step is the one thing here that darkens on
-        // both - which is why this is a ramp step rather than a role, and the only one left.
+        // both - which is why this is a ramp step rather than a role. It is one of exactly two:
+        // the other is `<Duotone>`, whose two tones must not move for the same kind of reason.
         'backdrop:bg-neutral-900/40',
         className,
       )}
