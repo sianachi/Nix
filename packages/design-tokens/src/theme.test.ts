@@ -345,6 +345,54 @@ describe('the control-height scale', () => {
   });
 });
 
+describe('the tracking scale', () => {
+  // Ascending, and stated in the order the ladder runs. `normal` is the zero
+  // point: one step below it for display type, four above it for capitals.
+  const STEPS = ['tight', 'normal', 'slight', 'wide', 'wider', 'widest'] as const;
+
+  it.each(STEPS)('carries the %s step', (step) => {
+    expect(getProperty(`tracking-${step}`)).toMatch(/^-?[\d.]+em$/);
+  });
+
+  it('carries the values the components already used, verbatim', () => {
+    // The scale was added to name existing values, not to change them. Every
+    // step but `normal` was hard-coded somewhere in the interface before the
+    // token existed, so a change here retracks live type with nothing edited.
+    expect(getProperty('tracking-tight')).toBe('-0.015em');
+    expect(getProperty('tracking-normal')).toBe('0em');
+    expect(getProperty('tracking-slight')).toBe('0.04em');
+    expect(getProperty('tracking-wide')).toBe('0.06em');
+    expect(getProperty('tracking-wider')).toBe('0.08em');
+    expect(getProperty('tracking-widest')).toBe('0.1em');
+  });
+
+  it('ascends without repeating a step', () => {
+    // A ladder that descends anywhere is one somebody reaches into the middle
+    // of, and two equal rungs are a rung nobody needs. Same rule as the type
+    // scale, and for the same reason.
+    const values = STEPS.map((step) => Number.parseFloat(getProperty(`tracking-${step}`)));
+
+    expect(values).toEqual([...values].sort((left, right) => left - right));
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  it('has exactly one step tighter than the text was drawn', () => {
+    // Nunito Sans sets its display sizes slightly loose and the headings pull
+    // back a hair. Everything else on the ladder opens up, because the positive
+    // steps exist for capitals, which are drawn touching.
+    const negative = STEPS.filter((step) => getProperty(`tracking-${step}`).startsWith('-'));
+
+    expect(negative).toEqual(['tight']);
+  });
+
+  it('keeps widest where Tailwind already had it', () => {
+    // 0.1em is also Tailwind's own default for this name, and the token gallery
+    // says `tracking-widest` today. A scale that renamed the step under it
+    // would have moved type nobody edited.
+    expect(getProperty('tracking-widest')).toBe('0.1em');
+  });
+});
+
 describe('the dark ground', () => {
   const ROLES = [
     'color-bg',

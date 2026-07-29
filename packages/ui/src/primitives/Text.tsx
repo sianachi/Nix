@@ -85,7 +85,7 @@ const BODY_SIZED_VARIANTS = [
 // font-size utility, and a variant that refines the shared traits (h6's
 // tracking) has to come after the constant it refines for tailwind-merge to
 // keep the refinement.
-const heading = 'font-heading font-semibold tracking-[-0.015em]';
+const heading = 'font-heading font-semibold tracking-tight';
 const body = 'font-body font-normal';
 
 const textVariants = cva('', {
@@ -96,11 +96,11 @@ const textVariants = cva('', {
       h3: `text-xl ${heading}`,
       h4: `text-lg ${heading}`,
       h5: `text-md ${heading}`,
-      h6: `text-base ${heading} tracking-[0.08em] uppercase`,
+      h6: `text-base ${heading} tracking-wider uppercase`,
       body: `text-md ${body}`,
       bodySmall: `text-base ${body}`,
       caption: `text-xs ${body}`,
-      kicker: `text-2xs ${body} tracking-[0.1em] uppercase`,
+      kicker: `text-2xs ${body} tracking-widest uppercase`,
     },
     tone: {
       default: 'text-foreground',

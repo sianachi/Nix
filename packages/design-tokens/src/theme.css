@@ -168,6 +168,38 @@
   --text-2xl--line-height: 1.15;
   --text-3xl--line-height: 1.1;
 
+  /* ══ Tracking ═════════════════════════════════════════════════════════
+     Letter spacing: the one typographic axis the sheet left out, so every
+     component that needed it wrote its own em value - five numbers across a
+     dozen files, none of them checkable against anything. The steps below
+     are those five, named. Nothing here moves a value; the values move in.
+
+     The ladder has a short negative end and a long positive one because it
+     does two jobs. Nunito Sans sets its display sizes a touch loose, so the
+     headings pull back a hair (tight) and nothing else does.
+
+     The positive steps are almost all about capitals. Type is spaced for
+     the lowercase pairs it was drawn with, and setting it in caps leaves the
+     letters touching; the smaller the size, the more air the caps need back.
+     So a caps title at text-md reads with wide, the standard caps label at
+     text-xs/text-base with wider, and the text-2xs kicker needs widest
+     before it stops looking set solid. slight is the exception and the
+     reason the ladder has an extra rung: it is mixed-case text opened just
+     enough to separate at heading weight (the nav), which is a smaller
+     amount of tracking than any caps setting wants. normal is the zero
+     point rather than a value anything asks for - what a component says to
+     take tracking back off a step that inherited it.
+
+     widest is deliberately 0.1em, which is also Tailwind's own default for
+     that name - the token gallery already says tracking-widest, and a scale
+     that renamed the step under it would move type nobody edited. */
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0em;
+  --tracking-slight: 0.04em;
+  --tracking-wide: 0.06em;
+  --tracking-wider: 0.08em;
+  --tracking-widest: 0.1em;
+
   /* ══ Spacing — density 0.85x ══════════════════════════════════════════
      The sheet's spacing unit is 3.4px (4px base x 0.85 density). Tailwind
      v4 derives every spacing utility from --spacing, which reproduces the

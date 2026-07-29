@@ -102,7 +102,7 @@ export interface TableProps<Row> {
 
 const cellPadding = 'px-3 py-2';
 
-const headerText = 'font-heading text-xs tracking-[0.08em] uppercase';
+const headerText = 'font-heading text-xs tracking-wider uppercase';
 
 /**
  * The sort button fills its header cell rather than sitting inside it, so the whole header is the
