@@ -80,6 +80,20 @@ export type ContainerViews = z.infer<typeof ContainerViewsSchema>;
 /** A property value as it arrives: anything JSON can carry. */
 export type PropertyValue = string | number | boolean | readonly string[] | null;
 
+/**
+ * How a control says "no value" - the option, and what it is called.
+ *
+ * The empty string rather than an invented token: `readSelectValue` already treats an empty string
+ * as no value, so no declared option can collide with it and there is no `__none__` for somebody to
+ * declare by accident. Here rather than in each control because the board's unset column, the
+ * property panel's unset option and the list's unset cell are the same absence, and two spellings
+ * of it would be two absences somebody has to learn are one.
+ */
+export const UNSET_VALUE = '';
+
+/** What the absence of a value is called, wherever it is offered. */
+export const UNSET_LABEL = 'Unset';
+
 export const ItemSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),

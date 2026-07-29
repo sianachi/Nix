@@ -1,9 +1,11 @@
 import { Field, Input, blueprintFrame, cn, disabledState, focusRing } from '@nix/ui';
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/timestamps';
 
 import {
+  UNSET_LABEL,
+  UNSET_VALUE,
   readDateValue,
   readPropertyText,
   readSelectValue,
@@ -30,7 +32,15 @@ import {
  * through typing, not a second copy of the value: it is replaced whenever the stored value moves,
  * so a write the server refused leaves the field showing the value that is really there with the
  * refusal beside it, rather than a screenful of text that was never stored.
+ *
+ * **Two densities, one set of controls.** The same control is drawn in a property panel, where it
+ * needs its own label and its own frame, and in a table cell, where the column header is already
+ * the label and the cell already has a rule under it. That is a real prop and not a `className`
+ * passed in from the call site: a component whose styling forks at its callers has as many
+ * appearances as it has callers, and none of them is the component's.
  */
+
+export type PropertyInputDensity = 'panel' | 'cell';
 
 export interface PropertyInputProps {
   readonly item: Item;
@@ -46,6 +56,15 @@ export interface PropertyInputProps {
 
   /** The server's reason for refusing this property's last write, shown verbatim. */
   readonly error?: string | null;
+
+  /**
+   * Where this control is being drawn.
+   *
+   * `panel` labels itself and draws its own frame. `cell` does neither - the column header is the
+   * label, and a framed box inside a ruled cell is a double rule - so it names itself after its
+   * row instead, the way a control repeated once per row has to.
+   */
+  readonly density?: PropertyInputDensity;
 }
 
 /** The types this build can edit. Anything else falls through to the read-only case. */
@@ -64,18 +83,6 @@ export function isKnownPropertyType(type: string): boolean {
   return (KNOWN_TYPES as readonly string[]).includes(type);
 }
 
-/**
- * The empty option's value in a select.
- *
- * The empty string rather than an invented token, for the reason the board settled on the same
- * sentinel: `readSelectValue` already treats an empty string as no value, so no declared option can
- * collide with it and there is no `__none__` for somebody to declare by accident.
- */
-const UNSET_VALUE = '';
-
-/** What the empty option is called, matching the board's word for the same absence. */
-const UNSET_LABEL = 'Unset';
-
 /** The select's own box, drawn as the rest of the system draws a control. */
 const selectClasses = cn(
   blueprintFrame,
@@ -83,6 +90,21 @@ const selectClasses = cn(
   focusRing,
   disabledState,
 );
+
+/**
+ * The same select inside a table cell: no frame, because the cell has a rule under it already and
+ * a box inside a box reads as a double rule rather than as a control.
+ */
+const cellSelectClasses = cn(
+  'w-full border border-transparent bg-transparent px-2 py-1 font-body text-base text-foreground',
+  focusRing,
+  disabledState,
+);
+
+/** What a select's box is, at the density it is being drawn at. */
+function selectBox(density: PropertyInputDensity): string {
+  return density === 'cell' ? cellSelectClasses : selectClasses;
+}
 
 export function PropertyInput(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
@@ -118,6 +140,94 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
         />
       );
   }
+}
+
+/**
+ * The identifiers a control is handed, whichever shell wired them.
+ *
+ * A superset of `FieldControlProps`: the panel shell points a visible label at the control by id,
+ * the cell shell has no visible label to point and names the control directly instead.
+ */
+interface ControlProps {
+  readonly id?: string;
+  readonly 'aria-label'?: string;
+  readonly 'aria-describedby': string | undefined;
+  readonly 'aria-invalid': true | undefined;
+}
+
+/**
+ * What a control at cell density is called.
+ *
+ * Named per row rather than per property, matching the board's per-card control exactly: a table of
+ * twelve rows would otherwise offer twelve controls all called "Status", and neither a screen reader
+ * user nor a test could say which one they were operating.
+ */
+function controlName(
+  density: PropertyInputDensity,
+  item: Item,
+  property: PropertyDefinition,
+): string {
+  return density === 'cell' ? `${property.label} for ${item.title || 'Untitled'}` : property.label;
+}
+
+interface ValueShellProps extends PropertyInputProps {
+  readonly hint?: string;
+  readonly children: (control: ControlProps) => ReactElement;
+}
+
+/**
+ * The label, the error and the wiring between them - or, in a cell, the absence of all three.
+ *
+ * The two shells exist so the eight controls below never ask which density they are at for anything
+ * but their own box. Everything that differs about *surroundings* differs here, once.
+ */
+function ValueShell(props: ValueShellProps): ReactNode {
+  const { property, error = null, hint, density = 'panel', children } = props;
+
+  if (density === 'cell') {
+    return <CellShell {...props} />;
+  }
+
+  return (
+    <Field
+      label={property.label}
+      required={property.required}
+      error={error}
+      {...(hint === undefined ? {} : { hint })}
+    >
+      {children}
+    </Field>
+  );
+}
+
+function CellShell(props: ValueShellProps): ReactNode {
+  const { item, property, error = null, hint, density = 'cell', children } = props;
+
+  const id = useId();
+  const noteId = `${id}-note`;
+  const invalid = error !== null && error.length > 0;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {children({
+        'aria-label': controlName(density, item, property),
+        'aria-describedby': invalid || hint !== undefined ? noteId : undefined,
+        'aria-invalid': invalid ? true : undefined,
+      })}
+
+      {/* The refusal sits in the cell that caused it and nowhere else. A banner over the table
+          would name a property and leave somebody counting rows to find which one. */}
+      {invalid ? (
+        <p id={noteId} role="alert" className="font-body text-sm text-foreground">
+          {error}
+        </p>
+      ) : hint === undefined ? null : (
+        <p id={noteId} className="font-body text-sm text-muted">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface Draft {
@@ -164,7 +274,7 @@ function useDraft(stored: string, onCommit: (value: PropertyValue) => void): Dra
 type TypedKind = 'text' | 'url' | 'number';
 
 function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null, kind } = props;
+  const { item, property, onCommit, disabled = false, density = 'panel', kind } = props;
 
   const stored = readPropertyText(item, property.key);
   const { draft, setDraft, sent, send } = useDraft(stored, onCommit);
@@ -200,11 +310,12 @@ function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): R
   }
 
   return (
-    <Field label={property.label} required={property.required} error={error}>
+    <ValueShell {...props}>
       {(control) => (
         <Input
           {...control}
           type={kind}
+          tone={density === 'cell' ? 'plain' : 'default'}
           value={draft}
           required={property.required}
           disabled={disabled}
@@ -221,12 +332,12 @@ function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): R
           }}
         />
       )}
-    </Field>
+    </ValueShell>
   );
 }
 
 function SelectValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null } = props;
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
 
   const current = readSelectValue(item, property.key);
 
@@ -239,7 +350,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
       : property.options;
 
   return (
-    <Field label={property.label} required={property.required} error={error}>
+    <ValueShell {...props}>
       {(control) => (
         <select
           {...control}
@@ -250,7 +361,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
             const next = event.target.value;
             onCommit(next === UNSET_VALUE ? null : next);
           }}
-          className={selectClasses}
+          className={selectBox(density)}
         >
           {/* Clearing has to be reachable from the control that set it: a property somebody
               filled in by mistake is otherwise permanent. */}
@@ -263,12 +374,12 @@ function SelectValue(props: PropertyInputProps): ReactNode {
           ))}
         </select>
       )}
-    </Field>
+    </ValueShell>
   );
 }
 
 function MultiSelectValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null } = props;
+  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
 
   const raw: unknown = item.properties[property.key];
   const current = Array.isArray(raw)
@@ -283,11 +394,19 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
   ];
 
   // A fieldset rather than <Field>, which wires a label to one control by id. A group of checkboxes
-  // has no single control to point at, so the group is named by its legend instead.
+  // has no single control to point at, so the group is named by its legend instead - and in a cell
+  // the legend still names the group, it is simply not drawn, because the column header above it
+  // says the same word.
   return (
     <fieldset disabled={disabled} className="flex flex-col gap-1 border-0 p-0">
-      <legend className="font-heading text-xs uppercase tracking-[0.08em] text-muted">
-        {property.label}
+      <legend
+        className={
+          density === 'cell'
+            ? 'sr-only'
+            : 'font-heading text-xs uppercase tracking-[0.08em] text-muted'
+        }
+      >
+        {controlName(density, item, property)}
         {property.required ? (
           <span aria-hidden="true" className="ml-1 text-accent-text">
             *
@@ -339,7 +458,8 @@ const COMPLETE_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * written, so it cannot disagree with them - which is exactly what the server refuses.
  */
 function TimestampValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null } = props;
+  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const controlLabel = controlName(density, item, property);
 
   const stored = readTimestampValue(item.properties, property.key);
   const raw = readPropertyText(item, property.key);
@@ -386,7 +506,8 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
     <div className="flex flex-col gap-1">
       <Input
         type="datetime-local"
-        aria-label={property.label}
+        aria-label={controlLabel}
+        tone={density === 'cell' ? 'plain' : 'default'}
         value={draft}
         disabled={disabled}
         aria-invalid={error === null ? undefined : true}
@@ -399,21 +520,30 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
       />
 
       <select
-        aria-label={`Time zone for ${property.label}`}
+        aria-label={`Time zone for ${controlLabel}`}
         value={draftZone}
         disabled={disabled}
         onChange={(event) => {
           setDraftZone(event.target.value);
           commit(draft, event.target.value);
         }}
-        className={selectClasses}
+        className={selectBox(density)}
       >
-        {zoneOptions(draftZone).map((name) => (
-          <option key={name} value={name}>
-            {name}
+        {zoneOptions(draftZone).map((zoneName) => (
+          <option key={zoneName} value={zoneName}>
+            {zoneName}
           </option>
         ))}
       </select>
+
+      {/* Said out loud rather than only drawn as an invalid frame. A pair of controls with no
+          <Field> around them had no place to put the refusal, and a refusal with nowhere to go is
+          a refusal nobody reads. */}
+      {error === null || error.length === 0 ? null : (
+        <p role="alert" className="font-body text-sm text-foreground">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -434,7 +564,7 @@ function zoneOptions(current: string): readonly string[] {
 }
 
 function DateValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null } = props;
+  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
 
   // The stored text, straight in and straight back out. A date property carries no time and no zone
   // deliberately - "the 3rd" must stay the 3rd for a reader in another zone - and building a Date
@@ -495,15 +625,15 @@ function DateValue(props: PropertyInputProps): ReactNode {
   }
 
   return (
-    <Field
-      label={property.label}
-      required={property.required}
+    <ValueShell
+      {...props}
       error={error ?? (incomplete ? 'Enter a date as year, month and day.' : null)}
     >
       {(control) => (
         <Input
           {...control}
           type="date"
+          tone={density === 'cell' ? 'plain' : 'default'}
           value={draft}
           required={property.required}
           disabled={disabled}
@@ -522,19 +652,19 @@ function DateValue(props: PropertyInputProps): ReactNode {
           onBlur={commit}
         />
       )}
-    </Field>
+    </ValueShell>
   );
 }
 
 function CheckboxValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null } = props;
+  const { item, property, onCommit, disabled = false } = props;
 
   // True or false, never null: a checkbox has two states and "unchecked" is one of them rather than
   // an absence. Clearing a checkbox property is a schema question, not a click.
   const checked = item.properties[property.key] === true;
 
   return (
-    <Field label={property.label} required={property.required} error={error}>
+    <ValueShell {...props}>
       {(control) => (
         <input
           {...control}
@@ -548,16 +678,23 @@ function CheckboxValue(props: PropertyInputProps): ReactNode {
           }}
         />
       )}
-    </Field>
+    </ValueShell>
   );
 }
 
 function ReadOnlyValue(props: PropertyInputProps & { readonly note: string }): ReactNode {
-  const { item, property, error = null, note } = props;
+  const { item, property, note, density = 'panel' } = props;
 
   return (
-    <Field label={property.label} required={property.required} hint={note} error={error}>
-      {(control) => <Input {...control} readOnly value={readPropertyText(item, property.key)} />}
-    </Field>
+    <ValueShell {...props} hint={note}>
+      {(control) => (
+        <Input
+          {...control}
+          readOnly
+          tone={density === 'cell' ? 'plain' : 'default'}
+          value={readPropertyText(item, property.key)}
+        />
+      )}
+    </ValueShell>
   );
 }

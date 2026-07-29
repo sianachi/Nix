@@ -116,7 +116,9 @@ function boardWith(options: {
           setWriteError(options.refuse);
         }
 
-        return Promise.resolve();
+        // The refusal is returned as well as put in `writeError`, matching the real hook's two
+        // channels. The board reads the second and ignores this, which is what makes it the board.
+        return Promise.resolve(options.refuse ?? null);
       },
     });
 

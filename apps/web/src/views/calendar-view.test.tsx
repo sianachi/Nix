@@ -69,7 +69,7 @@ function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {
   return aContainer({
     schema: SCHEMA,
     views: views([VIEW]),
-    setProperties: vi.fn(() => Promise.resolve()),
+    setProperties: vi.fn(() => Promise.resolve(null)),
     reload: vi.fn(() => Promise.resolve()),
     ...overrides,
   });
