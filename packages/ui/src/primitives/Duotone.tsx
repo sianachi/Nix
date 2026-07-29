@@ -134,7 +134,7 @@ export function Duotone({
         className={cn('block', className)}
         // Inline because the reference names this instance's filter; there is no static class that
         // can carry a generated id.
-        style={{ filter: `url(#${filterId})` }}
+        style={{ filter: `url(#${filterId})` }} // design-token-exempt: the reference names this instance's generated filter id, so no static class can carry it
         loading={loading}
         // A gallery is the first screen here to fetch N remote images, and there is no
         // virtualization anywhere: decoding off the main thread keeps the scroll from stepping.
@@ -172,7 +172,10 @@ export function Duotone({
               warning, no exception, just every photograph in the product rendered as a black-on-
               black silhouette. `Duotone.test.tsx` asserts the mechanism as well as the two tones.
             */}
-            <feFlood style={{ floodColor: 'var(--color-neutral-100)' }} result="highlightFlood" />
+            <feFlood
+              style={{ floodColor: 'var(--color-neutral-100)' }} // design-token-exempt: SVG's flood-color presentation attribute does not accept a var(), so the token has to arrive as a style property - the value here is a token, not a raw one
+              result="highlightFlood"
+            />
             <feComposite
               in="highlightFlood"
               in2="stencil"
@@ -180,7 +183,10 @@ export function Duotone({
               result="highlightsInPlace"
             />
 
-            <feFlood style={{ floodColor: 'var(--color-accent-900)' }} result="shadowFlood" />
+            <feFlood
+              style={{ floodColor: 'var(--color-accent-900)' }} // design-token-exempt: as above - the presentation attribute would silently fall back to black
+              result="shadowFlood"
+            />
             <feComposite
               in="shadowFlood"
               in2="SourceGraphic"
