@@ -77,7 +77,10 @@ internal static class StructureEndpoints
                 "Returns the views in switcher order, plus the identifiers of any whose "
                 + "configured property no longer exists or no longer fits. A board grouping by a "
                 + "deleted property would otherwise render as an empty board, which is "
-                + "indistinguishable from an item with nothing in it.")
+                + "indistinguishable from an item with nothing in it. A list and a gallery are "
+                + "never listed there: neither needs a property to draw its items, so a gallery "
+                + "whose cover property is gone reports the missing cover and still shows "
+                + "every item.")
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -86,7 +89,11 @@ internal static class StructureEndpoints
             .WithSummary("Replace the views a container offers")
             .WithDescription(
                 "A whole-set replacement, because the order is part of what is being edited. "
-                + "Fails with 'views.invalid' when a view is not storable.")
+                + "A view's kind is one of 'list', 'board', 'calendar' or 'gallery'. What a kind "
+                + "must name is checked here - a board needs a grouping property, a calendar a "
+                + "date property - but whether that property exists is not: a view may be "
+                + "configured before the property is declared, and the read path reports the "
+                + "mismatch instead. Fails with 'views.invalid' when a view is not storable.")
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)

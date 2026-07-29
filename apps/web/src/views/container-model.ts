@@ -48,6 +48,15 @@ export const ViewSchema = z.object({
    * written by a newer build must not leave an older one with nothing to draw.
    */
   mode: z.string().nullable(),
+
+  /**
+   * For a gallery: the image property each card shows as its cover.
+   *
+   * Null is the ordinary state and not a broken one - a gallery with no cover property is a grid of
+   * titled cards. So nothing downstream may treat this as a precondition for drawing the view; the
+   * cards are the view, and the cover is what a card may additionally show.
+   */
+  coverProperty: z.string().nullable(),
 });
 
 export type View = z.infer<typeof ViewSchema>;

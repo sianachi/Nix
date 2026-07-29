@@ -77,6 +77,7 @@ const KNOWN_TYPES = [
   'timestamp',
   'checkbox',
   'url',
+  'image',
 ] as const;
 
 export function isKnownPropertyType(type: string): boolean {
@@ -112,6 +113,13 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
       return <TypedValue {...props} kind="text" />;
 
     case 'url':
+      return <TypedValue {...props} kind="url" />;
+
+    // Edited as an address, because an address is what it holds. **Not a file picker**: there is no
+    // file or media model in this build to pick from, and a control that opened one would be
+    // offering something the system cannot store. It becomes a picker at MVP-6 alongside the media
+    // model, and this arm is where that change lands.
+    case 'image':
       return <TypedValue {...props} kind="url" />;
 
     case 'number':

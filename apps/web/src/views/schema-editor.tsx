@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from './container-model';
 import { EditorShell } from './editor-shell';
+import { PROPERTY_TYPES, propertyTypeLabel } from './property-types';
 import type { ContainerData } from './use-container';
 
 /**
@@ -28,18 +29,6 @@ export interface SchemaEditorProps {
   /** Renders as a column in the settings panel rather than as a dialog over the view. */
   readonly inline?: boolean;
 }
-
-/** The types a person may choose, and what to call them. */
-const TYPES = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'select', label: 'Select (one of a list)' },
-  { value: 'multi_select', label: 'Multi-select (any of a list)' },
-  { value: 'date', label: 'Date' },
-  { value: 'timestamp', label: 'Date and time' },
-  { value: 'checkbox', label: 'Checkbox' },
-  { value: 'url', label: 'Link' },
-] as const;
 
 function hasOptions(type: string): boolean {
   return type === 'select' || type === 'multi_select';
@@ -167,7 +156,7 @@ export function SchemaEditor({
                       });
                     }}
                   >
-                    {TYPES.map((type) => (
+                    {PROPERTY_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
                       </option>
@@ -248,7 +237,7 @@ export function SchemaEditor({
             <ul className="flex flex-col gap-1">
               {inheritedOnly.map((property) => (
                 <li key={property.key} className="text-base text-muted">
-                  {property.label} · {property.type}
+                  {property.label} · {propertyTypeLabel(property.type)}
                 </li>
               ))}
             </ul>

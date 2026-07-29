@@ -277,24 +277,21 @@ export function ViewEditor({
               </Button>
             </div>
 
-            {/* One block for every kind that needs configuring, rather than one per kind. The two
-                that used to be here were the same control twice: a label, a hint that changed when
-                the schema had nothing to offer, and a select filtered to the property types the
-                kind can use. All four of those now come from the registry entry. */}
-            {(() => {
-              const configures = findViewKind(view.kind)?.configures;
-
-              if (configures === undefined || configures === null) {
-                return null;
-              }
-
-              const usable = schema.filter((property) => configures.accepts(property));
-              const chosen = view[configures.field] ?? '';
+            {/* One block for every property a kind is configured from, rather than one per kind.
+                The two that used to be here were the same control twice: a label, a hint that
+                changed when the schema had nothing to offer, and a select filtered to the property
+                types the kind can use. All four of those come from the registry entry, and a kind
+                that needs two properties configured gets two of these rather than a second copy
+                of the block. */}
+            {(findViewKind(view.kind)?.configures ?? []).map((configuration) => {
+              const usable = schema.filter((property) => configuration.accepts(property));
+              const chosen = view[configuration.field] ?? '';
 
               return (
                 <Field
-                  label={configures.label}
-                  hint={usable.length === 0 ? configures.emptyHint : configures.hint}
+                  key={configuration.field}
+                  label={configuration.label}
+                  hint={usable.length === 0 ? configuration.emptyHint : configuration.hint}
                 >
                   {(control) => (
                     <Select
@@ -303,12 +300,14 @@ export function ViewEditor({
                       onChange={(event) => {
                         const key = event.target.value;
                         update(index, {
-                          [configures.field]: key.length > 0 ? key : null,
-                          ...configures.clears,
+                          [configuration.field]: key.length > 0 ? key : null,
+                          ...configuration.clears,
                         });
                       }}
                     >
-                      <option value="">Choose a property</option>
+                      {/* The registry holds the wording, because whether the view is complete
+                          without this property is the kind's fact, not this form's. */}
+                      <option value="">{configuration.emptyChoice}</option>
                       {usable.map((property) => (
                         <option key={property.key} value={property.key}>
                           {property.label}
@@ -318,7 +317,7 @@ export function ViewEditor({
                   )}
                 </Field>
               );
-            })()}
+            })}
           </div>
         ))}
 
@@ -341,6 +340,7 @@ export function ViewEditor({
                 sortBy: null,
                 sortDescending: false,
                 mode: null,
+                coverProperty: null,
               },
             ]);
           }}

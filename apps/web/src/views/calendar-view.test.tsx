@@ -46,6 +46,7 @@ const VIEW: View = {
   sortBy: null,
   sortDescending: false,
   mode: null,
+  coverProperty: null,
 };
 
 function itemOf(id: string, title: string, properties: Record<string, unknown>): Item {

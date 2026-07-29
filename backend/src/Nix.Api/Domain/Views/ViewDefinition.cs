@@ -20,6 +20,15 @@ public enum ViewKind
 
     /// <summary>Items placed on a month by a date property.</summary>
     Calendar = 2,
+
+    /// <summary>Children as a grid of cards, each optionally showing a cover image.</summary>
+    /// <remarks>
+    /// No requirement, and deliberately: a gallery with no cover property is a grid of titled
+    /// cards, which is readable and useful and is what most galleries are on the day they are made.
+    /// A requirement is a property whose absence leaves nothing on screen - a board with no
+    /// grouping has no columns at all - and a cover is not one.
+    /// </remarks>
+    Gallery = 3,
 }
 
 /// <summary>
@@ -91,6 +100,10 @@ public static class ViewKinds
                 static view => view.DateProperty,
                 static type => Nix.Domain.Properties.PropertyTypes.CanPlaceOnCalendar(type),
                 "a calendar needs a date property")),
+
+        // Like a list, and for the same reason: a gallery with no cover property still has titled
+        // cards to draw. The cover is an enrichment, not the thing that makes the view exist.
+        new ViewKindDescriptor(ViewKind.Gallery, "gallery", Requirement: null),
     ];
 
     /// <summary>Reads a stored kind.</summary>
@@ -165,6 +178,10 @@ public static class ViewKinds
 /// For a calendar: <c>month</c>, <c>week</c> or <c>day</c>. Anything else, including absent, means
 /// a month.
 /// </param>
+/// <param name="CoverProperty">
+/// For a gallery: the image property whose value each card shows as its cover, or
+/// <see langword="null"/> for a grid of titled cards.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>One record for all three kinds, rather than a hierarchy.</b> The per-kind fields are nullable
@@ -198,7 +215,12 @@ public sealed record ViewDefinition(
 
     // Last and defaulted, so every existing construction keeps working and absent keeps meaning
     // "month" - which is what every view stored before this field existed.
-    string? Mode = null)
+    string? Mode = null,
+
+    // Same rule, and it is the record's own: every construction here is positional, so a per-kind
+    // field added anywhere but the end would silently re-bind arguments at dozens of call sites.
+    // Absent means a gallery of titled cards, which is what every view stored before this existed.
+    string? CoverProperty = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

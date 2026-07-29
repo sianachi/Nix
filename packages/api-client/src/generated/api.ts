@@ -269,12 +269,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A list and a gallery are never listed there: neither needs a property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar' or 'gallery'. What a kind must name is checked here - a board needs a grouping property, a calendar a date property - but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -558,6 +558,7 @@ export interface components {
       sortBy: null | string;
       sortDescending: boolean;
       mode: null | string;
+      coverProperty: null | string;
     };
     ViewResponse: {
       id: string;
@@ -570,6 +571,7 @@ export interface components {
       sortBy: null | string;
       sortDescending: boolean;
       mode: null | string;
+      coverProperty: null | string;
     };
     WorkspaceResponse: {
       /** Format: uuid */

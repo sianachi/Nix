@@ -36,6 +36,7 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.List, "list")]
     [InlineData(ViewKind.Board, "board")]
     [InlineData(ViewKind.Calendar, "calendar")]
+    [InlineData(ViewKind.Gallery, "gallery")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));
@@ -49,12 +50,18 @@ public sealed class ViewDefinitionTests
     [InlineData("   ")]
     [InlineData("List")]
     [InlineData("kanban")]
-    [InlineData("gallery")]
+    [InlineData("grid")]
     [InlineData("1")]
     public void A_kind_this_build_does_not_know_is_not_a_kind(string? name)
     {
-        // Fails closed: a newer build's "timeline" leaves an older instance offering fewer views,
-        // never rendering one it has no renderer for.
+        // Fails closed: a newer build's kind leaves an older instance offering fewer views, never
+        // rendering one it has no renderer for.
+        //
+        // The negative cases are near misses on purpose - "kanban" and "grid" are what somebody
+        // would reasonably guess a board and a gallery are called - and they have to be names no
+        // build will ever have. "gallery" used to be here and became a kind, which is the trap: a
+        // negative case that a later goal turns positive stops testing anything and starts
+        // blocking the goal. So do not reach for "timeline" either; that one is already planned.
         Assert.False(ViewKinds.TryParse(name, out _));
     }
 
@@ -101,6 +108,11 @@ public sealed class ViewDefinitionTests
         Assert.Equal("status", ViewKinds.Find(ViewKind.Board)?.Requirement?.Read(board));
         Assert.Equal("due", ViewKinds.Find(ViewKind.Calendar)?.Requirement?.Read(calendar));
         Assert.Null(ViewKinds.Find(ViewKind.List)?.Requirement);
+
+        // A gallery has none either, and that is a decision rather than an omission. A requirement
+        // is a property whose absence leaves nothing on screen; a gallery with no cover property is
+        // a grid of titled cards, which is readable and is what most galleries are on day one.
+        Assert.Null(ViewKinds.Find(ViewKind.Gallery)?.Requirement);
     }
 
     [Fact]
@@ -148,8 +160,10 @@ public sealed class ViewDefinitionTests
     [InlineData(PropertyType.Number)]
     [InlineData(PropertyType.MultiSelect)]
     [InlineData(PropertyType.Date)]
+    [InlineData(PropertyType.Timestamp)]
     [InlineData(PropertyType.Checkbox)]
     [InlineData(PropertyType.Url)]
+    [InlineData(PropertyType.Image)]
     public void A_board_grouping_by_a_type_that_cannot_be_grouped_cannot_render(PropertyType type)
     {
         // Retyping a select to text is one edit in a schema panel and it is enough. Grouping by
@@ -187,6 +201,7 @@ public sealed class ViewDefinitionTests
     [InlineData(PropertyType.MultiSelect)]
     [InlineData(PropertyType.Checkbox)]
     [InlineData(PropertyType.Url)]
+    [InlineData(PropertyType.Image)]
     public void A_calendar_placing_items_by_anything_but_a_date_cannot_render(PropertyType type)
     {
         // Text that happens to hold "2026-07-27" is not a date: nothing has checked it, so half the
@@ -218,6 +233,39 @@ public sealed class ViewDefinitionTests
         Assert.True(board.CanRender(schema));
         Assert.True(calendar.CanRender(schema));
     }
+
+    [Fact]
+    public void A_gallery_renders_whether_or_not_it_has_a_cover_property()
+    {
+        // All four arrangements, because the whole decision this test guards is that none of them
+        // is a failure: a gallery is a grid of cards, and the cover is what a card may additionally
+        // show. Refusing any of these would take every item off the screen to report a missing
+        // picture, which is the trade a board makes for a reason a gallery does not have.
+        var bare = new ViewDefinition("v1", "Covers", ViewKind.Gallery, [], null, [], null, null, false);
+        var configured = Gallery("cover");
+
+        Assert.True(bare.CanRender(PropertySchema.Empty));
+        Assert.True(configured.CanRender(SchemaOf(Property("cover", PropertyType.Image))));
+
+        // Deleted, and retyped to something that is not a picture. Both are one edit in the schema
+        // panel, made by somebody who has never seen this gallery, and both leave every item here.
+        Assert.True(configured.CanRender(PropertySchema.Empty));
+        Assert.True(configured.CanRender(SchemaOf(Property("cover", PropertyType.Number))));
+    }
+
+    private static ViewDefinition Gallery(string coverProperty) =>
+        new(
+            "v1",
+            "Gallery",
+            ViewKind.Gallery,
+            [],
+            null,
+            [],
+            null,
+            null,
+            false,
+            Mode: null,
+            CoverProperty: coverProperty);
 
     private static ViewDefinition Board(string groupBy) =>
         new("v1", "Board", ViewKind.Board, [], groupBy, [], null, null, false);
