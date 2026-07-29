@@ -26,6 +26,13 @@ namespace Nix.Features.Properties;
 /// else stays. Replacing the bag would make a board drag drop every property the board does not
 /// display, which is most of them.
 /// </para>
+/// <para>
+/// <b>And a partial one, for required values too.</b> The write is checked against the keys it
+/// named: clearing a required property is refused, and a required property it never mentioned is
+/// none of its business. Demanding a complete bag here meant that declaring a property required
+/// write-locked every item that already existed - the drag above would be refused over a field the
+/// board does not draw, with no way to supply it.
+/// </para>
 /// </remarks>
 public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand<Item>;
 
@@ -95,25 +102,34 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
                 ItemErrors.LifecycleConflict("A deleted item's properties cannot be changed."));
         }
 
-        var merged = ItemProperties.Merge(item.Properties, changes);
-        if (merged is null)
+        var write = ItemProperties.Merge(item.Properties, changes);
+        if (write is not { } merged)
         {
             return Result.Failure<Item>(
-                PropertyErrors.InvalidSchema("The properties must be a JSON object."));
+                PropertyErrors.InvalidProperties(
+                    [new PropertyViolation(string.Empty, "The properties must be a JSON object.")]));
         }
 
         // Resolved at the item, not at its parent: an item's own declaration is part of the schema
         // its own values are checked against.
         var schema = await _schemas.ResolveForItemAsync(itemId, cancellationToken).ConfigureAwait(false);
 
-        var violations = PropertyValidator.Validate(merged, schema);
+        // The merge carries the keys this write named as well as its result, and required-ness is
+        // enforced on those keys alone: clearing a required value is refused, leaving one alone is
+        // not.
+        var violations = PropertyValidator.ValidateWrite(merged, schema);
         if (!violations.IsEmpty)
         {
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
         await _tree
-            .UpdatePropertiesAsync(itemId, merged, context.PrincipalId, _clock.GetUtcNow(), cancellationToken)
+            .UpdatePropertiesAsync(
+                itemId,
+                merged.Merged,
+                context.PrincipalId,
+                _clock.GetUtcNow(),
+                cancellationToken)
             .ConfigureAwait(false);
 
         var written = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);

@@ -15,6 +15,22 @@ namespace Nix.Domain.Properties;
 public sealed record PropertyViolation(string Key, string Reason);
 
 /// <summary>
+/// A merge's result: the bag as it would be stored, and the keys the write named.
+/// </summary>
+/// <param name="Merged">The bag after the changes were applied.</param>
+/// <param name="Touched">
+/// Every key the change document named, whether it set the value or cleared it.
+/// </param>
+/// <remarks>
+/// The two travel together because the second cannot be recovered from the first: clearing a
+/// property removes its key, so a merged bag cannot say whether a missing value was just deleted or
+/// was never there. Carrying them as one value also removes the only way to use them wrongly -
+/// pairing a bag from one write with the key list from another, which would quietly enforce the
+/// wrong rule rather than fail.
+/// </remarks>
+public readonly record struct PropertyWrite(string Merged, ImmutableArray<string> Touched);
+
+/// <summary>
 /// Checks a property bag against the schema in force where the item sits.
 /// </summary>
 /// <remarks>
@@ -33,6 +49,14 @@ public sealed record PropertyViolation(string Key, string Reason);
 /// <b>Every violation is reported, not just the first.</b> A form with three bad fields should say
 /// so once rather than over three round trips.
 /// </para>
+/// <para>
+/// <b>Nothing here asks whether an item is complete.</b> Both entry points check the values in
+/// front of them and differ only in which values are owed: a create owes none, and a write owes
+/// the ones it named. There is deliberately no "does this bag satisfy its schema" question,
+/// because the only thing that ever asked it used the answer to refuse writes that had nothing to
+/// do with the missing value. If a screen one day needs to show that a row is incomplete, that is
+/// a read, and it should arrive with the reader that needs it.
+/// </para>
 /// </remarks>
 public static class PropertyValidator
 {
@@ -44,13 +68,37 @@ public static class PropertyValidator
     public const int MaximumBytes = 32 * 1024;
 
     /// <summary>
-    /// Validates a property bag.
+    /// Every violation in a write, with required-ness enforced only on the keys it touched.
     /// </summary>
-    /// <param name="properties">The bag as stored JSON, or <see langword="null"/>.</param>
+    /// <param name="write">The merged bag and the keys the write named.</param>
     /// <param name="schema">The effective schema at the item's position.</param>
-    /// <returns>Every violation found, empty when the bag is acceptable.</returns>
-    public static ImmutableArray<PropertyViolation> Validate(string? properties, PropertySchema schema) =>
-        Validate(properties, schema, requireComplete: true);
+    /// <returns>Every violation found, empty when the write is acceptable.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>You cannot empty a required property; you are not blocked by one somebody else left
+    /// empty.</b> Those are two different questions and this is the only place that tells them
+    /// apart. Checking the whole merged bag for completeness - which this used to do - meant that
+    /// declaring a property required retroactively write-locked every item beneath it: a board drag
+    /// setting <c>status</c> was refused because <c>owner</c>, which the drag never touched and the
+    /// board does not show, had never been filled in. The only way out was a write supplying every
+    /// missing required value at once, and no interface offers one.
+    /// </para>
+    /// <para>
+    /// It is the same principle the views take (see <c>ContainerViews</c>): a schema and the data
+    /// under it are edited independently, so refusing a write on the state of something it did not
+    /// touch makes the order of two unrelated edits matter. Required stays enforceable, because
+    /// clearing a required value is itself a write to that key and is refused.
+    /// </para>
+    /// <para>
+    /// Takes a <see cref="PropertyWrite"/> rather than the bag and the change document separately,
+    /// so the two views of one write cannot be mismatched, and so the change document is parsed
+    /// once - by the merge that already had to walk it - instead of twice per request.
+    /// </para>
+    /// </remarks>
+    public static ImmutableArray<PropertyViolation> ValidateWrite(
+        PropertyWrite write,
+        PropertySchema schema) =>
+        Validate(write.Merged, schema, write.Touched);
 
     /// <summary>
     /// Every violation in the values that were supplied, ignoring the ones that were not.
@@ -74,12 +122,30 @@ public static class PropertyValidator
     public static ImmutableArray<PropertyViolation> ValidateSupplied(
         string? properties,
         PropertySchema schema) =>
-        Validate(properties, schema, requireComplete: false);
+        Validate(properties, schema, NothingRequired);
 
+    /// <summary>A create owes no required value, so nothing is enforced.</summary>
+    /// <remarks>
+    /// An empty <see cref="ImmutableArray{T}"/> rather than an empty set: immutable by
+    /// construction, so a shared static cannot be added to by a later edit, and the runtime hands
+    /// back the same instance rather than allocating.
+    /// </remarks>
+    private static readonly ImmutableArray<string> NothingRequired = [];
+
+    /// <summary>
+    /// The one check, over the declared properties.
+    /// </summary>
+    /// <param name="properties">The bag to check.</param>
+    /// <param name="schema">The schema in force.</param>
+    /// <param name="mustBePresent">
+    /// The declared keys whose absence is a violation. Every other declared key may be missing:
+    /// what varies between a create and a write is not how a value is checked but which values are
+    /// owed at all.
+    /// </param>
     private static ImmutableArray<PropertyViolation> Validate(
         string? properties,
         PropertySchema schema,
-        bool requireComplete)
+        ImmutableArray<string> mustBePresent)
     {
         ArgumentNullException.ThrowIfNull(schema);
 
@@ -116,7 +182,10 @@ public static class PropertyValidator
 
             if (IsAbsent(value))
             {
-                if (definition.Required && requireComplete)
+                // A scan rather than a set: a change document names one or two keys in the cases
+                // that matter, and building a hash set to answer two questions costs more than
+                // asking them. String equality here is ordinal, which is what the schema uses.
+                if (definition.Required && mustBePresent.Contains(definition.Key))
                 {
                     violations.Add(new PropertyViolation(definition.Key, $"{definition.Label} is required."));
                 }
