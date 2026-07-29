@@ -32,6 +32,7 @@ function viewOf(overrides: Partial<View> & { id: string; name: string }): View {
     sortDescending: false,
     mode: null,
     coverProperty: null,
+    endDateProperty: null,
     ...overrides,
   };
 }
@@ -136,6 +137,63 @@ describe('the view editor', () => {
 
     expect(within(placement).getByRole('option', { name: 'Due' })).toBeInTheDocument();
     expect(within(placement).queryByRole('option', { name: 'Status' })).not.toBeInTheDocument();
+  });
+
+  it('offers a timeline both ends of its span, and says which one it can do without', () => {
+    // The one behaviour the registry's array-of-configurations shape was justified by, asserted
+    // where it actually happens. A test over the registry data proves the table has two entries; it
+    // does not prove this form draws two blocks, which is what a refactor of the configuration loop
+    // could break silently.
+    render(
+      <ViewEditor
+        container={containerOf([viewOf({ id: 't', name: 'Delivery', kind: 'timeline' })])}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    const start = screen.getByRole('combobox', { name: /starts on/i });
+    const end = screen.getByRole('combobox', { name: /ends on/i });
+
+    // Both take the same property types, because the server's requirement for a timeline is the
+    // calendar's verbatim.
+    for (const control of [start, end]) {
+      expect(within(control).getByRole('option', { name: 'Due' })).toBeInTheDocument();
+      expect(within(control).queryByRole('option', { name: 'Status' })).not.toBeInTheDocument();
+    }
+
+    // The wording is the whole distinction: the view is waiting on a start, and is complete without
+    // an end. "Choose a property" on the second would read as an unfinished view.
+    expect(within(start).getByRole('option', { name: 'Choose a property' })).toBeInTheDocument();
+    expect(within(end).getByRole('option', { name: 'None' })).toBeInTheDocument();
+  });
+
+  it('carries the date property across when a calendar becomes a timeline', async () => {
+    // What keeps `dateProperty` under the calendar's name rather than being renamed to something a
+    // timeline would prefer. Switching the kind must not be the thing that loses the configuration.
+    const user = userEvent.setup();
+    const setViews = vi.fn(() => Promise.resolve(null));
+
+    render(
+      <ViewEditor
+        container={containerOf(
+          [viewOf({ id: 'c', name: 'When', kind: 'calendar', dateProperty: 'due' })],
+          setViews,
+        )}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: /shown as/i }), 'timeline');
+
+    expect(screen.getByRole('combobox', { name: /starts on/i })).toHaveValue('due');
+
+    await user.click(screen.getByRole('button', { name: /save views/i }));
+
+    expect(setViews).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'timeline', dateProperty: 'due' }),
+    ]);
   });
 
   it('says how to fix a folder with nothing a board could group by', () => {

@@ -1,4 +1,4 @@
-import { Columns3, LayoutGrid, LayoutList, CalendarDays } from 'lucide-react';
+import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -7,6 +7,7 @@ import { CalendarView } from './calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { GalleryView } from './gallery-view';
 import { ListView } from './list-view';
+import { TimelineView } from './timeline-view';
 import type { ContainerData } from './use-container';
 
 /**
@@ -46,7 +47,7 @@ export interface ViewRendererProps {
  */
 export interface ViewConfiguration {
   /** The field on the view that names the property. */
-  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty';
+  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty';
 
   readonly label: string;
 
@@ -107,12 +108,13 @@ export interface ViewKindDescriptor {
    *
    * **What this actually buys, stated honestly, because the overclaim is tempting.** It makes the
    * editor's configuration block per-*property* rather than per-*kind*, so a kind needing two
-   * properties - a timeline, with a start and an end - costs no change here and no second copy of
-   * that block. It does *not* make a kind that needs a brand-new field cheap: `endDateProperty`
-   * would still have to be threaded through the `field` union, the Zod schema, the view record and
-   * its two contracts, the stored-JSON reader and writer, the OpenAPI document, the generated
-   * client and every fixture. That threading is the cost of the flat view record, which
-   * `ViewDefinition.cs` justifies on its own terms; changing it is an ADR, not a refactor.
+   * properties - the timeline, with a start and an end - costs no change here and no second copy of
+   * that block. It does *not* make a kind that needs a brand-new field cheap, and the timeline is
+   * the receipt: `endDateProperty` had to be threaded through the `field` union below, the Zod
+   * schema, the view record and its two contracts, the stored-JSON reader and writer, the OpenAPI
+   * document, the generated client and every fixture. That threading is the cost of the flat view
+   * record, which `ViewDefinition.cs` justifies on its own terms; changing it is an ADR, not a
+   * refactor.
    *
    * Empty for a list, which needs nothing configured to draw.
    */
@@ -185,6 +187,46 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // Not "Choose a property": the gallery is complete without one.
         emptyChoice: 'None',
         accepts: (property) => property.type === 'image',
+      },
+    ],
+  },
+  {
+    kind: 'timeline',
+    label: 'Timeline',
+    icon: ChartGantt,
+    render: (props) => <TimelineView {...props} />,
+    // The first kind configured from two properties, which is what the array shape above exists
+    // for. **No `clears` on either.** The start is the calendar's own `dateProperty` under the
+    // calendar's own name, so switching a view between the two kinds has to carry it across
+    // untouched; and the `week`/`month` grains the two share overlap on purpose, so clearing the
+    // mode would throw away a choice that still means something.
+    configures: [
+      {
+        field: 'dateProperty',
+        // "Starts on" rather than the calendar's "Place by": a bar has two ends, and the pair has
+        // to read as a pair in the form that sets them.
+        label: 'Starts on',
+        emptyHint: 'There is no date property yet. Add one under Properties first.',
+        hint: 'Each bar begins on the day this property names.',
+        // The view is genuinely waiting on this one: with no start there is no position, and the
+        // timeline says so instead of drawing.
+        emptyChoice: 'Choose a property',
+        // Both, exactly as the calendar accepts both, and the server's requirement is the
+        // calendar's verbatim. A date is an all-day thing that must not shift for a reader in
+        // another zone; a timestamp is a moment that must.
+        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+      },
+      {
+        field: 'endDateProperty',
+        label: 'Ends on',
+        // Neither hint sends somebody to add a property first, because the view does not need one.
+        emptyHint:
+          'There is no second date property yet. Without one every item is drawn as a milestone on its start day.',
+        hint: 'Each bar runs to the day this property names. An item without one is a milestone.',
+        // Not "Choose a property": a timeline of milestones is complete, and calling it unfinished
+        // would send somebody looking for what was broken.
+        emptyChoice: 'None',
+        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
       },
     ],
   },

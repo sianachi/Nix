@@ -341,6 +341,7 @@ export function ViewEditor({
                 sortDescending: false,
                 mode: null,
                 coverProperty: null,
+                endDateProperty: null,
               },
             ]);
           }}

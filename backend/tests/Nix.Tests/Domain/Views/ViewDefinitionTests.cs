@@ -37,6 +37,7 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.Board, "board")]
     [InlineData(ViewKind.Calendar, "calendar")]
     [InlineData(ViewKind.Gallery, "gallery")]
+    [InlineData(ViewKind.Timeline, "timeline")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));
@@ -61,7 +62,8 @@ public sealed class ViewDefinitionTests
         // would reasonably guess a board and a gallery are called - and they have to be names no
         // build will ever have. "gallery" used to be here and became a kind, which is the trap: a
         // negative case that a later goal turns positive stops testing anything and starts
-        // blocking the goal. So do not reach for "timeline" either; that one is already planned.
+        // blocking the goal. "timeline" was the next one on the plan and is now a kind too, so a
+        // name added here has to be one nothing on the roadmap is called.
         Assert.False(ViewKinds.TryParse(name, out _));
     }
 
@@ -252,6 +254,89 @@ public sealed class ViewDefinitionTests
         Assert.True(configured.CanRender(PropertySchema.Empty));
         Assert.True(configured.CanRender(SchemaOf(Property("cover", PropertyType.Number))));
     }
+
+    [Fact]
+    public void A_timeline_needs_a_date_to_start_from()
+    {
+        // The one requirement the kind has, and the whole of it. A bar is placed by its start, so a
+        // timeline naming no start property has nothing to place - which is the test this codebase
+        // applies to a requirement: the property whose absence leaves nothing on screen.
+        //
+        // The same requirement drives two call sites - CanRender here, and the storability refusal
+        // in SetContainerViewsHandler - so the sentence is asserted alongside the behaviour. It is
+        // the timeline's own rather than the calendar's, because the two views ask for the same
+        // property and mean visibly different things by it.
+        var requirement = ViewKinds.Find(ViewKind.Timeline)?.Requirement;
+
+        Assert.NotNull(requirement);
+        Assert.Equal("a timeline needs a date to start from", requirement.Missing);
+        Assert.Equal("starts", requirement.Read(Timeline("starts", "ends")));
+
+        var unconfigured = new ViewDefinition("v1", "Delivery", ViewKind.Timeline, [], null, [], null, null, false);
+
+        Assert.False(unconfigured.CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+        Assert.True(Timeline("starts", "ends").CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+    }
+
+    [Fact]
+    public void A_timeline_with_no_end_date_property_is_still_renderable()
+    {
+        // Every item on it is a milestone: a start with no end is a point on the axis, which is a
+        // real and drawable thing rather than half a bar. Refusing here would take every item off
+        // the screen over a field that was never required - the trade a board makes for a reason a
+        // timeline does not have.
+        var milestones = Timeline("starts", endDateProperty: null);
+
+        Assert.True(milestones.CanRender(SchemaOf(Property("starts", PropertyType.Date))));
+
+        // And an end property that has since been deleted or retyped is the same case arrived at
+        // from the other direction: the bars become milestones, and the view still draws.
+        var spanning = Timeline("starts", "ends");
+
+        Assert.True(spanning.CanRender(SchemaOf(Property("starts", PropertyType.Timestamp))));
+        Assert.True(
+            spanning.CanRender(
+                SchemaOf(Property("starts", PropertyType.Date), Property("ends", PropertyType.Number))));
+    }
+
+    [Fact]
+    public void Switching_a_view_between_calendar_and_timeline_keeps_its_date_property()
+    {
+        // The reason `DateProperty` is not renamed to something the timeline would prefer. Both
+        // kinds read the same field through the same requirement, so changing only the kind carries
+        // the configuration across intact and back again - and a stored calendar written by an
+        // older build needs no migration to become a timeline.
+        var calendar = Calendar("due");
+        var asTimeline = calendar with { Kind = ViewKind.Timeline, EndDateProperty = "ends" };
+        var backAgain = asTimeline with { Kind = ViewKind.Calendar };
+
+        var schema = SchemaOf(Property("due", PropertyType.Date), Property("ends", PropertyType.Date));
+
+        Assert.Equal("due", asTimeline.DateProperty);
+        Assert.True(asTimeline.CanRender(schema));
+
+        Assert.Equal("due", backAgain.DateProperty);
+        Assert.True(backAgain.CanRender(schema));
+
+        // The end property is carried rather than cleared. A switch to a calendar and back must not
+        // be the thing that loses half a timeline's configuration.
+        Assert.Equal("ends", backAgain.EndDateProperty);
+    }
+
+    private static ViewDefinition Timeline(string dateProperty, string? endDateProperty) =>
+        new(
+            "v1",
+            "Delivery",
+            ViewKind.Timeline,
+            [],
+            null,
+            [],
+            dateProperty,
+            null,
+            false,
+            Mode: null,
+            CoverProperty: null,
+            EndDateProperty: endDateProperty);
 
     private static ViewDefinition Gallery(string coverProperty) =>
         new(

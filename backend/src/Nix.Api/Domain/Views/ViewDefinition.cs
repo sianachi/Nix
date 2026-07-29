@@ -29,6 +29,25 @@ public enum ViewKind
     /// grouping has no columns at all - and a cover is not one.
     /// </remarks>
     Gallery = 3,
+
+    /// <summary>Children as horizontal bars across a time axis, spanning a start and an end.</summary>
+    /// <remarks>
+    /// <para>
+    /// One requirement, not two, and it is the calendar's verbatim. A start date is what puts a bar
+    /// on the axis at all - no start, no position - so its absence leaves nothing on screen, which
+    /// is the test this codebase applies. An end date is a different thing: an item with a start and
+    /// no end is a milestone, which is a real and drawable shape, and a timeline of milestones is a
+    /// perfectly good timeline.
+    /// </para>
+    /// <para>
+    /// <b>An end before its start is not refused here.</b> The two are independent property writes
+    /// and cannot both be valid at every instant, so refusing would make the fix depend on which one
+    /// somebody happens to correct first - the same argument <c>SetContainerViewsHandler.Refuse</c>
+    /// makes about a view naming a property the schema does not declare yet. The view reports the
+    /// pair; the server does not police it.
+    /// </para>
+    /// </remarks>
+    Timeline = 4,
 }
 
 /// <summary>
@@ -104,6 +123,18 @@ public static class ViewKinds
         // Like a list, and for the same reason: a gallery with no cover property still has titled
         // cards to draw. The cover is an enrichment, not the thing that makes the view exist.
         new ViewKindDescriptor(ViewKind.Gallery, "gallery", Requirement: null),
+
+        // The calendar's requirement, reused field for field: a timeline places a bar by the same
+        // date property a calendar places a card by, which is what makes switching a view between
+        // the two lossless. Only the sentence differs, because the two views want different things
+        // said to somebody who has not configured one yet.
+        new ViewKindDescriptor(
+            ViewKind.Timeline,
+            "timeline",
+            new ViewRequirement(
+                static view => view.DateProperty,
+                static type => Nix.Domain.Properties.PropertyTypes.CanPlaceOnCalendar(type),
+                "a timeline needs a date to start from")),
     ];
 
     /// <summary>Reads a stored kind.</summary>
@@ -170,21 +201,27 @@ public static class ViewKinds
 /// For a board: which of that property's values to show, in which order. Empty means every value
 /// the schema declares.
 /// </param>
-/// <param name="DateProperty">For a calendar: the date property that places an item.</param>
-
+/// <param name="DateProperty">
+/// For a calendar: the date property that places an item. For a timeline: the date a bar starts on.
+/// </param>
 /// <param name="SortBy">The property key to order by, or <see langword="null"/> for sibling order.</param>
 /// <param name="SortDescending">Which way to order.</param>
 /// <param name="Mode">
-/// For a calendar: <c>month</c>, <c>week</c> or <c>day</c>. Anything else, including absent, means
-/// a month.
+/// The per-kind grain. For a calendar: <c>month</c>, <c>week</c> or <c>day</c>. For a timeline:
+/// <c>week</c>, <c>month</c> or <c>quarter</c>. Anything else, including absent, means that kind's
+/// own default. The two vocabularies overlapping is deliberate: it is what lets a view switched
+/// between the two kinds keep the grain it had rather than being reset to one nobody chose.
 /// </param>
 /// <param name="CoverProperty">
 /// For a gallery: the image property whose value each card shows as its cover, or
 /// <see langword="null"/> for a grid of titled cards.
 /// </param>
+/// <param name="EndDateProperty">
+/// For a timeline: the date a bar ends on, or <see langword="null"/> for a timeline of milestones.
+/// </param>
 /// <remarks>
 /// <para>
-/// <b>One record for all three kinds, rather than a hierarchy.</b> The per-kind fields are nullable
+/// <b>One record for every kind, rather than a hierarchy.</b> The per-kind fields are nullable
 /// and a view ignores the ones that are not its own. A discriminated hierarchy would be tidier in
 /// the type system and worse everywhere else: this shape is serialised to a jsonb column and to an
 /// OpenAPI schema, and both would need the union spelled out by hand, in two more places that can
@@ -220,7 +257,18 @@ public sealed record ViewDefinition(
     // Same rule, and it is the record's own: every construction here is positional, so a per-kind
     // field added anywhere but the end would silently re-bind arguments at dozens of call sites.
     // Absent means a gallery of titled cards, which is what every view stored before this existed.
-    string? CoverProperty = null)
+    string? CoverProperty = null,
+
+    // Same rule again. **Not paired with DateProperty into a range, and DateProperty is not renamed
+    // to StartDateProperty**: that name is what a stored calendar already uses, so renaming it would
+    // break every calendar in every workspace, and keeping it is what makes switching a view between
+    // calendar and timeline lossless in both directions.
+    //
+    // Nullable because it is genuinely optional: a start with no end is a milestone, which the
+    // timeline draws as a point rather than as a bar. Nothing here refuses an end that falls before
+    // its start; see ViewKind.Timeline for why that is the view's report to make and not the
+    // server's.
+    string? EndDateProperty = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

@@ -1946,7 +1946,8 @@
           "sortBy",
           "sortDescending",
           "mode",
-          "coverProperty"
+          "coverProperty",
+          "endDateProperty"
         ],
         "type": "object",
         "properties": {
@@ -2005,6 +2006,12 @@
             ]
           },
           "coverProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endDateProperty": {
             "type": [
               "null",
               "string"
@@ -2024,7 +2031,8 @@
           "sortBy",
           "sortDescending",
           "mode",
-          "coverProperty"
+          "coverProperty",
+          "endDateProperty"
         ],
         "type": "object",
         "properties": {
@@ -2077,6 +2085,12 @@
             ]
           },
           "coverProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endDateProperty": {
             "type": [
               "null",
               "string"

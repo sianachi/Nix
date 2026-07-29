@@ -58,6 +58,7 @@ function viewOf(overrides: Partial<View> = {}): View {
     sortDescending: false,
     mode: null,
     coverProperty: null,
+    endDateProperty: null,
     ...overrides,
   };
 }

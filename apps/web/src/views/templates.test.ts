@@ -156,6 +156,7 @@ describe('applying one', () => {
       sortDescending: false,
       mode: null,
       coverProperty: null,
+      endDateProperty: null,
     };
 
     const { container, setViews } = containerWith([], [existing]);

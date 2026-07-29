@@ -107,6 +107,40 @@ export function dayText(value: CalendarDay): string {
   return `${String(value.year)}-${pad(value.month + 1)}-${pad(value.day)}`;
 }
 
+/**
+ * The inverse of {@link dayText}: a stored `yyyy-MM-dd` back as a day.
+ *
+ * Here rather than at a caller because this module owns the mapping between the text and the
+ * triple, and a second parse somewhere else is a second place for the month's off-by-one to live -
+ * the stored month is 1-12 and everything in this file is 0-11.
+ *
+ * **Still no `Date`.** This is three integer reads, which is the whole point: `new Date(text)` is
+ * UTC midnight and would hand back the previous day for every reader west of Greenwich.
+ *
+ * Null for anything that is not a complete date, so a property holding "next Tuesday" cannot be
+ * spoken as though it were one.
+ */
+export function dayFromText(text: string): CalendarDay | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (parts === null) {
+    return null;
+  }
+
+  const [, year, month, day] = parts;
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+
+  const value = { year: Number(year), month: Number(month) - 1, day: Number(day) };
+
+  // A well-formed string can still name a day that does not exist - "2026-02-31" and "2026-13-01"
+  // both match the shape. Rejecting them here is what keeps `monthEntry` from throwing several
+  // frames away, where the message would be about a table index rather than about a stored value.
+  return value.month >= 0 && value.month <= 11 && value.day >= 1 && value.day <= daysInMonth(value)
+    ? value
+    : null;
+}
+
 /** The `yyyy-MM-` prefix of a month, for telling apart the dates a month grid can show. */
 export function monthPrefix(value: CalendarMonth): string {
   return `${String(value.year)}-${pad(value.month + 1)}-`;

@@ -559,6 +559,7 @@ export interface components {
       sortDescending: boolean;
       mode: null | string;
       coverProperty: null | string;
+      endDateProperty: null | string;
     };
     ViewResponse: {
       id: string;
@@ -572,6 +573,7 @@ export interface components {
       sortDescending: boolean;
       mode: null | string;
       coverProperty: null | string;
+      endDateProperty: null | string;
     };
     WorkspaceResponse: {
       /** Format: uuid */

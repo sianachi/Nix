@@ -52,6 +52,7 @@ function view(overrides: Partial<View> & { id: string; name: string; kind: strin
     sortDescending: false,
     mode: null,
     coverProperty: null,
+    endDateProperty: null,
     ...overrides,
   };
 }

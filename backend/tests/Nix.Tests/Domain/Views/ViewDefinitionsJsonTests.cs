@@ -60,6 +60,19 @@ public sealed class ViewDefinitionsJsonTests
                 false,
                 Mode: null,
                 CoverProperty: "cover"),
+            new ViewDefinition(
+                "v5",
+                "Delivery",
+                ViewKind.Timeline,
+                [],
+                null,
+                [],
+                "starts",
+                null,
+                false,
+                Mode: "quarter",
+                CoverProperty: null,
+                EndDateProperty: "ends"),
         ];
 
         var read = ReadViews(ViewDefinitionsJson.Write(views));
@@ -95,8 +108,54 @@ public sealed class ViewDefinitionsJsonTests
         Assert.False(entry.ContainsKey("columns"));
         Assert.False(entry.ContainsKey("groupOrder"));
         Assert.False(entry.ContainsKey("coverProperty"));
+        Assert.False(entry.ContainsKey("endDateProperty"));
         Assert.False(entry.ContainsKey("mode"));
         Assert.Equal("list", (string?)entry["kind"]);
+    }
+
+    [Fact]
+    public void A_timeline_stores_both_ends_of_its_span()
+    {
+        // The start is stored under `dateProperty` and not under a name of the timeline's own. That
+        // is what makes switching a view between calendar and timeline lossless: the same key means
+        // the same thing to both, so the calendar keeps placing items after the switch back.
+        var timeline = new ViewDefinition(
+            "v1",
+            "Delivery",
+            ViewKind.Timeline,
+            [],
+            null,
+            [],
+            "starts",
+            null,
+            false,
+            Mode: null,
+            CoverProperty: null,
+            EndDateProperty: "ends");
+
+        var written = Assert.IsType<JsonObject>(JsonNode.Parse(ViewDefinitionsJson.Write([timeline])!));
+        var entry = Assert.IsType<JsonObject>(Assert.IsType<JsonArray>(written["views"])[0]);
+
+        Assert.Equal("timeline", (string?)entry["kind"]);
+        Assert.Equal("starts", (string?)entry["dateProperty"]);
+        Assert.Equal("ends", (string?)entry["endDateProperty"]);
+        Assert.False(entry.ContainsKey("coverProperty"));
+    }
+
+    [Fact]
+    public void A_timeline_that_names_no_end_date_property_is_read_and_kept()
+    {
+        // Every item on it is a milestone, which is a shape the view draws rather than a
+        // configuration it is missing. Dropping the view as incomplete would take a working timeline
+        // off the switcher.
+        var read = ReadViews(
+            """{"views":[{"id":"v1","name":"Delivery","kind":"timeline","dateProperty":"starts"}]}""");
+
+        var timeline = Assert.Single(read);
+
+        Assert.Equal(ViewKind.Timeline, timeline.Kind);
+        Assert.Equal("starts", timeline.DateProperty);
+        Assert.Null(timeline.EndDateProperty);
     }
 
     [Fact]
@@ -145,13 +204,17 @@ public sealed class ViewDefinitionsJsonTests
     [Fact]
     public void A_view_whose_kind_this_build_does_not_know_is_dropped_and_the_others_kept()
     {
-        // A newer build adds "timeline" and a person configures one. This instance offers the other
+        // A newer build adds "swimlane" and a person configures one. This instance offers the other
         // two views rather than refusing the container's switcher entirely.
+        //
+        // The fixture used to be "timeline", which stopped testing anything the day the timeline
+        // shipped - the same trap `A_kind_this_build_does_not_know_is_not_a_kind` names about
+        // "gallery". So this one has to be a word no build will have, not the next kind on the plan.
         var read = ReadViews(
             """
             {"views":[
               {"id":"v1","kind":"list"},
-              {"id":"v2","kind":"timeline"},
+              {"id":"v2","kind":"swimlane"},
               {"id":"v3","kind":"board","groupBy":"status"}
             ]}
             """);
@@ -280,6 +343,7 @@ public sealed class ViewDefinitionsJsonTests
         // neither.
         Assert.Equal(expected.Mode, actual.Mode);
         Assert.Equal(expected.CoverProperty, actual.CoverProperty);
+        Assert.Equal(expected.EndDateProperty, actual.EndDateProperty);
     }
 
     [Fact]

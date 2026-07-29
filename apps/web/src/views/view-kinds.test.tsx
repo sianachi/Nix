@@ -10,6 +10,11 @@ import { VIEW_KINDS, findViewKind, isKnownViewKind, type ViewConfiguration } fro
  * that a kind not declared here is refused rather than approximated.
  */
 
+/** Every configuration a kind offers, in the order the editor draws them. */
+function configurations(kind: string): readonly ViewConfiguration[] {
+  return findViewKind(kind)?.configures ?? [];
+}
+
 /** The single configuration a kind has, when the assertion is about that one. */
 function onlyConfiguration(kind: string): ViewConfiguration {
   const [first, ...rest] = findViewKind(kind)?.configures ?? [];
@@ -24,11 +29,12 @@ function onlyConfiguration(kind: string): ViewConfiguration {
 }
 
 describe('the view-kind registry', () => {
-  it('knows the four this build can draw', () => {
+  it('knows the five this build can draw', () => {
     expect(isKnownViewKind('list')).toBe(true);
     expect(isKnownViewKind('board')).toBe(true);
     expect(isKnownViewKind('calendar')).toBe(true);
     expect(isKnownViewKind('gallery')).toBe(true);
+    expect(isKnownViewKind('timeline')).toBe(true);
   });
 
   it('does not claim to know a kind from a newer build', () => {
@@ -67,6 +73,14 @@ describe('the view-kind registry', () => {
     expect(onlyConfiguration('board').field).toBe('groupBy');
     expect(onlyConfiguration('calendar').field).toBe('dateProperty');
     expect(onlyConfiguration('gallery').field).toBe('coverProperty');
+
+    // The kind the array shape was written for. This asserts the table; that the editor actually
+    // draws two blocks from it is asserted where it happens, in `view-editor.test.tsx` - a claim
+    // about a form is not provable from the data the form reads.
+    expect(configurations('timeline').map((entry) => entry.field)).toEqual([
+      'dateProperty',
+      'endDateProperty',
+    ]);
   });
 
   it('holds a list of configurations rather than one, so a kind may need two properties', () => {
@@ -87,6 +101,13 @@ describe('the view-kind registry', () => {
     expect(onlyConfiguration('gallery').emptyChoice).toBe('None');
     expect(onlyConfiguration('board').emptyChoice).toBe('Choose a property');
     expect(onlyConfiguration('calendar').emptyChoice).toBe('Choose a property');
+
+    // A timeline is both at once, which is exactly why the copy lives here rather than being
+    // derived from the kind: without a start there is no position, and without an end every item is
+    // a milestone - which is a finished timeline, not a broken one.
+    const [start, end] = configurations('timeline');
+    expect(start?.emptyChoice).toBe('Choose a property');
+    expect(end?.emptyChoice).toBe('None');
   });
 
   it('lets each kind be configured only from the property types it can use', () => {
@@ -122,6 +143,15 @@ describe('the view-kind registry', () => {
     // offering every link in the workspace as a cover would be offering the wrong thing.
     expect(gallery.accepts(url)).toBe(false);
     expect(gallery.accepts(text)).toBe(false);
+
+    // Both ends of a span take the same types the calendar takes, because the server's requirement
+    // for a timeline is the calendar's verbatim. A form offering more than the server accepts would
+    // let somebody build a view that saves and then refuses to draw.
+    for (const configuration of configurations('timeline')) {
+      expect(configuration.accepts(date)).toBe(true);
+      expect(configuration.accepts(text)).toBe(false);
+      expect(configuration.accepts(select)).toBe(false);
+    }
   });
 
   it('clears the column order when a board changes the property it groups by', () => {
@@ -132,5 +162,12 @@ describe('the view-kind registry', () => {
     // A calendar and a gallery have nothing that outlives their property, so they clear nothing.
     expect(onlyConfiguration('calendar').clears).toBeUndefined();
     expect(onlyConfiguration('gallery').clears).toBeUndefined();
+
+    // Neither does a timeline, and here it is load-bearing rather than incidental: the start is the
+    // calendar's own `dateProperty`, so clearing anything on a switch between the two kinds would
+    // be the thing that made the switch lossy.
+    for (const configuration of configurations('timeline')) {
+      expect(configuration.clears).toBeUndefined();
+    }
   });
 });

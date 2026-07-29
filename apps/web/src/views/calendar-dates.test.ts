@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addDays,
+  dayFromText,
   dayLabel,
   dayText,
   daysInMonth,
@@ -236,5 +237,36 @@ describe('moving by months', () => {
   it('crosses a year in both directions', () => {
     expect(shiftMonth({ year: 2026, month: 11 }, 1)).toEqual({ year: 2027, month: 0 });
     expect(shiftMonth({ year: 2026, month: 0 }, -1)).toEqual({ year: 2025, month: 11 });
+  });
+});
+
+describe('reading a stored date back', () => {
+  it('is the exact inverse of writing one', () => {
+    const day = { year: 2026, month: 2, day: 17 };
+
+    expect(dayFromText(dayText(day))).toEqual(day);
+
+    // The stored month is 1-12 and every month here is 0-11, which is the off-by-one this function
+    // exists to keep in one place.
+    expect(dayFromText('2026-01-01')).toEqual({ year: 2026, month: 0, day: 1 });
+    expect(dayFromText('2026-12-31')).toEqual({ year: 2026, month: 11, day: 31 });
+  });
+
+  it('refuses a day the calendar does not have', () => {
+    // Well-formed and impossible. Left to `monthEntry` it would throw several frames away, with a
+    // message about a table index rather than about a value somebody stored.
+    expect(dayFromText('2026-02-29')).toBeNull();
+    expect(dayFromText('2026-13-01')).toBeNull();
+    expect(dayFromText('2026-00-10')).toBeNull();
+
+    // And the leap day that does exist.
+    expect(dayFromText('2028-02-29')).toEqual({ year: 2028, month: 1, day: 29 });
+  });
+
+  it('refuses anything that is not a complete date', () => {
+    expect(dayFromText('next Tuesday')).toBeNull();
+    expect(dayFromText('2026-03')).toBeNull();
+    expect(dayFromText('2026-03-17T09:00:00Z')).toBeNull();
+    expect(dayFromText('')).toBeNull();
   });
 });
