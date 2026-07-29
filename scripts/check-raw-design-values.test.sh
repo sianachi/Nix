@@ -111,7 +111,9 @@ FIXTURE
 expect 1 "an arbitrary px length fails" "$length_heading"
 
 fixture length-rem.tsx <<'FIXTURE'
-export const Row = () => <div className="min-w-[14rem]" />;
+// Padding, not a container dimension - the spacing scale is exactly where this
+// should have come from.
+export const Row = () => <div className="p-[1.5rem]" />;
 FIXTURE
 expect 1 "an arbitrary rem length fails" "$length_heading"
 
@@ -121,13 +123,34 @@ FIXTURE
 expect 1 "a negative arbitrary length fails" "$length_heading"
 
 fixture length-embedded.tsx <<'FIXTURE'
-export const Grid = () => (
-  <div className="md:grid-cols-[400px_300px]">
-    <aside className="w-[min(560px,calc(100vw-var(--spacing)*8))]" />
+export const Grid = () => <div className="md:grid-cols-[400px_300px]" />;
+FIXTURE
+expect 1 "a length inside a longer arbitrary value fails" "$length_heading"
+
+fixture length-container.tsx <<'FIXTURE'
+// The size of one box in one arrangement. ADR-0008 scopes the sheet to type,
+// control heights and spacing, so none of these has a token to come from and
+// the rule does not ask for one.
+export const Panes = () => (
+  <div>
+    <aside className="w-[264px]" />
+    <aside className="max-w-[680px]" />
+    <div className="min-w-[14rem]" />
+    <div className="h-[34px]" />
+    <div className="max-h-[280px]" />
+    <div className="min-h-[520px]" />
+    <div className="w-[min(560px,calc(100vw-var(--spacing)*8))]" />
   </div>
 );
 FIXTURE
-expect 1 "a length inside a longer arbitrary value fails" "$length_heading"
+expect 0 "a container dimension is not a raw length"
+
+fixture length-container-and-padding.tsx <<'FIXTURE'
+// The width is exempt; the padding beside it is not. Removing the exempt text
+// rather than skipping the line is what keeps this visible.
+export const Row = () => <div className="w-[240px] px-[14px]" />;
+FIXTURE
+expect 1 "a real length sharing a line with a container dimension still fails" "$length_heading"
 
 fixture length-near-miss.ts <<'FIXTURE'
 // A regex character class, not a Tailwind arbitrary value. No unit follows a

@@ -103,6 +103,25 @@ hex_pattern='(^|[^0-9a-zA-Z_])#[0-9a-fA-F]{3,8}([^0-9a-zA-Z_]|$)'
 # rule is about.
 length_pattern='[0-9a-zA-Z_]-\[[^]]*[0-9](px|rem)([^0-9a-zA-Z_]|$)'
 
+# ...except when the length is the size of a container.
+#
+# 'w-[264px]' for the workspace tree, 'max-w-[680px]' for the search overlay,
+# 'min-h-[520px]' for the calendar grid: these are the dimensions of one box in
+# one arrangement, and ADR-0008 scopes the token sheet to the type scale, the
+# control heights and the spacing step. A panel's width is none of those and is
+# not going to become one, which apps/web/src/app/layout.ts already argues at
+# length for the two it owns.
+#
+# So the guard does not ask for them. The alternative was thirteen permanent
+# 'design-token-exempt' markers sitting on correct code, and a marker that
+# common stops being read - which is how a guard quietly stops working. The
+# rule keeps every length that *does* have a scale to come from: padding, gaps,
+# margins, control boxes ('size-[26px]'), translations, tracking.
+#
+# Matched occurrences are removed from the line before rule 2 runs, rather than
+# the line being skipped, so 'w-[240px] px-[14px]' still reports its padding.
+container_dimension='(^|[^0-9a-zA-Z_])(max-|min-)?[wh]-\[[^]]*\]'
+
 # Rule 3 - arbitrary letter-spacing. The token scale runs --tracking-tight
 # through --tracking-widest, so 'tracking-[0.08em]' has a named equivalent in
 # every case. The leading '(^|[^0-9a-zA-Z_])' is the same portable word
@@ -141,14 +160,29 @@ comment_line_pattern='^[0-9]+:[[:space:]]*(//|/\*)'
 scan_file() {
   local file="$1"
   local pattern="$2"
-  local hits
+  # Optional: an ERE whose matches are deleted from each line before the rule
+  # is applied, for text a rule deliberately does not reach. Removing the text
+  # rather than skipping the whole line keeps a real violation sharing that
+  # line visible.
+  local strip="${3:-}"
+  local subject hits lineno
+  if [ -n "$strip" ]; then
+    subject="$(sed -E "s/${strip}/ /g" "$file")"
+  else
+    subject="$(cat "$file")"
+  fi
   # grep exits 1 when nothing matches; that is the good case, so soak it up.
-  hits="$(grep -nE "$pattern" "$file" \
+  hits="$(printf '%s\n' "$subject" \
+    | grep -nE "$pattern" \
     | grep -vE "$comment_line_pattern" \
     | grep -v 'design-token-exempt' || true)"
   [ -n "$hits" ] || return 0
   while IFS= read -r hit; do
-    printf '%s:%s\n' "$file" "$hit"
+    # Report the line as it is really written. The stripped copy exists only to
+    # decide whether the line is a hit; showing it back would print source that
+    # is not in the file.
+    lineno="${hit%%:*}"
+    printf '%s:%s:%s\n' "$file" "$lineno" "$(sed -n "${lineno}p" "$file")"
   done <<EOF
 $hits
 EOF
@@ -174,7 +208,7 @@ while IFS= read -r file; do
 "
   fi
 
-  new_hits="$(scan_file "$file" "$length_pattern")"
+  new_hits="$(scan_file "$file" "$length_pattern" "$container_dimension")"
   if [ -n "$new_hits" ]; then
     length_violations="${length_violations}${new_hits}
 "
