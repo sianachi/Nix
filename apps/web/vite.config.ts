@@ -3,9 +3,10 @@
 // Tailwind CSS v4 is CSS-first: there is no tailwind.config.js and no
 // PostCSS chain. The @tailwindcss/vite plugin compiles src/app.css, which
 // imports Tailwind and then the @nix/design-tokens @theme sheet, so every
-// Industry token becomes a utility class. Content detection is automatic in
-// v4 (it scans the Vite root, honouring .gitignore), so nothing here lists
-// source globs.
+// Industry token becomes a utility class.
+//
+// Content detection is automatic for this app's own source, but not sufficient
+// on its own - see the @source directive in src/app.css, which says why.
 //
 // The test block runs the same source through jsdom. CSS is not processed
 // during tests - component tests assert behaviour and roles, never computed

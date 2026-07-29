@@ -101,7 +101,11 @@ export function ListView(props: ListViewProps): ReactNode {
   }
 
   return (
-    <div className="min-w-0">
+    // The table's own horizontal scroller. A `w-full` table is laid out `auto`, so it cannot render
+    // narrower than its min-content width - enough property columns and it paints straight past a
+    // `min-w-0` parent. Now that the pane scrolls only vertically, this is the sole owner of the
+    // wide axis.
+    <div className="min-w-0 overflow-x-auto">
       <Table<Item>
         caption="Items in this one"
         columns={buildColumns(view, container.schema, onOpen)}

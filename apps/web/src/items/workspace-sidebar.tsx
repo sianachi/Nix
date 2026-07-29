@@ -77,8 +77,11 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   }
 
   return (
-    <aside aria-label="Workspace" className="flex w-[264px] shrink-0 flex-col bg-surface">
-      <div className="flex items-center gap-1 px-3 py-2">
+    <aside
+      aria-label="Workspace"
+      className="flex w-[264px] shrink-0 flex-col overflow-hidden bg-surface"
+    >
+      <div className="flex shrink-0 items-center gap-1 px-3 py-2">
         <span className="truncate text-xs uppercase tracking-[0.08em] text-muted">Workspace</span>
 
         {/* The label names where the item will land. Two identical buttons whose meaning depends on

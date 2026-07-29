@@ -33,7 +33,7 @@ import { RequireSession } from './require-session';
  */
 export function App(): ReactElement {
   return (
-    <div className="min-h-screen bg-background font-body text-foreground">
+    <div className="bg-background font-body text-foreground">
       <AppErrorBoundary>
         <AuthProvider>
           <Routes>

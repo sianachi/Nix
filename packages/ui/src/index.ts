@@ -15,11 +15,20 @@
  *
  * Adding a layer is the only reason to edit this file.
  *
- * The package ships no stylesheet. Consumers own one Tailwind entry that imports the tokens:
+ * The package ships no stylesheet. Consumers own one Tailwind entry that imports the tokens and
+ * then names this package's source:
  *
  *   @import 'tailwindcss';
  *   @import '@nix/design-tokens';
- *   @source '../../packages/ui/src';
+ *   @source '<relative path to>/packages/ui/src';
+ *
+ * The @source line is not optional and its depth is the consumer's own: Tailwind v4 resolves the
+ * path against the file the directive sits in, and it scans no further by itself, because this
+ * package resolves through a pnpm symlink into node_modules and automatic detection skips that.
+ * A consumer that leaves it out gets a build with no errors, no warnings, and every control in
+ * this package missing its height, padding and tracking. This comment used to give one fixed
+ * relative path, which was right for Storybook and wrong for apps/web - and apps/web shipped
+ * broken for exactly that reason.
  */
 
 export * from './primitives';

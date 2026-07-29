@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
+import { paneClip, paneColumn, paneScrollY } from '../app/layout';
 import { NoteEditor } from '../editor/note-editor';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
@@ -113,10 +114,10 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
   const showingDocument = active === null;
 
   return (
-    <article className="flex min-w-0 flex-1 flex-col">
+    <article className={paneColumn}>
       <ItemHeader tree={tree} itemId={itemId} title={title} onNavigate={onOpen} />
 
-      <div className="flex items-center">
+      <div className="flex shrink-0 items-center">
         <div className="min-w-0 flex-1">
           <ViewSwitcher
             views={views}
@@ -151,18 +152,22 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      <div className={`flex flex-1 ${paneClip}`}>
+        <div className={paneColumn}>
           {showingDocument ? (
             <NoteEditor itemId={itemId} />
           ) : (
-            <section aria-label="Container" className="flex min-h-0 flex-1 flex-col">
+            <section aria-label="Container" className={paneColumn}>
               {/* A refused write is reported once, by the view that made it. The renderer knows what
               snapped back and where, which is what somebody needs; this used to draw a second
               banner saying the same thing in different words, directly under a comment claiming it
               did not. */}
 
-              <div className="min-h-0 flex-1 overflow-auto">
+              {/* The pane's scroller, and it is y-only on purpose. When this took both axes it
+                  competed with the board's own `overflow-x-auto` for every horizontal gesture and
+                  won, so the columns felt stuck while the whole page slid sideways instead. The
+                  view owns its wide axis; the pane owns the tall one. */}
+              <div className={paneScrollY}>
                 <ContainerView container={container} view={active} onOpen={onOpen} />
               </div>
             </section>

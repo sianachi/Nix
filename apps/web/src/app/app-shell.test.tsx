@@ -34,6 +34,27 @@ describe('the shell', () => {
     expect(screen.queryByRole('link', { name: /^board$/i })).not.toBeInTheDocument();
   });
 
+  it('offers a skip link as the first thing a keyboard reaches', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: 'Acquisition memo' });
+    await user.tab();
+
+    // It used to live on a layout element the route tree had stopped rendering,
+    // so the app shipped with no skip link at all and nothing said so. Reaching
+    // it by tabbing is the assertion; querying for the anchor would have passed
+    // in the broken state too, had the element still been mounted anywhere.
+    const skip = screen.getByRole('link', { name: /skip to content/i });
+    expect(skip).toHaveFocus();
+    expect(skip).toHaveAttribute('href', '#main');
+
+    // And it must land somewhere: an anchor pointing at no such id is a skip
+    // link that silently does nothing.
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main');
+  });
+
   it('keeps the workspace tree on screen rather than inside one page', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);

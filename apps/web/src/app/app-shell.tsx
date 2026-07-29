@@ -1,4 +1,4 @@
-import { Icon } from '@nix/ui';
+import { Icon, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
@@ -8,6 +8,7 @@ import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import { useSelectedItem } from '../routing/selected-item';
 import { SearchOverlay } from '../search/search-overlay';
 import { useCurrentPrincipal } from '../session/use-current-principal';
+import { paneClip } from './layout';
 import { ProfileMenu } from './profile-menu';
 import { useSidebar } from './use-sidebar';
 
@@ -23,6 +24,29 @@ import { useSidebar } from './use-sidebar';
  *
  * The tree lives here rather than on the editor screen because it is how you move around; a tree
  * that appeared on one screen would make every other screen a dead end.
+ *
+ * ## The shell owns the viewport
+ *
+ * Exactly one element is `h-dvh`, exactly one element clips, and each pane owns exactly one
+ * scroller on exactly one axis. **Vertical belongs to the pane. Horizontal belongs to the view**,
+ * because only the view knows what its wide axis is - a board scrolls through columns, a table
+ * through property columns, and the pane cannot know which.
+ *
+ * This was previously unimplemented rather than mis-tuned, and it failed in two directions at once.
+ * The root was `min-h-dvh`, so `flex-1` never had a definite height and no descendant's
+ * `overflow-auto` ever had anything to scroll - every pane grew instead, and the page scrolled.
+ * And nothing anywhere clipped: `min-w-0` lets a box shrink but does not stop a descendant painting
+ * outside it, so a wide table pushed the *document* into horizontal scroll. Scrolling right then
+ * slid the whole page, carrying the fixed sidebar off-screen while view content took the pixels it
+ * had been holding - which read as content overflowing into the tree.
+ *
+ * **Not yet settled: a view that wants to own its vertical axis.** The calendar's hour grid is 24
+ * rows deep and has an `overflow-y-auto` of its own (`calendar-hours.tsx`), so in week and day
+ * modes there are two vertical scrollers in one column and neither owns the axis outright. Making
+ * that view's root take a definite height would settle it, but it is a change to how the calendar
+ * lays out rather than to the shell, so it is left alone here and named rather than pretended
+ * about. No view currently claims its own vertical axis, and the shell does not yet offer a rule
+ * for one that wants to.
  */
 export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
@@ -58,8 +82,18 @@ export function AppShell(): ReactNode {
   }, []);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background font-body text-foreground">
-      <header className="flex items-center gap-3 px-[14px] py-2">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background font-body text-foreground">
+      {/* First focusable thing in the document, for everybody, on every screen. It used to live in
+          a layout element that the route tree had stopped rendering, so in practice the app had no
+          skip link at all. */}
+      <a
+        href="#main"
+        className={`sr-only px-4 py-2 focus:not-sr-only focus:absolute focus:bg-background ${focusRing}`}
+      >
+        Skip to content
+      </a>
+
+      <header className="flex shrink-0 items-center gap-3 px-[14px] py-2">
         {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
             with the thing it controls cannot bring it back. */}
         <button
@@ -101,7 +135,7 @@ export function AppShell(): ReactNode {
         <ProfileMenu principal={principal} />
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className={`flex flex-1 ${paneClip}`}>
         {/* Unmounted rather than hidden. A tree that is merely off-screen keeps its rows in the
             tab order and in the accessibility tree, so a keyboard would still walk through a
             sidebar nobody can see. */}
@@ -111,7 +145,7 @@ export function AppShell(): ReactNode {
 
         {/* The shell owns the main landmark so every screen has exactly one, and a screen that
             renders panels side by side does not have to nest them inside another. */}
-        <main className="flex min-w-0 flex-1">
+        <main id="main" className={`flex flex-1 ${paneClip}`}>
           <Outlet context={{ tree, selectedId }} />
         </main>
       </div>

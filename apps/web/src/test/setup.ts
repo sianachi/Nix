@@ -13,16 +13,22 @@ import { resetSession } from './render-with-router';
  * lets a test exercise what a component does with a dialog without pretending to have tested the
  * top layer, the backdrop or the focus trap; those belong to the library's own stories, which run
  * in a real browser.
+ *
+ * Guarded, because this file is the whole app's setup and not every suite wants a DOM: a test that
+ * declares `@vitest-environment node` - compiling a stylesheet, say - has no HTMLDialogElement to
+ * patch and would otherwise fail here before running a line of its own.
  */
-Object.assign(HTMLDialogElement.prototype, {
-  showModal(this: HTMLDialogElement) {
-    this.open = true;
-  },
-  close(this: HTMLDialogElement) {
-    this.open = false;
-    this.dispatchEvent(new Event('close'));
-  },
-});
+if (typeof HTMLDialogElement !== 'undefined') {
+  Object.assign(HTMLDialogElement.prototype, {
+    showModal(this: HTMLDialogElement) {
+      this.open = true;
+    },
+    close(this: HTMLDialogElement) {
+      this.open = false;
+      this.dispatchEvent(new Event('close'));
+    },
+  });
+}
 
 /**
  * Vitest runs with `globals: false`, so describe/it/expect are imported
