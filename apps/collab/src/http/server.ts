@@ -3,21 +3,35 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 
-import type { Authorizer } from '../auth/authorize.ts';
-import type { TokenValidator } from '../auth/token.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { LIMITS, rejection } from '../documents/limits.ts';
 import { RateWindow } from '../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, describeSchema, openDocument } from '../documents/service.ts';
 import { updatesAfter } from '../db/documents.ts';
+import type { CollabMetrics } from '../metrics.ts';
+import { createHandshakeHub } from '../ws/handshake-hub.ts';
+import { CLOSE_CODES } from '../ws/protocol.ts';
+import { attachWebSocketServer, type SessionHub } from '../ws/server.ts';
+import type { SessionAuthenticator } from '../ws/session-auth.ts';
 
 export interface ServerDependencies {
   readonly pool: Pool;
-  readonly tokens: TokenValidator;
-  readonly authorizer: Authorizer;
+
+  /**
+   * The one authenticate-and-authorize path, shared by the HTTP endpoints and the socket
+   * handshake so there is a single cache and a single behaviour to reason about.
+   */
+  readonly sessions: SessionAuthenticator;
   readonly snapshotEvery: number;
+
+  /** How often a live socket's authorization is re-checked. */
+  readonly reauthMs?: number;
   readonly rateWindow?: RateWindow;
   readonly newDocId?: () => string;
+  readonly metrics?: CollabMetrics;
+
+  /** The document layer behind the sockets. Defaults to the handshake-only hub. */
+  readonly hub?: SessionHub;
 }
 
 /**
@@ -49,17 +63,44 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   const rateWindow = deps.rateWindow ?? new RateWindow();
   const newDocId = deps.newDocId ?? randomUUID;
 
-  // The window map would otherwise grow by one entry per principal per document for the
-  // process's lifetime. unref so a sweep timer never keeps the process alive.
+  // The window and cache maps would otherwise grow by one entry per principal per document
+  // for the process's lifetime. unref so a sweep timer never keeps the process alive.
   const sweeper = setInterval(() => {
     rateWindow.sweep();
+    deps.sessions.sweep();
+    deps.metrics?.authCacheSize.set(deps.sessions.size);
   }, LIMITS.windowMs);
   sweeper.unref();
-  app.addHook('onClose', () => {
+
+  const wss = attachWebSocketServer(app.server, {
+    sessions: deps.sessions,
+    hub: deps.hub ?? createHandshakeHub({ pool: deps.pool, newDocId }),
+    reauthMs: deps.reauthMs ?? 60_000,
+    metrics: deps.metrics,
+  });
+
+  app.addHook('onClose', async () => {
     clearInterval(sweeper);
+    // Every client is told the truth - the server is going away - rather than watching a
+    // socket die. 1012 is "service restarting", which tells a client to reconnect.
+    for (const client of wss.clients) {
+      client.close(CLOSE_CODES.draining, 'The server is shutting down.');
+    }
+    await new Promise<void>((resolve) => {
+      wss.close(() => {
+        resolve();
+      });
+    });
   });
 
   app.get('/healthz', () => ({ status: 'healthy', schema: describeSchema() }));
+
+  if (deps.metrics !== undefined) {
+    const metrics = deps.metrics;
+    app.get('/metrics', async (_request: FastifyRequest, reply: FastifyReply) => {
+      return reply.type(metrics.registry.contentType).send(await metrics.registry.metrics());
+    });
+  }
 
   app.get('/documents/:itemId/updates', async (request: FastifyRequest, reply: FastifyReply) => {
     const context = await establish(request, reply, deps);
@@ -116,6 +157,13 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     const context = await establish(request, reply, deps);
     if (context === null) {
       return reply;
+    }
+
+    if (!context.canWrite) {
+      // The permission gap the internal surface closed: reading an item never implied
+      // writing its body, and now the answer that says so is enforced where the write lands.
+      const refusal = rejection('read_only', 'You may read this document but not change it.');
+      return problem(reply, refusal.status, refusal.code, refusal.detail);
     }
 
     const body = request.body as { update?: unknown; clientId?: unknown } | undefined;
@@ -183,6 +231,8 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
 interface RequestContext {
   readonly itemId: string;
   readonly workspaceId: string;
+  readonly canWrite: boolean;
+  readonly bodyKind: string;
   readonly scope: { tenantId: string; principalId: string };
 }
 
@@ -204,12 +254,6 @@ async function establish(
     return null;
   }
 
-  const validated = await deps.tokens.validate(token);
-  if (validated === null) {
-    problem(reply, 401, 'unauthenticated', 'The token could not be validated.');
-    return null;
-  }
-
   const { itemId } = request.params as { itemId: string };
   if (!isUuid(itemId)) {
     // Not-found rather than a validation error, to match Core: a malformed identifier and
@@ -218,15 +262,22 @@ async function establish(
     return null;
   }
 
-  const authorization = await deps.authorizer.authorize(token, itemId);
-  if (authorization === null) {
-    problem(reply, 404, 'document_not_found', 'No such item.');
+  const result = await deps.sessions.authenticate(token, itemId);
+  if (!result.ok) {
+    if (result.reason === 'unauthenticated') {
+      problem(reply, 401, 'unauthenticated', 'The token could not be validated.');
+    } else {
+      problem(reply, 404, 'document_not_found', 'No such item.');
+    }
     return null;
   }
 
+  const authorization = result.value;
   return {
     itemId,
     workspaceId: authorization.workspaceId,
+    canWrite: authorization.canWrite,
+    bodyKind: authorization.bodyKind,
     scope: { tenantId: authorization.tenantId, principalId: authorization.principalId },
   };
 }

@@ -5,6 +5,7 @@ import { FORBIDDEN_DATABASE_ROLES, assertRuntimeRole, readConfig } from './confi
 const base = {
   NIX_COLLAB_DATABASE_URL: 'postgresql://nix_collab:secret@localhost:5433/nix',
   NIX_COLLAB_CORE_BASE_URL: 'http://localhost:5014/',
+  NIX_COLLAB_INTERNAL_SECRET: 'a-dev-secret',
   NIX_COLLAB_OIDC_ISSUER: 'http://localhost:8300/',
   NIX_COLLAB_OIDC_AUDIENCE: 'nix-api',
 };
@@ -15,6 +16,7 @@ describe('configuration', () => {
 
     expect(config.port).toBe(8100);
     expect(config.snapshotEvery).toBe(50);
+    expect(config.reauthSeconds).toBe(60);
   });
 
   it('accepts more than one audience, because one deployment mints more than one', () => {
@@ -29,10 +31,30 @@ describe('configuration', () => {
     const config = readConfig(base);
 
     expect(config.coreBaseUrl).toBe('http://localhost:5014');
-    expect(config.oidcIssuer).toBe('http://localhost:8300');
+    expect(config.oidcIssuers).toEqual([{ issuer: 'http://localhost:8300' }]);
   });
 
-  it.each(['NIX_COLLAB_CORE_BASE_URL', 'NIX_COLLAB_OIDC_ISSUER', 'NIX_COLLAB_OIDC_AUDIENCE'])(
+  it('accepts a list of issuers, each with an optional JWKS override', () => {
+    // Core is multi-issuer by design - one deployment serves tenants on different identity
+    // providers - and a session must be accepted from any issuer a tenant registered.
+    const config = readConfig({
+      ...base,
+      NIX_COLLAB_OIDC_ISSUERS:
+        'http://localhost:8300/, https://id.example.test|https://id.example.test/certs',
+    });
+
+    expect(config.oidcIssuers).toEqual([
+      { issuer: 'http://localhost:8300' },
+      { issuer: 'https://id.example.test', jwksUri: 'https://id.example.test/certs' },
+    ]);
+  });
+
+  it.each([
+    'NIX_COLLAB_CORE_BASE_URL',
+    'NIX_COLLAB_OIDC_ISSUER',
+    'NIX_COLLAB_OIDC_AUDIENCE',
+    'NIX_COLLAB_INTERNAL_SECRET',
+  ])(
     'refuses to start without %s',
     (key) => {
       const env = { ...base, [key]: '' };

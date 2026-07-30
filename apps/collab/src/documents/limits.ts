@@ -42,7 +42,8 @@ export type RejectionCode =
   | 'document_does_not_parse'
   | 'document_too_many_nodes'
   | 'document_too_large'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'read_only';
 
 export interface Rejection {
   readonly code: RejectionCode;
@@ -64,6 +65,10 @@ function statusFor(code: RejectionCode): number {
       return 429;
     case 'schema_version_mismatch':
       return 409;
+    case 'read_only':
+      // Forbidden rather than not-found: a reader already knows the item exists, so the
+      // honest answer is "you may see this and not change it", which they can act on.
+      return 403;
     case 'update_unreadable':
     case 'document_does_not_parse':
       return 422;

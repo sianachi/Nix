@@ -4,6 +4,8 @@ import { createAuthorizer } from './auth/authorize.ts';
 import { createTokenValidator } from './auth/token.ts';
 import { readConfig } from './config.ts';
 import { createServer } from './http/server.ts';
+import { createMetrics } from './metrics.ts';
+import { createSessionAuthenticator } from './ws/session-auth.ts';
 
 /**
  * The collaboration service's entry point.
@@ -22,11 +24,22 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
 });
 
+const metrics = createMetrics();
+
+const sessions = createSessionAuthenticator({
+  tokens: createTokenValidator({ issuers: config.oidcIssuers, audiences: config.oidcAudiences }),
+  authorizer: createAuthorizer({
+    coreBaseUrl: config.coreBaseUrl,
+    internalSecret: config.internalSecret,
+  }),
+});
+
 const app = createServer({
   pool,
-  tokens: createTokenValidator({ issuer: config.oidcIssuer, audiences: config.oidcAudiences }),
-  authorizer: createAuthorizer({ coreBaseUrl: config.coreBaseUrl }),
+  sessions,
   snapshotEvery: config.snapshotEvery,
+  reauthMs: config.reauthSeconds * 1000,
+  metrics,
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

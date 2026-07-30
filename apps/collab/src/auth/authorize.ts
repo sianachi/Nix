@@ -1,14 +1,25 @@
 /**
  * What Core says about an item the caller asked for.
  *
- * `tenantId` and `principalId` come from `/api/v1/me`, and `workspaceId` from the item.
- * All three are Core's answers rather than this service's guesses, which is the point:
- * there is one authorization code path in the system and it is not this file.
+ * Every field is Core's answer rather than this service's guess, which is the point: there
+ * is one authorization code path in the system and it is not this file.
  */
 export interface ItemAuthorization {
   readonly tenantId: string;
   readonly principalId: string;
   readonly workspaceId: string;
+
+  /**
+   * Whether the principal may append updates to the item's body. Reading was already
+   * answered by the 200 itself - an item the caller may not read is 404, never described.
+   */
+  readonly canWrite: boolean;
+
+  /**
+   * The item's `type` - how its own body is drawn, which validation dispatches on. An open
+   * string by design (ADR-0009); an unknown kind is treated as the default prose body.
+   */
+  readonly bodyKind: string;
 }
 
 export interface Authorizer {
@@ -23,66 +34,76 @@ export interface Authorizer {
 }
 
 /**
- * Authorization by forwarding the caller's own token to Core.
+ * Authorization by forwarding the caller's own token to Core's internal surface.
  *
- * **No service credential, no `/internal` endpoint, no permission logic here.** This service
- * asks Core the same question the browser would, with the same token, and takes the answer:
- * `200` allows, anything else refuses. The consequences are all good ones - a permission
- * change takes effect here the moment it takes effect there; there is no second
- * implementation of the rules to drift; and a compromise of this process yields no
- * authority its callers did not already have, because it holds no credential of its own.
+ * **No permission logic here.** This service presents two proofs: the shared secret says
+ * "the collaboration service is asking", and the forwarded user token says on whose behalf.
+ * Core answers for that principal against the database, so a permission change takes effect
+ * here the moment it takes effect there, and there is no second implementation of the rules
+ * to drift. Compromising this process yields the internal surface but no principal - every
+ * answer is still bounded by a real user's real token.
  *
- * The cost is one round trip per request that opens or writes a document. That is
- * acceptable at MVP-1's traffic and is the thing to revisit - with a cache keyed on the
- * token and bounded by the token's own lifetime - when the WebSocket arrives and a session
- * stops being one request.
+ * One round trip per session establishment and per periodic re-check, not per update: the
+ * caching that makes that safe lives in the session layer, bounded by the token's own
+ * lifetime, never here.
  */
 export function createAuthorizer(options: {
   coreBaseUrl: string;
+  internalSecret: string;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
 }): Authorizer {
   const doFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
 
-  async function get(token: string, path: string): Promise<Response | null> {
-    // Bounded, because a Core that has stopped answering must not turn into this service
-    // holding connections open until it runs out of them.
-    const abort = AbortSignal.timeout(timeoutMs);
-
-    try {
-      return await doFetch(`${options.coreBaseUrl}${path}`, {
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-        signal: abort,
-      });
-    } catch {
-      return null;
-    }
-  }
-
   return {
     async authorize(token: string, itemId: string): Promise<ItemAuthorization | null> {
-      const [itemResponse, meResponse] = await Promise.all([
-        get(token, `/api/v1/items/${itemId}`),
-        get(token, '/api/v1/me'),
-      ]);
-
-      if (itemResponse === null || !itemResponse.ok || !meResponse?.ok) {
+      let response: Response;
+      try {
+        response = await doFetch(`${options.coreBaseUrl}/internal/authz/items/${itemId}`, {
+          headers: {
+            authorization: `Bearer ${token}`,
+            'x-nix-internal-secret': options.internalSecret,
+            accept: 'application/json',
+          },
+          // Bounded, because a Core that has stopped answering must not turn into this
+          // service holding connections open until it runs out of them.
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch {
         return null;
       }
 
-      const item = (await itemResponse.json()) as { workspaceId?: unknown };
-      const me = (await meResponse.json()) as { id?: unknown; tenantId?: unknown };
+      if (!response.ok) {
+        return null;
+      }
+
+      const answer = (await response.json().catch(() => null)) as {
+        tenantId?: unknown;
+        principalId?: unknown;
+        workspaceId?: unknown;
+        canWrite?: unknown;
+        bodyKind?: unknown;
+      } | null;
 
       if (
-        typeof item.workspaceId !== 'string' ||
-        typeof me.id !== 'string' ||
-        typeof me.tenantId !== 'string'
+        answer === null ||
+        typeof answer.tenantId !== 'string' ||
+        typeof answer.principalId !== 'string' ||
+        typeof answer.workspaceId !== 'string' ||
+        typeof answer.canWrite !== 'boolean' ||
+        typeof answer.bodyKind !== 'string'
       ) {
         return null;
       }
 
-      return { tenantId: me.tenantId, principalId: me.id, workspaceId: item.workspaceId };
+      return {
+        tenantId: answer.tenantId,
+        principalId: answer.principalId,
+        workspaceId: answer.workspaceId,
+        canWrite: answer.canWrite,
+        bodyKind: answer.bodyKind,
+      };
     },
   };
 }
