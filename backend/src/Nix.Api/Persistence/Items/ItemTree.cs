@@ -243,6 +243,21 @@ public sealed class ItemTree : IItemTree
     }
 
     /// <inheritdoc />
+    public async ValueTask TouchAsync(
+        ItemId id,
+        PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken) =>
+        await _dbContext.Items
+            .Where(item => item.Id == id)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(item => item.LastModifiedBy, actor)
+                    .SetProperty(item => item.LastModifiedAt, at),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
     public async ValueTask UpdateSchemaAsync(
         ItemId id,
         string? schema,

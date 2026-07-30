@@ -3,17 +3,27 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Authorizer } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
+import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
 /**
  * The HTTP surface's refusals, with no database behind it.
  *
  * Every test here is about a request that must never reach Postgres: no token, a token that
- * does not validate, or an item Core refused. The pool is a proxy that throws if anything
- * touches it, so "did not reach the database" is asserted rather than assumed.
+ * does not validate, an item Core refused, or a writer who is only a reader. The pool is a
+ * proxy that throws if anything touches it, so "did not reach the database" is asserted
+ * rather than assumed.
  */
 
 const ITEM = 'c1000000-0000-4000-8000-000000000031';
+
+const GRANTED = {
+  tenantId: 'c1000000-0000-4000-8000-000000000001',
+  principalId: 'c1000000-0000-4000-8000-000000000021',
+  workspaceId: 'c1000000-0000-4000-8000-000000000011',
+  canWrite: true,
+  bodyKind: 'note',
+} as const;
 
 /** A pool that fails loudly. Reaching it at all is the bug these tests look for. */
 const refusingPool = new Proxy({} as Pool, {
@@ -25,8 +35,13 @@ const refusingPool = new Proxy({} as Pool, {
 function server(overrides: { tokens?: TokenValidator; authorizer?: Authorizer; pool?: Pool }) {
   return createServer({
     pool: overrides.pool ?? refusingPool,
-    tokens: overrides.tokens ?? { validate: () => Promise.resolve({ subject: 'subject' }) },
-    authorizer: overrides.authorizer ?? { authorize: () => Promise.resolve(null) },
+    sessions: createSessionAuthenticator({
+      tokens:
+        overrides.tokens ?? {
+          validate: () => Promise.resolve({ subject: 'subject', expiresAt: null }),
+        },
+      authorizer: overrides.authorizer ?? { authorize: () => Promise.resolve(null) },
+    }),
     snapshotEvery: 0,
   });
 }
@@ -126,19 +141,57 @@ describe('the collaboration service HTTP surface', () => {
     expect(asked).toBe(0);
   });
 
-  it('refuses a body that is not an update at all', async () => {
+  it('refuses a write from a principal Core says may only read', async () => {
     const app = track(
       server({
-        authorizer: {
-          authorize: () =>
-            Promise.resolve({
-              tenantId: 'c1000000-0000-4000-8000-000000000001',
-              principalId: 'c1000000-0000-4000-8000-000000000021',
-              workspaceId: 'c1000000-0000-4000-8000-000000000011',
-            }),
-        },
+        authorizer: { authorize: () => Promise.resolve({ ...GRANTED, canWrite: false }) },
       }),
     );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/documents/${ITEM}/updates`,
+      headers: { authorization: 'Bearer valid' },
+      payload: { update: 'AAAA', clientId: 'client' },
+    });
+
+    // Forbidden rather than not-found: a reader already knows the item exists, and "you may
+    // see this and not change it" is the answer they can act on. The pool proxy guarantees
+    // the refused write never reached the log.
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ code: 'read_only' });
+  });
+
+  it('still lets a reader catch up on a document they may not write', async () => {
+    // Reads reach the database, so this needs a pool - but the refusal under test happens
+    // before that. A reader hitting 'read_only' on GET would be the bug.
+    let touchedPool = false;
+    const observingPool = new Proxy({} as Pool, {
+      get() {
+        touchedPool = true;
+        throw new Error('stop here; the authorization already passed');
+      },
+    });
+
+    const app = track(
+      server({
+        pool: observingPool,
+        authorizer: { authorize: () => Promise.resolve({ ...GRANTED, canWrite: false }) },
+      }),
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/updates`,
+      headers: { authorization: 'Bearer valid' },
+    });
+
+    expect(touchedPool).toBe(true);
+    expect(response.statusCode).not.toBe(403);
+  });
+
+  it('refuses a body that is not an update at all', async () => {
+    const app = track(server({ authorizer: { authorize: () => Promise.resolve(GRANTED) } }));
 
     const response = await app.inject({
       method: 'POST',
@@ -152,18 +205,7 @@ describe('the collaboration service HTTP surface', () => {
   });
 
   it('refuses an update that is not valid base64 before decoding it', async () => {
-    const app = track(
-      server({
-        authorizer: {
-          authorize: () =>
-            Promise.resolve({
-              tenantId: 'c1000000-0000-4000-8000-000000000001',
-              principalId: 'c1000000-0000-4000-8000-000000000021',
-              workspaceId: 'c1000000-0000-4000-8000-000000000011',
-            }),
-        },
-      }),
-    );
+    const app = track(server({ authorizer: { authorize: () => Promise.resolve(GRANTED) } }));
 
     // Buffer.from silently drops what it cannot parse, so a payload with a typo would
     // otherwise decode to a shorter buffer and be applied as though it were what was sent.
@@ -178,18 +220,7 @@ describe('the collaboration service HTTP surface', () => {
   });
 
   it('refuses a cursor that is not a sequence', async () => {
-    const app = track(
-      server({
-        authorizer: {
-          authorize: () =>
-            Promise.resolve({
-              tenantId: 'c1000000-0000-4000-8000-000000000001',
-              principalId: 'c1000000-0000-4000-8000-000000000021',
-              workspaceId: 'c1000000-0000-4000-8000-000000000011',
-            }),
-        },
-      }),
-    );
+    const app = track(server({ authorizer: { authorize: () => Promise.resolve(GRANTED) } }));
 
     const response = await app.inject({
       method: 'GET',
@@ -199,5 +230,25 @@ describe('the collaboration service HTTP surface', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'invalid_cursor' });
+  });
+
+  it('serves metrics when given a registry', async () => {
+    const { createMetrics } = await import('../metrics.ts');
+    const app = track(
+      createServer({
+        pool: refusingPool,
+        sessions: createSessionAuthenticator({
+          tokens: { validate: () => Promise.resolve(null) },
+          authorizer: { authorize: () => Promise.resolve(null) },
+        }),
+        snapshotEvery: 0,
+        metrics: createMetrics(),
+      }),
+    );
+
+    const response = await app.inject({ method: 'GET', url: '/metrics' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('nix_collab_open_sockets');
   });
 });

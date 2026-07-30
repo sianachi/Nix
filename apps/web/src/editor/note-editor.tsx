@@ -6,12 +6,16 @@ import { Dropcursor, Gapcursor } from '@tiptap/extensions';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Plugin } from '@tiptap/pm/state';
-import { redo, undo, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
+import { Awareness } from 'y-protocols/awareness';
+import { redo, undo, yCursorPlugin, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
+import { useSessionStore } from '../auth/session-store';
 import { EditorToolbar } from './toolbar';
-import { startCollabSync, type SyncState } from './collab-sync';
+import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
+import { PresenceList } from './presence-list';
+import { SyncFooter } from './sync-footer';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 import { filterSlashCommands, type SlashCommand } from './slash-menu';
 
@@ -34,8 +38,6 @@ import { filterSlashCommands, type SlashCommand } from './slash-menu';
 export interface NoteEditorProps {
   readonly itemId: string;
 }
-
-const FRAGMENT_NAME = 'default';
 
 /**
  * The schema's extensions, each carrying the class its nodes render with.
@@ -101,14 +103,37 @@ const styledExtensions = nixExtensions.map((extension) => {
     : extension.configure({ HTMLAttributes: { class: className } });
 });
 
+/**
+ * Cursor colors, from the accent ramp and nothing else - but resolved to their values at
+ * runtime, because y-prosemirror's cursor renderer accepts only literal six-digit colors
+ * and cannot dereference a CSS variable.
+ */
+const CURSOR_COLOR_TOKENS = [
+  '--color-accent-600',
+  '--color-accent-2',
+  '--color-accent-400',
+  '--color-accent-700',
+] as const;
+
+function cursorColorFor(clientId: number): string {
+  const token = CURSOR_COLOR_TOKENS[clientId % CURSOR_COLOR_TOKENS.length] ?? '--color-accent';
+  const resolved = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return resolved.length > 0 ? resolved : '#5980a6'; // design-token-exempt: the accent token's own value, used only where no stylesheet is loaded at all (tests); the resolved token wins everywhere real.
+}
+
 export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
+  const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
 
   // One document per item, created once. Rebuilding it on a render would discard everything typed
   // since the last one.
   const doc = useMemo(() => new Y.Doc(), []);
   const fragment = useMemo(() => doc.getXmlFragment(FRAGMENT_NAME), [doc]);
+
+  // Presence lives with the document, not the connection: the cursor plugin needs it at
+  // plugin-registration time, before any socket exists, and it survives reconnects.
+  const awareness = useMemo(() => new Awareness(doc), [doc]);
 
   const editor = useEditor(
     {
@@ -133,18 +158,21 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
 
       onCreate: ({ editor: created }) => {
         // y-prosemirror ships untyped plugin factories, so the casts are the boundary between its
-        // JavaScript and this file's types rather than a shortcut around them.
+        // JavaScript and this file's types rather than a shortcut around them. The cursor plugin
+        // registers with the sync plugin, and after it, because it reads that plugin's state.
         created.registerPlugin(ySyncPlugin(fragment) as Plugin);
+        created.registerPlugin(yCursorPlugin(awareness) as Plugin);
         created.registerPlugin(yUndoPlugin() as Plugin);
       },
     },
-    [fragment],
+    [fragment, awareness],
   );
 
   useEffect(() => {
     const sync = startCollabSync({
       itemId,
       doc,
+      awareness,
       fragmentName: FRAGMENT_NAME,
       getAccessToken,
       onState: setSyncState,
@@ -153,65 +181,49 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
     return () => {
       sync.destroy();
     };
-  }, [doc, getAccessToken, itemId]);
+  }, [awareness, doc, getAccessToken, itemId]);
+
+  // Who this cursor belongs to, told to everyone else. The color is picked by client
+  // identifier so two tabs of the same person still read as two cursors.
+  useEffect(() => {
+    awareness.setLocalStateField('user', {
+      name: profile?.name ?? 'Someone',
+      color: cursorColorFor(doc.clientID),
+    });
+  }, [awareness, doc, profile]);
 
   useEffect(() => {
     return () => {
+      awareness.destroy();
       doc.destroy();
     };
-  }, [doc]);
+  }, [awareness, doc]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <EditorToolbar
-        editor={editor}
-        // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
-        // rather than imported by the toolbar, which has no business knowing the document is a
-        // CRDT.
-        onUndo={() => {
-          undo(editor.state);
-        }}
-        onRedo={() => {
-          redo(editor.state);
-        }}
-      />
+      <div className="flex items-center justify-between pr-8">
+        <EditorToolbar
+          editor={editor}
+          // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
+          // rather than imported by the toolbar, which has no business knowing the document is a
+          // CRDT.
+          onUndo={() => {
+            undo(editor.state);
+          }}
+          onRedo={() => {
+            redo(editor.state);
+          }}
+        />
+        <PresenceList awareness={awareness} />
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
         <SlashMenu editor={editor} />
         <EditorContent editor={editor} className="h-full" />
       </div>
 
-      <SaveState state={syncState} />
+      <SyncFooter state={syncState} />
     </div>
-  );
-}
-
-/**
- * The save state, said in the terms a writer actually needs.
- *
- * Four states, none of them a spinner standing in for the others. "Saved" means the server has the
- * edit; "saving" means it does not yet; "offline" means it will not until the connection comes
- * back - and it says that your work is safe locally, because with a CRDT it genuinely is.
- */
-function SaveState({ state }: { readonly state: SyncState }): ReactNode {
-  const message =
-    state === 'synced'
-      ? 'Saved. Edits reach other people within a few seconds.'
-      : state === 'pending'
-        ? 'Saving…'
-        : state === 'connecting'
-          ? 'Connecting…'
-          : 'Offline. Your edits are kept here and will be sent when the connection returns.';
-
-  return (
-    <footer
-      // Polite rather than assertive: the state changes on a timer, and an assertive region would
-      // interrupt a screen-reader user mid-sentence every time it did.
-      aria-live="polite"
-      className="border-t border-divider px-8 py-2 text-xs text-muted"
-    >
-      {message}
-    </footer>
   );
 }
 

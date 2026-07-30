@@ -169,6 +169,66 @@ export async function appendUpdate(
 }
 
 /**
+ * Appends a batch of updates in order and advances the document's head once.
+ *
+ * The batched shape of {@link appendUpdate}, for the flush path: a resident document
+ * coalesces the updates of one flush window into one transaction, so the `head_seq` row
+ * lock is taken once per window rather than once per keystroke burst - which is the
+ * difference between the lock serialising flushes and the lock serialising typing.
+ *
+ * **One actor per batch, by construction.** `actor_id` is a per-row fact and the tenant
+ * scope this runs under names one principal, so the caller splits mixed-principal queues
+ * into runs before coming here rather than this function guessing.
+ */
+export async function appendUpdates(
+  sql: ScopedQuery,
+  input: {
+    tenantId: string;
+    docId: string;
+    updates: readonly { bytes: Uint8Array; clientId: string }[];
+    actorId: string;
+  },
+): Promise<{ firstSeq: bigint; lastSeq: bigint }> {
+  if (input.updates.length === 0) {
+    throw new Error('An empty batch has no sequences to allocate; do not flush nothing.');
+  }
+
+  const { rows } = await sql.query<{ head_seq: string }>(
+    `UPDATE content_doc
+     SET head_seq = head_seq + $3
+     WHERE tenant_id = $1 AND doc_id = $2
+     RETURNING head_seq`,
+    [input.tenantId, input.docId, input.updates.length],
+  );
+
+  const head = rows[0];
+  if (head === undefined) {
+    throw new Error(`No content_doc ${input.docId} is visible to this tenant.`);
+  }
+
+  const lastSeq = BigInt(head.head_seq);
+  const firstSeq = lastSeq - BigInt(input.updates.length - 1);
+
+  const values: string[] = [];
+  const parameters: unknown[] = [input.docId, input.tenantId, input.actorId];
+  for (const [index, update] of input.updates.entries()) {
+    const seqParam = parameters.push((firstSeq + BigInt(index)).toString());
+    const bytesParam = parameters.push(Buffer.from(update.bytes));
+    const clientParam = parameters.push(update.clientId);
+    values.push(`($1, $${String(seqParam)}, $2, $${String(bytesParam)}, $3, $${String(clientParam)}, now())`);
+  }
+
+  await sql.query(
+    `INSERT INTO content_update
+         (doc_id, seq, tenant_id, update_bytes, actor_id, client_id, created_at)
+     VALUES ${values.join(', ')}`,
+    parameters,
+  );
+
+  return { firstSeq, lastSeq };
+}
+
+/**
  * Writes a snapshot.
  *
  * A materialisation of the log up to a sequence, never a source of truth: deleting every

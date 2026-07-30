@@ -32,6 +32,9 @@ export default defineConfig({
       '/collab': {
         target: 'http://localhost:8100',
         changeOrigin: true,
+        // The editor reaches the service over a WebSocket; without this the proxy
+        // answers the upgrade itself and the socket never opens.
+        ws: true,
         rewrite: (path: string) => path.replace(/^\/collab/, ''),
       },
     },
