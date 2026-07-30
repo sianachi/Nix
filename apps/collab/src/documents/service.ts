@@ -237,6 +237,26 @@ export function checkMergedDocument(state: Y.Doc): Rejection | null {
 }
 
 /**
+ * Measures a state as a document: how many nodes, how many serialised bytes - or null
+ * when it does not parse at all.
+ *
+ * Exported for the socket path's growth rule: a document over a ceiling refuses inserts
+ * and allows deletes, and telling the two apart means measuring the state before the
+ * candidate update as well as after it.
+ */
+export function measureDocument(state: Y.Doc): { nodes: number; bytes: number } | null {
+  const document = readDocument(state);
+  if (document === null) {
+    return null;
+  }
+
+  return {
+    nodes: countNodes(document),
+    bytes: Buffer.byteLength(JSON.stringify(document.toJSON())),
+  };
+}
+
+/**
  * Reads the shared fragment as a document, or null when it is not one.
  *
  * Two failures are folded together on purpose: a fragment holding a node this build has never

@@ -25,13 +25,13 @@ export interface ServerDependencies {
   readonly snapshotEvery: number;
 
   /** How often a live socket's authorization is re-checked. */
-  readonly reauthMs?: number;
-  readonly rateWindow?: RateWindow;
-  readonly newDocId?: () => string;
-  readonly metrics?: CollabMetrics;
+  readonly reauthMs?: number | undefined;
+  readonly rateWindow?: RateWindow | undefined;
+  readonly newDocId?: (() => string) | undefined;
+  readonly metrics?: CollabMetrics | undefined;
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
-  readonly hub?: SessionHub;
+  readonly hub?: SessionHub | undefined;
 }
 
 /**

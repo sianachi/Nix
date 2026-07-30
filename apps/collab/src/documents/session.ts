@@ -10,9 +10,10 @@ import * as Y from 'yjs';
 import { appendUpdates, type ContentDocRow } from '../db/documents.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
-import { MESSAGE_AWARENESS, MESSAGE_SYNC, encodeNotice, readBinaryFrame } from '../ws/protocol.ts';
+import { MESSAGE_AWARENESS, MESSAGE_SYNC, CLOSE_CODES, encodeNotice, readBinaryFrame } from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
-import { loadDocument, writeSnapshotNow } from './service.ts';
+import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
+import { loadDocument, measureDocument, writeSnapshotNow } from './service.ts';
 
 /** The thresholds a resident document lives by. All of them configuration, none of them lore. */
 export interface SessionConfig {
@@ -33,6 +34,15 @@ export interface SessionContext {
   readonly pool: Pool;
   readonly config: SessionConfig;
   readonly metrics?: CollabMetrics | undefined;
+
+  /**
+   * Per-principal, per-document backpressure - the same window the HTTP path enforces,
+   * ideally the same instance, so moving transports does not double anyone's budget.
+   */
+  readonly rateWindow?: RateWindow | undefined;
+
+  /** Where refusals worth an operator's attention go. Defaults to silence, not stdout. */
+  readonly log?: ((message: string) => void) | undefined;
 
   /**
    * Fired once per flush, so Core can bump the item's modification stamp. Best-effort by
@@ -94,6 +104,9 @@ export class DocumentSession {
   /** Awareness changes are coalesced onto a short tick rather than fanned out per message. */
   readonly #awarenessDirty = new Set<number>();
   #awarenessTimer: NodeJS.Timeout | null = null;
+
+  /** Which rate windows each socket has been refused in; three distinct ones is abuse. */
+  readonly #abusedWindows = new Map<SocketSession, Set<number>>();
 
   #encodedBase: number;
   #bytesSinceEncode = 0;
@@ -235,32 +248,142 @@ export class DocumentSession {
   }
 
   #handleSync(socket: SocketSession, decoder: decoding.Decoder): void {
-    const messageType = decoding.peekVarUint(decoder);
-    const carriesWrites = messageType !== syncProtocol.messageYjsSyncStep1;
-
-    if (carriesWrites && socket.mode !== 'write') {
-      // §17's contract, live: a reader's edits are refused, told so, and never applied -
-      // and the socket survives, because losing presence over a refused edit helps nobody.
-      socket.socket.send(
-        encodeNotice({ code: 'read_only', detail: 'You may read this document but not change it.' }),
-      );
-      return;
-    }
-
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    let messageType: number;
     try {
-      syncProtocol.readSyncMessage(decoder, encoder, this.#doc, socket);
+      messageType = decoding.readVarUint(decoder);
     } catch {
-      socket.socket.send(
-        encodeNotice({ code: 'update_unreadable', detail: 'The payload is not a Yjs update.' }),
+      this.#refuse(socket, rejection('update_unreadable', 'The frame is not a sync message.'));
+      return;
+    }
+
+    if (messageType === syncProtocol.messageYjsSyncStep1) {
+      // A read: the client announces its state vector and receives what it is missing.
+      // Readers and writers alike may ask.
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, MESSAGE_SYNC);
+      try {
+        syncProtocol.readSyncStep1(decoder, encoder, this.#doc);
+      } catch {
+        this.#refuse(socket, rejection('update_unreadable', 'The state vector does not decode.'));
+        return;
+      }
+      socket.socket.send(encoding.toUint8Array(encoder));
+      return;
+    }
+
+    if (
+      messageType !== syncProtocol.messageYjsSyncStep2 &&
+      messageType !== syncProtocol.messageYjsUpdate
+    ) {
+      return;
+    }
+
+    // Everything below carries writes, and every §17 row is checked before the resident
+    // document is touched - a refused update leaves no trace to roll back.
+    if (socket.mode !== 'write') {
+      this.#refuse(
+        socket,
+        rejection('read_only', 'You may read this document but not change it.'),
       );
       return;
     }
 
-    if (encoding.length(encoder) > 1) {
-      socket.socket.send(encoding.toUint8Array(encoder));
+    if (this.#overRateLimit(socket)) {
+      return;
     }
+
+    let update: Uint8Array;
+    try {
+      update = decoding.readVarUint8Array(decoder);
+    } catch {
+      this.#refuse(socket, rejection('update_unreadable', 'The payload is not a Yjs update.'));
+      return;
+    }
+
+    if (update.byteLength > LIMITS.updateBytes) {
+      this.#context.log?.(
+        `Refused an oversized update (${String(update.byteLength)} bytes) from principal ` +
+          `${socket.authorization.principalId} on item ${this.itemId}.`,
+      );
+      this.#refuse(
+        socket,
+        rejection(
+          'update_too_large',
+          `An update may be at most ${String(LIMITS.updateBytes)} bytes; this one is ` +
+            `${String(update.byteLength)}.`,
+        ),
+      );
+      return;
+    }
+
+    const verdict = judgeCandidate(this.#doc, update);
+    if (!verdict.ok) {
+      this.#context.log?.(
+        `Refused an update (${verdict.refusal.code}) from principal ` +
+          `${socket.authorization.principalId} on item ${this.itemId}.`,
+      );
+      this.#refuse(socket, verdict.refusal);
+      if (verdict.resync) {
+        // The client's local state now diverges from the document the server will keep
+        // serving. A fresh sync step 1 forces it to reconcile against reality instead of
+        // silently editing a document nobody else has.
+        this.beginSync(socket);
+      }
+      return;
+    }
+
+    Y.applyUpdate(this.#doc, update, socket);
+  }
+
+  #refuse(socket: SocketSession, refusal: Rejection): void {
+    socket.socket.send(encodeNotice(refusal));
+  }
+
+  /**
+   * The backpressure ladder: over the window, each write is refused with a notice; a
+   * principal who keeps pushing through three separate windows of refusals has a broken
+   * client, not a busy one, and the socket closes.
+   */
+  #overRateLimit(socket: SocketSession): boolean {
+    const rateWindow = this.#context.rateWindow;
+    if (rateWindow === undefined) {
+      return false;
+    }
+
+    if (!rateWindow.exceeded(socket.authorization.principalId, this.docRow.doc_id)) {
+      return false;
+    }
+
+    // Distinct windows, pruned rather than cleared: a busy-loop client still gets some
+    // messages through at each window's start, and forgiving the abuse for that would
+    // mean never closing on exactly the client this exists for.
+    const currentWindow = Math.floor(this.now() / LIMITS.windowMs);
+    const windows = this.#abusedWindows.get(socket) ?? new Set<number>();
+    this.#abusedWindows.set(socket, windows);
+    windows.add(currentWindow);
+    for (const window of windows) {
+      if (window <= currentWindow - 3) {
+        windows.delete(window);
+      }
+    }
+
+    if (windows.size >= 3) {
+      this.#context.log?.(
+        `Closing a socket for sustained rate abuse: principal ` +
+          `${socket.authorization.principalId} on item ${this.itemId}.`,
+      );
+      socket.socket.close(CLOSE_CODES.rateKilled, 'Sustained rate abuse.');
+      return true;
+    }
+
+    this.#refuse(
+      socket,
+      rejection(
+        'rate_limited',
+        `At most ${String(LIMITS.updatesPerWindow)} updates per document per minute.`,
+      ),
+    );
+    return true;
   }
 
   #onDocUpdate(update: Uint8Array, origin: unknown): void {
@@ -473,6 +596,7 @@ export class DocumentSession {
     const owned = this.#clientIdsBySocket.get(socket);
     this.#clientIdsBySocket.delete(socket);
     this.#writerIdBySocket.delete(socket);
+    this.#abusedWindows.delete(socket);
     if (owned !== undefined && owned.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.#awareness, [...owned], null);
     }
@@ -528,6 +652,83 @@ export class DocumentSession {
   private now(): number {
     return this.#context.now?.() ?? Date.now();
   }
+}
+
+/** What became of a candidate update: apply it, or refuse it - and maybe force a resync. */
+export type CandidateVerdict =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly refusal: Rejection; readonly resync: boolean };
+
+/**
+ * Judges a candidate update against a throwaway fork of the resident document, so a
+ * refusal leaves the resident state untouched - the same validate-by-applying stance the
+ * HTTP path takes, minus the per-request reload it had to pay for it.
+ *
+ * The ceiling rule is §17's: a document over its node or byte ceiling refuses growth and
+ * allows shrinkage, because the one edit that must always go through on an oversized
+ * document is the delete that fixes it. A Yjs update can insert and delete at once, so
+ * "growth" is measured on the outcome: over the ceiling *and* bigger than before.
+ */
+export function judgeCandidate(
+  resident: Y.Doc,
+  update: Uint8Array,
+  limits: { documentNodes: number; documentBytes: number } = LIMITS,
+): CandidateVerdict {
+  const fork = new Y.Doc();
+  try {
+    Y.applyUpdate(fork, Y.encodeStateAsUpdate(resident));
+    Y.applyUpdate(fork, update);
+  } catch (cause) {
+    fork.destroy();
+    return {
+      ok: false,
+      refusal: rejection(
+        'update_unreadable',
+        cause instanceof Error ? cause.message : 'The payload is not a Yjs update.',
+      ),
+      resync: false,
+    };
+  }
+
+  const after = measureDocument(fork);
+  fork.destroy();
+  if (after === null) {
+    return {
+      ok: false,
+      refusal: rejection(
+        'document_does_not_parse',
+        'Applying this update would produce a document the schema rejects.',
+      ),
+      resync: true,
+    };
+  }
+
+  if (after.nodes > limits.documentNodes || after.bytes > limits.documentBytes) {
+    const before = measureDocument(resident);
+    const grew =
+      before === null || after.nodes > before.nodes || after.bytes > before.bytes;
+
+    if (grew) {
+      return {
+        ok: false,
+        refusal:
+          after.nodes > limits.documentNodes
+            ? rejection(
+                'document_too_many_nodes',
+                `A document may hold at most ${String(limits.documentNodes)} nodes; this one ` +
+                  `would hold ${String(after.nodes)}.`,
+              )
+            : rejection(
+                'document_too_large',
+                `A document may be at most ${String(limits.documentBytes)} bytes; this one ` +
+                  `would be ${String(after.bytes)}.`,
+              ),
+        resync: true,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 interface PrincipalRun {

@@ -5,6 +5,7 @@ import { createTokenValidator } from './auth/token.ts';
 import { readConfig } from './config.ts';
 import { createTouchedNotifier } from './core/touched.ts';
 import { connectDocumentLocks } from './db/advisory-lock.ts';
+import { RateWindow } from './documents/limits.ts';
 import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
 import { createServer } from './http/server.ts';
 import { createMetrics } from './metrics.ts';
@@ -48,9 +49,21 @@ const locks = await connectDocumentLocks({
   },
 });
 
+// One rate window for both transports: a principal's budget must not double because they
+// opened a socket alongside a polling tab.
+const rateWindow = new RateWindow();
+
+// The registry logs through the server's logger, which exists only after createServer;
+// the holder breaks the construction cycle without making either depend on the other.
+const logHolder: { write: (message: string) => void } = { write: () => undefined };
+
 registry = createDocumentRegistry({
   pool,
   locks,
+  rateWindow,
+  log: (message) => {
+    logHolder.write(message);
+  },
   config: {
     flushMs: config.flushMs,
     flushBytes: config.flushBytes,
@@ -75,7 +88,12 @@ const app = createServer({
   reauthMs: config.reauthSeconds * 1000,
   metrics,
   hub: registry,
+  rateWindow,
 });
+
+logHolder.write = (message) => {
+  app.log.warn(message);
+};
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
