@@ -1,5 +1,5 @@
 import { Button, Icon, Text } from '@nix/ui';
-import { ChevronDown, ChevronRight, FilePlus, FileText, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FilePlus, FileText, Shapes, Trash2 } from 'lucide-react';
 import {
   useState,
   type DragEvent,
@@ -104,6 +104,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         >
           <Icon icon={FilePlus} size="sm" />
           Note
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-1.5 py-1 text-xs"
+          aria-label={`New canvas in ${destinationName}`}
+          onClick={() => {
+            void create('Untitled canvas', 'canvas');
+          }}
+          disabled={tree.status !== 'ready' || tree.isCreating}
+        >
+          <Icon icon={Shapes} size="sm" />
+          Canvas
         </Button>
       </div>
 

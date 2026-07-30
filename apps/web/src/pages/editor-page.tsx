@@ -1,11 +1,18 @@
 import { Button, Icon, focusRing } from '@nix/ui';
 import { Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { paneClip, paneColumn, paneScroller } from '../app/layout';
 import { NoteEditor } from '../editor/note-editor';
+
+// Loaded at the moment somebody opens a canvas, not before: Excalidraw and its styles are
+// the single largest thing the editor can pull in, and a workspace of notes never needs it.
+const CanvasEditor = lazy(async () => {
+  const module = await import('../editor/canvas-editor');
+  return { default: module.CanvasEditor };
+});
 import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
 import { ContainerView } from '../views/container-view';
@@ -59,17 +66,29 @@ export function EditorPage(): ReactNode {
   // Keyed on the item throughout: switching notes has to build a new Yjs document and a new title
   // draft rather than reuse one, which is the failure that would otherwise carry one note's text
   // into another.
-  return <OpenItem key={item.id} tree={tree} itemId={item.id} title={item.title} onOpen={select} />;
+  return (
+    <OpenItem
+      key={item.id}
+      tree={tree}
+      itemId={item.id}
+      title={item.title}
+      bodyKind={item.type}
+      onOpen={select}
+    />
+  );
 }
 
 interface OpenItemProps {
   readonly tree: ShellContext['tree'];
   readonly itemId: string;
   readonly title: string;
+
+  /** The item's `type`: how its own body is drawn. Never gates what it may contain. */
+  readonly bodyKind: string;
   readonly onOpen: (itemId: string) => void;
 }
 
-function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
+function OpenItem({ tree, itemId, title, bodyKind, onOpen }: OpenItemProps): ReactNode {
   // Creation goes through the tree, which is the only thing that knows how to put a new item into
   // the store the sidebar reads and expand its parent so it is visible. The container borrows it
   // rather than growing a second one.
@@ -155,7 +174,21 @@ function OpenItem({ tree, itemId, title, onOpen }: OpenItemProps): ReactNode {
       <div className={`flex flex-1 ${paneClip}`}>
         <div className={paneColumn}>
           {showingDocument ? (
-            <NoteEditor itemId={itemId} />
+            bodyKind === 'canvas' ? (
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center justify-center text-sm text-muted">
+                    Loading the canvas…
+                  </div>
+                }
+              >
+                <CanvasEditor itemId={itemId} />
+              </Suspense>
+            ) : (
+              // Every kind this build has not heard of is prose - the same open-set rule
+              // the server applies, so the two never disagree about what a body is.
+              <NoteEditor itemId={itemId} />
+            )
           ) : (
             <section aria-label="Container" className={paneColumn}>
               {/* A refused write is reported once, by the view that made it. The renderer knows what
