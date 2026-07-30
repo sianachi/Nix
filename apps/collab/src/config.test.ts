@@ -15,8 +15,13 @@ describe('configuration', () => {
     const config = readConfig(base);
 
     expect(config.port).toBe(8100);
-    expect(config.snapshotEvery).toBe(50);
+    // 200 is the collaboration design's cadence; the earlier 50 predated the resident
+    // server, where every request paid the replay a tighter cadence was buying down.
+    expect(config.snapshotEvery).toBe(200);
     expect(config.reauthSeconds).toBe(60);
+    expect(config.flushMs).toBe(500);
+    expect(config.flushBytes).toBe(64 * 1024);
+    expect(config.idleEvictMs).toBe(300_000);
   });
 
   it('accepts more than one audience, because one deployment mints more than one', () => {

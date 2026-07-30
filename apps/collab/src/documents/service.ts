@@ -278,6 +278,25 @@ async function maybeSnapshot(
     return false;
   }
 
+  return await writeSnapshotNow(sql, input);
+}
+
+/**
+ * Materialises and writes a snapshot at a sequence, cadence already decided.
+ *
+ * Exported for the resident-document path, whose cadence is richer than "every N": it also
+ * snapshots on a activity timer and on eviction, and those decisions live with the session
+ * rather than being restated here.
+ */
+export async function writeSnapshotNow(
+  sql: ScopedQuery,
+  input: {
+    tenantId: string;
+    docId: string;
+    seq: bigint;
+    state: Y.Doc;
+  },
+): Promise<boolean> {
   const encoded = Y.encodeStateAsUpdate(input.state);
   if (encoded.byteLength > LIMITS.snapshotBytes) {
     // The update itself was accepted and is in the log, which is the source of truth. A

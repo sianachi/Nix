@@ -48,6 +48,24 @@ export interface CollabConfig {
   /** Updates between snapshots. A snapshot is a materialisation, never a source of truth. */
   readonly snapshotEvery: number;
 
+  /** How long pending updates may wait before a flush, in milliseconds. The crash-loss window. */
+  readonly flushMs: number;
+
+  /** How many pending bytes force a flush before the timer does. */
+  readonly flushBytes: number;
+
+  /** How long an active document may go without a snapshot, in milliseconds. */
+  readonly snapshotIntervalMs: number;
+
+  /** How long a document may sit without sockets before it drains, in milliseconds. */
+  readonly idleEvictMs: number;
+
+  /** How many documents may be resident at once. Past it, loads are refused honestly. */
+  readonly maxDocs: number;
+
+  /** How many estimated resident bytes the process may hold. */
+  readonly maxResidentBytes: number;
+
   /**
    * How often a live session's authorization is re-checked, in seconds.
    *
@@ -87,8 +105,17 @@ export function readConfig(env: NodeJS.ProcessEnv): CollabConfig {
       .split(',')
       .map((audience) => audience.trim())
       .filter((audience) => audience.length > 0),
-    snapshotEvery: Number(env.NIX_COLLAB_SNAPSHOT_EVERY ?? 50),
+    // 200, per the collaboration design's cadence. The earlier default of 50 predated the
+    // resident-document server, where replay-from-snapshot happened per request and a
+    // tighter cadence bought more; a resident document replays once per load.
+    snapshotEvery: Number(env.NIX_COLLAB_SNAPSHOT_EVERY ?? 200),
     reauthSeconds: Number(env.NIX_COLLAB_REAUTH_SECONDS ?? 60),
+    flushMs: Number(env.NIX_COLLAB_FLUSH_MS ?? 500),
+    flushBytes: Number(env.NIX_COLLAB_FLUSH_BYTES ?? 64 * 1024),
+    snapshotIntervalMs: Number(env.NIX_COLLAB_SNAPSHOT_INTERVAL_SECONDS ?? 300) * 1000,
+    idleEvictMs: Number(env.NIX_COLLAB_IDLE_EVICT_SECONDS ?? 300) * 1000,
+    maxDocs: Number(env.NIX_COLLAB_MAX_DOCS ?? 200),
+    maxResidentBytes: Number(env.NIX_COLLAB_MAX_RESIDENT_MB ?? 256) * 1024 * 1024,
   };
 }
 

@@ -3,6 +3,9 @@ import { Pool } from 'pg';
 import { createAuthorizer } from './auth/authorize.ts';
 import { createTokenValidator } from './auth/token.ts';
 import { readConfig } from './config.ts';
+import { createTouchedNotifier } from './core/touched.ts';
+import { connectDocumentLocks } from './db/advisory-lock.ts';
+import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
 import { createServer } from './http/server.ts';
 import { createMetrics } from './metrics.ts';
 import { createSessionAuthenticator } from './ws/session-auth.ts';
@@ -34,21 +37,55 @@ const sessions = createSessionAuthenticator({
   }),
 });
 
+// One dedicated connection carries every ownership claim. Losing it means every claim is
+// already released on the Postgres side, so the only honest reaction is to drop every
+// resident document and let clients re-route to whichever instance owns them next.
+let registry: DocumentHub | null = null;
+const locks = await connectDocumentLocks({
+  databaseUrl: config.databaseUrl,
+  onSessionLost: () => {
+    void registry?.dropAll();
+  },
+});
+
+registry = createDocumentRegistry({
+  pool,
+  locks,
+  config: {
+    flushMs: config.flushMs,
+    flushBytes: config.flushBytes,
+    snapshotEvery: config.snapshotEvery,
+    snapshotIntervalMs: config.snapshotIntervalMs,
+    idleEvictMs: config.idleEvictMs,
+    maxDocs: config.maxDocs,
+    maxResidentBytes: config.maxResidentBytes,
+    sweepMs: 60_000,
+  },
+  metrics,
+  onFlushed: createTouchedNotifier({
+    coreBaseUrl: config.coreBaseUrl,
+    internalSecret: config.internalSecret,
+  }),
+});
+
 const app = createServer({
   pool,
   sessions,
   snapshotEvery: config.snapshotEvery,
   reauthMs: config.reauthSeconds * 1000,
   metrics,
+  hub: registry,
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
-    // In-flight transactions finish; the pool closes after the server stops accepting.
+    // Close order is the drain order: stop accepting and tell every socket, drain the
+    // registry (final flushes and snapshots), then release the pool and the lock session.
     // Dropping a connection mid-append would roll it back, which is correct but loses an
     // edit somebody had already seen applied locally.
     void app
       .close()
+      .then(() => locks.close())
       .then(() => pool.end())
       .then(() => process.exit(0));
   });

@@ -18,6 +18,12 @@ export interface SocketSession {
   readonly socket: WebSocket;
   readonly itemId: string;
   readonly clientSchemaVersion: number;
+
+  /**
+   * The user's own bearer token, held for the session's service-to-service calls - the
+   * touched notification forwards it so Core acts as this principal, never as a service.
+   */
+  readonly token: string;
   authorization: SessionAuthorization;
   mode: 'write' | 'read';
 }
@@ -36,6 +42,15 @@ export interface SessionHub {
   join(session: SocketSession): Promise<JoinResult>;
   handleMessage(session: SocketSession, data: Uint8Array): void;
   leave(session: SocketSession): void;
+
+  /**
+   * Called after the ready frame is on the wire, so anything the hub sends - sync step 1,
+   * the awareness roster - arrives after the client knows the session stands.
+   */
+  ready?(session: SocketSession): void;
+
+  /** Drains whatever the hub holds. Called on server close, after the sockets are told. */
+  shutdown?(): Promise<void>;
 }
 
 export interface WebSocketOptions {
@@ -186,6 +201,7 @@ function handleConnection(
       socket,
       itemId,
       clientSchemaVersion: frame.schemaVersion,
+      token: frame.token,
       authorization,
       mode: authorization.canWrite ? 'write' : 'read',
     };
@@ -210,6 +226,8 @@ function handleConnection(
         schemaVersion: joined.schemaVersion,
       }),
     );
+
+    hub.ready?.(candidate);
   }
 
   async function recheck(): Promise<void> {

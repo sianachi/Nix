@@ -72,20 +72,27 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   }, LIMITS.windowMs);
   sweeper.unref();
 
+  const hub = deps.hub ?? createHandshakeHub({ pool: deps.pool, newDocId });
   const wss = attachWebSocketServer(app.server, {
     sessions: deps.sessions,
-    hub: deps.hub ?? createHandshakeHub({ pool: deps.pool, newDocId }),
+    hub,
     reauthMs: deps.reauthMs ?? 60_000,
     metrics: deps.metrics,
   });
 
-  app.addHook('onClose', async () => {
+  // preClose, not onClose: Fastify only runs onClose once the HTTP server has closed its
+  // connections, and an open WebSocket is one of those connections - draining there would
+  // deadlock the shutdown against the very sockets it is trying to drain.
+  app.addHook('preClose', async () => {
     clearInterval(sweeper);
     // Every client is told the truth - the server is going away - rather than watching a
-    // socket die. 1012 is "service restarting", which tells a client to reconnect.
+    // socket die. 1012 is "service restarting", which tells a client to reconnect. The
+    // hub drains after the sockets are told, which is the preStop story: final flushes
+    // and snapshots land inside the termination grace period, not never.
     for (const client of wss.clients) {
       client.close(CLOSE_CODES.draining, 'The server is shutting down.');
     }
+    await hub.shutdown?.();
     await new Promise<void>((resolve) => {
       wss.close(() => {
         resolve();
