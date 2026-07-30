@@ -68,6 +68,12 @@ export interface CollabSyncOptions {
   readonly onState: (state: SyncState) => void;
   readonly baseUrl?: string;
 
+  /**
+   * An awareness instance to carry, when the caller's editor plugins need it before the
+   * provider exists. Owned by the caller, so destroying the provider leaves it alive.
+   */
+  readonly awareness?: awarenessProtocol.Awareness;
+
   /** Builds the socket. Defaults to the browser's WebSocket against the same origin. */
   readonly createSocket?: (url: string) => ProviderSocket;
 
@@ -104,7 +110,8 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     options.createSocket ??
     ((url: string): ProviderSocket => new WebSocket(resolveUrl(url)) as unknown as ProviderSocket);
 
-  const awareness = new awarenessProtocol.Awareness(doc);
+  const ownsAwareness = options.awareness === undefined;
+  const awareness = options.awareness ?? new awarenessProtocol.Awareness(doc);
 
   let socket: ProviderSocket | null = null;
   let destroyed = false;
@@ -328,7 +335,9 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       destroyed = true;
       doc.off('update', onDocUpdate);
       awareness.off('update', onAwarenessUpdate);
-      awareness.destroy();
+      if (ownsAwareness) {
+        awareness.destroy();
+      }
       if (retryTimer !== null) {
         clearTimeout(retryTimer);
       }

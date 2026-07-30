@@ -287,6 +287,47 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     expect(harness.flushes.length).toBeLessThan(total / 2);
   }, 30_000);
 
+  it('broadcasts presence between clients and never writes a byte of it to the log', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    const bella = open(harness.url, TENANTS.alpha.itemId, 'as-second-principal');
+    await Promise.all([alice.ready, bella.ready]);
+
+    alice.awareness.setLocalStateField('user', { name: 'Alice', color: 'var(--c)' });
+
+    await until(() => {
+      for (const state of bella.awareness.getStates().values()) {
+        if ((state as { user?: { name?: string } }).user?.name === 'Alice') {
+          return true;
+        }
+      }
+      return false;
+    }, "Alice's presence to reach Bella");
+
+    // Presence is a fact about now: whatever moved over the wire, the durable log holds
+    // nothing - awareness is never persisted, and an idle drain must not change that.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(0);
+  });
+
+  it('drops a departed client from everyone else’s roster', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    const bella = open(harness.url, TENANTS.alpha.itemId, 'as-second-principal');
+    await Promise.all([alice.ready, bella.ready]);
+
+    alice.awareness.setLocalStateField('user', { name: 'Alice', color: 'var(--c)' });
+    const aliceId = alice.doc.clientID;
+    await until(() => bella.awareness.getStates().has(aliceId), "Alice's presence to arrive");
+
+    alice.close();
+
+    await until(
+      () => !bella.awareness.getStates().has(aliceId),
+      "Alice's departure to reach Bella",
+    );
+  });
+
   it('flushes what is pending when the server shuts down, not never', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha, { flushMs: 60_000 }));
     const alice = open(harness.url, TENANTS.alpha.itemId);

@@ -3,6 +3,7 @@ import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { Pool } from 'pg';
 import { WebSocket } from 'ws';
+import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
 import * as Y from 'yjs';
 
@@ -152,6 +153,7 @@ export interface TestClient {
   readonly socket: WebSocket;
   readonly ready: Promise<{ docId: string; mode: string }>;
   readonly notices: { code: string; detail: string }[];
+  readonly awareness: awarenessProtocol.Awareness;
   readonly syncFramesReceived: () => number;
   sendRaw(bytes: Uint8Array): void;
   close(): void;
@@ -167,6 +169,7 @@ export function connectTestClient(
   const socket = new WebSocket(`${url}/documents/${itemId}/ws`);
   const REMOTE = socket;
   const notices: { code: string; detail: string }[] = [];
+  const awareness = new awarenessProtocol.Awareness(doc);
   let syncFrames = 0;
 
   const ready = new Promise<{ docId: string; mode: string }>((resolve, reject) => {
@@ -208,6 +211,15 @@ export function connectTestClient(
       return;
     }
 
+    if (messageType === 1) {
+      awarenessProtocol.applyAwarenessUpdate(
+        awareness,
+        decoding.readVarUint8Array(decoder),
+        REMOTE,
+      );
+      return;
+    }
+
     if (messageType !== MESSAGE_SYNC) {
       return;
     }
@@ -229,17 +241,36 @@ export function connectTestClient(
     }
   });
 
+  awareness.on(
+    'update',
+    (change: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+      if (origin === REMOTE || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const changed = [...change.added, ...change.updated, ...change.removed];
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 1);
+      encoding.writeVarUint8Array(
+        encoder,
+        awarenessProtocol.encodeAwarenessUpdate(awareness, changed),
+      );
+      socket.send(encoding.toUint8Array(encoder));
+    },
+  );
+
   return {
     doc,
     socket,
     ready,
     notices,
+    awareness,
     syncFramesReceived: () => syncFrames,
     sendRaw: (bytes) => {
       socket.send(bytes);
     },
     close: () => {
       socket.terminate();
+      awareness.destroy();
       doc.destroy();
     },
   };
