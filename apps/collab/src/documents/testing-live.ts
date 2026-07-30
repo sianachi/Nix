@@ -27,8 +27,9 @@ import { createDocumentRegistry, type DocumentHub, type RegistryConfig } from '.
 export const SECOND_PRINCIPAL = 'c1000000-0000-4000-8000-000000000023';
 
 /**
- * Tokens double as behaviour selectors so multi-principal and read-only tests need no
- * second issuer: 'as-second-principal' acts as another member, 'as-reader' may not write.
+ * Tokens double as behaviour selectors so multi-principal, read-only and body-kind tests
+ * need no second issuer: 'as-second-principal' acts as another member, 'as-reader' may
+ * not write, and 'as-canvas-author' opens the item as a canvas body.
  */
 export function authorizerFor(tenant: TestTenant): Authorizer {
   return {
@@ -38,9 +39,26 @@ export function authorizerFor(tenant: TestTenant): Authorizer {
         workspaceId: tenant.workspaceId,
         principalId: token === 'as-second-principal' ? SECOND_PRINCIPAL : tenant.principalId,
         canWrite: token !== 'as-reader',
-        bodyKind: 'note',
+        bodyKind: token === 'as-canvas-author' ? 'canvas' : 'note',
       }),
   };
+}
+
+/** Places one canvas element - the whole-element write the canvas contract expects. */
+export function placeElement(
+  doc: Y.Doc,
+  id: string,
+  overrides?: Record<string, unknown>,
+): void {
+  doc.getMap('elements').set(id, {
+    id,
+    type: 'rectangle',
+    version: 1,
+    versionNonce: 1,
+    x: 0,
+    y: 0,
+    ...overrides,
+  });
 }
 
 /** Thresholds tightened so lifecycle transitions happen inside a test's patience. */

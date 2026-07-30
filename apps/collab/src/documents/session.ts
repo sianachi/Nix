@@ -12,8 +12,9 @@ import { withTenantScope } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import { MESSAGE_AWARENESS, MESSAGE_SYNC, CLOSE_CODES, encodeNotice, readBinaryFrame } from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
+import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
-import { loadDocument, measureDocument, writeSnapshotNow } from './service.ts';
+import { loadDocument, writeSnapshotNow } from './service.ts';
 
 /** The thresholds a resident document lives by. All of them configuration, none of them lore. */
 export interface SessionConfig {
@@ -80,6 +81,9 @@ export class DocumentSession {
   readonly docRow: ContentDocRow;
   readonly tenantId: string;
 
+  /** How this body is validated and materialised - the item's `type`, resolved once at load. */
+  readonly strategy: BodyKindStrategy;
+
   #state: LifecycleState = 'active';
   readonly #doc: Y.Doc;
   readonly #awareness: awarenessProtocol.Awareness;
@@ -117,10 +121,12 @@ export class DocumentSession {
     tenantId: string,
     doc: Y.Doc,
     context: SessionContext,
+    strategy: BodyKindStrategy,
   ) {
     this.itemId = itemId;
     this.docRow = docRow;
     this.tenantId = tenantId;
+    this.strategy = strategy;
     this.#doc = doc;
     this.#context = context;
     this.#headSeq = BigInt(docRow.head_seq);
@@ -150,12 +156,13 @@ export class DocumentSession {
     docRow: ContentDocRow,
     scope: { tenantId: string; principalId: string },
     context: SessionContext,
+    strategy: BodyKindStrategy = noteStrategy,
   ): Promise<DocumentSession> {
     const doc = await withTenantScope(context.pool, scope, (sql) =>
       loadDocument(sql, scope.tenantId, docRow),
     );
 
-    return new DocumentSession(itemId, docRow, scope.tenantId, doc, context);
+    return new DocumentSession(itemId, docRow, scope.tenantId, doc, context, strategy);
   }
 
   get state(): LifecycleState {
@@ -316,7 +323,7 @@ export class DocumentSession {
       return;
     }
 
-    const verdict = judgeCandidate(this.#doc, update);
+    const verdict = judgeCandidate(this.#doc, update, this.strategy);
     if (!verdict.ok) {
       this.#context.log?.(
         `Refused an update (${verdict.refusal.code}) from principal ` +
@@ -576,6 +583,7 @@ export class DocumentSession {
           docId: this.docRow.doc_id,
           seq,
           state: this.#doc,
+          strategy: this.strategy,
         }),
     );
 
@@ -672,7 +680,8 @@ export type CandidateVerdict =
 export function judgeCandidate(
   resident: Y.Doc,
   update: Uint8Array,
-  limits: { documentNodes: number; documentBytes: number } = LIMITS,
+  strategy: BodyKindStrategy = noteStrategy,
+  ceilings: { nodes: number; bytes: number } = strategy.ceilings,
 ): CandidateVerdict {
   const fork = new Y.Doc();
   try {
@@ -690,7 +699,7 @@ export function judgeCandidate(
     };
   }
 
-  const after = measureDocument(fork);
+  const after = strategy.measure(fork);
   fork.destroy();
   if (after === null) {
     return {
@@ -703,8 +712,8 @@ export function judgeCandidate(
     };
   }
 
-  if (after.nodes > limits.documentNodes || after.bytes > limits.documentBytes) {
-    const before = measureDocument(resident);
+  if (after.nodes > ceilings.nodes || after.bytes > ceilings.bytes) {
+    const before = strategy.measure(resident);
     const grew =
       before === null || after.nodes > before.nodes || after.bytes > before.bytes;
 
@@ -712,15 +721,15 @@ export function judgeCandidate(
       return {
         ok: false,
         refusal:
-          after.nodes > limits.documentNodes
+          after.nodes > ceilings.nodes
             ? rejection(
                 'document_too_many_nodes',
-                `A document may hold at most ${String(limits.documentNodes)} nodes; this one ` +
+                `A document may hold at most ${String(ceilings.nodes)} nodes; this one ` +
                   `would hold ${String(after.nodes)}.`,
               )
             : rejection(
                 'document_too_large',
-                `A document may be at most ${String(limits.documentBytes)} bytes; this one ` +
+                `A document may be at most ${String(ceilings.bytes)} bytes; this one ` +
                   `would be ${String(after.bytes)}.`,
               ),
         resync: true,

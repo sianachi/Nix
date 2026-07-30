@@ -7,6 +7,7 @@ import { withTenantScope } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import { CLOSE_CODES } from '../ws/protocol.ts';
 import type { JoinResult, SessionHub, SocketSession } from '../ws/server.ts';
+import { strategyFor } from './body-kinds.ts';
 import type { RateWindow } from './limits.ts';
 import { openDocument } from './service.ts';
 import { DocumentSession, type SessionConfig } from './session.ts';
@@ -150,14 +151,22 @@ export function createDocumentRegistry(deps: {
       }
 
       try {
-        const session = await DocumentSession.load(socket.itemId, docRow, scope, {
-          pool: deps.pool,
-          config: deps.config,
-          metrics: deps.metrics,
-          onFlushed: deps.onFlushed,
-          rateWindow: deps.rateWindow,
-          log: deps.log,
-        });
+        const session = await DocumentSession.load(
+          socket.itemId,
+          docRow,
+          scope,
+          {
+            pool: deps.pool,
+            config: deps.config,
+            metrics: deps.metrics,
+            onFlushed: deps.onFlushed,
+            rateWindow: deps.rateWindow,
+            log: deps.log,
+          },
+          // The body kind is Core's answer about the item, resolved once per load: how
+          // this document is validated and materialised for as long as it is resident.
+          strategyFor(socket.authorization.bodyKind),
+        );
         sessions.set(socket.itemId, session);
         return session;
       } catch (cause) {

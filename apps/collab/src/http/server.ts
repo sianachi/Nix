@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import type { Pool } from 'pg';
 
 import { withTenantScope } from '../db/tenant-scope.ts';
+import { strategyFor } from '../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../documents/limits.ts';
 import { RateWindow } from '../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, describeSchema, openDocument } from '../documents/service.ts';
@@ -218,6 +219,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
         actorId: context.scope.principalId,
         clientId: body.clientId as string,
         snapshotEvery: deps.snapshotEvery,
+        strategy: strategyFor(context.bodyKind),
       });
 
       if (!applied.ok) {

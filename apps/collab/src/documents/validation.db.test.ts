@@ -7,7 +7,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { DB_TESTS_ENABLED, TENANTS, clearContent, collabPool, seedTenants } from '../db/testing.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { LIMITS, RateWindow } from './limits.ts';
-import { measureDocument, openDocument } from './service.ts';
+import { noteStrategy } from './body-kinds.ts';
+import { openDocument } from './service.ts';
 import { DocumentSession, judgeCandidate } from './session.ts';
 import {
   adminPool,
@@ -223,20 +224,20 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
       typeParagraph(resident, `Paragraph ${String(index)}.`);
     }
 
-    const before = measureDocument(resident);
+    const before = noteStrategy.measure(resident);
     if (before === null) {
       throw new Error('The prose fixture must parse.');
     }
     // A ceiling the resident document already exceeds, which is the only state where the
     // growth rule and a plain ceiling check disagree.
-    const tinyCeiling = { documentNodes: before.nodes - 4, documentBytes: LIMITS.documentBytes };
+    const tinyCeiling = { nodes: before.nodes - 4, bytes: LIMITS.documentBytes };
 
     // Growth on an over-ceiling document is refused...
     const grower = new Y.Doc();
     Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
     typeParagraph(grower, 'One more.');
     const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
-    const refused = judgeCandidate(resident, growth, tinyCeiling);
+    const refused = judgeCandidate(resident, growth, noteStrategy, tinyCeiling);
     expect(refused).toMatchObject({ ok: false, refusal: { code: 'document_too_many_nodes' } });
 
     // ...and a delete that leaves the document smaller - though still over the ceiling -
@@ -245,7 +246,7 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     Y.applyUpdate(shrinker, Y.encodeStateAsUpdate(resident));
     shrinker.getXmlFragment('default').delete(0, 1);
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, shrinkage, tinyCeiling)).toEqual({ ok: true });
+    expect(judgeCandidate(resident, shrinkage, noteStrategy, tinyCeiling)).toEqual({ ok: true });
 
     resident.destroy();
     grower.destroy();

@@ -1,6 +1,4 @@
-import { SCHEMA_VERSION, countNodes, nixSchema } from '@nix/editor-schema';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
+import { SCHEMA_VERSION, nixSchema } from '@nix/editor-schema';
 import * as Y from 'yjs';
 
 import {
@@ -13,13 +11,10 @@ import {
   type ContentDocRow,
 } from '../db/documents.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
+import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, type Rejection, rejection } from './limits.ts';
 
-/**
- * The Yjs fragment the editor binds to. One name, agreed by both sides; a mismatch would
- * produce two documents that merge cleanly and share no text.
- */
-export const FRAGMENT_NAME = 'default';
+export { FRAGMENT_NAME } from './body-kinds.ts';
 
 /** How many updates one catch-up returns. A client that is further behind asks again. */
 export const CATCH_UP_LIMIT = 500;
@@ -138,8 +133,10 @@ export async function applyUpdate(
     actorId: string;
     clientId: string;
     snapshotEvery: number;
+    strategy?: BodyKindStrategy;
   },
 ): Promise<Appended> {
+  const strategy = input.strategy ?? noteStrategy;
   if (input.updateBytes.byteLength > LIMITS.updateBytes) {
     return {
       ok: false,
@@ -177,7 +174,7 @@ export async function applyUpdate(
     };
   }
 
-  const verdict = checkMergedDocument(state);
+  const verdict = checkMergedDocument(state, strategy);
   if (verdict !== null) {
     return { ok: false, error: verdict };
   }
@@ -196,85 +193,47 @@ export async function applyUpdate(
     seq,
     state,
     snapshotEvery: input.snapshotEvery,
+    strategy,
   });
 
   return { ok: true, value: { seq, snapshotWritten } };
 }
 
 /**
- * Whether the merged document is one this build would be able to open again.
+ * Whether the merged document is one this build would be able to open again, judged by
+ * the body kind's own strategy.
  *
  * Returns the refusal, or null when it is fine.
  */
-export function checkMergedDocument(state: Y.Doc): Rejection | null {
-  const document = readDocument(state);
-  if (document === null) {
+export function checkMergedDocument(
+  state: Y.Doc,
+  strategy: BodyKindStrategy = noteStrategy,
+): Rejection | null {
+  const measured = strategy.measure(state);
+  if (measured === null) {
     return rejection(
       'document_does_not_parse',
       'Applying this update would produce a document the schema rejects.',
     );
   }
 
-  const nodes = countNodes(document);
-  if (nodes > LIMITS.documentNodes) {
+  if (measured.nodes > strategy.ceilings.nodes) {
     return rejection(
       'document_too_many_nodes',
-      `A document may hold at most ${String(LIMITS.documentNodes)} nodes; this one would hold ` +
-        `${String(nodes)}.`,
+      `A document may hold at most ${String(strategy.ceilings.nodes)} nodes; this one would ` +
+        `hold ${String(measured.nodes)}.`,
     );
   }
 
-  const bytes = Buffer.byteLength(JSON.stringify(document.toJSON()));
-  if (bytes > LIMITS.documentBytes) {
+  if (measured.bytes > strategy.ceilings.bytes) {
     return rejection(
       'document_too_large',
-      `A document may be at most ${String(LIMITS.documentBytes)} bytes; this one would be ` +
-        `${String(bytes)}.`,
+      `A document may be at most ${String(strategy.ceilings.bytes)} bytes; this one would be ` +
+        `${String(measured.bytes)}.`,
     );
   }
 
   return null;
-}
-
-/**
- * Measures a state as a document: how many nodes, how many serialised bytes - or null
- * when it does not parse at all.
- *
- * Exported for the socket path's growth rule: a document over a ceiling refuses inserts
- * and allows deletes, and telling the two apart means measuring the state before the
- * candidate update as well as after it.
- */
-export function measureDocument(state: Y.Doc): { nodes: number; bytes: number } | null {
-  const document = readDocument(state);
-  if (document === null) {
-    return null;
-  }
-
-  return {
-    nodes: countNodes(document),
-    bytes: Buffer.byteLength(JSON.stringify(document.toJSON())),
-  };
-}
-
-/**
- * Reads the shared fragment as a document, or null when it is not one.
- *
- * Two failures are folded together on purpose: a fragment holding a node this build has never
- * heard of throws while being read, and a fragment whose shape breaks the content rules fails
- * `check()`. Both mean the same thing to a caller - the merge would produce something that
- * cannot be opened - and neither is worth distinguishing in a refusal.
- */
-function readDocument(state: Y.Doc): ProseMirrorNode | null {
-  try {
-    const document = yXmlFragmentToProseMirrorRootNode(
-      state.getXmlFragment(FRAGMENT_NAME),
-      nixSchema,
-    );
-    document.check();
-    return document;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -292,6 +251,7 @@ async function maybeSnapshot(
     seq: bigint;
     state: Y.Doc;
     snapshotEvery: number;
+    strategy: BodyKindStrategy;
   },
 ): Promise<boolean> {
   if (input.snapshotEvery <= 0 || input.seq % BigInt(input.snapshotEvery) !== 0n) {
@@ -315,6 +275,7 @@ export async function writeSnapshotNow(
     docId: string;
     seq: bigint;
     state: Y.Doc;
+    strategy?: BodyKindStrategy;
   },
 ): Promise<boolean> {
   const encoded = Y.encodeStateAsUpdate(input.state);
@@ -325,15 +286,18 @@ export async function writeSnapshotNow(
     return false;
   }
 
-  const document = readDocument(input.state);
+  // The materialised column is named for prose - it predates body kinds - but it holds
+  // whatever the body kind materialises: a ProseMirror document for a note, a scene for a
+  // canvas. Renaming it is a migration this deliberately does not require.
+  const materialized = (input.strategy ?? noteStrategy).materialize(input.state);
 
   await writeSnapshot(sql, {
     tenantId: input.tenantId,
     docId: input.docId,
     seq: input.seq,
     yjsState: encoded,
-    prosemirrorJson: document?.toJSON() ?? null,
-    plaintext: document === null ? '' : document.textBetween(0, document.content.size, '\n', ' '),
+    prosemirrorJson: materialized.json,
+    plaintext: materialized.plaintext,
   });
 
   return true;
