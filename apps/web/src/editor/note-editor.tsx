@@ -11,7 +11,7 @@ import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
 import { EditorToolbar } from './toolbar';
-import { startCollabSync, type SyncState } from './collab-sync';
+import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 import { filterSlashCommands, type SlashCommand } from './slash-menu';
 
@@ -34,8 +34,6 @@ import { filterSlashCommands, type SlashCommand } from './slash-menu';
 export interface NoteEditorProps {
   readonly itemId: string;
 }
-
-const FRAGMENT_NAME = 'default';
 
 /**
  * The schema's extensions, each carrying the class its nodes render with.
@@ -187,21 +185,27 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
 }
 
 /**
- * The save state, said in the terms a writer actually needs.
+ * The connection state, said in the terms a writer actually needs.
  *
- * Four states, none of them a spinner standing in for the others. "Saved" means the server has the
- * edit; "saving" means it does not yet; "offline" means it will not until the connection comes
- * back - and it says that your work is safe locally, because with a CRDT it genuinely is.
+ * Six states, none of them a spinner standing in for the others. "Live" means edits are
+ * streaming to everyone now; "pending" means edits exist here that the server does not
+ * have yet; "read-only" and "at capacity" are the server's own words, relayed rather than
+ * hidden - and every disconnected state says your work is safe locally, because with a
+ * CRDT it genuinely is.
  */
 function SaveState({ state }: { readonly state: SyncState }): ReactNode {
   const message =
-    state === 'synced'
-      ? 'Saved. Edits reach other people within a few seconds.'
+    state === 'live'
+      ? 'Live. Edits reach other people as you type.'
       : state === 'pending'
-        ? 'Saving…'
+        ? 'Saving locally. Your edits will sync when the connection returns.'
         : state === 'connecting'
           ? 'Connecting…'
-          : 'Offline. Your edits are kept here and will be sent when the connection returns.';
+          : state === 'readonly'
+            ? 'Read-only. Your access to this document changed, so edits are not accepted.'
+            : state === 'degraded'
+              ? 'The server cannot take this document right now. Your edits are kept here; retrying, and reloading may help.'
+              : 'Offline. Your edits are kept here and will be sent when the connection returns.';
 
   return (
     <footer
