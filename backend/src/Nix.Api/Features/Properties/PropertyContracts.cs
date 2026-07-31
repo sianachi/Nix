@@ -8,16 +8,25 @@ namespace Nix.Features.Properties;
 /// <param name="Key">The stable key the value is stored under.</param>
 /// <param name="Label">What a person sees. The only part safe to rename.</param>
 /// <param name="Type">
-/// One of <c>text</c>, <c>number</c>, <c>select</c>, <c>multi_select</c>, <c>date</c>,
-/// <c>checkbox</c>, <c>url</c>.
+/// The stored name of a property type, as written by
+/// <see cref="Nix.Domain.Properties.PropertyTypes.ToText(Nix.Domain.Properties.PropertyType)"/>.
+/// <see cref="Nix.Domain.Properties.PropertyType"/> is where the types and their names are
+/// declared.
 /// </param>
 /// <param name="Options">The values a select accepts, in offer order. Empty for other types.</param>
 /// <param name="Required">Whether a write must supply a value.</param>
 /// <remarks>
+/// <para>
 /// <see cref="Type"/> is an open string rather than an enumeration, for the same reason an item's
 /// kind is: adding a property type should be a feature, not a breaking change to every generated
 /// client. A client that meets a type it does not know should render the raw value rather than
 /// fail to parse the schema.
+/// </para>
+/// <para>
+/// The vocabulary itself is declared in <see cref="Nix.Domain.Properties.PropertyType"/> and is
+/// deliberately not repeated here: a prose copy of a set declared elsewhere has no way of being
+/// told the set changed.
+/// </para>
 /// </remarks>
 internal sealed record PropertyDefinitionResponse(
     string Key,
@@ -59,7 +68,11 @@ internal sealed record SetSchemaRequest(
 /// <summary>One property being declared.</summary>
 /// <param name="Key">The stable key.</param>
 /// <param name="Label">What a person sees.</param>
-/// <param name="Type">The property type.</param>
+/// <param name="Type">
+/// The stored name of a property type, read by
+/// <see cref="Nix.Domain.Properties.PropertyTypes.TryParse(string, out Nix.Domain.Properties.PropertyType)"/>.
+/// A name this build does not know is refused rather than guessed at.
+/// </param>
 /// <param name="Options">The values a select accepts.</param>
 /// <param name="Required">Whether a write must supply a value.</param>
 internal sealed record PropertyDefinitionRequest(

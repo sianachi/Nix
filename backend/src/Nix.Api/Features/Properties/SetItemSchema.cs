@@ -182,6 +182,15 @@ public sealed class SetItemSchemaHandler : ICommandHandler<SetItemSchema, Proper
 /// </remarks>
 internal static class SetItemSchemaEndpoint
 {
+    /// <summary>The accepted type names, for the message a caller sees when they miss.</summary>
+    /// <remarks>
+    /// Written from the enum rather than typed out, so it cannot fall behind the vocabulary the way
+    /// a hand-maintained list would. Built once: the set cannot change while the process runs.
+    /// </remarks>
+    private static readonly string AcceptedTypeNames = string.Join(
+        ", ",
+        Enum.GetValues<PropertyType>().Select(PropertyTypes.ToText));
+
     /// <summary>Handles a request to declare an item's property schema.</summary>
     /// <param name="itemId">The container.</param>
     /// <param name="request">The schema to declare.</param>
@@ -202,7 +211,8 @@ internal static class SetItemSchemaEndpoint
             return TypedResults.Problem(
                 StructureEndpoints.Problem(
                     httpContext,
-                    PropertyErrors.InvalidSchema($"'{unknownType}' is not a property type.")));
+                    PropertyErrors.InvalidSchema(
+                        $"'{unknownType}' is not a property type. Expected one of: {AcceptedTypeNames}.")));
         }
 
         var stored = await dispatcher

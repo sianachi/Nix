@@ -25,10 +25,13 @@ namespace Nix.Authentication;
 /// token is believed until the signature checks out.
 /// </para>
 /// <para>
-/// Signing keys are fetched from the issuer's JWKS endpoint and cached per issuer by
-/// <see cref="ConfigurationManager{T}"/>, which handles refresh and key rollover. Without the cache
-/// every request would fetch a key set, which is both slow and a way to have the identity provider
-/// rate-limit us out of service.
+/// Signing keys are fetched from the issuer's JWKS endpoint and cached per issuer, with refresh and
+/// key rollover handled here rather than by a configuration manager: the registration stores the
+/// JWKS endpoint directly, so there is no discovery document to manage. See <see cref="KeyLifetime"/>
+/// for how long a key set is trusted and <see cref="MinimumRefetchInterval"/> for the floor that
+/// keeps a rotation refetch from becoming a fetch storm. Without the cache every request would fetch
+/// a key set, which is both slow and a way to have the identity provider rate-limit us out of
+/// service.
 /// </para>
 /// </remarks>
 [SuppressMessage(
