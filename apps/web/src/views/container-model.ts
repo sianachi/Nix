@@ -1,3 +1,9 @@
+import type {
+  ContainerViewsContract,
+  EffectiveSchemaContract,
+  PropertyDefinitionContract,
+  ViewContract,
+} from '@nix/api-client';
 import { z } from 'zod';
 
 /**
@@ -6,6 +12,17 @@ import { z } from 'zod';
  * Parsed at the boundary with Zod, because the API is a runtime boundary like any other and a
  * shape that drifted from the contract should surface here rather than as a blank column three
  * components deep.
+ *
+ * Parsing alone only catches drift once a response carrying it has already been fetched, so the
+ * schemas here additionally carry `satisfies` ties to the generated contract - the same idiom
+ * `packages/api-client/src/schemas/item.ts` uses, and for the same reason: a field Core renames
+ * should fail a build, not a render.
+ *
+ * What that idiom does and does not prove is worth stating, because the line reads stronger than it
+ * is. It catches a field this schema drops, renames or mistypes, which is the drift that actually
+ * happens. It does not catch a field this schema invents: an extra key the contract never carried
+ * still satisfies the contract type, and typecheck stays green. So these ties are a floor - the
+ * schema is at least as wide as the contract - not a proof that the two agree exactly.
  */
 
 export const PropertyDefinitionSchema = z.object({
@@ -22,6 +39,10 @@ export const PropertyDefinitionSchema = z.object({
 
 export type PropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
 
+const _propertyDefinitionContract =
+  PropertyDefinitionSchema satisfies z.ZodType<PropertyDefinitionContract>;
+void _propertyDefinitionContract;
+
 export const EffectiveSchemaSchema = z.object({
   properties: z.array(PropertyDefinitionSchema),
   declared: z.array(PropertyDefinitionSchema),
@@ -29,6 +50,9 @@ export const EffectiveSchemaSchema = z.object({
 });
 
 export type EffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
+
+const _effectiveSchemaContract = EffectiveSchemaSchema satisfies z.ZodType<EffectiveSchemaContract>;
+void _effectiveSchemaContract;
 
 export const ViewSchema = z.object({
   id: z.string(),
@@ -77,6 +101,20 @@ export const ViewSchema = z.object({
 
 export type View = z.infer<typeof ViewSchema>;
 
+/**
+ * The compile-time tie to the generated contract.
+ *
+ * `ViewResponse` is the read shape - what `GET /items/{id}/views` returns and what this schema
+ * parses. The write shape is `ViewRequest`, which is deliberately wider (its `columns` and
+ * `groupOrder` are nullable, meaning "leave these alone"), so tying to it instead would let a read
+ * of `columns: null` through and leave a table with nothing to draw.
+ *
+ * If Core renames a field or changes a type, this line stops compiling here rather than surfacing
+ * as an empty column in front of somebody.
+ */
+const _viewContract = ViewSchema satisfies z.ZodType<ViewContract>;
+void _viewContract;
+
 export const ContainerViewsSchema = z.object({
   views: z.array(ViewSchema),
 
@@ -101,6 +139,9 @@ export const ContainerViewsSchema = z.object({
 export const DOCUMENT_VIEW = 'document';
 
 export type ContainerViews = z.infer<typeof ContainerViewsSchema>;
+
+const _containerViewsContract = ContainerViewsSchema satisfies z.ZodType<ContainerViewsContract>;
+void _containerViewsContract;
 
 /** A property value as it arrives: anything JSON can carry. */
 export type PropertyValue = string | number | boolean | readonly string[] | null;

@@ -79,6 +79,27 @@ export {
 export type { CursorPage, Item, KnownItemType, ProblemDetails } from './schemas/index.js';
 
 /**
+ * Contract types, named one at a time, so a boundary schema living outside this package can tie
+ * itself to the same source of truth with `satisfies`.
+ *
+ * The `components` map itself stays private, deliberately. Re-exporting it wholesale would make
+ * every schema Core has - and every schema Core grows next - public API of this package the moment
+ * `generate` runs, with nothing in between to notice. That contradicts the whole point of the file
+ * you are reading. Adding a line here is the friction, and the friction is the feature: it is the
+ * one place someone sees that a boundary schema has taken root outside the package that owns
+ * boundaries, and can ask whether it should move in.
+ *
+ * Type-only. The generated file is rewritten wholesale by
+ * `pnpm --filter @nix/api-client generate` and is not an editable surface.
+ */
+export type {
+  ContainerViewsContract,
+  EffectiveSchemaContract,
+  PropertyDefinitionContract,
+  ViewContract,
+} from './contracts.js';
+
+/**
  * Per-resource methods: the only place API paths appear. A caller builds a descriptor and hands it
  * to the client, so nothing above this package ever sees a URL.
  */
