@@ -1,0 +1,50 @@
+<!--
+  The frontend tree, surfaced inside the .NET solution.
+
+  Nix.slnx sits at the repository root so that one IDE window covers both lanes.
+  This project exists only so the frontend sources are browsable from that
+  window. It compiles no C#, references nothing, and produces nothing anyone
+  consumes - apps/ and packages/ are built by pnpm, never by MSBuild.
+
+  It is a plain SDK project rather than a stub that opts out of restore: a
+  project that answers "restore not supported" makes every solution-wide restore
+  (so every backend CI run, and dotnet format as well) log NU1503, and that
+  warning cannot be silenced from inside the project it names.
+
+  It sits in this subdirectory rather than at the repository root because a root
+  holding both Nix.slnx and a .csproj makes an unqualified `dotnet build` or
+  `dotnet test` fail with MSB1011, "this folder contains more than one project
+  or solution file". With only Nix.slnx left up there the obvious command is the
+  right one. Three fixes that look plausible are not:
+
+    - global.json pins the SDK version and has no say in which project or
+      solution MSBuild selects.
+    - Directory.Build.rsp is worse than useless here, because it appears to
+      work: it makes the bare `dotnet build` succeed while breaking the
+      explicit invocations CI uses. Its arguments are prepended to every
+      command, so `dotnet build Nix.slnx` dies on a duplicate switch and
+      `dotnet test <project>` dies with MSB1008.
+    - Renaming the extension changes nothing; project discovery matches
+      *.*proj generically.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- This directory holds nothing but the project file; every item comes
+         from the sibling frontend trees and is listed by hand below. -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+  <!-- The files live outside this project's directory, so LinkBase rebuilds each
+       one's real repository-relative path under the solution explorer. Without
+       it they all flatten to the project root, where the many identically named
+       index.ts files become indistinguishable. -->
+  <ItemGroup>
+    <None Include="../apps/*/src/**/*" LinkBase="apps" />
+    <None Include="../packages/*/src/**/*" LinkBase="packages" />
+  </ItemGroup>
+
+</Project>

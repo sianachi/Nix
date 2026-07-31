@@ -7,9 +7,10 @@
 # both lanes (the guard scripts, the workflows themselves) trigger both.
 #
 # Nix.slnx sits at the repository root rather than under backend/ so that one
-# IDE window covers both lanes. That puts it outside the backend/** filter, so
-# it is listed on its own below; the steps that name it run from the checkout
-# root while the per-project steps still run from backend/.
+# IDE window covers both lanes. That puts it, and the Nix.Frontend browse
+# project it carries, outside the backend/** filter, so both are listed on
+# their own below; the steps that name the solution run from the checkout root
+# while the per-project steps still run from backend/.
 name: CI backend
 
 on:
@@ -18,17 +19,21 @@ on:
     paths:
       - 'backend/**'
       - 'Nix.slnx'
+      - 'Nix.Frontend/**'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
       - 'scripts/check-layering.sh'
+      - 'scripts/check-root-is-unambiguous.sh'
       - '.github/workflows/ci-backend.yml'
   pull_request:
     paths:
       - 'backend/**'
       - 'Nix.slnx'
+      - 'Nix.Frontend/**'
       - 'scripts/check-byte-array-markers.sh'
       - 'scripts/check-no-controllers.sh'
       - 'scripts/check-layering.sh'
+      - 'scripts/check-root-is-unambiguous.sh'
       - '.github/workflows/ci-backend.yml'
 
 concurrency:
@@ -81,6 +86,13 @@ jobs:
       # deliberately so; see ADR-0015 for what it does and does not catch.
       - name: Layering guard (Domain/ carries no infrastructure, ADR-0015)
         run: ./scripts/check-layering.sh
+
+      # Cheap to reintroduce, expensive to diagnose: a second project or solution
+      # file at the root makes every bare dotnet command fail with MSB1011, and
+      # the fixes that look obvious (global.json, Directory.Build.rsp, a rename)
+      # all fail differently. See the script header.
+      - name: Root has exactly one project/solution file
+        run: ./scripts/check-root-is-unambiguous.sh
 
   backend-unit:
     name: backend unit

@@ -1,3 +1,6 @@
+using System.IO.Pipes;
+using System.Net.Sockets;
+using DotNet.Testcontainers.Configurations;
 using Nix.Persistence.Migrations;
 using Npgsql;
 using Respawn;
@@ -27,6 +30,9 @@ public sealed class NixPostgresFixture : IAsyncLifetime
 {
     private const string SuperuserName = "postgres";
     private const string SuperuserPassword = "nix-test-superuser";
+
+    /// <summary>How long the Docker preflight waits before calling the endpoint dead.</summary>
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
 
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("pgvector/pgvector:pg16")
         .WithUsername(SuperuserName)
@@ -73,6 +79,8 @@ public sealed class NixPostgresFixture : IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
+        await AssertDockerIsAvailableAsync();
+
         await _container.StartAsync();
 
         var host = _container.Hostname;
@@ -179,6 +187,101 @@ public sealed class NixPostgresFixture : IAsyncLifetime
         }
 
         await _container.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Pings the Docker endpoint Testcontainers is about to use, and fails with an actionable
+    /// message if nothing answers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same assertion the backend CI workflow makes before its integration job, for the same
+    /// reason: without it the failure mode is a confusing timeout deep inside container startup,
+    /// from which a reader has to work out both which project needed a daemon and what to run
+    /// instead. <c>dotnet test</c> at the repository root resolves to the whole solution, so this
+    /// is the first wall anyone without Docker hits.
+    /// </para>
+    /// <para>
+    /// An exception rather than a <c>Result</c>: a missing daemon is an infrastructure fault, not
+    /// an expected outcome this suite models. Skipping instead of failing is deliberately not an
+    /// option - these are the crown-jewel tests, and a suite that quietly reports success without
+    /// having run is worse than one that stops.
+    /// </para>
+    /// </remarks>
+    private static async Task AssertDockerIsAvailableAsync()
+    {
+        var endpoint = TestcontainersSettings.OS.DockerEndpointAuthConfig.Endpoint;
+
+        if (await CanConnectToAsync(endpoint))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Nothing is listening on the Docker endpoint {endpoint}. Nix.Integration.Tests runs "
+            + "against a real Postgres through Testcontainers and cannot run without a daemon. "
+            + "Start Docker, or run the daemon-free suite instead: "
+            + "dotnet test backend/tests/Nix.Tests/Nix.Tests.csproj");
+    }
+
+    /// <summary>
+    /// Opens and immediately drops a connection to the Docker endpoint.
+    /// </summary>
+    /// <param name="endpoint">The endpoint Testcontainers resolved.</param>
+    /// <returns><see langword="true"/> when something accepted the connection.</returns>
+    /// <remarks>
+    /// A connect, not an API call: proving a daemon is listening is all this needs to decide, and
+    /// it costs no dependency on the Docker client that Testcontainers keeps to itself. The three
+    /// schemes are the three transports Testcontainers itself resolves to.
+    /// </remarks>
+    private static async Task<bool> CanConnectToAsync(Uri endpoint)
+    {
+        // Bounded, because an unreachable endpoint can hang rather than refuse - which is the
+        // very timeout this preflight exists to replace.
+        using var timeout = new CancellationTokenSource(ProbeTimeout);
+
+        try
+        {
+            switch (endpoint.Scheme)
+            {
+                case "unix":
+                    using (var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified))
+                    {
+                        await socket.ConnectAsync(new UnixDomainSocketEndPoint(endpoint.AbsolutePath), timeout.Token);
+                    }
+
+                    return true;
+
+                case "npipe":
+                    using (var pipe = new NamedPipeClientStream(
+                        endpoint.Host, endpoint.AbsolutePath.Trim('/'), PipeDirection.InOut, PipeOptions.Asynchronous))
+                    {
+                        await pipe.ConnectAsync(timeout.Token);
+                    }
+
+                    return true;
+
+                default:
+                    using (var tcp = new TcpClient())
+                    {
+                        await tcp.ConnectAsync(endpoint.Host, endpoint.Port, timeout.Token);
+                    }
+
+                    return true;
+            }
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     private static string ConnectionStringFor(string host, int port, string username, string password, string database) =>

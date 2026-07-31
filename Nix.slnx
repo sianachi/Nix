@@ -1,6 +1,6 @@
 <Solution>
 
-  <Project Path="Nix.Frontend.csproj" />
+  <Project Path="Nix.Frontend/Nix.Frontend.csproj" />
 
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
