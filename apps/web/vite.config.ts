@@ -47,5 +47,41 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+
+    // Not the 5000 default, and please do not "tidy" it back.
+    //
+    // Reproduce before changing this: `pnpm --filter @nix/web test
+    // --reporter=json`, full 47-file suite in parallel, otherwise-idle 10-core
+    // machine. The numbers below are from exactly that.
+    //
+    // The worst case used to be 'counts February 2028 as a leap February' in
+    // src/views/calendar-view.test.tsx. Worst figure on record for it: 4849ms,
+    // 97% of the 5000 default, idle. Re-measured on the same machine it came
+    // back at 4041ms, 81% - and that spread between two idle runs of the same
+    // test is itself the argument, because a CI runner is never the better of
+    // the two. It was not irreducible render cost: the test reached
+    // February 2028 by clicking "Next month" 23 times, so 23 sequential
+    // userEvent round trips paid for navigation that was scaffolding rather
+    // than the behaviour under test. Those loops are gone - the two tests that
+    // had them now name their month on the fake clock the suite already runs,
+    // and the second-worst offender kept its single boundary-crossing click
+    // because that click is the claim.
+    //
+    // Those two tests now cost 122ms and 210ms. What remains at the top is
+    // ordinary per-test page render into jsdom under parallel contention,
+    // peaking at 1545ms ('says which week it is showing, naming both months
+    // when it straddles them' in calendar-modes.test.tsx, which keeps its two
+    // clicks because a straddling week cannot be reached in one). Idle that is
+    // 31% of the default - but idle is not what CI gives you, and the figures
+    // above show the same test swinging by ~20% between two idle runs. 15s
+    // keeps headroom for that without letting a genuinely hung test sit for a
+    // minute. The failure it prevents is the expensive kind: a timeout on a
+    // busy runner is indistinguishable from a real regression until someone
+    // reruns it alone.
+    //
+    // Node-environment packages do not need this, and packages/ui's component
+    // tests peak at 703ms idle, so the value stays here rather than spreading
+    // across the workspace.
+    testTimeout: 15_000,
   },
 });

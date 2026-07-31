@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { stubCoreApi } from './api-stub';
@@ -29,6 +29,36 @@ if (typeof HTMLDialogElement !== 'undefined') {
     },
   });
 }
+
+/**
+ * Not Testing Library's 1000ms default, and it is the tighter of the two
+ * deadlines a slow test can hit here - the other is `testTimeout` in
+ * vite.config.ts, which says why it is not 5000 either.
+ *
+ * Every `findBy*` and `waitFor` running on real timers gives up after this
+ * long. A page render that takes ~200ms alone was measured taking well over a
+ * second when the full suite runs with the machine's cores saturated, and the
+ * failure it produces - "Unable to find role ..." with a DOM dump - reads
+ * exactly like the element genuinely never appeared. That is the expensive kind
+ * of flake: nothing about it says "this was only slow".
+ *
+ * 5s absorbs that contention, and sits deliberately below `testTimeout` so a
+ * query that really will never resolve still fails as Testing Library's
+ * diagnostic rather than as a bare Vitest timeout with no DOM to look at.
+ *
+ * The caveat, for whoever hits it first: this is wall-clock time only while the
+ * timers are real. `@testing-library/dom`'s `waitFor` arms its deadline with
+ * `setTimeout(..., timeout)` before it checks whether timers are faked, so
+ * under a bare `vi.useFakeTimers()` the 5000 becomes 5000 *fake* ms advanced 50
+ * at a time - a longer failure path, not a longer grace period. Every
+ * fake-timer suite here passes `{ shouldAdvanceTime: true }`, which walks the
+ * fake clock at roughly wall-clock pace and keeps the two readings close;
+ * timeline-view.test.tsx is the one file that combines fake timers with a
+ * `findAllBy*` and it relies on exactly that. A suite that ever freezes the
+ * clock outright should pass its own `timeout` to the query rather than lean on
+ * this number.
+ */
+configure({ asyncUtilTimeout: 5_000 });
 
 /**
  * Vitest runs with `globals: false`, so describe/it/expect are imported

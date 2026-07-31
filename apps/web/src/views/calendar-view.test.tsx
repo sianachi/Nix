@@ -186,12 +186,16 @@ describe('the calendar view', () => {
   });
 
   it('crosses a year boundary rather than stopping at December', async () => {
+    // Opened on the boundary itself rather than walked to it: the calendar takes its opening month
+    // from the clock, so naming December is both cheaper and clearer than ten clicks whose only
+    // proof that they land on December is that somebody counted them correctly.
+    vi.setSystemTime(new Date(2026, 11, 15, 12, 0, 0));
+
     const person = user();
     renderCalendar({ children: [KICKOFF] });
 
-    for (let step = 0; step < 10; step += 1) {
-      await person.click(screen.getByRole('button', { name: 'Next month' }));
-    }
+    // The step across the boundary is the behaviour under test, so it stays a real click.
+    await person.click(screen.getByRole('button', { name: 'Next month' }));
 
     expect(screen.getByRole('heading', { name: 'January 2027' })).toBeVisible();
   });
@@ -342,13 +346,13 @@ describe('the calendar view', () => {
     expect(screen.getByRole('columnheader', { name: 'Monday' })).toBeInTheDocument();
   });
 
-  it('counts February 2028 as a leap February', async () => {
-    const person = user();
-    renderCalendar({ children: [KICKOFF] });
+  it('counts February 2028 as a leap February', () => {
+    // What is under test is the grid the calendar draws for a leap February, not the route taken to
+    // reach one. The month it opens on comes from the clock - the same lever 'opens on the month
+    // containing today' uses - so the month is named here rather than walked to.
+    vi.setSystemTime(new Date(2028, 1, 15, 12, 0, 0));
 
-    for (let step = 0; step < 23; step += 1) {
-      await person.click(screen.getByRole('button', { name: 'Next month' }));
-    }
+    renderCalendar({ children: [KICKOFF] });
 
     expect(screen.getByRole('heading', { name: 'February 2028' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'Tuesday 29 February 2028' })).toBeInTheDocument();
