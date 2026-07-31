@@ -6,9 +6,11 @@ namespace Nix.Features.Views;
 /// <param name="Id">Stable across renames, because a shared link names it.</param>
 /// <param name="Name">What a person sees in the switcher.</param>
 /// <param name="Kind">
-/// One of <c>list</c>, <c>board</c>, <c>calendar</c>, <c>gallery</c>, <c>timeline</c>. An open
-/// string rather than an enum: a kind a client has not been rebuilt for should leave it offering
-/// fewer views, not failing to parse the set.
+/// One of the kinds <see cref="Nix.Domain.Views.ViewKinds.All"/> defines - not listed here, because
+/// a list written out in a comment is one a new kind can leave wrong, and the published sentence is
+/// generated from that table by <see cref="ViewKindProse"/>. An open string rather than an enum: a
+/// kind a client has not been rebuilt for should leave it offering fewer views, not failing to
+/// parse the set.
 /// </param>
 /// <param name="Columns">
 /// List views: the property keys to show, in order. Empty means the effective schema decides.
@@ -98,7 +100,8 @@ internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views, string?
 /// <param name="Id">Stable across renames.</param>
 /// <param name="Name">What a person sees.</param>
 /// <param name="Kind">
-/// One of <c>list</c>, <c>board</c>, <c>calendar</c>, <c>gallery</c>, <c>timeline</c>.
+/// One of the kinds <see cref="Nix.Domain.Views.ViewKinds.All"/> defines. See
+/// <see cref="ViewResponse"/> for why they are not listed here.
 /// </param>
 /// <param name="Columns">List views: the property keys to show.</param>
 /// <param name="GroupBy">Board views: the property to group by.</param>
