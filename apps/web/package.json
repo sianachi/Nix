@@ -17,6 +17,7 @@
     "@fontsource/nunito-sans": "^5.3.0",
     "@nix/design-tokens": "workspace:*",
     "@nix/editor-schema": "workspace:*",
+    "@nix/sheet": "workspace:*",
     "@nix/ui": "workspace:*",
     "@tiptap/core": "^3.29.0",
     "@tiptap/extension-bubble-menu": "^3.29.0",

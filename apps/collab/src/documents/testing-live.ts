@@ -30,7 +30,8 @@ export const SECOND_PRINCIPAL = 'c1000000-0000-4000-8000-000000000023';
 /**
  * Tokens double as behaviour selectors so multi-principal, read-only and body-kind tests
  * need no second issuer: 'as-second-principal' acts as another member, 'as-reader' may
- * not write, and 'as-canvas-author' opens the item as a canvas body.
+ * not write, 'as-canvas-author' opens the item as a canvas body, and 'as-sheet-author'
+ * opens it as a spreadsheet body.
  */
 export function authorizerFor(tenant: TestTenant): Authorizer {
   return {
@@ -40,17 +41,18 @@ export function authorizerFor(tenant: TestTenant): Authorizer {
         workspaceId: tenant.workspaceId,
         principalId: token === 'as-second-principal' ? SECOND_PRINCIPAL : tenant.principalId,
         canWrite: token !== 'as-reader',
-        bodyKind: token === 'as-canvas-author' ? 'canvas' : 'note',
+        bodyKind:
+          token === 'as-canvas-author'
+            ? 'canvas'
+            : token === 'as-sheet-author'
+              ? 'spreadsheet'
+              : 'note',
       }),
   };
 }
 
 /** Places one canvas element - the whole-element write the canvas contract expects. */
-export function placeElement(
-  doc: Y.Doc,
-  id: string,
-  overrides?: Record<string, unknown>,
-): void {
+export function placeElement(doc: Y.Doc, id: string, overrides?: Record<string, unknown>): void {
   doc.getMap('elements').set(id, {
     id,
     type: 'rectangle',
@@ -60,6 +62,11 @@ export function placeElement(
     y: 0,
     ...overrides,
   });
+}
+
+/** Writes one sheet cell - the shape the sheet contract expects. */
+export function placeCell(doc: Y.Doc, key: string, raw: string): void {
+  doc.getMap('sheet-cells').set(key, { raw });
 }
 
 /** Thresholds tightened so lifecycle transitions happen inside a test's patience. */
@@ -179,7 +186,10 @@ export function connectTestClient(
     socket.on('message', (data, isBinary) => {
       if (!isBinary) {
         resolve(
-          JSON.parse(Buffer.from(data as Buffer).toString('utf8')) as { docId: string; mode: string },
+          JSON.parse(Buffer.from(data as Buffer).toString('utf8')) as {
+            docId: string;
+            mode: string;
+          },
         );
       }
     });
@@ -322,7 +332,7 @@ export interface FakeSocketSession extends SocketSession {
 
 export function fakeSocketSession(
   tenant: TestTenant,
-  overrides?: { principalId?: string; mode?: 'write' | 'read' },
+  overrides?: { principalId?: string; mode?: 'write' | 'read'; bodyKind?: string },
 ): FakeSocketSession {
   const sent: Uint8Array[] = [];
   const closedWith: { code: number; reason: string }[] = [];
@@ -349,7 +359,7 @@ export function fakeSocketSession(
       workspaceId: tenant.workspaceId,
       principalId: overrides?.principalId ?? tenant.principalId,
       canWrite: overrides?.mode !== 'read',
-      bodyKind: 'note',
+      bodyKind: overrides?.bodyKind ?? 'note',
       subject: 'someone',
       tokenExpiresAt: null,
     },

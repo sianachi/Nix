@@ -1,0 +1,34 @@
+{
+  "name": "@nix/sheet",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Nix spreadsheet body: the cell document model and the formula engine, shared by the web editor and the collaboration service so both compute the same values",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "peerDependencies": {
+    "yjs": "^13.6.31"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4",
+    "yjs": "^13.6.31"
+  }
+}

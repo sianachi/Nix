@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@nix/editor-schema": "workspace:*",
+    "@nix/export": "workspace:*",
+    "@nix/sheet": "workspace:*",
     "@tiptap/pm": "^3.29.0",
     "fastify": "^5.10.0",
     "jose": "^6.2.4",

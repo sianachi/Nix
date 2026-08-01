@@ -80,6 +80,16 @@ export interface CollabSyncOptions {
   /** Reconnect backoff bounds, exposed for tests that should not wait real seconds. */
   readonly minRetryMs?: number;
   readonly maxRetryMs?: number;
+
+  /**
+   * Every notice the server sends, not only the `read_only` one this module already acts
+   * on. A refused update carries a code (`document_too_many_nodes`, `document_too_large`,
+   * `document_does_not_parse`, `rate_limited`) that `SyncState`'s six values have no room
+   * for - they describe the connection, not one refused edit - so a caller that needs to
+   * say something more specific than "saving locally" reads it here instead. Optional
+   * because most editors have nothing more specific to say.
+   */
+  readonly onNotice?: (notice: { code: string; detail: string }) => void;
 }
 
 export interface CollabSync {
@@ -101,6 +111,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     doc,
     getAccessToken,
     onState,
+    onNotice,
     baseUrl = DEFAULT_BASE_URL,
     minRetryMs = 1_000,
     maxRetryMs = 30_000,
@@ -312,12 +323,18 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         return;
       }
       case MESSAGE_NOTICE: {
-        const notice = JSON.parse(decoding.readVarString(decoder)) as { code?: string };
+        const notice = JSON.parse(decoding.readVarString(decoder)) as {
+          code?: string;
+          detail?: string;
+        };
         if (notice.code === 'read_only') {
           // The server stopped accepting this session's writes - a revoked grant, told
           // honestly instead of silently dropping edits.
           mode = 'read';
           report();
+        }
+        if (typeof notice.code === 'string') {
+          onNotice?.({ code: notice.code, detail: notice.detail ?? '' });
         }
         return;
       }

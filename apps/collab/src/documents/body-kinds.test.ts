@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { describe, expect, it } from 'vitest';
 
-import { canvasStrategy, noteStrategy, strategyFor } from './body-kinds.ts';
+import { canvasStrategy, noteStrategy, sheetStrategy, strategyFor } from './body-kinds.ts';
 import { judgeCandidate } from './session.ts';
 
 /**
@@ -25,10 +25,20 @@ function element(id: string, overrides?: Record<string, unknown>): Record<string
   return { id, type: 'rectangle', version: 1, versionNonce: 7, x: 0, y: 0, ...overrides };
 }
 
+function sheetDocWith(cells: Record<string, string>): Y.Doc {
+  const doc = new Y.Doc();
+  const map = doc.getMap('sheet-cells');
+  for (const [key, raw] of Object.entries(cells)) {
+    map.set(key, { raw });
+  }
+  return doc;
+}
+
 describe('body-kind dispatch', () => {
-  it('answers prose for a note, a scene for a canvas, and prose for anything unheard of', () => {
+  it('answers prose for a note, a scene for a canvas, cells for a spreadsheet, and prose for anything unheard of', () => {
     expect(strategyFor('note')).toBe(noteStrategy);
     expect(strategyFor('canvas')).toBe(canvasStrategy);
+    expect(strategyFor('spreadsheet')).toBe(sheetStrategy);
     // The open set: a kind minted after this build behaves as every body behaved before
     // kinds were dispatched at all, instead of being refused for its novelty.
     expect(strategyFor('whiteboard-2029')).toBe(noteStrategy);
@@ -123,6 +133,100 @@ describe('body-kind dispatch', () => {
       json: { elements: {} },
       plaintext: '',
     });
+    doc.destroy();
+  });
+
+  it('accepts a well-formed sheet and measures it in cells', () => {
+    const doc = sheetDocWith({ A1: '1', B1: '=A1*2', A2: 'label' });
+
+    expect(sheetStrategy.measure(doc)).toMatchObject({ nodes: 3 });
+    doc.destroy();
+  });
+
+  it('refuses a cell map that is not a sheet at all', () => {
+    const notASheet = sheetDocWith({ 'not-a-cell-address': '1' });
+
+    expect(sheetStrategy.measure(notASheet)).toBeNull();
+    notASheet.destroy();
+  });
+
+  it('refuses a sheet it cannot evaluate within its op budget, the same as malformed content', () => {
+    const doc = new Y.Doc();
+    // A single formula whose range evaluation alone spends more than the op budget - each
+    // cell a SUM range touches costs one op, and this range touches millions.
+    doc.getMap('sheet-cells').set('A1', { raw: '=SUM(A2:ZZ9999)' });
+
+    // Structurally sound, but the strategy still says null: a sheet this build cannot
+    // finish evaluating is as unopenable as one it cannot parse.
+    expect(sheetStrategy.measure(doc)).toBeNull();
+    doc.destroy();
+  });
+
+  it('accepts a sheet whose formulas merely error, because errors are values', () => {
+    const doc = sheetDocWith({ A1: '=1/0', B1: '=A1' });
+
+    expect(sheetStrategy.measure(doc)).not.toBeNull();
+    doc.destroy();
+  });
+
+  it('judges a sheet update by the sheet rules, not the prose ones', () => {
+    const resident = sheetDocWith({ A1: '1' });
+
+    const editor = new Y.Doc();
+    Y.applyUpdate(editor, Y.encodeStateAsUpdate(resident));
+    editor.getMap('sheet-cells').set('B1', { raw: '=A1*2' });
+    const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
+
+    expect(judgeCandidate(resident, goodUpdate, sheetStrategy)).toEqual({ ok: true });
+    // The same update judged as prose would be refused: the map is not a fragment. That
+    // asymmetry is the whole reason dispatch exists.
+    expect(judgeCandidate(resident, goodUpdate, noteStrategy)).toMatchObject({
+      ok: false,
+      refusal: { code: 'document_does_not_parse' },
+    });
+
+    resident.destroy();
+    editor.destroy();
+  });
+
+  it('enforces the cell ceiling with the same growth rule prose gets', () => {
+    const resident = sheetDocWith({ A1: '1', A2: '2', A3: '3' });
+    const ceiling = { nodes: 2, bytes: sheetStrategy.ceilings.bytes };
+
+    const grower = new Y.Doc();
+    Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
+    grower.getMap('sheet-cells').set('A4', { raw: '4' });
+    const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
+    expect(judgeCandidate(resident, growth, sheetStrategy, ceiling)).toMatchObject({
+      ok: false,
+      refusal: { code: 'document_too_many_nodes' },
+    });
+
+    const shrinker = new Y.Doc();
+    Y.applyUpdate(shrinker, Y.encodeStateAsUpdate(resident));
+    shrinker.getMap('sheet-cells').delete('A1');
+    const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
+    expect(judgeCandidate(resident, shrinkage, sheetStrategy, ceiling)).toEqual({ ok: true });
+
+    resident.destroy();
+    grower.destroy();
+    shrinker.destroy();
+  });
+
+  it('materialises evaluated values as plaintext and raw cells as json', () => {
+    const doc = sheetDocWith({ A1: '2', B1: '=A1*3' });
+
+    const materialized = sheetStrategy.materialize(doc);
+
+    expect(materialized.json).toMatchObject({ body: 'sheet', cells: { A1: '2', B1: '=A1*3' } });
+    expect(materialized.plaintext).toBe('2\t6');
+    doc.destroy();
+  });
+
+  it('materialises an empty or absent sheet as empty, not a failure', () => {
+    const doc = new Y.Doc();
+
+    expect(sheetStrategy.materialize(doc)).toMatchObject({ json: { cells: {} }, plaintext: '' });
     doc.destroy();
   });
 });

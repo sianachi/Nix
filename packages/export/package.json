@@ -1,0 +1,34 @@
+{
+  "name": "@nix/export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Nix archive format: the item bundle every exporter reads and the .nix writer that packages it",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@nix/editor-schema": "workspace:*",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

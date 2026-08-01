@@ -1,5 +1,13 @@
 import { Button, Icon, Text } from '@nix/ui';
-import { ChevronDown, ChevronRight, FilePlus, FileText, Shapes, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FilePlus,
+  FileText,
+  Grid3x3,
+  Shapes,
+  Trash2,
+} from 'lucide-react';
 import {
   useState,
   type DragEvent,
@@ -116,6 +124,18 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         >
           <Icon icon={Shapes} size="sm" />
           Canvas
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-1.5 py-1 text-xs"
+          aria-label={`New spreadsheet in ${destinationName}`}
+          onClick={() => {
+            void create('Untitled spreadsheet', 'spreadsheet');
+          }}
+          disabled={tree.status !== 'ready' || tree.isCreating}
+        >
+          <Icon icon={Grid3x3} size="sm" />
+          Sheet
         </Button>
       </div>
 

@@ -36,7 +36,7 @@ export const itemTypeSchema = z.string();
  * and that claim is no longer any item's to make. `file` and `task` went with it as things that
  * were listed here and created nowhere - MVP-6 brings files back when there is a body to draw.
  */
-export const KNOWN_ITEM_TYPES = ['note', 'canvas'] as const;
+export const KNOWN_ITEM_TYPES = ['note', 'canvas', 'spreadsheet'] as const;
 export type KnownItemType = (typeof KNOWN_ITEM_TYPES)[number];
 
 /** Where an item sits in the deletion lifecycle. Open for the same reason as the kind. */

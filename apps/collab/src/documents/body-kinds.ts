@@ -1,4 +1,11 @@
 import { countNodes, nixSchema } from '@nix/editor-schema';
+import {
+  SHEET_ITEM_TYPE,
+  SHEET_LIMITS,
+  checkSheetDocument,
+  readCells,
+  sheetSnapshot,
+} from '@nix/sheet';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import type * as Y from 'yjs';
@@ -74,8 +81,7 @@ export const noteStrategy: BodyKindStrategy = {
     const document = readProse(state);
     return {
       json: document?.toJSON() ?? null,
-      plaintext:
-        document === null ? '' : document.textBetween(0, document.content.size, '\n', ' '),
+      plaintext: document === null ? '' : document.textBetween(0, document.content.size, '\n', ' '),
     };
   },
 };
@@ -119,6 +125,42 @@ export const canvasStrategy: BodyKindStrategy = {
 };
 
 /**
+ * Sheet: a cell grid in a shared map, validated and evaluated by `@nix/sheet` - the same
+ * engine the editor runs, so the value a client computed is the value the server checks.
+ *
+ * `measure` folds two failure modes into one null the way the other strategies do:
+ * a structurally broken cell map, and cell content this build cannot finish evaluating
+ * within its op budget. Both mean the merge would produce a document that cannot be
+ * opened back up as a sheet - either literally, or because reopening it would spend the
+ * same unbounded time computing it that got it refused here. The cell-count ceiling
+ * itself is left to `judgeCandidate`'s shared over-ceiling handling (§17), matching
+ * prose and canvas, rather than being enforced twice - `checkSheetDocument` is asked
+ * with an unbounded cell count on purpose, so its own bound never doubles up with
+ * `ceilings.nodes` below and produce a mismatched refusal for a document that grew.
+ */
+const SHEET_STRUCTURAL_LIMITS = { ...SHEET_LIMITS, maxCells: Number.MAX_SAFE_INTEGER };
+
+export const sheetStrategy: BodyKindStrategy = {
+  kind: SHEET_ITEM_TYPE,
+  ceilings: { nodes: SHEET_LIMITS.maxCells, bytes: LIMITS.documentBytes },
+
+  measure(state: Y.Doc): { nodes: number; bytes: number } | null {
+    if (checkSheetDocument(state, SHEET_STRUCTURAL_LIMITS) !== null) {
+      return null;
+    }
+    const cells = readCells(state);
+    return {
+      nodes: cells.size,
+      bytes: Buffer.byteLength(JSON.stringify(Object.fromEntries(cells))),
+    };
+  },
+
+  materialize(state: Y.Doc): { json: unknown; plaintext: string } {
+    return sheetSnapshot(state);
+  },
+};
+
+/**
  * Picks the strategy for a body kind, falling back to prose for kinds this build has
  * never heard of.
  *
@@ -128,7 +170,13 @@ export const canvasStrategy: BodyKindStrategy = {
  * adding a kind is a feature, not a fork in what existing documents are allowed to do.
  */
 export function strategyFor(bodyKind: string): BodyKindStrategy {
-  return bodyKind === canvasStrategy.kind ? canvasStrategy : noteStrategy;
+  if (bodyKind === canvasStrategy.kind) {
+    return canvasStrategy;
+  }
+  if (bodyKind === sheetStrategy.kind) {
+    return sheetStrategy;
+  }
+  return noteStrategy;
 }
 
 function readProse(state: Y.Doc): ProseMirrorNode | null {

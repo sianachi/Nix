@@ -1,11 +1,21 @@
 import { Button, Icon, focusRing } from '@nix/ui';
 import { Settings2 } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { paneClip, paneColumn, paneScroller } from '../app/layout';
 import { NoteEditor } from '../editor/note-editor';
+import { SheetEditor } from '../sheet/sheet-editor';
 
 // Loaded at the moment somebody opens a canvas, not before: Excalidraw and its styles are
 // the single largest thing the editor can pull in, and a workspace of notes never needs it.
@@ -184,6 +194,8 @@ function OpenItem({ tree, itemId, title, bodyKind, onOpen }: OpenItemProps): Rea
               >
                 <CanvasEditor itemId={itemId} />
               </Suspense>
+            ) : bodyKind === 'spreadsheet' ? (
+              <SheetEditor itemId={itemId} />
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
