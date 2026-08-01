@@ -194,6 +194,10 @@ export function connectTestClient(
       }
     });
   });
+  // A test that only asserts on the socket's close event (the read-only and
+  // schema-rejection cases below) never awaits `ready` itself. The `await ready` below
+  // is what observes its rejection; this second handler is belt-and-braces for any future
+  // caller that reads `ready` some other way without awaiting it inline.
   ready.catch(() => undefined);
 
   socket.on('open', () => {
@@ -201,13 +205,22 @@ export function connectTestClient(
   });
 
   // Both sides open with sync step 1, exactly as y-websocket does: the server's step 1
-  // pulls the client's edits, and this one pulls the server's.
-  void ready.then(() => {
+  // pulls the client's edits, and this one pulls the server's. Awaiting `ready` inline
+  // and returning on its rejection keeps a "closed before ready" local to this function
+  // instead of escaping as an unhandled rejection on a derived promise (a bare
+  // `void ready.then(onFulfilled)` has no `onRejected`, so it used to leak); a genuine
+  // throw from the encode/send below still propagates, same as before.
+  void (async () => {
+    try {
+      await ready;
+    } catch {
+      return;
+    }
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, doc);
     socket.send(encoding.toUint8Array(encoder));
-  });
+  })();
 
   socket.on('message', (data, isBinary) => {
     if (!isBinary) {
