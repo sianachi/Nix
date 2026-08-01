@@ -57,6 +57,7 @@ function itemOf(id: string, title: string, properties: Record<string, unknown>):
     parentId: 'folder-1',
     type: 'note',
     title,
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties,

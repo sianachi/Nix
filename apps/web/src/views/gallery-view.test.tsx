@@ -44,6 +44,7 @@ function itemOf(overrides: Partial<Item> & { id: string; title: string }): Item 
     workspaceId: 'a1000000-0000-4000-8000-000000000001',
     parentId: 'c1000000-0000-4000-8000-000000000001',
     type: 'note',
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties: {},

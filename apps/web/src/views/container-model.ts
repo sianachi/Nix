@@ -1,3 +1,4 @@
+import { itemSchema, type Item } from '@nix/api-client';
 import type {
   ContainerViewsContract,
   EffectiveSchemaContract,
@@ -160,20 +161,20 @@ export const UNSET_VALUE = '';
 /** What the absence of a value is called, wherever it is offered. */
 export const UNSET_LABEL = 'Unset';
 
-export const ItemSchema = z.object({
-  id: z.string(),
-  workspaceId: z.string(),
-  parentId: z.string().nullable(),
-  type: z.string(),
-  title: z.string(),
-  seq: z.number(),
-  lifecycleState: z.string(),
-  properties: z.record(z.string(), z.unknown()),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export type Item = z.infer<typeof ItemSchema>;
+/**
+ * The item shape every view reads through.
+ *
+ * Re-exported from `@nix/api-client` rather than re-declared here: this file used to carry its own
+ * hand-rolled copy of the item schema, and it had drifted from the contract in two ways - it was
+ * missing `hasChildren`, and it typed `seq` as `z.number()` where the contract says `number |
+ * string`, because `seq` is a 64-bit sibling position that cannot survive a round trip through a
+ * JavaScript number once it exceeds `Number.MAX_SAFE_INTEGER`. A silently rounded sort order is the
+ * kind of bug that only shows up once a workspace is old enough for it to matter. `itemSchema`
+ * already carries the `satisfies` tie to the generated contract, so re-using it here means this file
+ * cannot drift from it again.
+ */
+export { itemSchema as ItemSchema };
+export type { Item };
 
 /**
  * Reads one property value off an item, as text.
@@ -254,6 +255,21 @@ export function applyFilters(
 }
 
 /**
+ * Compares two sibling positions.
+ *
+ * `seq` is a 64-bit integer that the contract types as `number | string`: Core sends it as a plain
+ * number while it fits in a JavaScript-safe integer and switches to a string once it would not, so
+ * ordinary subtraction is wrong the moment a workspace has been reordered enough for that to happen
+ * - `Number(seq) - Number(seq)` would silently round both operands to the same value. Comparing as
+ * `bigint` is exact at any magnitude either representation can carry.
+ */
+function compareSeq(left: Item['seq'], right: Item['seq']): number {
+  const a = BigInt(left);
+  const b = BigInt(right);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
  * Sorts items by a property, or by sibling order when no property is named.
  *
  * Sibling order is the default because it is the order somebody arranged by hand, and replacing
@@ -267,7 +283,7 @@ export function sortItems(
   const sorted = [...items];
 
   if (sortBy === null) {
-    sorted.sort((left, right) => left.seq - right.seq);
+    sorted.sort((left, right) => compareSeq(left.seq, right.seq));
     return sorted;
   }
 

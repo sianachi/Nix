@@ -24,6 +24,7 @@ function itemOf(properties: Record<string, unknown>, overrides: Partial<Item> = 
     parentId: null,
     type: 'note',
     title: 'Untitled',
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties,
@@ -197,5 +198,49 @@ describe('sorting', () => {
     sortItems(items, null, false);
 
     expect(items.map((item) => item.id)).toEqual(['b', 'a']);
+  });
+
+  it('sorts string seqs that differ only past Number.MAX_SAFE_INTEGER correctly', () => {
+    // Number(seq) - Number(seq) rounds both of these to the same double and would report them
+    // equal (or order them by luck of comparator stability), which is exactly the bug bigint
+    // comparison exists to avoid.
+    const items = [
+      itemOf({}, { id: 'higher', seq: '9007199254740993' }),
+      itemOf({}, { id: 'lower', seq: '9007199254740992' }),
+    ];
+
+    expect(sortItems(items, null, false).map((item) => item.id)).toEqual(['lower', 'higher']);
+  });
+
+  it('sorts a mixed number and string seq pair correctly', () => {
+    const items = [
+      itemOf({}, { id: 'string', seq: '2000' }),
+      itemOf({}, { id: 'number', seq: 1000 }),
+    ];
+
+    expect(sortItems(items, null, false).map((item) => item.id)).toEqual(['number', 'string']);
+  });
+
+  it('preserves input order for equal seqs', () => {
+    const items = [
+      itemOf({}, { id: 'first', seq: 1000 }),
+      itemOf({}, { id: 'second', seq: 1000 }),
+      itemOf({}, { id: 'third', seq: 1000 }),
+    ];
+
+    expect(sortItems(items, null, false).map((item) => item.id)).toEqual([
+      'first',
+      'second',
+      'third',
+    ]);
+  });
+
+  it('sorts a negative seq before a positive one', () => {
+    const items = [
+      itemOf({}, { id: 'positive', seq: 1000 }),
+      itemOf({}, { id: 'negative', seq: -1000 }),
+    ];
+
+    expect(sortItems(items, null, false).map((item) => item.id)).toEqual(['negative', 'positive']);
   });
 });

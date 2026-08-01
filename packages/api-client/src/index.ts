@@ -94,6 +94,7 @@ export type { CursorPage, Item, KnownItemType, ProblemDetails } from './schemas/
  */
 export type {
   ContainerViewsContract,
+  CurrentPrincipalContract,
   EffectiveSchemaContract,
   PropertyDefinitionContract,
   ViewContract,
