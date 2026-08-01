@@ -94,7 +94,10 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
 
     client.sendRaw(updateFrame(new Uint8Array([0xff, 0xfe, 0xfd, 0x00, 0x01])));
 
-    await until(() => client.notices.some((notice) => notice.code === 'update_unreadable'), 'the notice');
+    await until(
+      () => client.notices.some((notice) => notice.code === 'update_unreadable'),
+      'the notice',
+    );
     expect(client.socket.readyState).toBe(WebSocket.OPEN);
     expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(0);
   });
@@ -106,7 +109,10 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
 
     client.sendRaw(updateFrame(new Uint8Array(LIMITS.updateBytes + 1)));
 
-    await until(() => client.notices.some((notice) => notice.code === 'update_too_large'), 'the notice');
+    await until(
+      () => client.notices.some((notice) => notice.code === 'update_too_large'),
+      'the notice',
+    );
     expect(client.socket.readyState).toBe(WebSocket.OPEN);
     expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(0);
   });
@@ -146,7 +152,10 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     // And the resident document never absorbed it: a witness's honest edit flushes to
     // the log, the refused one does not, and neither doc carries the refused node.
     typeParagraph(witness.doc, 'Still speaking prose.');
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0, 'the witness flush');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0,
+      'the witness flush',
+    );
     expect(textOf(witness.doc)).not.toContain('no-such-node-kind');
     expect(textOf(writer.doc)).not.toContain('no-such-node-kind');
   });
@@ -173,7 +182,13 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
 
       const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
       const docRow = await withTenantScope(pool, scope, (sql) =>
-        openDocument(sql, scope.tenantId, TENANTS.alpha.itemId, TENANTS.alpha.workspaceId, () => TENANTS.alpha.docId),
+        openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => TENANTS.alpha.docId,
+        ),
       );
       if (docRow === null) {
         throw new Error('The seeded item has no document body.');
@@ -207,9 +222,7 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
         }
       }
 
-      expect(socket.closedWith).toContainEqual(
-        expect.objectContaining({ code: 4429 }) as unknown,
-      );
+      expect(socket.closedWith).toContainEqual(expect.objectContaining({ code: 4429 }) as unknown);
 
       session.detach(socket);
       await session.drain();

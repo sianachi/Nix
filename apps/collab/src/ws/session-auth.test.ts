@@ -19,10 +19,11 @@ const GRANTED: ItemAuthorization = {
   bodyKind: 'note',
 };
 
-function counting(overrides?: {
-  expiresAt?: number | null;
-  authorize?: Authorizer['authorize'];
-}): { tokens: TokenValidator; authorizer: Authorizer; calls: { validated: number; authorized: number } } {
+function counting(overrides?: { expiresAt?: number | null; authorize?: Authorizer['authorize'] }): {
+  tokens: TokenValidator;
+  authorizer: Authorizer;
+  calls: { validated: number; authorized: number };
+} {
   const calls = { validated: 0, authorized: 0 };
   return {
     calls,
@@ -47,7 +48,12 @@ describe('session authentication', () => {
   it('answers from the cache within its lifetime, so a session does not cost a round trip per ask', async () => {
     let at = 1_000;
     const { tokens, authorizer, calls } = counting();
-    const sessions = createSessionAuthenticator({ tokens, authorizer, cacheTtlMs: 500, now: () => at });
+    const sessions = createSessionAuthenticator({
+      tokens,
+      authorizer,
+      cacheTtlMs: 500,
+      now: () => at,
+    });
 
     await sessions.authenticate('token', ITEM);
     at += 400;
@@ -60,7 +66,12 @@ describe('session authentication', () => {
   it('asks again once the cache entry has aged out', async () => {
     let at = 1_000;
     const { tokens, authorizer, calls } = counting();
-    const sessions = createSessionAuthenticator({ tokens, authorizer, cacheTtlMs: 500, now: () => at });
+    const sessions = createSessionAuthenticator({
+      tokens,
+      authorizer,
+      cacheTtlMs: 500,
+      now: () => at,
+    });
 
     await sessions.authenticate('token', ITEM);
     at += 501;
@@ -141,7 +152,12 @@ describe('session authentication', () => {
   it('sweeps expired entries so the cache is a cache and not a leak', async () => {
     let at = 1_000;
     const { tokens, authorizer } = counting();
-    const sessions = createSessionAuthenticator({ tokens, authorizer, cacheTtlMs: 500, now: () => at });
+    const sessions = createSessionAuthenticator({
+      tokens,
+      authorizer,
+      cacheTtlMs: 500,
+      now: () => at,
+    });
 
     await sessions.authenticate('token-one', ITEM);
     await sessions.authenticate('token-two', ITEM);

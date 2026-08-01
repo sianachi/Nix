@@ -99,7 +99,10 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     typeParagraph(alice.doc, 'Two.');
     typeParagraph(alice.doc, 'Three.');
 
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0, 'the flush to land');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0,
+      'the flush to land',
+    );
 
     const { rows } = await verifyPool.query<{ head_seq: string; count: string }>(
       `SELECT d.head_seq::text AS head_seq,
@@ -122,9 +125,15 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     await Promise.all([first.ready, second.ready]);
 
     typeParagraph(first.doc, 'Signed by the first.');
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1, 'the first flush');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the first flush',
+    );
     typeParagraph(second.doc, 'Signed by the second.');
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 2, 'the second flush');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 2,
+      'the second flush',
+    );
 
     const { rows } = await verifyPool.query<{ actor_id: string }>(
       `SELECT DISTINCT u.actor_id
@@ -143,7 +152,10 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     await alice.ready;
 
     typeParagraph(alice.doc, 'Written before the crash.');
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0, 'the flush to land');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0,
+      'the flush to land',
+    );
     alice.close();
 
     const successor = open(harness.url, TENANTS.alpha.itemId);
@@ -165,7 +177,10 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     for (let index = 0; index < 6; index += 1) {
       typeParagraph(alice.doc, `Paragraph ${String(index)}.`);
     }
-    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 6, 'the flush to land');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 6,
+      'the flush to land',
+    );
     alice.close();
 
     await until(() => harness.registry.size === 0, 'the idle sweep to evict');
@@ -189,7 +204,13 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     try {
       const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
       const docRow = await withTenantScope(pool, scope, (sql) =>
-        openDocument(sql, scope.tenantId, TENANTS.alpha.itemId, TENANTS.alpha.workspaceId, () => TENANTS.alpha.docId),
+        openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => TENANTS.alpha.docId,
+        ),
       );
       if (docRow === null) {
         throw new Error('The seeded item has no document body.');
@@ -343,5 +364,4 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
 
     expect(await countUpdates(verifyPool, TENANTS.alpha)).toBeGreaterThan(0);
   });
-
 });

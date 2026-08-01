@@ -175,7 +175,10 @@ export function createDocumentRegistry(deps: {
       }
     })();
 
-    loading.set(socket.itemId, load.catch(() => null));
+    loading.set(
+      socket.itemId,
+      load.catch(() => null),
+    );
     try {
       const session = await load;
       if (session === null) {
@@ -221,7 +224,11 @@ export function createDocumentRegistry(deps: {
 
       acquired.attach(socket);
       publishGauges();
-      return { ok: true, docId: acquired.docRow.doc_id, schemaVersion: acquired.docRow.schema_version };
+      return {
+        ok: true,
+        docId: acquired.docRow.doc_id,
+        schemaVersion: acquired.docRow.schema_version,
+      };
     },
 
     ready(socket: SocketSession): void {

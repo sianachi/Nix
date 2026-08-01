@@ -69,7 +69,8 @@ export interface WebSocketOptions {
   readonly metrics?: CollabMetrics | undefined;
 }
 
-const WS_PATH = /^\/documents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/ws$/i;
+const WS_PATH =
+  /^\/documents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/ws$/i;
 
 /**
  * Attaches the WebSocket endpoint to an HTTP server: `GET /documents/:itemId/ws`, upgraded.

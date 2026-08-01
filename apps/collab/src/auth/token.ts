@@ -81,7 +81,10 @@ export function createTokenValidator(options: {
         });
 
         return typeof payload.sub === 'string' && payload.sub.length > 0
-          ? { subject: payload.sub, expiresAt: payload.exp === undefined ? null : payload.exp * 1000 }
+          ? {
+              subject: payload.sub,
+              expiresAt: payload.exp === undefined ? null : payload.exp * 1000,
+            }
           : null;
       } catch {
         // Deliberately opaque to the caller. Which of expiry, signature, audience or issuer

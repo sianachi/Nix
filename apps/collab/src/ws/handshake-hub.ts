@@ -14,10 +14,7 @@ import type { JoinResult, SessionHub, SocketSession } from './server.ts';
  * client refused here for a schema mismatch is refused for exactly the reason, and with
  * exactly the code, the full lifecycle will refuse it with.
  */
-export function createHandshakeHub(deps: {
-  pool: Pool;
-  newDocId: () => string;
-}): SessionHub {
+export function createHandshakeHub(deps: { pool: Pool; newDocId: () => string }): SessionHub {
   return {
     async join(session: SocketSession): Promise<JoinResult> {
       const { authorization } = session;
