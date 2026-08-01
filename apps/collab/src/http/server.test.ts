@@ -36,10 +36,9 @@ function server(overrides: { tokens?: TokenValidator; authorizer?: Authorizer; p
   return createServer({
     pool: overrides.pool ?? refusingPool,
     sessions: createSessionAuthenticator({
-      tokens:
-        overrides.tokens ?? {
-          validate: () => Promise.resolve({ subject: 'subject', expiresAt: null }),
-        },
+      tokens: overrides.tokens ?? {
+        validate: () => Promise.resolve({ subject: 'subject', expiresAt: null }),
+      },
       authorizer: overrides.authorizer ?? { authorize: () => Promise.resolve(null) },
     }),
     snapshotEvery: 0,

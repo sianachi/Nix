@@ -75,7 +75,11 @@ export function PresenceList({ awareness }: PresenceListProps): ReactNode {
           key={peer.clientId}
           title={peer.name}
           aria-label={peer.name}
-          style={{ borderColor: peer.color } /* design-token-exempt: the color is this peer's cursor identity, resolved from the accent ramp tokens at runtime; a class cannot vary per collaborator. */}
+          style={
+            {
+              borderColor: peer.color,
+            } /* design-token-exempt: the color is this peer's cursor identity, resolved from the accent ramp tokens at runtime; a class cannot vary per collaborator. */
+          }
           className="flex h-6 w-6 items-center justify-center rounded-sm border-2 bg-surface text-xs font-semibold"
         >
           {initialsOf(peer.name)}

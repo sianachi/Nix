@@ -59,16 +59,13 @@ describe('configuration', () => {
     'NIX_COLLAB_OIDC_ISSUER',
     'NIX_COLLAB_OIDC_AUDIENCE',
     'NIX_COLLAB_INTERNAL_SECRET',
-  ])(
-    'refuses to start without %s',
-    (key) => {
-      const env = { ...base, [key]: '' };
+  ])('refuses to start without %s', (key) => {
+    const env = { ...base, [key]: '' };
 
-      // Fail-fast rather than lazily: a process that starts happily and refuses every request
-      // when somebody finally opens a document is harder to diagnose than one that never starts.
-      expect(() => readConfig(env)).toThrow(key);
-    },
-  );
+    // Fail-fast rather than lazily: a process that starts happily and refuses every request
+    // when somebody finally opens a document is harder to diagnose than one that never starts.
+    expect(() => readConfig(env)).toThrow(key);
+  });
 
   it.each(FORBIDDEN_DATABASE_ROLES)('refuses to connect as %s', (role) => {
     expect(() => {

@@ -215,7 +215,9 @@ export async function appendUpdates(
     const seqParam = parameters.push((firstSeq + BigInt(index)).toString());
     const bytesParam = parameters.push(Buffer.from(update.bytes));
     const clientParam = parameters.push(update.clientId);
-    values.push(`($1, $${String(seqParam)}, $2, $${String(bytesParam)}, $3, $${String(clientParam)}, now())`);
+    values.push(
+      `($1, $${String(seqParam)}, $2, $${String(bytesParam)}, $3, $${String(clientParam)}, now())`,
+    );
   }
 
   await sql.query(

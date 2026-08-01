@@ -67,8 +67,7 @@ describe.runIf(DB_TESTS_ENABLED)('a canvas body through the live server', () => 
 
     await until(
       () =>
-        partner.doc.getMap('elements').has('rect-1') &&
-        drawer.doc.getMap('elements').has('rect-2'),
+        partner.doc.getMap('elements').has('rect-1') && drawer.doc.getMap('elements').has('rect-2'),
       'both scenes to converge',
     );
   });

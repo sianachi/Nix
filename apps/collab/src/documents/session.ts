@@ -10,7 +10,13 @@ import * as Y from 'yjs';
 import { appendUpdates, type ContentDocRow } from '../db/documents.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
-import { MESSAGE_AWARENESS, MESSAGE_SYNC, CLOSE_CODES, encodeNotice, readBinaryFrame } from '../ws/protocol.ts';
+import {
+  MESSAGE_AWARENESS,
+  MESSAGE_SYNC,
+  CLOSE_CODES,
+  encodeNotice,
+  readBinaryFrame,
+} from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
 import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
@@ -288,10 +294,7 @@ export class DocumentSession {
     // Everything below carries writes, and every §17 row is checked before the resident
     // document is touched - a refused update leaves no trace to roll back.
     if (socket.mode !== 'write') {
-      this.#refuse(
-        socket,
-        rejection('read_only', 'You may read this document but not change it.'),
-      );
+      this.#refuse(socket, rejection('read_only', 'You may read this document but not change it.'));
       return;
     }
 
@@ -714,8 +717,7 @@ export function judgeCandidate(
 
   if (after.nodes > ceilings.nodes || after.bytes > ceilings.bytes) {
     const before = strategy.measure(resident);
-    const grew =
-      before === null || after.nodes > before.nodes || after.bytes > before.bytes;
+    const grew = before === null || after.nodes > before.nodes || after.bytes > before.bytes;
 
     if (grew) {
       return {

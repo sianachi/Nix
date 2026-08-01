@@ -7,7 +7,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Authorizer, ItemAuthorization } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
 import { MESSAGE_NOTICE, CLOSE_CODES } from './protocol.ts';
-import { attachWebSocketServer, type JoinResult, type SessionHub, type SocketSession } from './server.ts';
+import {
+  attachWebSocketServer,
+  type JoinResult,
+  type SessionHub,
+  type SocketSession,
+} from './server.ts';
 import { createSessionAuthenticator } from './session-auth.ts';
 
 /**
@@ -40,7 +45,11 @@ function acceptingHub(): SessionHub & { joined: SocketSession[]; messages: Uint8
     messages,
     join(session: SocketSession): Promise<JoinResult> {
       joined.push(session);
-      return Promise.resolve({ ok: true, docId: 'd1000000-0000-4000-8000-000000000041', schemaVersion: 1 });
+      return Promise.resolve({
+        ok: true,
+        docId: 'd1000000-0000-4000-8000-000000000041',
+        schemaVersion: 1,
+      });
     },
     handleMessage(_session, data): void {
       messages.push(data);
@@ -213,7 +222,10 @@ describe('the websocket handshake', () => {
       socket.send(authFrame('the-user-token'));
     });
 
-    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<string, unknown>;
+    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
 
     expect(forwarded).toEqual(['the-user-token']);
     expect(ready).toMatchObject({
@@ -234,7 +246,10 @@ describe('the websocket handshake', () => {
       socket.send(authFrame('valid'));
     });
 
-    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<string, unknown>;
+    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
 
     expect(ready).toMatchObject({ mode: 'read' });
   });
