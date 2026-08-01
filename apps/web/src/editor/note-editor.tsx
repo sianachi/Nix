@@ -126,14 +126,17 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
 
-  // One document per item, created once. Rebuilding it on a render would discard everything typed
-  // since the last one.
-  const doc = useMemo(() => new Y.Doc(), []);
+  // One document per item, created exactly once via useState's lazy initializer - unlike
+  // useMemo, which is only a performance hint React is free to discard and recompute,
+  // useState's initial value truly runs once per mount. Rebuilding the document on a render
+  // would discard everything typed since the last one.
+  const [doc] = useState(() => new Y.Doc());
   const fragment = useMemo(() => doc.getXmlFragment(FRAGMENT_NAME), [doc]);
 
   // Presence lives with the document, not the connection: the cursor plugin needs it at
-  // plugin-registration time, before any socket exists, and it survives reconnects.
-  const awareness = useMemo(() => new Awareness(doc), [doc]);
+  // plugin-registration time, before any socket exists, and it survives reconnects. Same
+  // reasoning as `doc` above: constructed with useState so it is guaranteed to happen once.
+  const [awareness] = useState(() => new Awareness(doc));
 
   const editor = useEditor(
     {
