@@ -68,6 +68,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The frontend half of the contract seam. ci-backend.yml proves
+      # backend/openapi/nix-api.json matches the code that produces it; this
+      # proves packages/api-client/src/generated matches that contract. Without
+      # both halves a contract change can land with a stale client and only be
+      # found by whoever next runs the generator by hand.
+      #
+      # Runs before lint and typecheck on purpose. Steps in a job are sequential
+      # and a failed step ends the job, so a gate placed after `pnpm lint` would
+      # not run at all while lint is red - and it is red on main today. The gate
+      # would be dead on arrival rather than merely late. Independently: a stale
+      # client usually surfaces downstream as a confusing type error in apps/web,
+      # and the first red step is the one people read.
+      #
+      # Deterministic because pnpm install --frozen-lockfile pins both
+      # openapi-typescript and the prettier the generator pipes through to the
+      # lockfile's exact versions, so the bytes here match the bytes a
+      # contributor gets locally.
+      - name: Generated API client is current with the OpenAPI contract
+        run: |
+          pnpm --filter @nix/api-client generate
+          # git status --porcelain, not git diff --quiet: diff is blind to
+          # untracked files, so a generator that grew a second output artifact
+          # would pass a diff-only check silently. Porcelain sees modified,
+          # deleted and untracked alike.
+          if [ -n "$(git status --porcelain -- packages/api-client/src/generated)" ]; then
+            echo "::error title=Generated API client is stale::packages/api-client/src/generated does not match backend/openapi/nix-api.json. Run 'pnpm --filter @nix/api-client generate' and commit the result."
+            echo
+            echo "The typed client is generated from backend/openapi/nix-api.json and must be"
+            echo "committed alongside any change to it. To fix, from the repository root:"
+            echo
+            echo "    pnpm --filter @nix/api-client generate"
+            echo "    git add packages/api-client/src/generated"
+            echo "    git commit"
+            echo
+            echo "Never hand-edit packages/api-client/src/generated. The drift is:"
+            echo
+            # Both: diff renders the content change, status names files diff
+            # cannot show the content of - untracked ones.
+            git status --short -- packages/api-client/src/generated
+            git --no-pager diff -- packages/api-client/src/generated
+            exit 1
+          fi
+
       - name: Lint (ESLint + Prettier check)
         run: pnpm lint
 
