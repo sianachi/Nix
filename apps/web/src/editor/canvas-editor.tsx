@@ -1,5 +1,5 @@
 import { Excalidraw } from '@excalidraw/excalidraw';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
@@ -43,10 +43,12 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
 
-  // One document per item, created once - and destroyed with the component, so switching
-  // canvases cannot carry one scene's elements into another.
-  const doc = useMemo(() => new Y.Doc(), []);
-  const awareness = useMemo(() => new Awareness(doc), [doc]);
+  // One document per item, created exactly once via useState's lazy initializer - unlike
+  // useMemo, which is only a performance hint React is free to discard and recompute,
+  // useState's initial value truly runs once per mount - and destroyed with the component, so
+  // switching canvases cannot carry one scene's elements into another.
+  const [doc] = useState(() => new Y.Doc());
+  const [awareness] = useState(() => new Awareness(doc));
 
   const apiRef = useRef<SceneApi | null>(null);
   const bindingRef = useRef<ReturnType<typeof createCanvasBinding> | null>(null);
