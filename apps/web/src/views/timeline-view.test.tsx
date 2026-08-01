@@ -61,6 +61,7 @@ function itemOf(id: string, title: string, properties: Record<string, unknown>):
     parentId: 'c1000000-0000-4000-8000-000000000001',
     type: 'note',
     title,
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties,

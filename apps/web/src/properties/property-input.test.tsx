@@ -26,6 +26,7 @@ function itemWith(properties: Record<string, unknown>): Item {
     parentId: '33333333-3333-4333-8333-333333333333',
     type: 'note',
     title: 'Kickoff',
+    hasChildren: false,
     seq: 1,
     lifecycleState: 'active',
     properties,

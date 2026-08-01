@@ -1,3 +1,4 @@
+import type { CurrentPrincipalContract } from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 
@@ -25,6 +26,17 @@ const CurrentPrincipalSchema = z.object({
 });
 
 export type CurrentPrincipal = z.infer<typeof CurrentPrincipalSchema>;
+
+/**
+ * The compile-time tie to the generated contract.
+ *
+ * Same idiom `packages/api-client/src/schemas/item.ts` and `views/container-model.ts` use: if Core
+ * renames or retypes a field on `CurrentPrincipalResponse`, this line stops compiling here rather
+ * than the profile menu silently rendering blank.
+ */
+const _currentPrincipalContract =
+  CurrentPrincipalSchema satisfies z.ZodType<CurrentPrincipalContract>;
+void _currentPrincipalContract;
 
 export type PrincipalStatus = 'loading' | 'ready' | 'error';
 

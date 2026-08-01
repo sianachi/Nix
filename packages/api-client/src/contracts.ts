@@ -25,3 +25,6 @@ export type EffectiveSchemaContract = components['schemas']['EffectiveSchemaResp
 
 /** One property in a schema: its key, its label, its type and whether it is required. */
 export type PropertyDefinitionContract = components['schemas']['PropertyDefinitionResponse'];
+
+/** The signed-in caller, as `GET /api/v1/me` returns it. */
+export type CurrentPrincipalContract = components['schemas']['CurrentPrincipalResponse'];

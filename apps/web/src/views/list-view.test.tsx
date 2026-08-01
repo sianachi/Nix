@@ -29,6 +29,7 @@ function item(
     parentId: 'folder-1',
     type: 'note',
     title,
+    hasChildren: false,
     seq,
     lifecycleState: 'active',
     properties,

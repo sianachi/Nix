@@ -50,8 +50,16 @@ export const itemLifecycleStateSchema = z.string();
  * positions are small — they advance in gaps of a thousand — but the schema accepts what the
  * contract permits rather than what we expect to see, because the day one exceeds it the honest
  * outcome is a wide type rather than a silently rounded sort order.
+ *
+ * Both branches are narrowed to exactly what `BigInt` can convert without throwing or silently
+ * defaulting: the number branch must be an integer (`BigInt(1.5)` throws `RangeError`), and the
+ * string branch must match an optional-sign run of digits (a bare `z.string()` would let through
+ * `'1e3'` or `'x'`, which throw `SyntaxError` when handed to `BigInt`, and `''`, which `BigInt`
+ * quietly turns into `0n` instead of failing). Anything that doesn't fit fails to parse here, at
+ * the boundary, rather than throwing - or worse, silently misordering - inside a sort comparator
+ * downstream.
  */
-export const itemSequenceSchema = z.union([z.number(), z.string()]);
+export const itemSequenceSchema = z.union([z.int(), z.string().regex(/^-?\d+$/)]);
 
 /**
  * The item's property values, keyed by the schema's property keys.

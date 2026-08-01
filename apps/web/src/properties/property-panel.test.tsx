@@ -26,6 +26,7 @@ function itemWith(properties: Record<string, unknown>): Item {
     parentId: null,
     type: 'note',
     title: 'Roadmap',
+    hasChildren: false,
     seq: 1000,
     lifecycleState: 'active',
     properties,
