@@ -95,6 +95,49 @@ The dev stack brings up Postgres+pgvector (5433), Zitadel (8300), versitygw
 S3 (7070), ClamAV (3310), a mock LLM (8380), and an Aspire dashboard (18888).
 Sign-in credentials and seeded tenant IDs are in `docs/dev-signing-in.md`.
 
+## Running the application
+
+Cold machine, or after wiping Docker volumes — bring up the stack, seed the
+database, apply migrations and configure Zitadel in one idempotent step:
+
+```
+bash scripts/dev-stack-up.sh
+```
+
+Then, each in its own terminal:
+
+```
+dotnet run --project backend/src/Nix.Api    # :5014
+bash scripts/dev-collab.sh                  # :8100
+pnpm --filter @nix/web dev                  # :5173
+```
+
+Open `http://localhost:5173` and sign in as `dev@nix.localhost` /
+`NixDev-Password1!`.
+
+## Debugging (Rider)
+
+Open the repository root in Rider — that's where `Nix.slnx` and
+`pnpm-workspace.yaml` both live, and where the run configurations below are
+registered. Six ship in the repo:
+
+- **Nix Full Stack** — runs `Nix Stack Up` once, then starts `Nix.Api`,
+  `Collab` and `Web` together. Use this for a cold start or when you just
+  want everything running.
+- **Nix.Api**, **Collab**, **Web** — one service each, no stack-up step, for
+  a fast restart of just the piece you're working on.
+- **Nix Stack Up**, **Nix Migrate DB** — the setup scripts on their own.
+
+`Nix.Api`'s secrets (`ConnectionStrings:Nix`, `Nix:InternalSecret`) come from
+.NET user-secrets rather than an exported environment variable, which is what
+lets Rider's own debugger run and breakpoint it directly. On a fresh checkout
+they won't be set yet:
+
+```
+dotnet user-secrets set "ConnectionStrings:Nix" "Host=localhost;Port=5433;Database=nix;Username=nix_app;Password=nix-dev-app" --project backend/src/Nix.Api
+dotnet user-secrets set "Nix:InternalSecret" "nix-dev-internal" --project backend/src/Nix.Api
+```
+
 ## Common commands
 
 Run frontend commands from the repository root; run backend commands from
