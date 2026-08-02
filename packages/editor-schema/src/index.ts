@@ -19,3 +19,11 @@ export {
   type ParseResult,
 } from './schema.js';
 export { FIXTURE_DOCUMENT, MARK_FIXTURES, NODE_FIXTURES } from './fixtures.js';
+export {
+  BASE_SCHEMA_VERSION,
+  MARK_MIN_VERSION,
+  MIN_VERSIONS,
+  NODE_MIN_VERSION,
+  requiredSchemaVersion,
+  type MinimumVersions,
+} from './versions.js';

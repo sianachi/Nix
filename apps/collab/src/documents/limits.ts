@@ -39,6 +39,7 @@ export type RejectionCode =
   | 'update_too_large'
   | 'update_unreadable'
   | 'schema_version_mismatch'
+  | 'document_above_schema_pin'
   | 'document_does_not_parse'
   | 'document_too_many_nodes'
   | 'document_too_large'
@@ -64,6 +65,10 @@ function statusFor(code: RejectionCode): number {
     case 'rate_limited':
       return 429;
     case 'schema_version_mismatch':
+    case 'document_above_schema_pin':
+      // Conflict rather than unprocessable: the update is well-formed and the document is
+      // fine. What is wrong is the order of two deployments, and retrying after the pin
+      // migration has run is the correct response - which is what 409 means and 422 does not.
       return 409;
     case 'read_only':
       // Forbidden rather than not-found: a reader already knows the item exists, so the

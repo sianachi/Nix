@@ -73,10 +73,12 @@ describe('body-kind dispatch', () => {
     editor.getMap('elements').set('b', element('b'));
     const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
 
-    expect(judgeCandidate(resident, goodUpdate, canvasStrategy)).toEqual({ ok: true });
+    expect(judgeCandidate(resident, goodUpdate, { strategy: canvasStrategy })).toEqual({
+      ok: true,
+    });
     // The same update judged as prose would be refused: the map is not a fragment. That
     // asymmetry is the whole reason dispatch exists.
-    expect(judgeCandidate(resident, goodUpdate, noteStrategy)).toMatchObject({
+    expect(judgeCandidate(resident, goodUpdate, { strategy: noteStrategy })).toMatchObject({
       ok: false,
       refusal: { code: 'document_does_not_parse' },
     });
@@ -93,7 +95,9 @@ describe('body-kind dispatch', () => {
     Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
     grower.getMap('elements').set('d', element('d'));
     const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, growth, canvasStrategy, ceiling)).toMatchObject({
+    expect(
+      judgeCandidate(resident, growth, { strategy: canvasStrategy, ceilings: ceiling }),
+    ).toMatchObject({
       ok: false,
       refusal: { code: 'document_too_many_nodes' },
     });
@@ -102,7 +106,9 @@ describe('body-kind dispatch', () => {
     Y.applyUpdate(shrinker, Y.encodeStateAsUpdate(resident));
     shrinker.getMap('elements').delete('a');
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, shrinkage, canvasStrategy, ceiling)).toEqual({ ok: true });
+    expect(
+      judgeCandidate(resident, shrinkage, { strategy: canvasStrategy, ceilings: ceiling }),
+    ).toEqual({ ok: true });
 
     resident.destroy();
     grower.destroy();
@@ -177,10 +183,10 @@ describe('body-kind dispatch', () => {
     editor.getMap('sheet-cells').set('B1', { raw: '=A1*2' });
     const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
 
-    expect(judgeCandidate(resident, goodUpdate, sheetStrategy)).toEqual({ ok: true });
+    expect(judgeCandidate(resident, goodUpdate, { strategy: sheetStrategy })).toEqual({ ok: true });
     // The same update judged as prose would be refused: the map is not a fragment. That
     // asymmetry is the whole reason dispatch exists.
-    expect(judgeCandidate(resident, goodUpdate, noteStrategy)).toMatchObject({
+    expect(judgeCandidate(resident, goodUpdate, { strategy: noteStrategy })).toMatchObject({
       ok: false,
       refusal: { code: 'document_does_not_parse' },
     });
@@ -197,7 +203,9 @@ describe('body-kind dispatch', () => {
     Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
     grower.getMap('sheet-cells').set('A4', { raw: '4' });
     const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, growth, sheetStrategy, ceiling)).toMatchObject({
+    expect(
+      judgeCandidate(resident, growth, { strategy: sheetStrategy, ceilings: ceiling }),
+    ).toMatchObject({
       ok: false,
       refusal: { code: 'document_too_many_nodes' },
     });
@@ -206,7 +214,9 @@ describe('body-kind dispatch', () => {
     Y.applyUpdate(shrinker, Y.encodeStateAsUpdate(resident));
     shrinker.getMap('sheet-cells').delete('A1');
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, shrinkage, sheetStrategy, ceiling)).toEqual({ ok: true });
+    expect(
+      judgeCandidate(resident, shrinkage, { strategy: sheetStrategy, ceilings: ceiling }),
+    ).toEqual({ ok: true });
 
     resident.destroy();
     grower.destroy();

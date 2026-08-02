@@ -250,7 +250,10 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
     typeParagraph(grower, 'One more.');
     const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
-    const refused = judgeCandidate(resident, growth, noteStrategy, tinyCeiling);
+    const refused = judgeCandidate(resident, growth, {
+      strategy: noteStrategy,
+      ceilings: tinyCeiling,
+    });
     expect(refused).toMatchObject({ ok: false, refusal: { code: 'document_too_many_nodes' } });
 
     // ...and a delete that leaves the document smaller - though still over the ceiling -
@@ -259,7 +262,9 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     Y.applyUpdate(shrinker, Y.encodeStateAsUpdate(resident));
     shrinker.getXmlFragment('default').delete(0, 1);
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
-    expect(judgeCandidate(resident, shrinkage, noteStrategy, tinyCeiling)).toEqual({ ok: true });
+    expect(
+      judgeCandidate(resident, shrinkage, { strategy: noteStrategy, ceilings: tinyCeiling }),
+    ).toEqual({ ok: true });
 
     resident.destroy();
     grower.destroy();

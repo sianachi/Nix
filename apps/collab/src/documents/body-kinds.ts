@@ -1,4 +1,9 @@
-import { countNodes, nixSchema } from '@nix/editor-schema';
+import {
+  BASE_SCHEMA_VERSION,
+  countNodes,
+  nixSchema,
+  requiredSchemaVersion,
+} from '@nix/editor-schema';
 import {
   SHEET_ITEM_TYPE,
   SHEET_LIMITS,
@@ -11,6 +16,19 @@ import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import type * as Y from 'yjs';
 
 import { LIMITS } from './limits.ts';
+
+/** What one measurement of a merged document says about it. */
+export interface Measurement {
+  readonly nodes: number;
+  readonly bytes: number;
+
+  /**
+   * The lowest schema version a build must speak to open this document, which is never
+   * above `SCHEMA_VERSION` for a document this build produced and may be below it for one
+   * using nothing new.
+   */
+  readonly schemaVersion: number;
+}
 
 /**
  * How one kind of body is validated and materialised.
@@ -29,10 +47,20 @@ export interface BodyKindStrategy {
   readonly ceilings: { readonly nodes: number; readonly bytes: number };
 
   /**
-   * Measures a state as this kind of document: element count and serialised size, or
-   * null when the state does not parse as this kind at all.
+   * Measures a state as this kind of document: element count, serialised size, and the
+   * lowest schema version a build must speak to open it - or null when the state does not
+   * parse as this kind at all.
+   *
+   * `schemaVersion` is part of the measurement rather than a second method because both
+   * facts are wanted at the same moment, on every accepted update, by the same caller - not
+   * because one walk answers both: `noteStrategy` walks the document twice, once for
+   * `countNodes` and once for `requiredSchemaVersion`. Fusing them saves about 0.2ms on an
+   * 18,000-node document and is not worth the API change while `JSON.stringify` below is
+   * two thirds of this method's cost. A kind whose content is not versioned by
+   * `SCHEMA_VERSION` reports the base version, which is the honest answer: nothing in it can
+   * require a newer build.
    */
-  measure(state: Y.Doc): { nodes: number; bytes: number } | null;
+  measure(state: Y.Doc): Measurement | null;
 
   /**
    * What the snapshot stores beside the Yjs state, so search and previews can read the
@@ -66,7 +94,7 @@ export const noteStrategy: BodyKindStrategy = {
   kind: 'note',
   ceilings: { nodes: LIMITS.documentNodes, bytes: LIMITS.documentBytes },
 
-  measure(state: Y.Doc): { nodes: number; bytes: number } | null {
+  measure(state: Y.Doc): Measurement | null {
     const document = readProse(state);
     if (document === null) {
       return null;
@@ -74,6 +102,7 @@ export const noteStrategy: BodyKindStrategy = {
     return {
       nodes: countNodes(document),
       bytes: Buffer.byteLength(JSON.stringify(document.toJSON())),
+      schemaVersion: requiredSchemaVersion(document),
     };
   },
 
@@ -98,7 +127,7 @@ export const canvasStrategy: BodyKindStrategy = {
   kind: 'canvas',
   ceilings: { nodes: CANVAS_ELEMENT_CEILING, bytes: LIMITS.documentBytes },
 
-  measure(state: Y.Doc): { nodes: number; bytes: number } | null {
+  measure(state: Y.Doc): Measurement | null {
     const scene = readScene(state);
     if (scene === null) {
       return null;
@@ -106,6 +135,8 @@ export const canvasStrategy: BodyKindStrategy = {
     return {
       nodes: Object.keys(scene).length,
       bytes: Buffer.byteLength(JSON.stringify(scene)),
+      // A scene carries no ProseMirror nodes, so nothing in it can require a newer build.
+      schemaVersion: BASE_SCHEMA_VERSION,
     };
   },
 
@@ -144,7 +175,7 @@ export const sheetStrategy: BodyKindStrategy = {
   kind: SHEET_ITEM_TYPE,
   ceilings: { nodes: SHEET_LIMITS.maxCells, bytes: LIMITS.documentBytes },
 
-  measure(state: Y.Doc): { nodes: number; bytes: number } | null {
+  measure(state: Y.Doc): Measurement | null {
     if (checkSheetDocument(state, SHEET_STRUCTURAL_LIMITS) !== null) {
       return null;
     }
@@ -152,6 +183,8 @@ export const sheetStrategy: BodyKindStrategy = {
     return {
       nodes: cells.size,
       bytes: Buffer.byteLength(JSON.stringify(Object.fromEntries(cells))),
+      // A cell grid carries no ProseMirror nodes; `@nix/sheet` versions its own content.
+      schemaVersion: BASE_SCHEMA_VERSION,
     };
   },
 

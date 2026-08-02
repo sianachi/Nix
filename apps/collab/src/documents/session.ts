@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { SCHEMA_VERSION } from '@nix/editor-schema';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
@@ -326,11 +327,18 @@ export class DocumentSession {
       return;
     }
 
-    const verdict = judgeCandidate(this.#doc, update, this.strategy);
+    const verdict = judgeCandidate(this.#doc, update, {
+      strategy: this.strategy,
+      pin: this.docRow.schema_version,
+    });
     if (!verdict.ok) {
+      // The detail carries the two numbers that explain a pin refusal - what the merged
+      // document needed and what the pin is - and without them nobody reading this log during a
+      // deploy window can tell that the answer is "run the document migration".
       this.#context.log?.(
         `Refused an update (${verdict.refusal.code}) from principal ` +
-          `${socket.authorization.principalId} on item ${this.itemId}.`,
+          `${socket.authorization.principalId} on item ${this.itemId} in tenant ` +
+          `${this.tenantId}: ${verdict.refusal.detail}`,
       );
       this.#refuse(socket, verdict.refusal);
       if (verdict.resync) {
@@ -665,6 +673,22 @@ export class DocumentSession {
   }
 }
 
+/**
+ * What a candidate update is judged against.
+ *
+ * An options object rather than a tail of defaulted positionals: `ceilings` defaults to the
+ * strategy's own, so reaching `pin` past it meant passing the default explicitly at the one
+ * call site that needed to - which is the shape that guarantees the next parameter gets
+ * appended too.
+ */
+export interface CandidateJudgement {
+  readonly strategy?: BodyKindStrategy;
+  readonly ceilings?: { nodes: number; bytes: number };
+
+  /** The document's stored `schema_version`. Defaults to what this build speaks. */
+  readonly pin?: number;
+}
+
 /** What became of a candidate update: apply it, or refuse it - and maybe force a resync. */
 export type CandidateVerdict =
   | { readonly ok: true }
@@ -679,13 +703,21 @@ export type CandidateVerdict =
  * allows shrinkage, because the one edit that must always go through on an oversized
  * document is the delete that fixes it. A Yjs update can insert and delete at once, so
  * "growth" is measured on the outcome: over the ceiling *and* bigger than before.
+ *
+ * The pin rule has no such asymmetry: an update that would take the document past its
+ * stored `schema_version` is refused outright, because every client that speaks the pinned
+ * version has been promised this document opens, and there is no shrinking edit that a
+ * newer node makes necessary.
  */
 export function judgeCandidate(
   resident: Y.Doc,
   update: Uint8Array,
-  strategy: BodyKindStrategy = noteStrategy,
-  ceilings: { nodes: number; bytes: number } = strategy.ceilings,
+  judgement: CandidateJudgement = {},
 ): CandidateVerdict {
+  const strategy = judgement.strategy ?? noteStrategy;
+  const ceilings = judgement.ceilings ?? strategy.ceilings;
+  const pin = judgement.pin ?? SCHEMA_VERSION;
+
   const fork = new Y.Doc();
   try {
     Y.applyUpdate(fork, Y.encodeStateAsUpdate(resident));
@@ -712,6 +744,22 @@ export function judgeCandidate(
         'Applying this update would produce a document the schema rejects.',
       ),
       resync: true,
+    };
+  }
+
+  if (after.schemaVersion > pin) {
+    return {
+      ok: false,
+      refusal: rejection(
+        'document_above_schema_pin',
+        `This update would need schema version ${String(after.schemaVersion)} to open, and ` +
+          `the document is pinned to ${String(pin)}. Refusing to write a document older ` +
+          'clients have been told they can read. Run the document schema migration first.',
+      ),
+      // No resync. The client's local state is not wrong - this build would happily keep it -
+      // so forcing it to reconcile against the server would discard a legitimate edit and
+      // teach the person nothing. The refusal notice is the honest answer.
+      resync: false,
     };
   }
 

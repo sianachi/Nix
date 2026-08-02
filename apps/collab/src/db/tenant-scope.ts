@@ -4,7 +4,10 @@ import type { Pool, PoolClient } from 'pg';
  * The tenant a unit of work runs as.
  *
  * Both fields are published to Postgres as transaction-local settings that the row-level
- * security policies read. There is no unscoped path and no anonymous one.
+ * security policies read. There is no anonymous path, and exactly one unscoped one: the
+ * document schema migrator (`src/migrate-documents.ts`), a separate job that connects as the
+ * migrator role because a corpus-wide walk cannot be expressed inside a single tenant. It is
+ * the only exception and it argues for itself where it is defined.
  */
 export interface TenantScope {
   readonly tenantId: string;
@@ -12,7 +15,8 @@ export interface TenantScope {
 }
 
 /**
- * Every query this service runs, and the only way it may run one.
+ * Every query this service runs, and - the migrator job aside, see {@link TenantScope} - the
+ * only way it may run one.
  *
  * Deliberately narrower than a `PoolClient`: it exposes `query` and nothing else, so
  * nothing downstream can begin a transaction of its own, take the connection out of the

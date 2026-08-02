@@ -119,7 +119,8 @@ export async function openDocument(
  * 1. the payload fits the update ceiling, which matches the column's own CHECK;
  * 2. it decodes as a Yjs update at all;
  * 3. the merged document still parses against `SCHEMA_VERSION`'s node and mark set;
- * 4. the merged document is under the node and byte ceilings.
+ * 4. it needs no version above the one the document is pinned to;
+ * 5. the merged document is under the node and byte ceilings.
  *
  * Rate backpressure is applied by the caller, before any of this, because it is the one
  * refusal that should not cost a database round trip.
@@ -148,7 +149,15 @@ export async function applyUpdate(
     };
   }
 
-  if (input.doc.schema_version !== SCHEMA_VERSION) {
+  // Newer than this build, not merely different. A document pinned *below* this build is the
+  // normal state of every document between a schema bump and the pin migration that follows
+  // it, and it is perfectly writable: the node set only ever widens, so a build that speaks
+  // version N can read everything version N-1 could. An exact-inequality check here would
+  // have made the first bump a corpus-wide outage - every existing document read-only on this
+  // path until the migration finished - which is a far worse failure than the one it guarded
+  // against. What actually keeps the pin honest is the check further down, on what the merged
+  // document turns out to need.
+  if (input.doc.schema_version > SCHEMA_VERSION) {
     return {
       ok: false,
       error: rejection(
@@ -174,7 +183,7 @@ export async function applyUpdate(
     };
   }
 
-  const verdict = checkMergedDocument(state, strategy);
+  const verdict = checkMergedDocument(state, { strategy, pin: input.doc.schema_version });
   if (verdict !== null) {
     return { ok: false, error: verdict };
   }
@@ -199,21 +208,45 @@ export async function applyUpdate(
   return { ok: true, value: { seq, snapshotWritten } };
 }
 
+/** What a merged document is checked against. */
+export interface MergeCheck {
+  readonly strategy?: BodyKindStrategy;
+
+  /**
+   * The document's stored `schema_version`. An update that would take the document past it is
+   * refused, because the pin is what every *other* client was promised: a build that speaks
+   * the pinned version was told this document is safe to open, and writing a newer node into
+   * it would make that a lie. Defaults to `SCHEMA_VERSION`, which is the right answer for a
+   * document judged outside the context of a stored row.
+   */
+  readonly pin?: number;
+}
+
 /**
  * Whether the merged document is one this build would be able to open again, judged by
  * the body kind's own strategy.
  *
  * Returns the refusal, or null when it is fine.
+ *
  */
-export function checkMergedDocument(
-  state: Y.Doc,
-  strategy: BodyKindStrategy = noteStrategy,
-): Rejection | null {
+export function checkMergedDocument(state: Y.Doc, against: MergeCheck = {}): Rejection | null {
+  const strategy = against.strategy ?? noteStrategy;
+  const pin = against.pin ?? SCHEMA_VERSION;
+
   const measured = strategy.measure(state);
   if (measured === null) {
     return rejection(
       'document_does_not_parse',
       'Applying this update would produce a document the schema rejects.',
+    );
+  }
+
+  if (measured.schemaVersion > pin) {
+    return rejection(
+      'document_above_schema_pin',
+      `This update would need schema version ${String(measured.schemaVersion)} to open, and ` +
+        `the document is pinned to ${String(pin)}. Refusing to write a document older ` +
+        'clients have been told they can read. Run the document schema migration first.',
     );
   }
 

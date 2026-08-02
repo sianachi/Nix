@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { SCHEMA_VERSION } from '@nix/editor-schema';
 import type { Pool } from 'pg';
 
 import type { DocumentLocks } from '../db/advisory-lock.ts';
@@ -219,6 +220,22 @@ export function createDocumentRegistry(deps: {
           ok: false,
           closeCode: CLOSE_CODES.schemaMismatch,
           reason: `This document is pinned to schema version ${String(acquired.docRow.schema_version)}.`,
+        };
+      }
+
+      // And the same question asked of this process. A replica left behind by a deploy that
+      // has already migrated the corpus past it must refuse the document rather than
+      // reinterpret it - which is exactly what the HTTP path does, and until now the socket
+      // path did not, so the same document was writable over one transport and refused over
+      // the other.
+      if (acquired.docRow.schema_version > SCHEMA_VERSION) {
+        return {
+          ok: false,
+          closeCode: CLOSE_CODES.schemaMismatch,
+          reason:
+            `This document is pinned to schema version ` +
+            `${String(acquired.docRow.schema_version)} and this server speaks ` +
+            `${String(SCHEMA_VERSION)}.`,
         };
       }
 

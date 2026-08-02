@@ -13,6 +13,22 @@ export const TEST_DATABASE_URL =
   'postgresql://nix_collab:nix-dev-collab@localhost:5433/nix';
 
 /**
+ * The same database, connected as a role that is not subject to the isolation policies.
+ *
+ * For setup, teardown, and the one test subject that legitimately reads across tenants - the
+ * document schema migrator, which cannot enumerate the corpus from inside a tenant scope.
+ * Never for an assertion about isolation: a role that bypasses the policies would pass one
+ * whatever the policies said.
+ */
+export const TEST_ADMIN_DATABASE_URL =
+  process.env.NIX_COLLAB_TEST_ADMIN_DATABASE_URL ??
+  'postgresql://postgres:nix-dev-superuser@localhost:5433/nix';
+
+export function adminPool(): Pool {
+  return new Pool({ connectionString: TEST_ADMIN_DATABASE_URL, max: 2 });
+}
+
+/**
  * Whether the integration suite should run.
  *
  * Set `NIX_COLLAB_SKIP_DB_TESTS=1` to skip it - which is for a laptop with no stack up, not
@@ -74,12 +90,7 @@ export function collabPool(): Pool {
  * The service's role is used for every assertion.
  */
 export async function seedTenants(): Promise<void> {
-  const admin = new Pool({
-    connectionString:
-      process.env.NIX_COLLAB_TEST_ADMIN_DATABASE_URL ??
-      'postgresql://postgres:nix-dev-superuser@localhost:5433/nix',
-    max: 2,
-  });
+  const admin = adminPool();
 
   try {
     for (const tenant of [TENANTS.alpha, TENANTS.beta]) {
@@ -131,12 +142,7 @@ export async function seedTenants(): Promise<void> {
 
 /** Removes everything the suite created, so a rerun starts from the same place. */
 export async function clearContent(): Promise<void> {
-  const admin = new Pool({
-    connectionString:
-      process.env.NIX_COLLAB_TEST_ADMIN_DATABASE_URL ??
-      'postgresql://postgres:nix-dev-superuser@localhost:5433/nix',
-    max: 2,
-  });
+  const admin = adminPool();
 
   try {
     // Cascades to updates and snapshots through their composite foreign keys.
