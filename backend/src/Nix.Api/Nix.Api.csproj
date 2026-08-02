@@ -39,6 +39,13 @@
       for the adjacent reason that xUnit1000 requires public test classes.
     -->
     <NoWarn>$(NoWarn);CA1515</NoWarn>
+
+    <!-- Enables `dotnet user-secrets` for local development: ConnectionStrings:Nix and
+         Nix:InternalSecret are read from here instead of an exported environment variable
+         when ASPNETCORE_ENVIRONMENT=Development (both launchSettings.json profiles set this).
+         No package reference is needed - Microsoft.Extensions.Configuration.UserSecrets ships
+         inside the Microsoft.AspNetCore.App shared framework that Sdk.Web already uses. -->
+    <UserSecretsId>372c7977-a6d5-4cb6-b04e-dc79c06e28a6</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

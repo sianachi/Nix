@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
-    "build": "pnpm -r --if-present build"
+    "build": "pnpm -r --if-present build",
+    "dev:collab": "bash scripts/dev-collab.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

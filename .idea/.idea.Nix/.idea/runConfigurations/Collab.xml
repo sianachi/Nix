@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Collab" type="js.build_tools.npm" folderName="Nix">
+    <package-json value="$PROJECT_DIR$/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="dev:collab" />
+    </scripts>
+    <node-interpreter value="project" />
+    <package-manager value="pnpm" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>
