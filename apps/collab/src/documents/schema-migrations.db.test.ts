@@ -1,4 +1,9 @@
-import { FIXTURE_DOCUMENT, SCHEMA_VERSION, nixSchema } from '@nix/editor-schema';
+import {
+  FIXTURE_DOCUMENT,
+  SCHEMA_VERSION,
+  VERSION_1_DOCUMENT,
+  nixSchema,
+} from '@nix/editor-schema';
 import type { Pool } from 'pg';
 import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
@@ -96,13 +101,23 @@ describe.skipIf(!DB_TESTS_ENABLED)('raising a document schema pin, against Postg
     });
   }
 
-  /** An update that puts the shared fixture document into the fragment. */
-  function fixtureUpdate(): Uint8Array {
+  /** An update that puts a document into the fragment. */
+  function documentUpdate(json: unknown): Uint8Array {
     const state = new Y.Doc();
-    prosemirrorJSONToYXmlFragment(nixSchema, FIXTURE_DOCUMENT, state.getXmlFragment(FRAGMENT_NAME));
+    prosemirrorJSONToYXmlFragment(nixSchema, json, state.getXmlFragment(FRAGMENT_NAME));
     const update = Y.encodeStateAsUpdate(state);
     state.destroy();
     return update;
+  }
+
+  /** The shipped fixture, which uses everything version 2 added. */
+  function fixtureUpdate(): Uint8Array {
+    return documentUpdate(FIXTURE_DOCUMENT);
+  }
+
+  /** A document as version 1 could produce it, using nothing newer. */
+  function versionOneUpdate(): Uint8Array {
+    return documentUpdate(VERSION_1_DOCUMENT);
   }
 
   /**
@@ -326,6 +341,48 @@ describe.skipIf(!DB_TESTS_ENABLED)('raising a document schema pin, against Postg
     } finally {
       await hub.shutdown();
     }
+  });
+
+  it('accepts a write to a document pinned below this build', async () => {
+    // The regression this whole mechanism was built around, and expressible for the first time
+    // now that a version below the current one exists. Under the original exact-inequality
+    // check this refused with `schema_version_mismatch`, which would have made the version-2
+    // deploy an outage: every stored document read-only until the pin migration finished.
+    await open(TENANTS.alpha);
+    await setPin(TENANTS.alpha, SCHEMA_VERSION - 1);
+
+    const result = await write(TENANTS.alpha, versionOneUpdate());
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses a write that would need a version above the document pin', async () => {
+    // The other half: a document pinned at 1 is writable, but not with version-2 nodes in it.
+    // Every client speaking version 1 has been told this document opens for them, and it has
+    // to keep being true until the migration says otherwise.
+    await open(TENANTS.alpha);
+    await setPin(TENANTS.alpha, SCHEMA_VERSION - 1);
+
+    const result = await write(TENANTS.alpha, fixtureUpdate());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('document_above_schema_pin');
+    expect(result.error.status).toBe(409);
+    expect(result.error.detail).toContain('Run the document schema migration');
+  });
+
+  it('accepts that same write once the migration has raised the pin', async () => {
+    // The deploy, end to end: ship the build, documents sit at the old pin and hold to the old
+    // node set, the job runs, and the new nodes become writable.
+    await open(TENANTS.alpha);
+    await setPin(TENANTS.alpha, SCHEMA_VERSION - 1);
+    expect((await write(TENANTS.alpha, fixtureUpdate())).ok).toBe(false);
+
+    await migrate(TENANTS.alpha, SCHEMA_VERSION);
+
+    expect(await pinOf(TENANTS.alpha)).toBe(SCHEMA_VERSION);
+    expect((await write(TENANTS.alpha, fixtureUpdate())).ok).toBe(true);
   });
 
   it('refuses to run as a role that row-level security applies to', async () => {

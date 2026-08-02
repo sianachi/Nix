@@ -29,10 +29,27 @@ export const BASE_SCHEMA_VERSION = 1;
  * the schema is defined exactly once (`extensions.ts`). A second copy in Node is the drift this
  * package exists to prevent.
  */
-export const NODE_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({});
+export const NODE_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({
+  // Composition: a row of columns, and one column of it.
+  columnBlock: 2,
+  column: 2,
+
+  // Collapsible sections. `detailsSummary` and `detailsContent` are reachable only through
+  // `details`, but they are listed anyway - the walk asks about every node it meets, and a
+  // table that answered for only some of them would be a table somebody has to reason about.
+  details: 2,
+  detailsSummary: 2,
+  detailsContent: 2,
+
+  // A pointer to another item, or to a person.
+  reference: 2,
+});
 
 /** The schema version each mark first became legal in. Only entries above 1 appear. */
-export const MARK_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({});
+export const MARK_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({
+  textColor: 2,
+  comment: 2,
+});
 
 /** The two tables {@link requiredSchemaVersion} consults, together. */
 export interface MinimumVersions {
@@ -53,15 +70,16 @@ export const MIN_VERSIONS: MinimumVersions = Object.freeze({
  * document until the first bump.
  *
  * @param tables which minimums to consult. Defaulted to the shipped ones, and a parameter only
- * so the rule itself is testable: with both shipped tables empty, a version that always
- * returned 1 would pass every assertion that could otherwise be written about this function.
+ * so the rule itself is testable independently of what happens to be in them - the tables were
+ * empty when this was written, and a version that ignored its argument and returned 1 would
+ * have passed every assertion that could be made against the shipped ones.
  *
  * **Written as index loops with no closures, deliberately.** This runs on every accepted update
  * on both write paths, and `for (const mark of node.marks)` allocates an array iterator per
  * node that V8 does not elide here - the callback reaches it through `nodesBetween`'s
  * megamorphic dispatch. Measured on an 18,001-node document: 14,701 bytes per call as an
  * iterator loop against 318 bytes as an index loop, and 19% slower with it. That is churn paid
- * on every keystroke batch for a function that, today, always returns 1.
+ * on every keystroke batch, on both write paths.
  */
 export function requiredSchemaVersion(
   document: ProseMirrorNode,
@@ -80,7 +98,7 @@ export function requiredSchemaVersion(
     // avoid. Measured on an 18,001-node document, the for-of form allocates 14,701 bytes per
     // call against 318 and runs 19% slower - V8 does not elide the iterator here, because this
     // callback is reached through `nodesBetween`'s megamorphic dispatch. This runs on every
-    // accepted update on both write paths.
+    // accepted update on both write paths, so the churn is paid per keystroke batch.
     // eslint-disable-next-line @typescript-eslint/prefer-for-of
     for (let index = 0; index < marks.length; index += 1) {
       const mark = marks[index];

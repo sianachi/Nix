@@ -275,6 +275,9 @@ importers:
       '@tiptap/extension-code-block':
         specifier: ^3.29.0
         version: 3.29.0(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))(@tiptap/pm@3.29.0)
+      '@tiptap/extension-details':
+        specifier: ^3.29.2
+        version: 3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))(@tiptap/extension-text-style@3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0)))(@tiptap/pm@3.29.0)
       '@tiptap/extension-document':
         specifier: ^3.29.0
         version: 3.29.0(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))
@@ -1960,6 +1963,13 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.29.0
 
+  '@tiptap/extension-details@3.29.2':
+    resolution: {integrity: sha512-W614IjlpwkAxIUp5I2ILIWWJu//tPsJuaDp52Xjso+EYF3iyH2EklOdFYebjlt1yKllXl1OVs7RCghgRm1bauQ==}
+    peerDependencies:
+      '@tiptap/core': 3.29.2
+      '@tiptap/extension-text-style': 3.29.2
+      '@tiptap/pm': 3.29.2
+
   '@tiptap/extension-document@3.29.0':
     resolution: {integrity: sha512-folTlrwmUL+WSnojvfjZ951Gb25Pw8BxjXwhvXFuZXJ92qMfOcezA480kwFuu5nG8pPc/76ezQlz9a86Y5uQJw==}
     peerDependencies:
@@ -2030,6 +2040,11 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.29.0
       '@tiptap/pm': 3.29.0
+
+  '@tiptap/extension-text-style@3.29.2':
+    resolution: {integrity: sha512-aQad9V9ROaEi3hE4g5z9wQ6lv5FSnzlnWFMVJxRjNlwXgm7H0fymxb4rGfca+pAwYkiRwpKYh1LatpJw2ECQAA==}
+    peerDependencies:
+      '@tiptap/core': 3.29.2
 
   '@tiptap/extension-text@3.29.0':
     resolution: {integrity: sha512-AMsf2V7IiGvzbl+LqLLfyWzufazZxHuid1gOnEt3KwolQ9AO7p8WJgHld0PZLxNyEh4SaSqK7b3d3SM9sqrlTw==}
@@ -6463,6 +6478,12 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.29.0(@tiptap/pm@3.29.0)
 
+  '@tiptap/extension-details@3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))(@tiptap/extension-text-style@3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0)))(@tiptap/pm@3.29.0)':
+    dependencies:
+      '@tiptap/core': 3.29.0(@tiptap/pm@3.29.0)
+      '@tiptap/extension-text-style': 3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))
+      '@tiptap/pm': 3.29.0
+
   '@tiptap/extension-document@3.29.0(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))':
     dependencies:
       '@tiptap/core': 3.29.0(@tiptap/pm@3.29.0)
@@ -6522,6 +6543,10 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.29.0(@tiptap/pm@3.29.0)
       '@tiptap/pm': 3.29.0
+
+  '@tiptap/extension-text-style@3.29.2(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))':
+    dependencies:
+      '@tiptap/core': 3.29.0(@tiptap/pm@3.29.0)
 
   '@tiptap/extension-text@3.29.0(@tiptap/core@3.29.0(@tiptap/pm@3.29.0))':
     dependencies:

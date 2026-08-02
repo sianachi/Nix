@@ -19,6 +19,10 @@ import { Text } from '@tiptap/extension-text';
 import { Underline } from '@tiptap/extension-underline';
 
 import { Callout } from './callout.js';
+import { Column, ColumnBlock } from './columns.js';
+import { CommentMark, TextColorMark } from './marks.js';
+import { Reference } from './references.js';
+import { Details, DetailsContent, DetailsSummary } from './details.js';
 
 /**
  * The document's block and mark set.
@@ -66,6 +70,24 @@ export const nixExtensions: Extensions = [
   TableHeader,
   TableCell,
 
+  // Composition, added at SCHEMA_VERSION 2. A row of columns is the horizontal axis of a
+  // document's layout; the vertical one is ordinary flow and needs no node.
+  ColumnBlock,
+  Column,
+
+  // Collapsible sections, also version 2. Three node types because that is what a summary
+  // and a body are; no `open` attribute, because a collapse is a reading posture and storing
+  // it would fold the section for everybody at once.
+  Details,
+  DetailsSummary,
+  DetailsContent,
+
+  // A pointer to another item, or to a person. Version 2. The two blocks computed from the
+  // document's own shape - a table of contents, a breadcrumb - are deliberately *not* here:
+  // both need a renderer that walks something this build does not yet walk, and legalising a
+  // node that draws an empty box costs a version bump to take back.
+  Reference,
+
   // Marks.
   Bold,
   Italic,
@@ -74,4 +96,9 @@ export const nixExtensions: Extensions = [
   Code,
   Highlight.configure({ multicolor: false }),
   Link.configure({ openOnClick: false, autolink: true }),
+
+  // Version 2. Colour by token name rather than by CSS value, and the range a comment
+  // thread hangs off.
+  TextColorMark,
+  CommentMark,
 ];

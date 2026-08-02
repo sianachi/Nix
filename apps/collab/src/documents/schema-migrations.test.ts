@@ -1,4 +1,9 @@
-import { FIXTURE_DOCUMENT, SCHEMA_VERSION, nixSchema } from '@nix/editor-schema';
+import {
+  FIXTURE_DOCUMENT,
+  SCHEMA_VERSION,
+  VERSION_1_DOCUMENT,
+  nixSchema,
+} from '@nix/editor-schema';
 import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 import { describe, expect, it } from 'vitest';
@@ -230,7 +235,7 @@ describe('the run tally', () => {
 describe('the note strategy measurement', () => {
   it('reports the version an ordinary document needs alongside its size', () => {
     const state = new Y.Doc();
-    prosemirrorJSONToYXmlFragment(nixSchema, FIXTURE_DOCUMENT, state.getXmlFragment('default'));
+    prosemirrorJSONToYXmlFragment(nixSchema, VERSION_1_DOCUMENT, state.getXmlFragment('default'));
 
     const measured = noteStrategy.measure(state);
     expect(measured).not.toBeNull();
@@ -238,5 +243,14 @@ describe('the note strategy measurement', () => {
     // The whole point of the seam: nothing in the original node set requires a newer build,
     // so every document written before the first bump migrates on a pin change alone.
     expect(measured?.schemaVersion).toBe(1);
+  });
+
+  it('reports version 2 for a document using what version 2 added', () => {
+    const state = new Y.Doc();
+    prosemirrorJSONToYXmlFragment(nixSchema, FIXTURE_DOCUMENT, state.getXmlFragment('default'));
+
+    // And this is what the pin check reads. A document like this one cannot be written into a
+    // document still pinned at 1 until the migration has raised it.
+    expect(noteStrategy.measure(state)?.schemaVersion).toBe(SCHEMA_VERSION);
   });
 });

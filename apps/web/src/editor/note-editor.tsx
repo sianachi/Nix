@@ -63,11 +63,50 @@ export interface NoteEditorProps {
  * silently.
  */
 interface RenderArgs {
-  // Narrowed to the two attributes these renderers read, rather than an open bag: a typo in an
+  // Narrowed to the attributes these renderers read, rather than an open bag: a typo in an
   // attribute name is otherwise an `unknown` that stringifies to "[object Object]" in a class name
   // and produces an element styled as nothing at all.
-  readonly node: { readonly attrs: { readonly level?: unknown; readonly tone?: unknown } };
+  readonly node: {
+    readonly attrs: {
+      readonly level?: unknown;
+      readonly tone?: unknown;
+      readonly width?: unknown;
+    };
+  };
   readonly HTMLAttributes: Record<string, unknown>;
+}
+
+/** What the details extension hands its toggle-button renderer. */
+interface ToggleButtonArgs {
+  readonly element: HTMLButtonElement;
+  readonly isOpen: boolean;
+  readonly node: { readonly firstChild: { readonly textContent: string | null } | null };
+}
+
+/**
+ * The disclosure chevron, as an element rather than a React node.
+ *
+ * `renderToggleButton` is handed a raw DOM element by the extension, outside React's tree, so
+ * `<Icon>` cannot be used here. The geometry is Lucide's `chevron-right` at the stroke width
+ * the icon component uses, so it matches every other chevron in the product; taking the path
+ * data rather than the component is what that constraint costs.
+ */
+function chevron(): SVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.5');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'size-4');
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'm9 18 6-6-6-6');
+  svg.append(path);
+
+  return svg;
 }
 
 const styledExtensions = nixExtensions.map((extension) => {
@@ -97,6 +136,75 @@ const styledExtensions = nixExtensions.map((extension) => {
     });
   }
 
+  if (extension.name === 'details') {
+    return extension.configure({
+      HTMLAttributes: { class: proseClasses.details },
+
+      /**
+       * The disclosure control.
+       *
+       * Configured here rather than in `@nix/editor-schema` for the same reason every class is:
+       * the collaboration service builds the same node list in Node and has no icon library,
+       * no DOM and no business knowing what a chevron looks like.
+       *
+       * Three things the vendor default gets wrong for this product. It draws no icon at all,
+       * leaving the slot to be filled by a text glyph - which is what the icon rule exists to
+       * prevent, and which would not match the Lucide chevrons used everywhere else in the
+       * editor. It sets only `aria-label`, swapping the button's *name* between "Expand" and
+       * "Collapse", so a screen reader hears a button that renames itself rather than a
+       * disclosure that reports its state. And it names no section, so a document with six
+       * toggles announces six identical buttons.
+       */
+      renderToggleButton: ({ element, isOpen, node }: ToggleButtonArgs) => {
+        element.setAttribute('aria-expanded', String(isOpen));
+
+        // A control inside a contenteditable region is part of the editable content, and
+        // browsers do not reliably let Tab reach one. That matters more here than it looks: a
+        // toggle starts closed and its body carries `hidden`, so a button nobody can focus
+        // means content nobody can read without a pointer. Marking the button as its own
+        // non-editable island is what restores the native button behaviour - focus, and Enter
+        // or Space firing the click the extension already listens for.
+        //
+        // Set on every render rather than once; they are idempotent, and the extension calls
+        // this again on each toggle.
+        element.setAttribute('contenteditable', 'false');
+        element.setAttribute('tabindex', '0');
+
+        // The summary's own text, so the button says which section it opens. Falls back to a
+        // generic word rather than an empty name, which would be announced as "button".
+        const summary = node.firstChild?.textContent?.trim();
+        element.setAttribute(
+          'aria-label',
+          `${isOpen ? 'Collapse' : 'Expand'} ${summary !== undefined && summary.length > 0 ? summary : 'section'}`,
+        );
+
+        element.replaceChildren(chevron());
+      },
+    });
+  }
+
+  if (extension.name === 'column') {
+    return extension.extend({
+      renderHTML({ node, HTMLAttributes }: RenderArgs) {
+        // A width is a fraction of the row, so it becomes `flex-grow` - which no utility class
+        // can express, because the set of fractions is not finite. `basis-0` and `flex-1` in
+        // `proseRoot` are what make an unstated width an equal share; this only has to override
+        // the grow factor when a column actually carries one.
+        //
+        // Written here rather than in `@nix/editor-schema` for the same reason every other
+        // class is: the collaboration service builds the same node list in Node to check that
+        // an update still parses, and it has no business knowing how wide a column looks.
+        const width = Number(node.attrs.width);
+        const style =
+          Number.isFinite(width) && width > 0
+            ? { style: `flex-grow: ${String(width)}` } // design-token-exempt: a column's share of its row is a runtime fraction, not a scale step - the same case as the sheet grid's column offsets.
+            : {};
+
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-column': '' }, style), 0];
+      },
+    });
+  }
+
   const className = proseClasses[extension.name];
   return className === undefined
     ? extension
@@ -121,10 +229,41 @@ function cursorColorFor(clientId: number): string {
   return resolved.length > 0 ? resolved : '#5980a6'; // design-token-exempt: the accent token's own value, used only where no stylesheet is loaded at all (tests); the resolved token wins everywhere real.
 }
 
+/**
+ * What the collaboration service can refuse, said in words a writer can act on.
+ *
+ * **Every one of these means the edit is not saved and no colleague will see it.** Without
+ * this, the refusal is silent: the text stays on screen because the local CRDT accepted it,
+ * the editor looks healthy, and the work is gone on reload. That failure is the reason
+ * ADR-0024 made a client-visible story a precondition for the version-2 schema shipping.
+ *
+ * A code with no entry is deliberately not shown. These are the ones a person can do something
+ * about; a transport hiccup that the reconnect already handles is noise.
+ */
+const REFUSAL_COPY: Readonly<Record<string, string>> = {
+  document_above_schema_pin:
+    'This note has not finished upgrading, so blocks added in this version cannot be saved to ' +
+    'it yet. Everything else saves normally. Try again shortly.',
+  schema_version_mismatch:
+    'This note was written by a newer version of Nix than this one. Reload the page to catch up.',
+  document_does_not_parse:
+    'That change could not be saved: it would leave the note in a state Nix cannot reopen.',
+  document_too_many_nodes:
+    'This note has reached its size limit. Remove something before adding more.',
+  document_too_large: 'This note has reached its size limit. Remove something before adding more.',
+  rate_limited: 'Edits are arriving faster than they can be saved. Pausing for a moment.',
+  read_only: 'You have read access to this note, so your changes are not being saved.',
+};
+
 export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+
+  // What the server last refused, in words. Held rather than derived because a refusal is an
+  // event: the document on screen still shows the edit, and the only honest thing to do is say
+  // it did not stick.
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -178,7 +317,20 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
       awareness,
       fragmentName: FRAGMENT_NAME,
       getAccessToken,
-      onState: setSyncState,
+      onState: (state) => {
+        // A fresh connection means whatever was refused before may not still apply to what is
+        // about to be resynced - the banner is about the last update, not a standing fact.
+        if (state === 'live') {
+          setRefusal(null);
+        }
+        setSyncState(state);
+      },
+      onNotice: (notice) => {
+        const copy = REFUSAL_COPY[notice.code];
+        if (copy !== undefined) {
+          setRefusal(copy);
+        }
+      },
     });
 
     return () => {
@@ -219,6 +371,12 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         />
         <PresenceList awareness={awareness} />
       </div>
+
+      {refusal === null ? null : (
+        <p role="alert" className="shrink-0 px-8 py-1.5 text-xs text-accent-text">
+          {refusal}
+        </p>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
         <SlashMenu editor={editor} />

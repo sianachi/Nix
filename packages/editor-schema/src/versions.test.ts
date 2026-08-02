@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { FIXTURE_DOCUMENT } from './fixtures.js';
+import { FIXTURE_DOCUMENT, VERSION_1_DOCUMENT } from './fixtures.js';
 import { SCHEMA_VERSION, nixSchema, parseDocument } from './schema.js';
 import {
   BASE_SCHEMA_VERSION,
@@ -113,10 +113,14 @@ describe('the schema version a document requires', () => {
     expect(requiredSchemaVersion(document, { nodes: { doc: 5 }, marks: {} })).toBe(5);
   });
 
-  it('is the base version for the shipped fixture against the shipped tables', () => {
-    // The claim the first migration rests on: nothing written before the bump needs anything
-    // newer, so raising a pin is all a version-2 migration has to do.
-    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(BASE_SCHEMA_VERSION);
+  it('is the base version for a document written before the first bump', () => {
+    // The claim the version-2 migration rests on: nothing written at version 1 needs anything
+    // newer, so raising a pin is all that migration has to do.
+    expect(requiredSchemaVersion(parse(VERSION_1_DOCUMENT))).toBe(BASE_SCHEMA_VERSION);
+  });
+
+  it('rises to what the shipped fixture actually uses', () => {
+    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(SCHEMA_VERSION);
   });
 });
 

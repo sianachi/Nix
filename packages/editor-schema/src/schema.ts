@@ -11,8 +11,18 @@ import { nixExtensions } from './extensions.js';
  * collaboration service before an update is accepted, so a bump is a commitment to
  * migrate every stored document past it. Adding a block is such a change; changing how
  * one renders is not.
+ *
+ * **Bumping it is three things, not one** (ADR-0024): raise this number, add every new node
+ * and mark to `NODE_MIN_VERSION` / `MARK_MIN_VERSION` in `versions.ts` so a document's own
+ * pin is enforced rather than assumed, and run `pnpm --filter @nix/collab migrate-documents`
+ * at deploy to raise the stored pins. Between the deploy and that job, documents sit at the
+ * old pin and every write is held to the old node set, which is correct and uneventful.
+ *
+ * Version 2 added composition (columns), collapsible sections, references, the two computed
+ * blocks, token-named colour and the comment mark - all at once, because each bump costs a
+ * corpus-wide pin rewrite and a lockout window for tabs left open across a deploy.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * The ProseMirror schema, derived from the extension list.

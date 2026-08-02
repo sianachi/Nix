@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { TEXT_COLORS, TOGGLE_LEVELS, nixSchema } from '@nix/editor-schema';
+
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 
 /**
@@ -22,28 +24,34 @@ import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'prose.ts'), 'utf8');
 
 describe('coverage of the schema', () => {
-  // Every node and mark the schema defines, less the ones whose appearance is their parent's
-  // business: text has no element of its own, and the table parts are styled by the table.
-  const NODES = [
-    'paragraph',
-    'bulletList',
-    'orderedList',
-    'listItem',
-    'taskList',
-    'taskItem',
-    'blockquote',
-    'codeBlock',
-    'horizontalRule',
-    'image',
-    'table',
-    'tableRow',
-    'tableHeader',
-    'tableCell',
-  ];
+  /**
+   * Nodes and marks whose appearance is somebody else's business.
+   *
+   * `text` has no element of its own. The table and list parts, the column and the two halves
+   * of a toggle are drawn by their container. `hardBreak` is a `<br>` with no box. `heading`
+   * and `callout` depend on an attribute and have their own functions below.
+   *
+   * Everything else is derived from the schema rather than listed, which is the point: a hand
+   * written list is a list somebody has to remember to extend, and the failure when they do
+   * not is a node that renders with Tailwind's reset and nothing else - silently, because the
+   * test that should have caught it was the thing that went stale.
+   */
+  const STYLED_BY_SOMETHING_ELSE = new Set([
+    'doc',
+    'text',
+    'hardBreak',
+    'heading',
+    'callout',
+    'column',
+    'detailsSummary',
+    'detailsContent',
+  ]);
 
-  const MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'highlight', 'link'];
+  const covered = [...Object.keys(nixSchema.nodes), ...Object.keys(nixSchema.marks)].filter(
+    (name) => !STYLED_BY_SOMETHING_ELSE.has(name),
+  );
 
-  it.each([...NODES, ...MARKS])('gives %s an appearance', (name) => {
+  it.each(covered)('gives %s an appearance', (name) => {
     // A node with no entry renders with Tailwind's reset and nothing else, which is precisely the
     // state this file exists to end.
     expect(proseClasses[name], name).toBeDefined();
@@ -132,5 +140,49 @@ describe('the grounds', () => {
     // A component reaching for `dark:` has reached past the tokens for a colour. The semantic
     // roles move with the ground, so correct use of them is correct on both.
     expect(source).not.toContain('dark:');
+  });
+});
+
+describe('the text palette', () => {
+  /** Every utility this file attaches to a value of `attribute`, as one string. */
+  function renderingOf(attribute: string, value: string): string {
+    const escaped = `\\[&_\\[${attribute}="${value}"\\]\\]:`;
+    return [...source.matchAll(new RegExp(`${escaped}([\\w-/.]+)`, 'g'))]
+      .map((match) => match[1])
+      .sort()
+      .join(' ');
+  }
+
+  it('renders every colour differently from every other colour', () => {
+    // The assertion that was missing when the palette briefly had six names and three
+    // renderings - `success`, `warning` and `danger` were byte-identical to each other or to
+    // `bold`. A picker offering choices the renderer collapses is a control that lies, and the
+    // choice is stored in the document permanently, so it cannot be quietly narrowed later.
+    //
+    // `default` is absent from both maps on purpose: it is the inherited appearance, so having
+    // no rule of its own is exactly right.
+    for (const attribute of ['data-text-color', 'data-background-color']) {
+      const named = TEXT_COLORS.filter((color) => color !== 'default');
+      const rendered = named.map((color) => renderingOf(attribute, color));
+
+      expect(
+        rendered.filter((rule) => rule.length === 0),
+        `${attribute} has unstyled colours`,
+      ).toEqual([]);
+      expect(new Set(rendered).size, `${attribute} renders two colours the same`).toBe(
+        named.length,
+      );
+    }
+  });
+
+  it('gives a toggle heading the size of the real heading of that rank', () => {
+    // Otherwise a document has two visual hierarchies: headings, and toggle headings that all
+    // look alike. The attribute is in the schema either way, so the only question is whether
+    // anything reads it.
+    for (const level of TOGGLE_LEVELS) {
+      expect(source, `toggle level ${String(level)} is stored and never drawn`).toContain(
+        `[data-toggle-level="${String(level)}"]`,
+      );
+    }
   });
 });

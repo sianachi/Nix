@@ -110,7 +110,10 @@ export const noteStrategy: BodyKindStrategy = {
     const document = readProse(state);
     return {
       json: document?.toJSON() ?? null,
-      plaintext: document === null ? '' : document.textBetween(0, document.content.size, '\n', ' '),
+      // No leaf-text argument: passing one overrides every node's own `leafText`, which is how
+      // a reference contributes the title it points at. With one, a document whose only mention
+      // of a topic is a link to it was unfindable by that topic.
+      plaintext: document === null ? '' : document.textBetween(0, document.content.size, '\n'),
     };
   },
 };

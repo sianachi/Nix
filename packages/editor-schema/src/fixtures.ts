@@ -1,3 +1,5 @@
+import { MARK_MIN_VERSION, NODE_MIN_VERSION } from './versions.js';
+
 /**
  * One fixture per node and per mark, plus a document that uses every one of them.
  *
@@ -147,6 +149,59 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
       },
     ],
   },
+
+  columnBlock: {
+    type: 'columnBlock',
+    content: [
+      {
+        type: 'column',
+        attrs: { width: 2 },
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The wider side.' }] }],
+      },
+      {
+        // No width: an equal share of what is left, which is what most columns want.
+        type: 'column',
+        attrs: { width: null },
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The other side.' }] }],
+      },
+    ],
+  },
+
+  details: {
+    type: 'details',
+    attrs: { toggleLevel: 2 },
+    content: [
+      { type: 'detailsSummary', content: [{ type: 'text', text: 'Show the details' }] },
+      {
+        type: 'detailsContent',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Here they are.' }] }],
+      },
+    ],
+  },
+
+  reference: {
+    type: 'paragraph',
+    content: [
+      { type: 'text', text: 'See ' },
+      {
+        type: 'reference',
+        attrs: {
+          kind: 'item',
+          targetId: '0199c0de-0000-7000-8000-000000000001',
+          label: 'The other note',
+        },
+      },
+      { type: 'text', text: ' and ask ' },
+      {
+        type: 'reference',
+        attrs: {
+          kind: 'principal',
+          targetId: '0199c0de-0000-7000-8000-000000000002',
+          label: 'Ada',
+        },
+      },
+    ],
+  },
 };
 
 /** An inline fixture per mark, each a paragraph carrying exactly that mark. */
@@ -196,6 +251,26 @@ export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
       },
     ],
   },
+  textColor: {
+    type: 'paragraph',
+    content: [
+      {
+        type: 'text',
+        marks: [{ type: 'textColor', attrs: { text: 'danger', background: null } }],
+        text: 'coloured by name',
+      },
+    ],
+  },
+  comment: {
+    type: 'paragraph',
+    content: [
+      {
+        type: 'text',
+        marks: [{ type: 'comment', attrs: { threadId: '0199c0de-0000-7000-8000-000000000003' } }],
+        text: 'somebody had a question about this',
+      },
+    ],
+  },
 };
 
 /**
@@ -207,4 +282,35 @@ export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
 export const FIXTURE_DOCUMENT: unknown = {
   type: 'doc',
   content: [...Object.values(NODE_FIXTURES), ...Object.values(MARK_FIXTURES)],
+};
+
+/**
+ * A document exactly as version 1 of the schema could produce it.
+ *
+ * **Every fixture that is not something version 2 added.** Its job is to be old: it is the
+ * artefact that proves a document written before the bump still parses, unchanged, against the
+ * schema that came after - which is the claim the migration rests on, because a pin-only
+ * migration transforms no content and would be silently wrong if the old shapes had stopped
+ * parsing.
+ *
+ * Selected against the version tables rather than copied by hand. A hand-trimmed copy was the
+ * first attempt and it silently dropped `tableCell`, so the one node the artefact existed to
+ * cover stopped being covered - the same rot the hard-coded style-coverage list had, one file
+ * over. `schema.test.ts` asserts this document exercises every version-1 node, so the
+ * selection cannot go quietly wrong either.
+ */
+function addedAfterVersion1(name: string): boolean {
+  return NODE_MIN_VERSION[name] !== undefined || MARK_MIN_VERSION[name] !== undefined;
+}
+
+export const VERSION_1_DOCUMENT: unknown = {
+  type: 'doc',
+  content: [
+    ...Object.entries(NODE_FIXTURES)
+      .filter(([name]) => !addedAfterVersion1(name))
+      .map(([, fixture]) => fixture),
+    ...Object.entries(MARK_FIXTURES)
+      .filter(([name]) => !addedAfterVersion1(name))
+      .map(([, fixture]) => fixture),
+  ],
 };

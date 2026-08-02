@@ -59,7 +59,17 @@ export interface SchemaMigration {
  * The list is append-only. Editing a step that has already run somewhere produces two
  * databases that both claim to be at the same version and are not.
  */
-export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [];
+export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+  {
+    from: 1,
+    to: 2,
+    describe:
+      'Columns, collapsible sections, references, the table of contents and breadcrumb ' +
+      'blocks, token-named colour and the comment mark. Every addition is optional, so no ' +
+      'stored content changes: a version-1 document parses unchanged against version 2, and ' +
+      'this step raises the pin and nothing else.',
+  },
+];
 
 /** What became of one document. */
 export type DocumentOutcome =

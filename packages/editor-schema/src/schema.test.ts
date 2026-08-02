@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { FIXTURE_DOCUMENT, MARK_FIXTURES, NODE_FIXTURES } from './fixtures.js';
+import { FIXTURE_DOCUMENT, MARK_FIXTURES, NODE_FIXTURES, VERSION_1_DOCUMENT } from './fixtures.js';
+import { MARK_MIN_VERSION, NODE_MIN_VERSION, requiredSchemaVersion } from './versions.js';
 import { SCHEMA_VERSION, countNodes, emptyDocument, nixSchema, parseDocument } from './schema.js';
 
 function documentOf(block: unknown): unknown {
@@ -45,6 +46,11 @@ describe('the node set', () => {
       'tableRow',
       'tableHeader',
       'tableCell',
+      // Reachable only through their parent, like the list and table children above: a
+      // column exists only inside a row, a summary and a body only inside a toggle.
+      'column',
+      'detailsSummary',
+      'detailsContent',
       ...Object.keys(NODE_FIXTURES),
     ]);
 
@@ -53,7 +59,7 @@ describe('the node set', () => {
 });
 
 describe('the mark set', () => {
-  const expected = ['bold', 'italic', 'underline', 'strike', 'code', 'highlight', 'link'];
+  const expected = Object.keys(MARK_FIXTURES);
 
   it.each(expected)('includes %s', (name) => {
     expect(nixSchema.marks[name]).toBeDefined();
@@ -245,6 +251,215 @@ describe('the empty document', () => {
 
 describe('the schema version', () => {
   it('is pinned, because stored documents are validated against it', () => {
-    expect(SCHEMA_VERSION).toBe(1);
+    // Changing this number is not a code change, it is a data migration: every stored
+    // document carries a pin that has to be raised past it by a job at deploy (ADR-0024).
+    // If this assertion fails, the question is whether that was done - not whether to
+    // update the number.
+    expect(SCHEMA_VERSION).toBe(2);
+  });
+
+  it('still opens a document written before the bump, unchanged', () => {
+    // The claim the version-2 migration rests on. It raises pins and rewrites no content, so
+    // it is only correct while every shape version 1 could produce still parses here.
+    const parsed = parseDocument(VERSION_1_DOCUMENT);
+
+    expect(parsed.ok, parsed.ok ? '' : parsed.error).toBe(true);
+  });
+
+  it('needs nothing above version 1 to open such a document', () => {
+    const parsed = parseDocument(VERSION_1_DOCUMENT);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    // Not merely parseable - genuinely a version-1 document. If this reported 2, the pin
+    // check would refuse to write it back into the document it came out of.
+    expect(requiredSchemaVersion(parsed.document)).toBe(1);
+  });
+
+  it('needs version 2 for a document using what version 2 added', () => {
+    const parsed = parseDocument(FIXTURE_DOCUMENT);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    expect(requiredSchemaVersion(parsed.document)).toBe(2);
   });
 });
+
+describe('what version 2 added', () => {
+  it('keeps a column out of the top level of a document', () => {
+    // The entire guarantee of putting `column` in no group. A command-level check could be
+    // forgotten; a content expression that has no way to admit the node cannot be.
+    const column = nixSchema.nodes.column;
+    if (column === undefined) {
+      throw new Error('The schema has no column node.');
+    }
+
+    expect(nixSchema.topNodeType.contentMatch.matchType(column)).toBeNull();
+
+    const parsed = parseDocument({
+      type: 'doc',
+      content: [{ type: 'column', content: [{ type: 'paragraph', content: [] }] }],
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('accepts a row left with one column, and a column left empty', () => {
+    // The merge argument in `columns.ts`, asserted rather than only stated. Two people editing
+    // a row concurrently can arrive at either shape, and a schema that refused them would turn
+    // a legal edit into a forced resync.
+    const oneColumn = parseDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'columnBlock',
+          content: [{ type: 'column', content: [{ type: 'paragraph', content: [] }] }],
+        },
+      ],
+    });
+    expect(oneColumn.ok, oneColumn.ok ? '' : oneColumn.error).toBe(true);
+
+    const emptyColumn = parseDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'columnBlock',
+          content: [
+            { type: 'column', content: [] },
+            { type: 'column', content: [{ type: 'paragraph', content: [] }] },
+          ],
+        },
+      ],
+    });
+    expect(emptyColumn.ok, emptyColumn.ok ? '' : emptyColumn.error).toBe(true);
+  });
+
+  it('allows two comment threads to overlap', () => {
+    // `excludes: ''`. Two people commenting on overlapping ranges is a normal thing for two
+    // people to do, and a schema that refused it would silently drop one of them.
+    const parsed = parseDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [
+                { type: 'comment', attrs: { threadId: 'one' } },
+                { type: 'comment', attrs: { threadId: 'two' } },
+              ],
+              text: 'discussed twice',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.ok, parsed.ok ? '' : parsed.error).toBe(true);
+  });
+
+  it('opens a document carrying a colour it has never heard of', () => {
+    // Forward compatibility, and the reason `readColor` falls back at render rather than at
+    // parse: an older build must not silently rewrite a newer build's document just by opening
+    // it. The value survives; only the drawing degrades.
+    const parsed = parseDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              marks: [{ type: 'textColor', attrs: { text: 'chartreuse', background: null } }],
+              text: 'from the future',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.ok, parsed.ok ? '' : parsed.error).toBe(true);
+  });
+
+  it('draws a reference as its stored label, not as an empty box', () => {
+    const parsed = parseDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'reference',
+              attrs: { kind: 'item', targetId: 'abc', label: 'The other note' },
+            },
+          ],
+        },
+      ],
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    // Asked without a leaf-text argument, so the node's own `leafText` answers. Passing one
+    // overrides it - which is exactly the bug this found in the collaboration service's search
+    // materialisation, where every reference was contributing a space.
+    expect(parsed.document.textBetween(0, parsed.document.content.size, ' ')).toContain(
+      'The other note',
+    );
+  });
+});
+
+describe('the version-1 document', () => {
+  it('exercises every node that existed at version 1', () => {
+    // What stops this artefact rotting. It is the sole evidence that a pre-bump document still
+    // parses, so a node it quietly stopped covering is a node nobody is checking.
+    const parsed = parseDocument(VERSION_1_DOCUMENT);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    const present = new Set<string>([parsed.document.type.name]);
+    parsed.document.descendants((node) => {
+      present.add(node.type.name);
+      for (const mark of node.marks) {
+        present.add(mark.type.name);
+      }
+      return true;
+    });
+
+    const versionOneNames = [
+      ...Object.keys(nixSchema.nodes),
+      ...Object.keys(nixSchema.marks),
+    ].filter((name) => !addedAtVersion2(name));
+
+    expect(versionOneNames.filter((name) => !present.has(name))).toEqual([]);
+  });
+
+  it('carries nothing version 2 added', () => {
+    const parsed = parseDocument(VERSION_1_DOCUMENT);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    const newer: string[] = [];
+    parsed.document.descendants((node) => {
+      if (addedAtVersion2(node.type.name)) {
+        newer.push(node.type.name);
+      }
+      for (const mark of node.marks) {
+        if (addedAtVersion2(mark.type.name)) {
+          newer.push(mark.type.name);
+        }
+      }
+      return true;
+    });
+
+    expect(newer).toEqual([]);
+  });
+});
+
+function addedAtVersion2(name: string): boolean {
+  return NODE_MIN_VERSION[name] !== undefined || MARK_MIN_VERSION[name] !== undefined;
+}
