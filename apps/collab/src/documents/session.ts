@@ -330,6 +330,13 @@ export class DocumentSession {
     const verdict = judgeCandidate(this.#doc, update, {
       strategy: this.strategy,
       pin: this.docRow.schema_version,
+      diagnose: (reason) => {
+        this.#context.log?.(
+          `A ${this.strategy.kind} update from principal ` +
+            `${socket.authorization.principalId} on item ${this.itemId} in tenant ` +
+            `${this.tenantId} would not parse: ${reason}`,
+        );
+      },
     });
     if (!verdict.ok) {
       // The detail carries the two numbers that explain a pin refusal - what the merged
@@ -694,6 +701,15 @@ export interface CandidateJudgement {
 
   /** The document's stored `schema_version`. Defaults to what this build speaks. */
   readonly pin?: number;
+
+  /**
+   * Told why, when the merged document will not parse.
+   *
+   * Separate from the refusal the client receives, which stays deliberately vague. This is for
+   * the operator log, and without it `document_does_not_parse` names a symptom and nothing else -
+   * which is exactly the position somebody is in when a document silently will not save.
+   */
+  readonly diagnose?: (reason: string) => void;
 }
 
 /** What became of a candidate update: apply it, or refuse it - and maybe force a resync. */
@@ -743,7 +759,27 @@ export function judgeCandidate(
 
   const after = strategy.measure(fork);
   fork.destroy();
+
   if (after === null) {
+    // A second fork, built from the same two inputs, because measuring consumed the first: reading
+    // a fragment as prose drops the nodes the schema does not know, so the fork can no longer say
+    // what was in it. The resident is untouched - only the fork was measured - so rebuilding is
+    // exact, and it costs nothing on the path where an update is accepted.
+    if (judgement.diagnose !== undefined && strategy.explain !== undefined) {
+      const pristine = new Y.Doc();
+      try {
+        Y.applyUpdate(pristine, Y.encodeStateAsUpdate(resident));
+        Y.applyUpdate(pristine, update);
+        const reason = strategy.explain(pristine);
+        if (reason !== null) {
+          judgement.diagnose(reason);
+        }
+      } catch {
+        // The diagnosis is a courtesy; failing to produce one must not change the verdict.
+      } finally {
+        pristine.destroy();
+      }
+    }
     return {
       ok: false,
       refusal: rejection(

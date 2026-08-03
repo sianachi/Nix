@@ -254,3 +254,72 @@ describe('the note strategy measurement', () => {
     expect(noteStrategy.measure(state)?.schemaVersion).toBe(SCHEMA_VERSION);
   });
 });
+
+describe('why a document would not parse', () => {
+  /** A fragment holding an element the schema has never heard of. */
+  function unknownNode(): Y.Doc {
+    const state = new Y.Doc();
+    state.getXmlFragment('default').insert(0, [new Y.XmlElement('nodeThisBuildHasNeverHeardOf')]);
+    return state;
+  }
+
+  it('names the parser error rather than swallowing it', () => {
+    // `document_does_not_parse` was a black box: the refusal a client sees is deliberately vague,
+    // and the operator log inherited that vagueness - so a document that silently would not save
+    // gave nobody anything to work from. The parser knows exactly what failed.
+    expect(noteStrategy.explain?.(unknownNode())).toContain('Invalid content for node doc');
+  });
+
+  it('tells the two shapes of this failure apart', () => {
+    // Both arrive as the same parser message, because an unknown node is *dropped* rather than
+    // refused - so a fragment full of them converts to an empty document and reads identically to
+    // a fragment that was empty all along. The shape is what separates "the client sent nothing"
+    // from "the client sent something this build does not know", and those want opposite fixes.
+    expect(noteStrategy.explain?.(unknownNode())).toContain(
+      'fragment held: nodeThisBuildHasNeverHeardOf',
+    );
+    expect(noteStrategy.explain?.(new Y.Doc())).toContain('dropped as unknown');
+  });
+
+  it('admits it cannot tell, once the document has been parsed out from under it', () => {
+    // Reading a fragment as prose drops the nodes the schema does not know, from the Yjs document
+    // itself - so a second look cannot distinguish "was empty" from "was emptied". Saying so is
+    // the honest answer; a bare "empty" is the reading that hides what happened. The socket path
+    // avoids the question entirely by explaining from a fork nothing has parsed.
+    const state = unknownNode();
+    noteStrategy.measure(state);
+
+    expect(noteStrategy.explain?.(state)).toContain('dropped as unknown');
+  });
+
+  it('says so plainly when the fragment is empty', () => {
+    // The commonest shape of this failure, and the one that reads as nothing at all without a
+    // word for it: `doc` requires `block+`, and an untouched fragment has no children.
+    const reason = noteStrategy.explain?.(new Y.Doc());
+
+    expect(reason).toBeTruthy();
+    expect(reason).toContain('empty');
+  });
+
+  it('says nothing about a document that parses', () => {
+    const state = new Y.Doc();
+    prosemirrorJSONToYXmlFragment(nixSchema, VERSION_1_DOCUMENT, state.getXmlFragment('default'));
+
+    expect(noteStrategy.explain?.(state)).toBeNull();
+  });
+
+  it('reaches the log through a refused candidate', () => {
+    // The whole point: the seam has to actually connect, or the explanation is written and read by
+    // nobody. Asserted through `judgeCandidate`, which is the path a socket update takes.
+    const reasons: string[] = [];
+    const resident = new Y.Doc();
+
+    judgeCandidate(resident, Y.encodeStateAsUpdate(unknownNode()), {
+      strategy: noteStrategy,
+      diagnose: (reason) => reasons.push(reason),
+    });
+
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain('fragment held: nodeThisBuildHasNeverHeardOf');
+  });
+});

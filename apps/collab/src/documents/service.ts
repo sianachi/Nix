@@ -220,6 +220,9 @@ export interface MergeCheck {
    * document judged outside the context of a stored row.
    */
   readonly pin?: number;
+
+  /** Told why, when the merged document will not parse. For the operator log, not the client. */
+  readonly diagnose?: (reason: string) => void;
 }
 
 /**
@@ -235,6 +238,11 @@ export function checkMergedDocument(state: Y.Doc, against: MergeCheck = {}): Rej
 
   const measured = strategy.measure(state);
   if (measured === null) {
+    const diagnosis = strategy.explain?.(state) ?? null;
+    if (diagnosis !== null) {
+      against.diagnose?.(diagnosis);
+    }
+
     return rejection(
       'document_does_not_parse',
       'Applying this update would produce a document the schema rejects.',

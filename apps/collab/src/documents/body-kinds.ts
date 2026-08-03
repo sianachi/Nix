@@ -63,6 +63,21 @@ export interface BodyKindStrategy {
   measure(state: Y.Doc): Measurement | null;
 
   /**
+   * Why {@link measure} returned null, in the words the parser used.
+   *
+   * **Called only on the refusal path**, so it costs nothing when an update is accepted - which
+   * is why it can afford to re-run the parse rather than have `measure` carry a reason it almost
+   * never needs.
+   *
+   * This exists because `document_does_not_parse` was a black box. The refusal a client sees is
+   * deliberately vague - two failure modes mean the same thing to it - but the *operator* log
+   * inherited that vagueness, so a document that would not save gave nobody anything to work
+   * from. The parser knows exactly which node or which content rule failed; this is what stops
+   * that being thrown away.
+   */
+  explain?(state: Y.Doc): string | null;
+
+  /**
    * What the snapshot stores beside the Yjs state, so search and previews can read the
    * document without a Yjs runtime. The JSON lands in the snapshot's materialised-body
    * column; the plaintext feeds search.
@@ -104,6 +119,10 @@ export const noteStrategy: BodyKindStrategy = {
       bytes: Buffer.byteLength(JSON.stringify(document.toJSON())),
       schemaVersion: requiredSchemaVersion(document),
     };
+  },
+
+  explain(state: Y.Doc): string | null {
+    return explainProse(state);
   },
 
   materialize(state: Y.Doc): { json: unknown; plaintext: string } {
@@ -225,6 +244,69 @@ function readProse(state: Y.Doc): ProseMirrorNode | null {
     return document;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The same parse, kept for its exception.
+ *
+ * A second walk rather than threading the error out of {@link readProse}: this runs only when an
+ * update has already been refused, and keeping the accepted path free of a reason nobody reads is
+ * worth one duplicated call on the path that is already going to disappoint somebody.
+ *
+ * The shape of the document is reported alongside the message, because the message alone often is
+ * not enough - "Invalid content for node doc" says which rule broke and not what broke it.
+ */
+function explainProse(state: Y.Doc): string | null {
+  // **The shape is read before the parse, and the parse is why.**
+  // `yXmlFragmentToProseMirrorRootNode` does not leave the fragment alone: a node the schema does
+  // not know is *dropped from the Yjs document itself* by the time the conversion throws. So a
+  // description taken afterwards reports every failure as an empty fragment - which is the one
+  // reading that hides what happened. Found by this diagnostic misreporting its own test.
+  const shape = describeFragment(state);
+
+  try {
+    const document = yXmlFragmentToProseMirrorRootNode(
+      state.getXmlFragment(FRAGMENT_NAME),
+      nixSchema,
+    );
+    document.check();
+    return null;
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return `${message} (fragment held: ${shape})`;
+  }
+}
+
+/**
+ * The top level of the stored fragment, named.
+ *
+ * Deliberately shallow and deliberately capped: this goes in an operator log, and a document's
+ * whole outline is neither readable there nor something to be writing to disk on every refusal.
+ * The node names at the root are almost always enough to see what is wrong - an empty fragment, a
+ * name this build does not know, a text node where a block belongs.
+ */
+function describeFragment(state: Y.Doc): string {
+  try {
+    const children = state.getXmlFragment(FRAGMENT_NAME).toArray();
+    if (children.length === 0) {
+      // Two different things wearing one answer, and worth saying so: an unknown node is dropped
+      // rather than refused, so a fragment full of them looks exactly like one that was empty all
+      // along - and the two want opposite fixes. A caller that can hand over an unparsed document
+      // gets the precise answer; one that cannot gets this.
+      return 'nothing - either the client sent an empty document, or everything in it was dropped as unknown';
+    }
+
+    const shown = children.slice(0, 8).map((child) => {
+      const name = (child as { nodeName?: unknown }).nodeName;
+      return typeof name === 'string' ? name : 'text';
+    });
+
+    return children.length > shown.length
+      ? `${shown.join(', ')}, and ${String(children.length - shown.length)} more`
+      : shown.join(', ');
+  } catch {
+    return 'unreadable';
   }
 }
 
