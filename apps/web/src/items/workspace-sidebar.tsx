@@ -1,7 +1,8 @@
-import { Button, Icon, Text } from '@nix/ui';
+import { Button, Icon, Text, disabledState, focusRing } from '@nix/ui';
 import {
   ChevronDown,
   ChevronRight,
+  Columns2,
   FilePlus,
   FileText,
   Grid3x3,
@@ -15,7 +16,23 @@ import {
   type ReactNode,
 } from 'react';
 
+import { announce } from '../app/announcer';
+import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
+
+/**
+ * Whether this is an Apple platform, for the one gesture whose modifier differs.
+ *
+ * Read once, from the user agent's own platform hint rather than by sniffing a version string.
+ * It matters because Ctrl+click is the *secondary* click on a Mac: accepting it as "open beside"
+ * there would turn every attempt to open a context menu into a new pane.
+ */
+const APPLE = /mac|iphone|ipad|ipod/i.test(
+  // The modern hint where it exists, the user-agent string where it does not. Deliberately not
+  // `navigator.platform`, which is deprecated and frozen to a lie on several browsers.
+  (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+    navigator.userAgent,
+);
 
 /**
  * The workspace tree, in the sidebar, always on screen.
@@ -33,10 +50,25 @@ export interface WorkspaceSidebarProps {
   readonly tree: WorkspaceTree;
   readonly selectedId: string | null;
   readonly onSelect: (itemId: string) => void;
+
+  /**
+   * Opens an item in a pane beside the ones already open.
+   *
+   * Separate from `onSelect` because it is a different intention - "as well as", not "instead
+   * of" - and because the shell is the only thing that knows how many panes there are and
+   * whether another will fit.
+   */
+  readonly onOpenBeside: (itemId: string) => void;
+
+  /** Whether another pane would fit. A control that silently refuses reads as a broken one. */
+  readonly canOpenBeside: boolean;
+
+  /** Why not, when it would not - so the control can say which of two reasons it is. */
+  readonly besideRefusal: BesideRefusal | null;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
-  const { tree, selectedId, onSelect } = props;
+  const { tree, selectedId, onSelect, onOpenBeside, canOpenBeside, besideRefusal } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -150,6 +182,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           tree={tree}
           selectedId={selectedId}
           onSelect={onSelect}
+          onOpenBeside={onOpenBeside}
+          canOpenBeside={canOpenBeside}
+          besideRefusal={besideRefusal}
           dragged={dragged}
           setDragged={setDragged}
         />
@@ -172,6 +207,9 @@ interface TreeBodyProps {
   readonly tree: WorkspaceTree;
   readonly selectedId: string | null;
   readonly onSelect: (itemId: string) => void;
+  readonly onOpenBeside: (itemId: string) => void;
+  readonly canOpenBeside: boolean;
+  readonly besideRefusal: BesideRefusal | null;
   readonly dragged: string | null;
   readonly setDragged: (itemId: string | null) => void;
 }
@@ -317,7 +355,18 @@ export function dropZoneAt(offsetY: number, height: number): DropZone {
 }
 
 function TreeNode(props: TreeNodeProps): ReactNode {
-  const { item, depth, tree, selectedId, onSelect, dragged, setDragged } = props;
+  const {
+    item,
+    depth,
+    tree,
+    selectedId,
+    onSelect,
+    onOpenBeside,
+    canOpenBeside,
+    besideRefusal,
+    dragged,
+    setDragged,
+  } = props;
 
   const expanded = tree.isExpanded(item.id);
   const children = tree.childrenOf(item.id);
@@ -373,6 +422,21 @@ function TreeNode(props: TreeNodeProps): ReactNode {
    */
   function onKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
     if (!event.altKey) {
+      return;
+    }
+
+    // The keyboard half of a modifier-click. A gesture that only a pointer can make is a feature
+    // for only some people - the same objection that gave the moves below their alt-arrows - and
+    // Alt is already the modifier this row means business with.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (canOpenBeside) {
+        onOpenBeside(item.id);
+      } else if (besideRefusal !== null) {
+        // A pointer user gets a disabled control whose name explains itself; without this a
+        // keyboard user gets silence, which reads as a broken key rather than a full screen.
+        announce(BESIDE_REFUSAL_COPY[besideRefusal]);
+      }
       return;
     }
 
@@ -459,7 +523,18 @@ function TreeNode(props: TreeNodeProps): ReactNode {
 
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
+            // The accelerator everybody already has from a browser and an editor. Gated on the
+            // platform's own modifier: Ctrl+click on a Mac is the *secondary* click, so accepting
+            // it there would turn every attempt to open a context menu into a new pane.
+            if (APPLE ? event.metaKey : event.ctrlKey) {
+              // Deliberately not gated here. `openBeside` refuses on its own - it announces the
+              // reason and writes nothing - which is the only place the check can live and still
+              // be true of every caller. An earlier cut gated the controls instead, and this
+              // branch routed around it.
+              onOpenBeside(item.id);
+              return;
+            }
             onSelect(item.id);
           }}
           // On the row's own control rather than on the wrapper: this is the element that takes
@@ -470,6 +545,32 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         >
           <Icon icon={FileText} size="sm" />
           <span className="truncate">{item.title || 'Untitled'}</span>
+        </button>
+
+        {/* Beside Delete, in the row's own established grammar: revealed on hover, always
+            reachable by keyboard. The modifier-click and Alt+Enter above are accelerators for
+            this control rather than the whole feature - a gesture only a pointer can make is a
+            feature for only some people, and a `title` tooltip is worse than nothing here,
+            because it is read aloud after every row while never reaching a touch or keyboard
+            user at all. */}
+        <button
+          type="button"
+          disabled={!canOpenBeside}
+          aria-label={
+            besideRefusal === null
+              ? `Open ${item.title || 'Untitled'} beside`
+              : `Cannot open ${item.title || 'Untitled'} beside. ${BESIDE_REFUSAL_COPY[besideRefusal]}`
+          }
+          onClick={() => {
+            onOpenBeside(item.id);
+          }}
+          // `opacity-0`, not `invisible`. `visibility: hidden` takes an element out of the tab
+          // order entirely, so `focus-visible:visible` can never fire - nothing can focus it in
+          // order to un-hide it. The control was pointer-only, which is the objection it exists to
+          // answer. Opacity hides it and keeps it reachable.
+          className={`flex size-5 items-center justify-center text-muted opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 ${disabledState} ${focusRing}`}
+        >
+          <Icon icon={Columns2} size="sm" />
         </button>
 
         <button
@@ -490,7 +591,10 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               void tree.remove(item.id);
             }
           }}
-          className="invisible flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:visible focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent group-hover:visible"
+          // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
+          // takes an element out of the tab order, so this was keyboard-unreachable - and of the
+          // two controls in this row it is the destructive one.
+          className={`flex size-5 items-center justify-center text-muted opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 ${focusRing}`}
         >
           <Icon icon={Trash2} size="sm" />
         </button>

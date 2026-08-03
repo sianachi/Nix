@@ -72,7 +72,16 @@ describe('moving an item from the keyboard', () => {
   it('moves it above the sibling before it', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('Second');
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
@@ -86,7 +95,16 @@ describe('moving an item from the keyboard', () => {
   it('moves it below the sibling after it', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('First');
     await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
@@ -99,7 +117,16 @@ describe('moving an item from the keyboard', () => {
   it('puts it inside the sibling above when indented', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('Second');
     await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
@@ -114,7 +141,16 @@ describe('moving an item from the keyboard', () => {
   it('does not indent the first of its siblings, which has nothing to go inside', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('First');
     await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
@@ -125,7 +161,16 @@ describe('moving an item from the keyboard', () => {
   it('does not move the last of its siblings further down', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('Third');
     await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
@@ -136,7 +181,16 @@ describe('moving an item from the keyboard', () => {
   it('leaves an unmodified arrow key alone', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(<WorkspaceSidebar tree={treeOf(move)} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move)}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+      />,
+    );
 
     focusRow('Second');
     await user.keyboard('{ArrowUp}');

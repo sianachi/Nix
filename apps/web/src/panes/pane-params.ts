@@ -114,3 +114,27 @@ export function parseSizes(raw: string | null, count: number): readonly number[]
 export function sizesToParam(sizes: readonly number[]): string {
   return sizes.map((size) => String(Math.round(size * 10) / 10)).join(',');
 }
+
+/**
+ * The id a pane's region carries, so focus can be moved to it from outside the pane.
+ *
+ * A DOM id rather than a ref registry: the two things that need to move focus into a pane are the
+ * tree (which opens one) and a sibling pane (which closes itself), and neither is anywhere near
+ * the element in the component tree. Threading refs up and back down would be a lot of plumbing
+ * for one `focus()`.
+ */
+export function paneElementId(index: number): string {
+  return `nix-pane-${String(index)}`;
+}
+
+/**
+ * Moves focus into a pane.
+ *
+ * Deferred a frame, because every caller changes the address first and the element being focused
+ * may not exist until React has rendered the arrangement that resulted.
+ */
+export function focusPane(index: number): void {
+  requestAnimationFrame(() => {
+    document.getElementById(paneElementId(index))?.focus();
+  });
+}

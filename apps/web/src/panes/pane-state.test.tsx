@@ -1,7 +1,9 @@
+import { renderHook } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { clearViewState, parseFilters, parseViewState } from '../views/view-state';
-import { closePaneParams, parsePanes } from './pane-state';
+import { closePaneParams, parsePanes, usePanes } from './pane-state';
 import {
   PANE_LIMIT,
   paneFilterPrefix,
@@ -274,5 +276,45 @@ describe('closing a pane', () => {
     closePaneParams(params, 1, 2);
 
     expect(params.get('sizes')).toBeNull();
+  });
+});
+
+describe('a window too narrow to hold a second pane', () => {
+  const first = '00000000-0000-4000-8000-000000000001';
+  const second = '00000000-0000-4000-8000-000000000002';
+
+  function panesAt(wide: boolean, search: string) {
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({
+          matches: wide,
+          media: query,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        }) as unknown as MediaQueryList,
+    );
+
+    return renderHook(() => usePanes(), {
+      wrapper: ({ children }) => (
+        <MemoryRouter initialEntries={[`/?${search}`]}>{children}</MemoryRouter>
+      ),
+    }).result.current;
+  }
+
+  it('draws every pane the address asks for when there is room', () => {
+    const panes = panesAt(true, `item=${first}&item2=${second}`);
+
+    expect(panes.panes).toHaveLength(2);
+    expect(panes.canOpenBeside).toBe(true);
+  });
+
+  it('draws one pane, and refuses to offer another, when there is not', () => {
+    // Below the breakpoint a second pane is not cramped, it is unreadable - and these arrangements
+    // get pasted into messages, so a phone meets one on day one.
+    const panes = panesAt(false, `item=${first}&item2=${second}`);
+
+    expect(panes.panes).toHaveLength(1);
+    expect(panes.canOpenBeside).toBe(false);
   });
 });

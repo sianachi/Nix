@@ -4,6 +4,7 @@ import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { stubCoreApi } from './api-stub';
+import { resetAnnouncements } from '../app/announcer';
 import { resetSession } from './render-with-router';
 
 /**
@@ -18,6 +19,36 @@ import { resetSession } from './render-with-router';
  * declares `@vitest-environment node` - compiling a stylesheet, say - has no HTMLDialogElement to
  * patch and would otherwise fail here before running a line of its own.
  */
+/**
+ * A media query, which jsdom does not implement at all.
+ *
+ * Not a convenience. Without it, every render that asks whether the window can hold a second pane
+ * throws - and the failure surfaces as an unrelated element missing from the page, which is a long
+ * way from anything about media queries. Wide by default, so the suite exercises the arrangement
+ * the address actually asks for; a test about narrow behaviour stubs this itself.
+ *
+ * Assigned at module scope rather than in `beforeEach`, because `vi.unstubAllGlobals` in the
+ * teardown below would take a stubbed one away again after the first test. Guarded for the same
+ * reason the dialog shim below is: a suite that declares `@vitest-environment node` has no window
+ * to give one to.
+ */
+if (typeof globalThis.window !== 'undefined') {
+  Object.defineProperty(globalThis, 'matchMedia', {
+    writable: true,
+    value: (query: string): MediaQueryList =>
+      ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }) as MediaQueryList,
+  });
+}
+
 if (typeof HTMLDialogElement !== 'undefined') {
   Object.assign(HTMLDialogElement.prototype, {
     showModal(this: HTMLDialogElement) {
@@ -79,6 +110,10 @@ afterEach(() => {
   // The session store is module state and would otherwise leak a signed-in session from one test
   // into the next, which is the sort of order-dependence that only shows up on CI.
   resetSession();
+
+  // The announcer is module state for the same reason the session store is, and leaks the same
+  // way: a message left standing would be read by the next test's live region.
+  resetAnnouncements();
 
   // Tests that assert on an unconfigured build stub VITE_OIDC_* to empty. Left standing, that
   // would silently unconfigure every test that ran afterwards.

@@ -1,12 +1,14 @@
-import { useCallback } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { announce } from '../app/announcer';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
 import { clearViewState } from '../views/view-state';
 import {
   PANE_LIMIT,
   SIZES_PARAM,
   SPLIT_PARAM,
+  focusPane,
   paneFilterPrefix,
   paneParam,
   parseSizes,
@@ -36,6 +38,9 @@ export interface PaneState {
 
 export interface PaneArrangement {
   readonly panes: readonly PaneState[];
+
+  /** How many panes the address names, which exceeds `panes.length` on a narrow window. */
+  readonly requested?: number;
   readonly split: SplitOrientation;
 
   /** Percentages, one per pane, or null to share the space equally. */
@@ -142,6 +147,15 @@ export function closePaneParams(params: URLSearchParams, index: number, count: n
   params.delete(SIZES_PARAM);
 }
 
+/** Why a pane cannot be opened beside the ones already there. */
+export type BesideRefusal = 'limit' | 'narrow';
+
+/** What to say about each refusal. One place, because three call sites say it. */
+export const BESIDE_REFUSAL_COPY: Readonly<Record<BesideRefusal, string>> = {
+  limit: 'The most panes are already open. Close one to open another beside it.',
+  narrow: 'This window is too narrow for a second pane.',
+};
+
 export interface PaneControl extends PaneArrangement {
   /**
    * Opens an item in a new pane beside the others.
@@ -156,6 +170,18 @@ export interface PaneControl extends PaneArrangement {
    */
   readonly openBeside: (itemId: string) => number | null;
 
+  /**
+   * Why another pane will not fit, or null when one will.
+   *
+   * Two reasons, not one boolean, because they need different words. "Close one to open another"
+   * is useful at the limit and actively misleading on a narrow window, where nothing is open to
+   * close and closing something would change nothing.
+   */
+  readonly besideRefusal: BesideRefusal | null;
+
+  /** Whether another pane would fit, so a control can be disabled rather than silently refuse. */
+  readonly canOpenBeside: boolean;
+
   /** Closes a pane, renumbering whatever was after it. Closing the last pane is refused. */
   readonly closePane: (index: number) => void;
 
@@ -165,8 +191,55 @@ export interface PaneControl extends PaneArrangement {
   readonly setSizes: (sizes: readonly number[]) => void;
 }
 
+/**
+ * The narrowest window this shell will lay two panes out in.
+ *
+ * Not a guess. The tree takes a fixed 264px and the settings panel up to 340px, and neither
+ * narrows yet - so on a 768px window a second pane is already sharing about 460px with the first.
+ * Below that the honest thing is to refuse the split rather than draw two columns of six-character
+ * prose, which is what a phone would otherwise get the day somebody pastes a two-pane link into a
+ * message - and ADR-0026's whole premise is that these links get pasted.
+ *
+ * A window query rather than a container query on purpose: what is being decided is whether the
+ * *shell* can hold another region, which is a question about the window. Narrowing the tree and
+ * the panel is the responsive goal's work, and this number moves when that lands.
+ */
+const NARROWEST_FOR_TWO_PANES = 768;
+
+/**
+ * Whether the window is currently wide enough for more than one pane.
+ *
+ * `useSyncExternalStore` rather than an effect that sets state: a media query is exactly the
+ * external store that hook exists for, and it closes the gap an effect leaves - React reads the
+ * snapshot at subscribe time, so a window resized between the render and the subscription is not
+ * missed. It also keeps this off the render-cascade path an effect-plus-setState would put it on.
+ */
+function useRoomForAnotherPane(): boolean {
+  const query = `(min-width: ${String(NARROWEST_FOR_TWO_PANES)}px)`;
+
+  const subscribe = useCallback(
+    (onChange: () => void): (() => void) => {
+      const media = globalThis.matchMedia(query);
+      media.addEventListener('change', onChange);
+      return () => {
+        media.removeEventListener('change', onChange);
+      };
+    },
+    [query],
+  );
+
+  return useSyncExternalStore(
+    subscribe,
+    () => globalThis.matchMedia(query).matches,
+    // On a server there is no window to measure, so the arrangement the address asks for is
+    // rendered whole rather than pre-emptively narrowed to something the client may not want.
+    () => true,
+  );
+}
+
 export function usePanes(): PaneControl {
   const [searchParams, setSearchParams] = useSearchParams();
+  const roomy = useRoomForAnotherPane();
   const arrangement = parsePanes(searchParams);
 
   const write = useCallback(
@@ -178,18 +251,35 @@ export function usePanes(): PaneControl {
     [searchParams, setSearchParams],
   );
 
+  const refusal: BesideRefusal | null = !roomy
+    ? 'narrow'
+    : arrangement.panes.length >= PANE_LIMIT
+      ? 'limit'
+      : null;
+
   const openBeside = useCallback(
     (itemId: string): number | null => {
       const existing = arrangement.panes.find((pane) => pane.itemId === itemId);
       if (existing !== undefined) {
+        // Already open. Moving focus there is the whole response - without it the control looks
+        // broken, because refusing to duplicate and doing nothing are indistinguishable.
+        announce(`Already open in pane ${String(existing.index + 1)}.`);
+        focusPane(existing.index);
         return existing.index;
       }
 
-      if (arrangement.panes.length >= PANE_LIMIT) {
+      // Refused here rather than only at the controls. A caller that routed around the check -
+      // the modifier-click did - would write a pane into the address that nothing draws, announce
+      // that it had opened, and move focus to an element that does not exist, which loses focus to
+      // the document body entirely. The gate belongs with the state.
+      if (refusal !== null) {
+        announce(BESIDE_REFUSAL_COPY[refusal]);
         return null;
       }
 
       const index = arrangement.panes.length;
+      announce(`Opened in pane ${String(index + 1)} of ${String(index + 1)}.`);
+      focusPane(index);
       write((next) => {
         next.set(selectedItemParam(index), itemId);
         // The ratio described the panes there were, not the panes there now are. Dropped rather
@@ -200,7 +290,7 @@ export function usePanes(): PaneControl {
 
       return index;
     },
-    [arrangement.panes, write],
+    [arrangement.panes, refusal, write],
   );
 
   const closePane = useCallback(
@@ -237,5 +327,22 @@ export function usePanes(): PaneControl {
     [write],
   );
 
-  return { ...arrangement, openBeside, closePane, setSplit, setSizes };
+  return {
+    ...arrangement,
+    // The address is left exactly as it is on a narrow window - only what is *drawn* narrows, so
+    // the same link re-expands to its full arrangement on a wide screen. Discarding the panes here
+    // would mean opening a colleague's link on a phone silently rewrote it.
+    panes: roomy ? arrangement.panes : arrangement.panes.slice(0, 1),
+
+    // How many the address asks for, which is not always how many are drawn. A narrow window
+    // shows one and keeps the rest in the URL, and the screen owes the reader a word about that
+    // rather than quietly showing them less than they were sent.
+    requested: arrangement.panes.length,
+    besideRefusal: refusal,
+    canOpenBeside: refusal === null,
+    openBeside,
+    closePane,
+    setSplit,
+    setSizes,
+  };
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
 
@@ -51,6 +51,19 @@ export interface CreateOutcome {
   readonly refusal: string | null;
 }
 
+/**
+ * Where a reveal got to.
+ *
+ * `revealing` while the ancestor walk is in flight; then one of the four things it can have found.
+ *
+ * Each is a different sentence to a reader, which is the whole reason they are not one word.
+ * `missing` says a document may be gone, so it is reserved for a server that actually said 404 -
+ * a 500, a dropped connection or an expired session are `failed`, which says something went wrong
+ * and offers to try again. Telling somebody their document may have been deleted because a proxy
+ * hiccupped is a worse lie than saying nothing.
+ */
+export type RevealOutcome = 'revealing' | 'found' | 'missing' | 'forbidden' | 'failed';
+
 export interface WorkspaceTree {
   readonly status: TreeStatus;
   readonly error: string | null;
@@ -81,6 +94,19 @@ export interface WorkspaceTree {
    * was asked for.
    */
   readonly reveal: (itemId: string) => Promise<void>;
+
+  /**
+   * What became of a {@link reveal} for one item, or null if none was ever asked for.
+   *
+   * A screen that opens an item the tree has not loaded has to say something while the walk up
+   * its ancestors is in flight, and something different if the walk found nothing. Without this
+   * the only honest thing available was "not in this workspace", which is a flat denial that is
+   * wrong during the wait and wrong again for an item somebody simply may not see.
+   */
+  readonly revealOf: (itemId: string) => RevealOutcome | null;
+
+  /** Forgets a settled reveal and walks again. For the one outcome worth another go. */
+  readonly retryReveal: (itemId: string) => Promise<void>;
 
   readonly isCreating: boolean;
   readonly isSaving: boolean;
@@ -140,6 +166,16 @@ export function useWorkspaceTree(): WorkspaceTree {
   const [items, setItems] = useState<readonly TreeItem[]>([]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [loadingChildren, setLoadingChildren] = useState<ReadonlySet<string>>(new Set());
+
+  // A ref rather than state, because `reveal` has to read it to decide whether to run at all - and
+  // reading state inside a callback would mean the callback changed identity every time a reveal
+  // settled, which is the loop this exists to stop. The counter beside it is what tells React a
+  // render is due, since mutating a ref does not.
+  const revealsRef = useRef(new Map<string, RevealOutcome>());
+  const [, setRevealTick] = useState(0);
+  const bumpReveals = useCallback((): void => {
+    setRevealTick((tick) => tick + 1);
+  }, []);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -252,55 +288,112 @@ export function useWorkspaceTree(): WorkspaceTree {
 
   const reveal = useCallback(
     async (itemId: string): Promise<void> => {
+      // Once per identifier, ever. Without this, an item that cannot be revealed - deleted, or
+      // not this caller's to see - is retried by every render that asks, because `find` keeps
+      // answering null and nothing remembers having tried. That is a thirty-two request walk per
+      // render, and it arrives exactly when somebody opens a stale link.
+      // Once per identifier - except after a failure, which is worth another go. Without the
+      // first half, an item that cannot be revealed is retried by every render, because `find`
+      // keeps answering null and nothing remembers having tried; without the second, one dropped
+      // request would leave that item unreachable for the rest of the session.
+      const already = revealsRef.current.get(itemId);
+      if (already !== undefined && already !== 'failed') {
+        return;
+      }
+      revealsRef.current.set(itemId, 'revealing');
+      bumpReveals();
+
       const found: TreeItem[] = [];
       const expand = new Set<string>();
 
+      const settle = (outcome: RevealOutcome): void => {
+        revealsRef.current.set(itemId, outcome);
+        bumpReveals();
+      };
+
+      try {
+        await walk();
+      } catch {
+        // A dropped connection, a token refresh that failed, anything that rejected rather than
+        // answered. Left unhandled this would keep the entry on `revealing` for the rest of the
+        // session, and the screen reading from it would say "Finding this item…" forever with no
+        // control on it - a dead end reached by a different road than the one this replaced.
+        settle('failed');
+      }
+
+      return;
+
       // Walk up from the item, fetching each ancestor. Bounded rather than trusting the chain to
       // terminate: the database forbids cycles, and a client that looped anyway would hang the tab.
-      let cursor: string | null = itemId;
-      let guard = 32;
+      async function walk(): Promise<void> {
+        let cursor: string | null = itemId;
+        let guard = 32;
+        let refusal: RevealOutcome | null = null;
 
-      while (cursor !== null && guard > 0) {
-        const response = await request(`/api/v1/items/${cursor}`);
-        if (!response.ok) {
-          // A link to something that has been deleted, or that this caller may not see. Both are
-          // reported the same way by Core, and both mean the same thing here: there is nothing to
-          // reveal, and the screen's own empty state is the honest answer.
-          break;
+        while (cursor !== null && guard > 0) {
+          const response = await request(`/api/v1/items/${cursor}`);
+          if (!response.ok) {
+            // Deleted, or not this caller's to see. The two are different things to tell somebody -
+            // one is gone, the other is theirs to ask about - so which it was is remembered rather
+            // than folded into one word.
+            //
+            // Break rather than return: an ancestor this caller cannot read does not make the item
+            // itself unreachable. Whatever the walk has already found is still worth showing, and
+            // discarding it would hide an item somebody has every right to open.
+            refusal =
+              response.status === 403
+                ? 'forbidden'
+                : response.status === 404
+                  ? 'missing'
+                  : 'failed';
+            break;
+          }
+
+          const loaded = toItem((await response.json()) as ItemPayload);
+          found.push(loaded);
+
+          if (loaded.parentId !== null) {
+            expand.add(loaded.parentId);
+          }
+
+          cursor = loaded.parentId;
+          guard -= 1;
         }
 
-        const loaded = toItem((await response.json()) as ItemPayload);
-        found.push(loaded);
-
-        if (loaded.parentId !== null) {
-          expand.add(loaded.parentId);
+        if (found.length === 0) {
+          settle(refusal ?? 'missing');
+          return;
         }
 
-        cursor = loaded.parentId;
-        guard -= 1;
-      }
+        setItems((current) => {
+          const known = new Set(current.map((entry) => entry.id));
+          return [...current, ...found.filter((entry) => !known.has(entry.id))];
+        });
 
-      if (found.length === 0) {
-        return;
-      }
+        setExpanded((current) => new Set([...current, ...expand]));
 
-      setItems((current) => {
-        const known = new Set(current.map((entry) => entry.id));
-        return [...current, ...found.filter((entry) => !known.has(entry.id))];
-      });
-
-      setExpanded((current) => new Set([...current, ...expand]));
-
-      // The ancestors are now present but their other children are not, so a revealed note would
-      // appear as its parent's only child. Fetching each level puts its siblings back.
-      for (const parentId of expand) {
-        const siblings = await fetchChildren(parentId);
-        if (siblings !== null) {
-          absorb(parentId, siblings);
+        // The ancestors are now present but their other children are not, so a revealed note would
+        // appear as its parent's only child. Fetching each level puts its siblings back.
+        for (const parentId of expand) {
+          const siblings = await fetchChildren(parentId);
+          if (siblings !== null) {
+            absorb(parentId, siblings);
+          }
         }
+
+        settle('found');
       }
     },
-    [absorb, fetchChildren, request],
+    [absorb, bumpReveals, fetchChildren, request],
+  );
+
+  const retryReveal = useCallback(
+    async (itemId: string): Promise<void> => {
+      revealsRef.current.delete(itemId);
+      bumpReveals();
+      await reveal(itemId);
+    },
+    [bumpReveals, reveal],
   );
 
   const create = useCallback(
@@ -502,6 +595,8 @@ export function useWorkspaceTree(): WorkspaceTree {
     error,
     items,
     childrenOf,
+    revealOf: (itemId) => revealsRef.current.get(itemId) ?? null,
+    retryReveal,
     isExpanded: (itemId) => expanded.has(itemId),
     isLoadingChildren: (itemId) => loadingChildren.has(itemId),
     breadcrumbs,

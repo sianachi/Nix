@@ -5,6 +5,8 @@ import { Link, Outlet } from 'react-router';
 
 import { useWorkspaceTree } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
+import { useAnnouncement } from './announcer';
+import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
 import { SearchOverlay } from '../search/search-overlay';
 import { useCurrentPrincipal } from '../session/use-current-principal';
@@ -58,6 +60,8 @@ export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
+  const { panes, openBeside, canOpenBeside, besideRefusal } = usePanes();
+  const announcement = useAnnouncement();
   const sidebar = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -65,11 +69,21 @@ export function AppShell(): ReactNode {
   // the tree loads roots and then children on expansion. Without this the screen says "select a
   // note from the tree" about the note it was asked for, which is the worst possible answer to a
   // shared link.
+  // Every pane's item, not only the first. Opening a nested note beside another would otherwise
+  // land on "that item is not in this workspace" - the tree loads roots and then children on
+  // expansion, so anything nested is absent until something asks for it.
+  const openIds = panes.map((pane) => pane.itemId).join(' ');
   useEffect(() => {
-    if (selectedId !== null && tree.status === 'ready' && tree.find(selectedId) === null) {
-      void tree.reveal(selectedId);
+    if (tree.status !== 'ready') {
+      return;
     }
-  }, [selectedId, tree]);
+
+    for (const itemId of openIds.split(' ').filter((id) => id.length > 0)) {
+      if (tree.find(itemId) === null) {
+        void tree.reveal(itemId);
+      }
+    }
+  }, [openIds, tree]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
@@ -100,6 +114,19 @@ export function AppShell(): ReactNode {
           indicator may not be. Offset from the corner and given elevation because it covers the
           header rather than sitting in the layout; `z-50` clears the profile menu at 20 and the
           search overlay at 30, both of which come later in the DOM. */}
+      {/* One live region for the whole shell, mounted for the session. The things it reads -
+          a pane opened, a pane closed, a control refusing - happen in components that come and go,
+          and a region that unmounted with them would take the message with it. Polite, because it
+          reports a change the reader asked for rather than interrupting one they did not.
+
+          Never keyed and never conditionally rendered. A live region has to be in the
+          accessibility tree before its contents change; one that appears together with its text is
+          the canonical reason a region says nothing at all. Saying the same thing twice is handled
+          in the announcer, by varying the string rather than the element. */}
+      <p aria-live="polite" className="sr-only">
+        {announcement.text}
+      </p>
+
       <a
         href="#main"
         className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
@@ -154,7 +181,14 @@ export function AppShell(): ReactNode {
             tab order and in the accessibility tree, so a keyboard would still walk through a
             sidebar nobody can see. */}
         {sidebar.collapsed ? null : (
-          <WorkspaceSidebar tree={tree} selectedId={selectedId} onSelect={select} />
+          <WorkspaceSidebar
+            tree={tree}
+            selectedId={selectedId}
+            onSelect={select}
+            onOpenBeside={openBeside}
+            canOpenBeside={canOpenBeside}
+            besideRefusal={besideRefusal}
+          />
         )}
 
         {/* The shell owns the main landmark so every screen has exactly one, and a screen that

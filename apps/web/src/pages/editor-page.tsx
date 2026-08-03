@@ -1,5 +1,5 @@
 import { Button, Icon, focusRing } from '@nix/ui';
-import { Settings2 } from 'lucide-react';
+import { PanelRightClose, Settings2 } from 'lucide-react';
 import {
   Suspense,
   lazy,
@@ -23,6 +23,10 @@ const CanvasEditor = lazy(async () => {
   const module = await import('../editor/canvas-editor');
   return { default: module.CanvasEditor };
 });
+import { announce } from '../app/announcer';
+import { PaneGroup } from '../panes/pane-group';
+import { focusPane, paneElementId } from '../panes/pane-params';
+import { usePanes, type PaneState } from '../panes/pane-state';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useSelectedItem } from '../routing/selected-item';
 import { ContainerView } from '../views/container-view';
@@ -55,11 +59,28 @@ import { ViewSwitcher } from '../views/view-switcher';
  * rather than part of this screen.
  */
 export function EditorPage(): ReactNode {
-  const { tree, selectedId } = useOutletContext<ShellContext>();
-  const { select } = useSelectedItem();
-  const item = selectedId === null ? null : tree.find(selectedId);
+  const { tree } = useOutletContext<ShellContext>();
+  const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
 
-  if (selectedId === null || item === null) {
+  const paneCount = panes.length;
+
+  const close = useCallback(
+    (index: number, title: string): void => {
+      const left = paneCount - 1;
+      announce(
+        `Closed ${title || 'Untitled'}. ${left === 1 ? '1 pane' : `${String(left)} panes`} open.`,
+      );
+      closePane(index);
+
+      // The button that was focused is about to be unmounted with its pane, so focus goes to
+      // whatever takes its place - the pane that shifts down into this index, or the last one
+      // left. Without this it falls to the document body and the reader loses their place.
+      focusPane(Math.min(index, left - 1));
+    },
+    [closePane, paneCount],
+  );
+
+  if (panes.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <p className="max-w-sm text-sm text-muted">
@@ -69,6 +90,126 @@ export function EditorPage(): ReactNode {
               ? 'This workspace has no items yet. Create a note to begin.'
               : 'Select a note from the tree, or create one.'}
         </p>
+      </div>
+    );
+  }
+
+  // What the address asked for but this window cannot draw. Saying nothing would mean somebody
+  // opening a colleague's two-pane link on a phone sees one document with no sign that the message
+  // held two - the interface knowing something it will not tell the reader.
+  const hidden = (requested ?? panes.length) - panes.length;
+
+  return (
+    <PaneGroup
+      panes={panes}
+      split={split}
+      sizes={sizes}
+      onSizes={setSizes}
+      describePane={(pane) => describe(tree.find(pane.itemId)?.title, pane.index)}
+      renderPane={(pane) => (
+        <PaneContents
+          pane={pane}
+          tree={tree}
+          hiddenPanes={pane.index === 0 ? hidden : 0}
+          paneLabel={
+            paneCount > 1
+              ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
+              : undefined
+          }
+          onClose={
+            paneCount > 1
+              ? () => {
+                  close(pane.index, tree.find(pane.itemId)?.title ?? '');
+                }
+              : undefined
+          }
+        />
+      )}
+    />
+  );
+}
+
+/**
+ * What to call a pane whose item has no title, or has not loaded yet.
+ *
+ * `?? ` alone does not catch an empty string, and an untitled note is ordinary - so a divider
+ * would otherwise be announced as "Resize  and Notes", and two of them before the tree loads
+ * would carry the same name as each other.
+ */
+function describe(title: string | undefined, index: number): string {
+  return title !== undefined && title.length > 0 ? title : `pane ${String(index + 1)}`;
+}
+
+interface PaneContentsProps {
+  readonly pane: PaneState;
+  readonly tree: ShellContext['tree'];
+
+  /** How many panes this address holds that this window is too narrow to draw. */
+  readonly hiddenPanes: number;
+  readonly onClose: (() => void) | undefined;
+  readonly paneLabel: string | undefined;
+}
+
+/**
+ * One pane's item, resolved.
+ *
+ * Split out of `EditorPage` because it has to run inside `PaneProvider` - `useSelectedItem` reads
+ * the pane from context, and a component that called it above the provider would be reading the
+ * first pane's parameters no matter which pane it was drawing.
+ */
+function PaneContents({
+  pane,
+  tree,
+  onClose,
+  paneLabel,
+  hiddenPanes,
+}: PaneContentsProps): ReactNode {
+  const { select } = useSelectedItem();
+  const item = tree.find(pane.itemId);
+
+  if (item === null) {
+    // Four different things, said differently. The tree loads roots and then children on
+    // expansion, so anything nested is absent until a reveal walks up to it - and that walk is
+    // several requests, during which "not in this workspace" is simply untrue. It is also the
+    // wrong sentence for an item somebody may not read, which is theirs to ask about rather than
+    // absent, and the wrong sentence again when it is the tree itself that failed.
+    const reveal = tree.revealOf(pane.itemId);
+    const waiting = tree.status === 'loading' || reveal === null || reveal === 'revealing';
+    const failed = reveal === 'failed' || tree.status === 'error';
+
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="max-w-sm text-sm text-muted">
+          {waiting
+            ? 'Finding this item…'
+            : failed
+              ? 'Something went wrong finding this item.'
+              : reveal === 'forbidden'
+                ? "You can't view this item."
+                : 'We cannot find that item. It may have been deleted.'}
+        </p>
+
+        {/* Without these a bad link is a dead end: the pane shows a sentence and offers nothing,
+            and in a single-pane arrangement there is no other control on the screen at all. A
+            failure is the one outcome worth another go, so it gets a way to take it. */}
+        <div className="flex items-center gap-2">
+          {failed ? (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void tree.retryReveal(pane.itemId);
+              }}
+            >
+              Try again
+            </Button>
+          ) : null}
+
+          {waiting || onClose === undefined ? null : (
+            <Button variant="ghost" onClick={onClose}>
+              Close this pane
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -83,7 +224,11 @@ export function EditorPage(): ReactNode {
       itemId={item.id}
       title={item.title}
       bodyKind={item.type}
+      paneIndex={pane.index}
+      hiddenPanes={hiddenPanes}
       onOpen={select}
+      onClose={onClose}
+      paneLabel={paneLabel}
     />
   );
 }
@@ -91,14 +236,41 @@ export function EditorPage(): ReactNode {
 interface OpenItemProps {
   readonly tree: ShellContext['tree'];
   readonly itemId: string;
+
+  /** Which pane this is drawn in, so it can be addressed for focus. */
+  readonly paneIndex: number;
+
+  /** How many panes this address holds that this window is too narrow to draw. */
+  readonly hiddenPanes: number;
   readonly title: string;
 
   /** The item's `type`: how its own body is drawn. Never gates what it may contain. */
   readonly bodyKind: string;
   readonly onOpen: (itemId: string) => void;
+
+  /** Closes this pane, or absent when it is the only one and there is nothing to close to. */
+  readonly onClose: (() => void) | undefined;
+
+  /**
+   * What this region is called, when there is more than one of it.
+   *
+   * Absent for a single pane, because "Pane 1 of 1" is noise. With two open, an unnamed second
+   * article is all a screen reader would otherwise be told about the screen having split.
+   */
+  readonly paneLabel: string | undefined;
 }
 
-function OpenItem({ tree, itemId, title, bodyKind, onOpen }: OpenItemProps): ReactNode {
+function OpenItem({
+  tree,
+  itemId,
+  paneIndex,
+  hiddenPanes,
+  title,
+  bodyKind,
+  onOpen,
+  onClose,
+  paneLabel,
+}: OpenItemProps): ReactNode {
   // Creation goes through the tree, which is the only thing that knows how to put a new item into
   // the store the sidebar reads and expand its parent so it is visible. The container borrows it
   // rather than growing a second one.
@@ -143,8 +315,24 @@ function OpenItem({ tree, itemId, title, bodyKind, onOpen }: OpenItemProps): Rea
   const showingDocument = active === null;
 
   return (
-    <article className={paneColumn}>
+    <article
+      id={paneElementId(paneIndex)}
+      // Focusable only programmatically: a pane is a landmark to be sent to, not a stop on the way
+      // through. Without it, closing a pane drops focus to the document body and a keyboard user
+      // has to Tab through the tree and a whole editor to get back to where they were.
+      tabIndex={-1}
+      aria-label={paneLabel}
+      className={paneColumn}
+    >
       <ItemHeader tree={tree} itemId={itemId} title={title} onNavigate={onOpen} />
+
+      {hiddenPanes > 0 ? (
+        <p className="shrink-0 px-8 pb-1 text-xs text-muted">
+          {hiddenPanes === 1
+            ? 'One more pane in this link opens on a wider screen.'
+            : `${String(hiddenPanes)} more panes in this link open on a wider screen.`}
+        </p>
+      ) : null}
 
       <div className="flex shrink-0 items-center">
         <div className="min-w-0 flex-1">
@@ -178,6 +366,16 @@ function OpenItem({ tree, itemId, title, bodyKind, onOpen }: OpenItemProps): Rea
             <Icon icon={Settings2} size="sm" />
             Settings
           </Button>
+
+          {/* Text, not a bare X. An unlabelled cross beside a document's own title reads as
+              "delete this note" to everybody who has ever seen one, and the header already has a
+              text-labelled control next to it to match. */}
+          {onClose === undefined ? null : (
+            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
+              <Icon icon={PanelRightClose} size="sm" />
+              Close pane
+            </Button>
+          )}
         </div>
       </div>
 
