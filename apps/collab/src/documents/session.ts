@@ -401,6 +401,13 @@ export class DocumentSession {
         `At most ${String(LIMITS.updatesPerWindow)} updates per document per minute.`,
       ),
     );
+
+    // The refused update is dropped, so this client now holds an edit the server does not and
+    // nothing would ever re-send it - the socket stays open, and Yjs only re-reconciles on a
+    // fresh sync. A sync step 1 is what makes the client notice and send it again, which turns
+    // silent loss into a delay. Without it a person over the limit watches their work stay on
+    // screen and finds it gone on reload.
+    this.beginSync(socket);
     return true;
   }
 

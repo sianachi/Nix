@@ -3,7 +3,7 @@ import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 /**
  * The document body's transport: a WebSocket speaking the Yjs sync and awareness
@@ -30,6 +30,17 @@ export type SyncState = 'connecting' | 'live' | 'pending' | 'readonly' | 'degrad
  * The Yjs root the prose editor binds to. One name, agreed with the collaboration
  * service; a mismatch would produce two documents that merge cleanly and share no text.
  */
+/**
+ * How long local updates are held before they are merged and sent.
+ *
+ * Short enough that a colleague sees typing as typing rather than in bursts - well inside the
+ * ~100ms at which a delay stops feeling instant - and long enough that a pointer drag emitting
+ * sixty updates a second leaves as roughly twelve frames rather than sixty. The server's ceiling
+ * is ten a second per document, so this keeps a legitimate client an order of magnitude clear of
+ * a limit that exists to catch a broken one.
+ */
+const FLUSH_MS = 80;
+
 export const FRAGMENT_NAME = 'default';
 
 /** Protocol frame types, mirrored from the collaboration service. */
@@ -155,19 +166,65 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     }
   }
 
+  /**
+   * Local updates waiting to go out, and the timer that will send them.
+   *
+   * **Why they wait at all.** Yjs emits one update per transaction, and this used to put one
+   * WebSocket frame on the wire for each. For prose that is roughly a frame per keystroke, which
+   * is fine. For a canvas it is not: Excalidraw reports a scene change on every pointer move, so
+   * dragging one shape produces about sixty updates a second - and the server's per-principal
+   * ceiling is six hundred a minute. Ten seconds of dragging spent a whole minute's budget, and
+   * one person on their own was refused as if they were a runaway client.
+   *
+   * Merging first is free, because that is what Yjs updates are: `mergeUpdates` produces one
+   * update with the same effect as applying them in order, so a coalesced flush is not an
+   * approximation of the sixty frames it replaces - it is the same edit, sent once.
+   */
+  let pending: Uint8Array[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushPending(): void {
+    flushTimer = null;
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    if (socket === null || !ready || socket.readyState !== 1 || mode === 'read') {
+      // Kept, not dropped. They go out on the next flush after the socket comes back, and until
+      // then `unsynced` is what makes the footer say so rather than claiming everything is saved.
+      unsynced = true;
+      report();
+      return;
+    }
+
+    const merged = pending.length === 1 ? pending[0] : Y.mergeUpdates(pending);
+    pending = [];
+
+    if (merged === undefined) {
+      return;
+    }
+
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.writeUpdate(encoder, merged);
+    socket.send(encoding.toUint8Array(encoder));
+  }
+
   function onDocUpdate(update: Uint8Array, origin: unknown): void {
     if (origin === REMOTE_ORIGIN) {
       return;
     }
+
+    pending.push(update);
+
     if (socket === null || !ready || socket.readyState !== 1 || mode === 'read') {
       unsynced = true;
       report();
       return;
     }
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, MESSAGE_SYNC);
-    syncProtocol.writeUpdate(encoder, update);
-    socket.send(encoding.toUint8Array(encoder));
+
+    flushTimer ??= setTimeout(flushPending, FLUSH_MS);
   }
 
   function onAwarenessUpdate(
@@ -278,6 +335,13 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         syncProtocol.writeSyncStep1(encoder, doc);
         from.send(encoding.toUint8Array(encoder));
 
+        // Anything that accumulated while the socket was away goes out now. Sync step 1 above
+        // would eventually reconcile it anyway, but not until the server answers - and until then
+        // the footer would be claiming a connection while the edits sat here.
+        if (pending.length > 0) {
+          flushTimer ??= setTimeout(flushPending, FLUSH_MS);
+        }
+
         // Presence resumes with the connection.
         const state = awareness.getLocalState();
         if (state !== null) {
@@ -349,6 +413,15 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   return {
     awareness,
     destroy(): void {
+      // Last chance for anything still waiting on the flush timer. Closing the editor is exactly
+      // when a person expects their last keystroke to have counted, and up to `FLUSH_MS` of it is
+      // held here by design.
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      flushPending();
+
       destroyed = true;
       doc.off('update', onDocUpdate);
       awareness.off('update', onAwarenessUpdate);

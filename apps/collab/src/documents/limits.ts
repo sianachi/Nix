@@ -84,9 +84,18 @@ function statusFor(code: RejectionCode): number {
  * Per-principal, per-document backpressure.
  *
  * A fixed window rather than a token bucket, because the thing being resisted is a runaway
- * client posting in a loop, not a burst that needs smoothing - a person typing produces
- * far fewer updates than this in a minute, and a client that exceeds it is broken rather
- * than busy.
+ * client posting in a loop, not a burst that needs smoothing.
+ *
+ * **"A person typing produces far fewer updates than this" was true and not the whole story.**
+ * This comment used to conclude that a client exceeding the limit is broken rather than busy, and
+ * a person working alone disproved it: a canvas reports a scene change on every pointer move, so
+ * dragging one shape produced about sixty updates a second and ten seconds of it spent the whole
+ * minute. The ceiling was not wrong - the client was, for sending one frame per Yjs update with
+ * nothing coalescing them. `collab-sync.ts` now merges a flush window's worth before sending,
+ * which puts a legitimate client an order of magnitude clear of this again.
+ *
+ * The lesson is worth more than the number: a limit justified by what one *interaction* produces
+ * has to be checked against every body kind, not just the one the reasoning had in mind.
  *
  * In memory, and honest about it: with more than one replica the effective limit is the
  * window times the number of replicas. That is fine for what this defends against and

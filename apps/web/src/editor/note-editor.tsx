@@ -251,7 +251,10 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
   document_too_many_nodes:
     'This note has reached its size limit. Remove something before adding more.',
   document_too_large: 'This note has reached its size limit. Remove something before adding more.',
-  rate_limited: 'Edits are arriving faster than they can be saved. Pausing for a moment.',
+  // Deliberately not "pausing for a moment", which this said first: nothing pauses and nothing
+  // resumes on its own. The update was refused, and what recovers it is the resync the server
+  // sends immediately afterwards - so the honest thing is to name the delay, not promise a pause.
+  rate_limited: 'That last change is taking a moment to save. It has not been lost.',
   read_only: 'You have read access to this note, so your changes are not being saved.',
 };
 

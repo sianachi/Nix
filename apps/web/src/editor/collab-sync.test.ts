@@ -184,7 +184,7 @@ describe('the websocket provider', () => {
     expect(h.states.at(-1)).toBe('live');
   });
 
-  it('streams a local edit immediately while live', async () => {
+  it('streams a local edit while live, within the flush window', async () => {
     const h = harness();
     active = h.sync;
     await settled();
@@ -194,6 +194,81 @@ describe('the websocket provider', () => {
     const before = socket.binaryFramesSent().length;
 
     typeParagraph(h.doc, 'Typed while live.');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(socket.binaryFramesSent().length).toBeGreaterThan(before);
+  });
+
+  it('sends one frame for a burst of updates, not one frame each', async () => {
+    // The defect this exists to stop, reported by somebody working alone: a canvas reports a
+    // scene change on every pointer move, so dragging one shape produced about sixty updates a
+    // second against a ceiling of six hundred a minute. Ten seconds of dragging spent the whole
+    // budget and one person was refused as if they were a runaway client.
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    const before = socket.binaryFramesSent().length;
+
+    for (let index = 0; index < 60; index += 1) {
+      typeParagraph(h.doc, `Drag frame ${String(index)}.`);
+    }
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(socket.binaryFramesSent().length - before).toBe(1);
+  });
+
+  it('sends a burst as one update that carries every change in it', async () => {
+    // Merging is not sampling. A coalesced flush has to be the same edit as the frames it
+    // replaced, or the thing this fixed would become a worse thing: dropped work.
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    const before = socket.binaryFramesSent().length;
+
+    typeParagraph(h.doc, 'First.');
+    typeParagraph(h.doc, 'Second.');
+    typeParagraph(h.doc, 'Third.');
+    await vi.advanceTimersByTimeAsync(100);
+
+    const frames = socket.binaryFramesSent().slice(before);
+    expect(frames).toHaveLength(1);
+
+    // Applied to an empty document, the one frame reproduces all three edits.
+    const replica = new Y.Doc();
+    const first = frames[0];
+    if (first === undefined) {
+      throw new Error('The burst sent no frame.');
+    }
+    const decoder = decoding.createDecoder(first);
+    decoding.readVarUint(decoder);
+    syncProtocol.readSyncMessage(decoder, encoding.createEncoder(), replica, null);
+
+    const text = JSON.stringify(replica.getXmlFragment('default').toJSON());
+    expect(text).toContain('First.');
+    expect(text).toContain('Second.');
+    expect(text).toContain('Third.');
+  });
+
+  it('sends whatever is still waiting when the editor closes', async () => {
+    // Closing is exactly when somebody expects their last keystroke to have counted, and up to a
+    // flush window of it is held here by design.
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    const before = socket.binaryFramesSent().length;
+
+    typeParagraph(h.doc, 'The last thing typed.');
+    h.sync.destroy();
+    active = null;
 
     expect(socket.binaryFramesSent().length).toBeGreaterThan(before);
   });
