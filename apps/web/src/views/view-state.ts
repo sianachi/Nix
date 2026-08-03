@@ -2,6 +2,9 @@ import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 
+import { usePaneIndex } from '../panes/pane-context';
+import { paneFilterPrefix, paneParam } from '../panes/pane-params';
+
 /**
  * Which view is on screen, and how it is sorted and filtered - held in the URL.
  *
@@ -102,15 +105,19 @@ export function parseDirection(raw: string | null): SortDirection {
  * so a person can read a link and see what it filters to, and so adding a value is appending a
  * parameter rather than parsing and rewriting an encoding of our own.
  */
-export function parseFilters(params: URLSearchParams): readonly ViewFilter[] {
+export function parseFilters(params: URLSearchParams, pane = 0): readonly ViewFilter[] {
   const byKey = new Map<string, string[]>();
+  const prefix = paneFilterPrefix(pane);
 
   for (const [name, value] of params) {
-    if (!name.startsWith(FILTER_PREFIX) || value.length === 0) {
+    if (!name.startsWith(prefix) || value.length === 0) {
       continue;
     }
 
-    const key = name.slice(FILTER_PREFIX.length);
+    // `f2.status` starts with `f2.` and not with `f.`, and `f.status` starts with `f.` and not
+    // with `f2.`, so one prefix test still separates the panes. That is why the second pane's
+    // filters are spelled `f2.` rather than `f.2.`.
+    const key = name.slice(prefix.length);
     if (key.length === 0) {
       continue;
     }
@@ -134,39 +141,53 @@ export function parseFilters(params: URLSearchParams): readonly ViewFilter[] {
  *
  * Exported so item navigation can call it. It lives here rather than there because this module owns
  * the parameter names, and a second list of them somewhere else is a list that goes stale.
+ *
+ * **Scoped to one pane.** Deleting the unprefixed names unconditionally - which is what this did
+ * before there were panes, and what a naive port would have kept doing - means navigating in the
+ * second pane silently discards the first pane's view, sort and filters. That is the single most
+ * likely defect in this whole area, so it has a test of its own.
  */
-export function clearViewState(params: URLSearchParams): void {
-  params.delete(VIEW_PARAM);
-  params.delete(MODE_PARAM);
-  params.delete(SORT_PARAM);
-  params.delete(DIRECTION_PARAM);
+export function clearViewState(params: URLSearchParams, pane = 0): void {
+  params.delete(paneParam(VIEW_PARAM, pane));
+  params.delete(paneParam(MODE_PARAM, pane));
+  params.delete(paneParam(SORT_PARAM, pane));
+  params.delete(paneParam(DIRECTION_PARAM, pane));
 
+  const prefix = paneFilterPrefix(pane);
   for (const name of [...params.keys()]) {
-    if (name.startsWith(FILTER_PREFIX)) {
+    if (name.startsWith(prefix)) {
       params.delete(name);
     }
   }
 }
 
 /** Reads the whole view state out of a query string. Exported for testing without a router. */
-export function parseViewState(params: URLSearchParams): ViewState {
-  const viewId = params.get(VIEW_PARAM);
-  const sortBy = params.get(SORT_PARAM);
+export function parseViewState(params: URLSearchParams, pane = 0): ViewState {
+  const viewId = params.get(paneParam(VIEW_PARAM, pane));
+  const sortBy = params.get(paneParam(SORT_PARAM, pane));
 
-  const mode = params.get(MODE_PARAM);
+  const mode = params.get(paneParam(MODE_PARAM, pane));
 
   return {
     viewId: viewId !== null && viewId.length > 0 ? viewId : null,
     mode: mode !== null && mode.length > 0 ? mode : null,
     sortBy: sortBy !== null && sortBy.length > 0 ? sortBy : null,
-    direction: parseDirection(params.get(DIRECTION_PARAM)),
-    filters: parseFilters(params),
+    direction: parseDirection(params.get(paneParam(DIRECTION_PARAM, pane))),
+    filters: parseFilters(params, pane),
   };
 }
 
+/**
+ * The view state of the pane this is called in.
+ *
+ * The pane comes from context rather than an argument, so a board, a calendar and a list read and
+ * write their own pane's parameters without any of them knowing panes exist. Outside a provider
+ * that is pane one, which is every caller today.
+ */
 export function useViewState(): ViewStateControl {
+  const pane = usePaneIndex();
   const [searchParams, setSearchParams] = useSearchParams();
-  const state = parseViewState(searchParams);
+  const state = parseViewState(searchParams, pane);
 
   const write = useCallback(
     (mutate: (next: URLSearchParams) => void, push: boolean): void => {
@@ -183,60 +204,62 @@ export function useViewState(): ViewStateControl {
         // The sort and the filters belonged to the view being left. Carrying them across would
         // apply a board's grouping filter to a calendar, which is not what anybody meant by
         // switching view.
-        clearViewState(next);
-        next.set(VIEW_PARAM, viewId);
+        clearViewState(next, pane);
+        next.set(paneParam(VIEW_PARAM, pane), viewId);
       }, true);
     },
-    [write],
+    [pane, write],
   );
 
   const setMode = useCallback(
     (mode: string): void => {
       write((next) => {
-        next.set(MODE_PARAM, mode);
+        next.set(paneParam(MODE_PARAM, pane), mode);
       }, false);
     },
-    [write],
+    [pane, write],
   );
 
   const setSort = useCallback(
     (propertyKey: string, direction: SortDirection): void => {
       write((next) => {
-        next.set(SORT_PARAM, propertyKey);
-        next.set(DIRECTION_PARAM, direction);
+        next.set(paneParam(SORT_PARAM, pane), propertyKey);
+        next.set(paneParam(DIRECTION_PARAM, pane), direction);
       }, false);
     },
-    [write],
+    [pane, write],
   );
 
   const clearSort = useCallback((): void => {
     write((next) => {
-      next.delete(SORT_PARAM);
-      next.delete(DIRECTION_PARAM);
+      next.delete(paneParam(SORT_PARAM, pane));
+      next.delete(paneParam(DIRECTION_PARAM, pane));
     }, false);
-  }, [write]);
+  }, [pane, write]);
 
   const setFilter = useCallback(
     (propertyKey: string, values: readonly string[]): void => {
       write((next) => {
-        next.delete(`${FILTER_PREFIX}${propertyKey}`);
+        const name = `${paneFilterPrefix(pane)}${propertyKey}`;
+        next.delete(name);
         for (const value of values) {
-          next.append(`${FILTER_PREFIX}${propertyKey}`, value);
+          next.append(name, value);
         }
       }, false);
     },
-    [write],
+    [pane, write],
   );
 
   const clearFilters = useCallback((): void => {
     write((next) => {
+      const prefix = paneFilterPrefix(pane);
       for (const name of [...next.keys()]) {
-        if (name.startsWith(FILTER_PREFIX)) {
+        if (name.startsWith(prefix)) {
           next.delete(name);
         }
       }
     }, false);
-  }, [write]);
+  }, [pane, write]);
 
   return { ...state, selectView, setMode, setSort, clearSort, setFilter, clearFilters };
 }
