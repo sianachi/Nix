@@ -771,8 +771,24 @@ export function judgeCandidate(
         Y.applyUpdate(pristine, Y.encodeStateAsUpdate(resident));
         Y.applyUpdate(pristine, update);
         const reason = strategy.explain(pristine);
+
+        // And what the update carried *on its own*, which the merged reading cannot show. A client
+        // sending a well-formed document into an empty one and a client sending nothing at all
+        // both produce an empty merge, and they are opposite problems: the first means the server
+        // is losing something, the second means the client never had it.
+        const alone = new Y.Doc();
+        let carried = 'unreadable';
+        try {
+          Y.applyUpdate(alone, update);
+          carried = strategy.explain(alone) === null ? 'a document that parses' : 'nothing usable';
+        } catch {
+          carried = 'an update that does not decode';
+        } finally {
+          alone.destroy();
+        }
+
         if (reason !== null) {
-          judgement.diagnose(reason);
+          judgement.diagnose(`${reason}; the update by itself carried ${carried}`);
         }
       } catch {
         // The diagnosis is a courtesy; failing to produce one must not change the verdict.
