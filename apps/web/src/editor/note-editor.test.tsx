@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 import type * as collabSync from './collab-sync';
 import { NoteEditor } from './note-editor';
@@ -52,22 +52,22 @@ beforeEach(() => {
   captured = null;
 });
 
-describe('a note nobody has typed into yet', () => {
-  /** Renders the editor and returns the shared document it handed the provider. */
-  async function open(): Promise<Y.Doc> {
-    render(<NoteEditor itemId="00000000-0000-4000-8000-000000000001" />);
+/** Renders the editor and returns the shared document it handed the provider. */
+async function open(): Promise<Y.Doc> {
+  render(<NoteEditor itemId="00000000-0000-4000-8000-000000000001" />);
 
-    await waitFor(() => {
-      expect(captured).not.toBeNull();
-    });
+  await waitFor(() => {
+    expect(captured).not.toBeNull();
+  });
 
-    const doc = captured;
-    if (doc === null) {
-      throw new Error('The editor never handed its document to the provider.');
-    }
-    return doc;
+  const doc = captured;
+  if (doc === null) {
+    throw new Error('The editor never handed its document to the provider.');
   }
+  return doc;
+}
 
+describe('a note nobody has typed into yet', () => {
   it('puts a change made through the interface into the shared document', async () => {
     // **The regression, stated exactly.** With the Yjs binding supplied at construction, an edit
     // reaches the shared fragment. With the plugins registered afterwards in `onCreate` - which is
@@ -120,6 +120,140 @@ describe('a note nobody has typed into yet', () => {
 
     await waitFor(() => {
       expect(updates).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('a change that would empty the document', () => {
+  // ProseMirror cannot empty a document - `doc` is `block+`, so deleting everything leaves one
+  // empty paragraph - but the Yjs layer underneath it can: the undo manager unwinds history
+  // below ProseMirror's floor. The sync binding does heal an emptied fragment, but a render
+  // cycle later - and in that gap collab-sync's flush timer can fire, or a teardown can flush,
+  // and the emptying update goes to the server alone. The collaboration service refuses it as a
+  // document it could never reopen and forces a resync, which on screen reads as an edit that
+  // silently did not take. Observed in a dev log as `document_does_not_parse` with `fragment
+  // held: nothing` against a note whose stored state was three healthy paragraphs.
+  //
+  // The emptying in these tests is done directly on the shared document rather than through the
+  // interface, because that is the seam being guarded: whatever produced it upstream, a local
+  // transaction with no children left is the event the editor must answer.
+
+  /** Opens the editor, makes one edit, and returns the document and its content fragment. */
+  async function openWithAHeading(): Promise<{
+    user: ReturnType<typeof userEvent.setup>;
+    doc: Y.Doc;
+    fragment: Y.XmlFragment;
+  }> {
+    const user = userEvent.setup();
+    const doc = await open();
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    const fragment = doc.getXmlFragment('default');
+    await waitFor(() => {
+      expect(fragment.toArray().length).toBeGreaterThan(0);
+    });
+
+    return { user, doc, fragment };
+  }
+
+  it('restores one paragraph before the emptying can be sent', async () => {
+    const { doc, fragment } = await openWithAHeading();
+
+    doc.transact(() => {
+      fragment.delete(0, fragment.length);
+    });
+
+    // Restored by the time the transaction returns, not merely eventually: collab-sync holds
+    // every update behind its flush timer, so two updates queued in one tick always share a
+    // flush - which is the property that keeps a send boundary from falling between the
+    // emptying and the restoration. Exactly one paragraph, because the binding's own healing
+    // runs afterwards and must not contribute a second.
+    expect(fragment.toArray().length).toBe(1);
+    expect(JSON.stringify(fragment.toJSON())).toContain('paragraph');
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(fragment.toArray().length).toBe(1);
+  });
+
+  it('leaves a remote emptying for the peer that produced it to answer', async () => {
+    // A peer that empties the shared document is running this same guard, and both sides
+    // answering would leave two paragraphs in the merged result. The refusal of unparseable
+    // updates is the server's job; this editor speaks only for its own edits.
+    const { doc, fragment } = await openWithAHeading();
+
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const peerFragment = peer.getXmlFragment('default');
+    const before = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      peerFragment.delete(0, peerFragment.length);
+    });
+
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, before));
+
+    expect(fragment.toArray().length).toBe(0);
+    peer.destroy();
+  });
+
+  it('keeps the restored paragraph through a further undo', async () => {
+    // The restoration is written under an origin the undo manager does not track, so unwinding
+    // further cannot take the document back below the floor the restoration re-established.
+    const { user, fragment } = await openWithAHeading();
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(fragment.toArray().length).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      expect(fragment.toArray().length).toBe(1);
+      expect(JSON.stringify(fragment.toJSON())).toContain('paragraph');
+    });
+  });
+
+  it('removes the placeholder again when a collaborator brings content back', async () => {
+    // The cleanup cannot wait for this person's next edit: after an undo to blank, a colleague
+    // still typing would otherwise share a document carrying a blank block nobody authored -
+    // and if the undoer walks away, it stays. Removing on any origin is safe because the guard
+    // only ever deletes the one element it created, and only while that element is empty.
+    const { doc, fragment } = await openWithAHeading();
+
+    doc.transact(() => {
+      fragment.delete(0, fragment.length);
+    });
+    expect(fragment.toArray().length).toBe(1);
+
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const before = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      peer.getXmlFragment('default').push([new Y.XmlElement('heading')]);
+    });
+
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, before));
+
+    await waitFor(() => {
+      expect(fragment.toArray().length).toBe(1);
+      expect(JSON.stringify(fragment.toJSON())).toContain('heading');
+    });
+    peer.destroy();
+  });
+
+  it('removes the placeholder again when redo brings the content back', async () => {
+    // Without this, undo-then-redo would permanently add a blank block the person never
+    // authored - and being untracked, no undo could ever remove it. The placeholder is the
+    // guard's to manage only while it stays empty; the moment real content returns beside it,
+    // it goes, and the document is exactly what the undo removed.
+    const { user, fragment } = await openWithAHeading();
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(fragment.toArray().length).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(fragment.toArray().length).toBe(1);
+      expect(JSON.stringify(fragment.toJSON())).toContain('heading');
     });
   });
 });

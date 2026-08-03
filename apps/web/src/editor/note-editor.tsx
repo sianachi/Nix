@@ -258,6 +258,18 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
   read_only: 'You have read access to this note, so your changes are not being saved.',
 };
 
+/**
+ * The origin for transactions that keep the document above the schema's floor.
+ *
+ * A symbol rather than an object, for the same reasons collab-sync's `REMOTE_ORIGIN` is one:
+ * origins are compared by identity, a symbol names itself in a log, and Yjs's undo manager
+ * falls back to matching `origin.constructor` - so a bare `{}` would start being tracked the
+ * moment any tracked set gained `Object`. Its own origin, and not the sync plugin's, because
+ * the undo manager tracks that plugin's origin: a restoration folded into the history being
+ * unwound would be removed by the very next undo.
+ */
+const RESTORE_ORIGIN = Symbol('nix.editor.restore');
+
 export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
@@ -312,6 +324,90 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
     },
     [fragment, awareness],
   );
+
+  // The one document shape the schema refuses outright is an empty one - `doc` is `block+` -
+  // and the Yjs undo manager can produce it. ProseMirror editing cannot: deleting everything
+  // leaves one empty paragraph, because the schema's floor is enforced on every transaction.
+  // But undo unwinds the *Yjs* history, below that floor, so undoing every edit you made on a
+  // note you wrote returns the fragment to its pre-content state with no children at all.
+  //
+  // The sync binding does heal an emptied fragment, but a render cycle later - and what makes
+  // that gap fatal is that collab-sync defers every send behind its flush timer, so a timer
+  // firing (or a teardown flush) inside the gap sends the emptying update to the server alone.
+  // The service refuses it as a document it could never reopen and forces a resync, which on
+  // screen reads as an undo that silently did not take. Restoring the floor *synchronously*,
+  // in the same transaction-cleanup pass, is what guarantees the restoration shares a flush
+  // with the emptying: no send boundary can fall between two updates queued in one tick.
+  //
+  // Teardown needs no ordering care, and here is why, so nobody has to re-derive it: the
+  // restoration is synchronous with the emptying, so by the time any unmount cleanup runs -
+  // this observer detaching, or `sync.destroy()` flushing what is still pending - an emptying
+  // that happened has already been answered, and the final flush carries both or neither.
+  useEffect(() => {
+    // The last paragraph this guard inserted, while it remains an empty placeholder. Held so
+    // that when real content comes back - a redo restoring what the undo removed - the
+    // placeholder does not linger as a blank block nobody authored and, being untracked by the
+    // undo manager, no undo could ever remove.
+    let restored: Y.XmlElement | null = null;
+
+    const keepAboveTheFloor = (
+      _events: readonly Y.YEvent<Y.XmlElement>[],
+      transaction: Y.Transaction,
+    ): void => {
+      if (transaction.origin === RESTORE_ORIGIN) {
+        return;
+      }
+
+      if (fragment.length === 0) {
+        // Local emptyings only: a remote one is the producing peer's to answer - it runs this
+        // same guard - and if every open editor answered a shared emptying, each would add its
+        // own paragraph. (Two clients emptying concurrently can still merge to two
+        // placeholders; the removal branch below cleans each side's own, and the server's
+        // parse check remains the backstop for the races beyond that.)
+        if (!transaction.local) {
+          return;
+        }
+        doc.transact(() => {
+          const paragraph = new Y.XmlElement('paragraph');
+          fragment.insert(0, [paragraph]);
+          restored = paragraph;
+        }, RESTORE_ORIGIN);
+        return;
+      }
+
+      const placeholder = restored;
+      if (placeholder === null) {
+        return;
+      }
+
+      // The placeholder stops being this guard's to manage the moment somebody types into it,
+      // or something other than this guard removes it.
+      if (placeholder.parent !== fragment || placeholder.length > 0) {
+        restored = null;
+        return;
+      }
+
+      // Real content is back alongside a placeholder still empty: take the placeholder out, so
+      // a redo returns exactly the document the undo removed and not that plus a blank block.
+      // Deliberately not gated on `transaction.local` - a colleague's edit arriving beside the
+      // placeholder deserves the same cleanup, and it is safe on any origin because the guard
+      // only ever deletes the one element it created, and only while that element is empty.
+      if (fragment.length > 1) {
+        doc.transact(() => {
+          const index = fragment.toArray().indexOf(placeholder);
+          if (index >= 0) {
+            fragment.delete(index, 1);
+          }
+        }, RESTORE_ORIGIN);
+        restored = null;
+      }
+    };
+
+    fragment.observeDeep(keepAboveTheFloor);
+    return () => {
+      fragment.unobserveDeep(keepAboveTheFloor);
+    };
+  }, [doc, fragment]);
 
   useEffect(() => {
     const sync = startCollabSync({
