@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as Y from 'yjs';
 
+import type * as collabSync from './collab-sync';
 import { NoteEditor } from './note-editor';
 
 /**
@@ -16,7 +17,7 @@ import { NoteEditor } from './note-editor';
 let captured: Y.Doc | null = null;
 
 vi.mock('./collab-sync', async () => {
-  const actual = await vi.importActual<typeof import('./collab-sync')>('./collab-sync');
+  const actual = await vi.importActual<typeof collabSync>('./collab-sync');
   return {
     ...actual,
     startCollabSync: (options: { doc: Y.Doc }) => {
@@ -99,7 +100,9 @@ describe('a note nobody has typed into yet', () => {
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
 
     await waitFor(() => {
-      expect(doc.getXmlFragment('default').toString()).toContain('heading');
+      // `toJSON` rather than `toString`: an XmlFragment's default stringification is the object
+      // tag, which would make this assertion pass on anything at all.
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('heading');
     });
   });
 
