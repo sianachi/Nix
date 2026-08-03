@@ -72,6 +72,20 @@ export interface ToolbarProps {
 }
 
 export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNode {
+  // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
+  // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
+  // and React's strict mode does that on every mount in development. `destroy()` sets the
+  // editor's command manager to null, so a render that lands between the teardown and the
+  // replacement reached `editor.can()` on an editor that no longer has one - which threw out of
+  // render and took the whole root down with it, repeatedly.
+  //
+  // Nothing is drawn rather than a row of disabled buttons: this state lasts a frame, and a
+  // toolbar that flickers into a disabled version of itself is worse to look at than one that
+  // appears a frame later.
+  if (editor.isDestroyed) {
+    return null;
+  }
+
   const inTable = editor.isActive('table');
 
   const blocks: readonly Control[] = [

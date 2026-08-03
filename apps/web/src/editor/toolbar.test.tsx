@@ -17,7 +17,9 @@ import type { Editor } from '@tiptap/react';
  * would fail silently in the product - the button would click and nothing would happen.
  */
 
-function editorStub(overrides: { active?: readonly string[]; inTable?: boolean } = {}): {
+function editorStub(
+  overrides: { active?: readonly string[]; inTable?: boolean; destroyed?: boolean } = {},
+): {
   editor: Editor;
   ran: string[];
 } {
@@ -43,6 +45,7 @@ function editorStub(overrides: { active?: readonly string[]; inTable?: boolean }
   );
 
   const editor = {
+    isDestroyed: overrides.destroyed ?? false,
     chain: () => chain,
     can: () =>
       new Proxy({}, { get: () => () => overrides.inTable ?? false }) as Record<string, unknown>,
@@ -195,5 +198,35 @@ describe('the table group', () => {
     for (const label of ['Add column', 'Add row', 'Delete column', 'Delete row', 'Delete table']) {
       expect(within(group).getByRole('button', { name: label })).toBeInTheDocument();
     }
+  });
+});
+
+describe('an editor that has been torn down', () => {
+  it('draws nothing rather than throwing out of render', () => {
+    // `useEditor` destroys the old editor and builds a new one whenever its dependencies change,
+    // and React's strict mode does that on every mount in development. `destroy()` nulls the
+    // editor's command manager, so a render landing between the two reached `editor.can()` on an
+    // editor without one - which threw out of render and took the whole application root down,
+    // repeatedly, with a stack that named the toolbar and not the cause.
+    const destroyed = {
+      isDestroyed: true,
+      chain: () => {
+        throw new Error('A destroyed editor has no command manager.');
+      },
+      can: () => {
+        throw new Error('A destroyed editor has no command manager.');
+      },
+      isActive: () => {
+        throw new Error('A destroyed editor has no command manager.');
+      },
+    } as unknown as Editor;
+
+    expect(() => {
+      render(
+        <EditorToolbar editor={destroyed} onUndo={() => undefined} onRedo={() => undefined} />,
+      );
+    }).not.toThrow();
+
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 });

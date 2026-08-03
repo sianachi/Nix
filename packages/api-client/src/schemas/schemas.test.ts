@@ -107,3 +107,59 @@ describe('the no content schema', () => {
     expect(noContentSchema.safeParse({ unexpected: true }).success).toBe(false);
   });
 });
+
+describe('the timestamps an item carries', () => {
+  /**
+   * The spellings of UTC the server actually uses.
+   *
+   * This is the bug the hand-written fixture above hid for as long as it existed: it was written
+   * with a `Z`, and Core does not send one. `DateTimeOffset` reaches the wire as `+00:00`, so
+   * every single item response failed this check in production while the suite stayed green - the
+   * contract check was, in effect, switched off for items and logging about it once per response.
+   */
+  const SERVER_SPELLINGS = [
+    // What Core actually sends: a DateTimeOffset, offset spelled out, sub-second precision.
+    '2026-07-26T21:59:30.648333+00:00',
+    // The same instant with a non-zero offset, which a differently configured deployment sends.
+    '2026-07-26T21:59:30.648333+01:00',
+    // And the Zulu spelling, which has to keep working.
+    '2026-07-26T09:30:00.000Z',
+  ];
+
+  it.each(SERVER_SPELLINGS)('accepts %s', (stamp) => {
+    const parsed = itemSchema.safeParse({
+      id: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      parentId: null,
+      type: 'note',
+      title: 'Kickoff',
+      hasChildren: false,
+      seq: 1000,
+      lifecycleState: 'active',
+      properties: { title: 'Kickoff' },
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues)).toBe(true);
+  });
+
+  it('still refuses something that is not a timestamp at all', () => {
+    // Loosening which spelling is accepted must not loosen whether it has to be one.
+    const parsed = itemSchema.safeParse({
+      id: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      parentId: null,
+      type: 'note',
+      title: 'Kickoff',
+      hasChildren: false,
+      seq: 1000,
+      lifecycleState: 'active',
+      properties: {},
+      createdAt: 'last Tuesday',
+      updatedAt: 'last Tuesday',
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});

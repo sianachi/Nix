@@ -94,8 +94,13 @@ export const itemSchema = z.object({
   seq: itemSequenceSchema,
   lifecycleState: itemLifecycleStateSchema,
   properties: itemPropertiesSchema,
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
+  // `offset: true`, because the server sends one. Core serialises a `DateTimeOffset`, which
+  // reaches the wire as `2026-07-26T21:59:30.648333+00:00` - and Zod's default rejects anything
+  // that is not `Z`, so every single item response was failing this check and logging it. The
+  // parse still has to be strict about being a timestamp at all; what it must not be strict
+  // about is which of two legal spellings of UTC the server picked.
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
 });
 
 export type Item = z.infer<typeof itemSchema>;
