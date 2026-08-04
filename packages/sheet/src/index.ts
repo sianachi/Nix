@@ -18,13 +18,16 @@ export {
 export { SHEET_ITEM_TYPE, SHEET_LIMITS, SHEET_SCHEMA_VERSION, type SheetLimits } from './limits.js';
 export {
   SHEET_CELLS_KEY,
+  SHEET_COLUMN_WIDTH,
   SHEET_META_KEY,
   type SheetCell,
   type SheetMeta,
+  clampColumnWidth,
   growExtents,
   readCellEntry,
   readCells,
   readMeta,
+  setColumnWidth,
   sheetCellsMap,
   sheetMetaMap,
   writeCell,

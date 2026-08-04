@@ -16,6 +16,8 @@ export {
   accentFillStates,
   accentWashStates,
   disabledState,
+  dragHandleLineStates,
   focusRing,
+  focusRingInset,
   inkWashStates,
 } from './interaction';

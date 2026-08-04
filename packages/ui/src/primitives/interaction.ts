@@ -27,8 +27,28 @@
 export const focusRing =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
+/**
+ * `focusRing` for an element inside an `overflow-hidden` clip, where the
+ * outward 2px offset would be cut to slivers: the same 2px accent outline,
+ * drawn inward instead. Same object, same floor, different side of the edge.
+ */
+export const focusRingInset =
+  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
+
 /** Disabled controls: 45% opacity, and a cursor that says "not this one". */
 export const disabledState = 'disabled:cursor-not-allowed disabled:opacity-45';
+
+/**
+ * The visible line inside a drag handle whose hit strip is wider than its
+ * mark: the handle root carries `group` (and `data-dragging` while a drag is
+ * live), the line carries these. The base accent as the hover/focus fill is a
+ * non-text indicator, so the 3:1 floor from focusRing's note applies; the
+ * drag state steps deeper, the same direction a pressed fill moves. The drag
+ * state hangs off a data attribute rather than `:active` because a live drag
+ * routes the pointer through a capture overlay, which `:active` cannot see.
+ */
+export const dragHandleLineStates =
+  'group-hover:bg-accent group-focus-visible:bg-accent group-data-[dragging]:bg-accent-pressed';
 
 /**
  * Hover and pressed for a control that sits *on* the ground and tints itself
