@@ -17,7 +17,7 @@ import {
   sheetMetaMap,
   writeCell,
 } from '@nix/sheet';
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import * as Y from 'yjs';
 
 /**
@@ -94,19 +94,30 @@ export function useSheet(doc: Y.Doc): SheetData {
   const store = useMemo(() => createSheetStore(doc), [doc]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
 
-  // Recomputed only when the document actually changed. This is a measured
-  // exception to the no-useMemo rule: a full evaluation walks every formula
-  // under a 500k-op budget, which is milliseconds - fine per edit, not fine
-  // on every unrelated render of the page that hosts the grid.
+  // Recomputed only when the document actually changed. This is an exception
+  // to the no-useMemo rule on cost grounds: a full evaluation walks every
+  // formula under a 500k-op budget - fine per edit, not fine on every
+  // unrelated render of the page that hosts the grid.
   const evaluation = useMemo(() => evaluateSheet({ cells: snapshot.cells }), [snapshot]);
 
-  const undoManager = useMemo(
+  // The undo and redo stacks are state that cannot be rebuilt from the document, so this is
+  // constructed with useState's lazy initializer, not useMemo: a discarded memo would silently
+  // empty the person's undo history and leave the old manager's observers registered on the
+  // maps, accumulating a second set of stack items for every edit after. `doc` is fixed for the
+  // hook's lifetime - the sheet editor is remounted per item - so losing reactivity to it costs
+  // nothing.
+  const [undoManager] = useState(
     () =>
       new Y.UndoManager([sheetCellsMap(doc), sheetMetaMap(doc)], {
         trackedOrigins: new Set([LOCAL_ORIGIN]),
       }),
-    [doc],
   );
+
+  useEffect(() => {
+    return () => {
+      undoManager.destroy();
+    };
+  }, [undoManager]);
 
   return useMemo<SheetData>(
     () => ({

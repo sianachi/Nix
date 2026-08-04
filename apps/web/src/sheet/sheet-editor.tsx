@@ -1,5 +1,5 @@
 import { SHEET_CELLS_KEY } from '@nix/sheet';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
@@ -53,10 +53,12 @@ export function SheetEditor({ itemId }: SheetEditorProps): ReactNode {
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  // One document per item, created once - and destroyed with the component, so switching
-  // sheets cannot carry one sheet's cells into another.
-  const doc = useMemo(() => new Y.Doc(), []);
-  const awareness = useMemo(() => new Awareness(doc), [doc]);
+  // One document per item, created exactly once via useState's lazy initializer - unlike
+  // useMemo, which is only a performance hint React is free to discard and recompute,
+  // useState's initial value truly runs once per mount - and destroyed with the component, so
+  // switching sheets cannot carry one sheet's cells into another.
+  const [doc] = useState(() => new Y.Doc());
+  const [awareness] = useState(() => new Awareness(doc));
   const sheet = useSheet(doc);
 
   useEffect(() => {
