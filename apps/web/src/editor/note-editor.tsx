@@ -1,10 +1,9 @@
 import { nixExtensions } from '@nix/editor-schema';
-import { Icon } from '@nix/ui';
 import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
-import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Plugin } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
 import { redo, undo, yCursorPlugin, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
@@ -17,7 +16,7 @@ import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
-import { filterSlashCommands, type SlashCommand } from './slash-menu';
+import { SlashMenu } from './slash-menu';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -483,106 +482,6 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
       </div>
 
       <SyncFooter state={syncState} />
-    </div>
-  );
-}
-
-/**
- * The block inserter, opened with `/`.
- *
- * Filtering happens as you type, and the list is flat because a menu you filter beats a menu you
- * navigate. Escape closes it without inserting anything, which is what a person who typed `/` in
- * the middle of a sentence needs.
- */
-function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const filterRef = useRef<HTMLInputElement>(null);
-
-  // Focus moved deliberately rather than declared with autoFocus: the menu appears in response to
-  // a keystroke, so moving the caret into it is continuing what the person started - which is the
-  // one case where taking focus is right, and the attribute cannot express the distinction.
-  useEffect(() => {
-    if (open) {
-      filterRef.current?.focus();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape' && open) {
-        setOpen(false);
-        setQuery('');
-        return;
-      }
-
-      if (event.key === '/' && editor.isFocused && !open) {
-        setOpen(true);
-        setQuery('');
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [editor, open]);
-
-  const commands = filterSlashCommands(query);
-
-  function insert(command: SlashCommand): void {
-    // The `/` and whatever was typed after it are the menu's, not the document's, so they come
-    // back out before the block goes in.
-    const { from } = editor.state.selection;
-    const start = Math.max(0, from - (query.length + 1));
-    editor.chain().focus().deleteRange({ from: start, to: from }).run();
-
-    command.run(editor);
-    setOpen(false);
-    setQuery('');
-  }
-
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div
-      role="listbox"
-      aria-label="Insert a block"
-      className="absolute z-20 mt-1 max-h-[280px] w-[280px] overflow-y-auto border border-divider bg-background shadow-md"
-    >
-      <input
-        aria-label="Filter blocks"
-        ref={filterRef}
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-        }}
-        className="w-full border-b border-divider bg-transparent px-3 py-2 text-base outline-none"
-        placeholder="Filter blocks"
-      />
-
-      {commands.length === 0 ? (
-        <p className="px-3 py-2 text-sm text-muted">No block matches.</p>
-      ) : (
-        commands.map((command) => (
-          <button
-            key={command.id}
-            type="button"
-            role="option"
-            aria-selected={false}
-            onClick={() => {
-              insert(command);
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-          >
-            <Icon icon={command.icon} size="sm" />
-            <span className="flex-1 truncate">{command.label}</span>
-            <span className="text-xs text-muted">{command.hint}</span>
-          </button>
-        ))
-      )}
     </div>
   );
 }
