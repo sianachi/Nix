@@ -1,6 +1,6 @@
 import { Icon, Text, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
 
 import { useWorkspaceTree } from '../items/use-workspace-tree';
@@ -12,6 +12,7 @@ import { SearchOverlay } from '../search/search-overlay';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from './layout';
 import { ProfileMenu } from './profile-menu';
+import { SidebarDivider } from './sidebar-divider';
 import { useSidebar } from './use-sidebar';
 
 /**
@@ -64,6 +65,11 @@ export function AppShell(): ReactNode {
   const announcement = useAnnouncement();
   const sidebar = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // The element whose width a drag moves. The divider previews onto it directly - a render per
+  // pointer event would re-render the tree and every open editor - and React writes the same
+  // number back when the settled value lands in `sidebar.width`.
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   // A link naming an item the tree has not loaded - which is every link to anything nested, since
   // the tree loads roots and then children on expansion. Without this the screen says "select a
@@ -181,14 +187,32 @@ export function AppShell(): ReactNode {
             tab order and in the accessibility tree, so a keyboard would still walk through a
             sidebar nobody can see. */}
         {sidebar.collapsed ? null : (
-          <WorkspaceSidebar
-            tree={tree}
-            selectedId={selectedId}
-            onSelect={select}
-            onOpenBeside={openBeside}
-            canOpenBeside={canOpenBeside}
-            besideRefusal={besideRefusal}
-          />
+          <>
+            <div
+              ref={sidebarRef}
+              style={{ width: `${String(sidebar.width)}px` }} // design-token-exempt: the tree's width is a runtime value somebody dragged, not a step on any scale - the same case as a pane's share.
+              className="flex shrink-0 overflow-hidden"
+            >
+              <WorkspaceSidebar
+                tree={tree}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpenBeside={openBeside}
+                canOpenBeside={canOpenBeside}
+                besideRefusal={besideRefusal}
+              />
+            </div>
+
+            {/* Unmounted with the tree: a handle that resizes something not on screen would be
+                a focusable control that visibly does nothing. */}
+            <SidebarDivider
+              width={sidebar.width}
+              onPreview={(width) => {
+                sidebarRef.current?.style.setProperty('width', `${String(width)}px`);
+              }}
+              onCommit={sidebar.resize}
+            />
+          </>
         )}
 
         {/* The shell owns the main landmark so every screen has exactly one, and a screen that

@@ -121,10 +121,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   }
 
   return (
-    <aside
-      aria-label="Workspace"
-      className="flex w-[264px] shrink-0 flex-col overflow-hidden bg-surface"
-    >
+    // The width belongs to the shell, which sizes and resizes the region this fills; a width
+    // here as well would be two owners for one dimension.
+    <aside aria-label="Workspace" className="flex w-full flex-col overflow-hidden bg-surface">
       <div className="flex shrink-0 items-center gap-1 px-3 py-2">
         <Text
           variant="caption"
@@ -380,9 +379,9 @@ const EDGE_BAND = 0.25;
  * gap it stands for actually measure 20.4px, so these notices end up a hair better aligned than
  * they were drawn. That is the only entry in this file that moves by more than a pixel.
  *
- * **Bounded, deliberately.** Depth is unbounded in principle and the sidebar is 264px wide, so it
- * cannot be unbounded in practice: nine levels already spend 102px of the width, and a tenth would
- * be taken from the title. Past the bound the indent stops growing and deeper rows share the last
+ * **Bounded, deliberately.** Depth is unbounded in principle and the sidebar's width is not - it
+ * starts at 264px and can be dragged down to 200 - so the indent cannot be unbounded in practice:
+ * nine levels already spend 102px of the width, and a tenth would be taken from the title. Past the bound the indent stops growing and deeper rows share the last
  * step. Depth is still carried where it is load-bearing - `role="treeitem"`, `aria-expanded`, and
  * each level's own `role="group"` - so what a tenth level loses is the picture of its depth, not
  * the fact of it, and assistive technology is told the same thing either way.

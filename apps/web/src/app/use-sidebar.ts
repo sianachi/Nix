@@ -18,6 +18,25 @@ export const STORAGE_KEY = 'nix.sidebar';
 
 const COLLAPSED = 'collapsed';
 
+export const WIDTH_STORAGE_KEY = 'nix.sidebar.width';
+
+/**
+ * The width the tree starts at, and the range a drag may take it through.
+ *
+ * The floor is not a taste number: the tree indents 12px per level and bounds itself at nine
+ * levels (`ROW_INDENT`), so below about 200px a nested title is down to a few characters and the
+ * hover controls start covering them. The ceiling stops a stray drag from leaving the panes
+ * narrower than the tree that navigates them.
+ */
+export const DEFAULT_WIDTH = 264;
+export const MINIMUM_WIDTH = 200;
+export const MAXIMUM_WIDTH = 480;
+
+/** Whole pixels within the bounds - the one shape a width is allowed to have anywhere. */
+export function clampWidth(width: number): number {
+  return Math.min(MAXIMUM_WIDTH, Math.max(MINIMUM_WIDTH, Math.round(width)));
+}
+
 /** Reads the stored state, defaulting to open. */
 export function readCollapsed(storage: Storage | undefined): boolean {
   try {
@@ -44,13 +63,45 @@ export function storeCollapsed(storage: Storage | undefined, collapsed: boolean)
   }
 }
 
+/** Reads the stored width, defaulting - and clamping, since storage is writable by anything. */
+export function readWidth(storage: Storage | undefined): number {
+  try {
+    const raw = storage?.getItem(WIDTH_STORAGE_KEY);
+    const parsed = raw === null || raw === undefined ? Number.NaN : Number(raw);
+    return Number.isFinite(parsed) ? clampWidth(parsed) : DEFAULT_WIDTH;
+  } catch {
+    return DEFAULT_WIDTH;
+  }
+}
+
+/** Stores a width, tolerating a browser that refuses storage. */
+export function storeWidth(storage: Storage | undefined, width: number): void {
+  try {
+    if (width === DEFAULT_WIDTH) {
+      // The default is spelled as absence, for the same reason `collapsed` is: writing it out
+      // would leave a later reader unable to tell "never chosen" from "chose the default".
+      storage?.removeItem(WIDTH_STORAGE_KEY);
+      return;
+    }
+
+    storage?.setItem(WIDTH_STORAGE_KEY, String(width));
+  } catch {
+    // Nothing to do and nothing worth failing over.
+  }
+}
+
 export interface Sidebar {
   readonly collapsed: boolean;
   readonly toggle: () => void;
+
+  /** The tree's width in pixels, already clamped to the bounds above. */
+  readonly width: number;
+  readonly resize: (width: number) => void;
 }
 
 export function useSidebar(): Sidebar {
   const [collapsed, setCollapsed] = useState(() => readCollapsed(browserStorage()));
+  const [width, setWidth] = useState(() => readWidth(browserStorage()));
 
   const toggle = useCallback((): void => {
     setCollapsed((current) => {
@@ -60,5 +111,11 @@ export function useSidebar(): Sidebar {
     });
   }, []);
 
-  return { collapsed, toggle };
+  const resize = useCallback((next: number): void => {
+    const clamped = clampWidth(next);
+    setWidth(clamped);
+    storeWidth(browserStorage(), clamped);
+  }, []);
+
+  return { collapsed, toggle, width, resize };
 }

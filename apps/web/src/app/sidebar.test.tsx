@@ -5,7 +5,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from './app';
 import { item, stubCoreApi } from '../test/api-stub';
 import { renderAt, signedIn } from '../test/render-with-router';
-import { readCollapsed, storeCollapsed, STORAGE_KEY } from './use-sidebar';
+import {
+  DEFAULT_WIDTH,
+  MAXIMUM_WIDTH,
+  MINIMUM_WIDTH,
+  readCollapsed,
+  readWidth,
+  storeCollapsed,
+  storeWidth,
+  STORAGE_KEY,
+  WIDTH_STORAGE_KEY,
+} from './use-sidebar';
 
 /**
  * Collapsing the workspace tree.
@@ -109,6 +119,137 @@ describe('the workspace tree', () => {
     await waitFor(() => {
       expect(stored.get(STORAGE_KEY)).toBe('collapsed');
     });
+  });
+});
+
+describe('resizing the workspace tree', () => {
+  it('offers a handle that reports the width it moves', async () => {
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const handle = await screen.findByRole('separator', { name: /resize the workspace tree/i });
+    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuemin', String(MINIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuemax', String(MAXIMUM_WIDTH));
+  });
+
+  it('widens from the keyboard and remembers the choice', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const handle = await screen.findByRole('separator', { name: /resize the workspace tree/i });
+    handle.focus();
+    await user.keyboard('{ArrowRight}');
+
+    // A drag has to survive a reload for the same reason collapsing does: somebody who moved the
+    // edge has decided how much room the tree gets.
+    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH + 8));
+    await waitFor(() => {
+      expect(stored.get(WIDTH_STORAGE_KEY)).toBe(String(DEFAULT_WIDTH + 8));
+    });
+  });
+
+  it('stops at the bounds rather than letting the tree vanish', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const handle = await screen.findByRole('separator', { name: /resize the workspace tree/i });
+    handle.focus();
+
+    await user.keyboard('{Home}');
+    expect(handle).toHaveAttribute('aria-valuenow', String(MINIMUM_WIDTH));
+
+    await user.keyboard('{End}');
+    expect(handle).toHaveAttribute('aria-valuenow', String(MAXIMUM_WIDTH));
+  });
+
+  it('returns to the default width on Enter, and back again on the next press', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const handle = await screen.findByRole('separator', { name: /resize the workspace tree/i });
+    handle.focus();
+    await user.keyboard('{End}');
+
+    // The one position a drag cannot aim at, so it has a key - and the same key undoes it,
+    // because a reset that cannot be unreset is a trap.
+    await user.keyboard('{Enter}');
+    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH));
+
+    await user.keyboard('{Enter}');
+    expect(handle).toHaveAttribute('aria-valuenow', String(MAXIMUM_WIDTH));
+  });
+
+  it('goes with the tree when the tree is hidden', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await screen.findByRole('separator', { name: /resize the workspace tree/i });
+    await user.click(screen.getByRole('button', { name: /hide the workspace tree/i }));
+
+    // A handle that resizes something not on screen would be a focusable control that visibly
+    // does nothing.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('separator', { name: /resize the workspace tree/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('remembering the width', () => {
+  function mapStorage(): Storage {
+    return {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+      removeItem: (key: string) => void stored.delete(key),
+    } as unknown as Storage;
+  }
+
+  it('defaults when nothing has been chosen, or the stored value is not a number', () => {
+    expect(readWidth(undefined)).toBe(DEFAULT_WIDTH);
+
+    stored.set(WIDTH_STORAGE_KEY, 'wide');
+    expect(readWidth(mapStorage())).toBe(DEFAULT_WIDTH);
+  });
+
+  it('clamps a stored width to the bounds, since storage is writable by anything', () => {
+    stored.set(WIDTH_STORAGE_KEY, '10000');
+    expect(readWidth(mapStorage())).toBe(MAXIMUM_WIDTH);
+
+    stored.set(WIDTH_STORAGE_KEY, '1');
+    expect(readWidth(mapStorage())).toBe(MINIMUM_WIDTH);
+  });
+
+  it('stores the default as absence rather than as a second spelling', () => {
+    storeWidth(mapStorage(), 300);
+    expect(stored.get(WIDTH_STORAGE_KEY)).toBe('300');
+
+    storeWidth(mapStorage(), DEFAULT_WIDTH);
+    expect(stored.has(WIDTH_STORAGE_KEY)).toBe(false);
+  });
+
+  it('survives a browser that refuses storage', () => {
+    const refusing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+      removeItem: () => {
+        throw new Error('denied');
+      },
+    } as unknown as Storage;
+
+    expect(readWidth(refusing)).toBe(DEFAULT_WIDTH);
+    expect(() => {
+      storeWidth(refusing, 300);
+    }).not.toThrow();
   });
 });
 
