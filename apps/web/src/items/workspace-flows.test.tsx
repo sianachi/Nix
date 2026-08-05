@@ -41,8 +41,9 @@ describe('creating an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
 
-    expect(screen.getByRole('button', { name: /new note in the workspace/i })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /new note in the workspace/i }));
+    expect(screen.getByRole('button', { name: /new item in the workspace/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
   });
 
   it('puts it inside the item you are looking at', async () => {
@@ -55,7 +56,7 @@ describe('creating an item', () => {
     // Creating always at the root made putting anything inside anything impossible without a drag.
     // The label says where it will land, so the control does not depend on an invisible selection.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new note in engineering/i })).toBeVisible();
+      expect(screen.getByRole('button', { name: /new item in engineering/i })).toBeVisible();
     });
   });
 
@@ -72,7 +73,7 @@ describe('creating an item', () => {
     // sensible reading. Every item can hold children now, so "inside what you are looking at" is
     // one rule instead of two, and it is the one a file manager already taught everybody.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new note in roadmap/i })).toBeVisible();
+      expect(screen.getByRole('button', { name: /new item in roadmap/i })).toBeVisible();
     });
   });
 });

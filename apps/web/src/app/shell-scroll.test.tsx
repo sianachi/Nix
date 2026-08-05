@@ -92,8 +92,8 @@ describe('the shell scroll model', () => {
     const sidebar = screen.getByRole('complementary', { name: /workspace/i });
 
     // The landmark clips and the list within it scrolls. The other way round
-    // would scroll the "Workspace" heading and the New note button away with
-    // the tree.
+    // would scroll the "Workspace" heading and the New button away with the
+    // tree.
     expect(sidebar).toHaveClass('overflow-hidden');
     expect(sidebar.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
   });

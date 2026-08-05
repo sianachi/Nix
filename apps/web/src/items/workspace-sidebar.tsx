@@ -6,10 +6,14 @@ import {
   FilePlus,
   FileText,
   Grid3x3,
+  Plus,
   Shapes,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react';
 import {
+  useEffect,
+  useRef,
   useState,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -131,44 +135,13 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           Workspace
         </Text>
 
-        {/* The label names where the item will land. Two identical buttons whose meaning depends on
-            an invisible selection is the kind of control people press twice and then undo. */}
-        <Button
-          variant="ghost"
-          className="ml-auto px-1.5 py-1 text-xs"
-          aria-label={`New note in ${destinationName}`}
-          onClick={() => {
-            void create('Untitled note', 'note');
-          }}
+        <CreateMenu
+          destinationName={destinationName}
           disabled={tree.status !== 'ready' || tree.isCreating}
-        >
-          <Icon icon={FilePlus} size="sm" />
-          Note
-        </Button>
-        <Button
-          variant="ghost"
-          className="px-1.5 py-1 text-xs"
-          aria-label={`New canvas in ${destinationName}`}
-          onClick={() => {
-            void create('Untitled canvas', 'canvas');
+          onCreate={(title, type) => {
+            void create(title, type);
           }}
-          disabled={tree.status !== 'ready' || tree.isCreating}
-        >
-          <Icon icon={Shapes} size="sm" />
-          Canvas
-        </Button>
-        <Button
-          variant="ghost"
-          className="px-1.5 py-1 text-xs"
-          aria-label={`New spreadsheet in ${destinationName}`}
-          onClick={() => {
-            void create('Untitled spreadsheet', 'spreadsheet');
-          }}
-          disabled={tree.status !== 'ready' || tree.isCreating}
-        >
-          <Icon icon={Grid3x3} size="sm" />
-          Sheet
-        </Button>
+        />
       </div>
 
       {refusal === null ? null : (
@@ -200,6 +173,117 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * The kinds of item the menu offers, which is to say the body kinds this client can draw.
+ *
+ * `item.type` is an open string on the server - there is one kind of item, and the type only
+ * says how its body renders - so this list is the client's vocabulary, not the schema's.
+ */
+const CREATABLE_KINDS: readonly {
+  readonly type: string;
+  readonly label: string;
+  readonly title: string;
+  readonly icon: LucideIcon;
+}[] = [
+  { type: 'note', label: 'Note', title: 'Untitled note', icon: FilePlus },
+  { type: 'canvas', label: 'Canvas', title: 'Untitled canvas', icon: Shapes },
+  { type: 'spreadsheet', label: 'Sheet', title: 'Untitled spreadsheet', icon: Grid3x3 },
+];
+
+interface CreateMenuProps {
+  readonly destinationName: string;
+  readonly disabled: boolean;
+  readonly onCreate: (title: string, type: string) => void;
+}
+
+/**
+ * One "New" control opening a menu of kinds, rather than a button per kind.
+ *
+ * Three buttons in the header left the tree's title about a third of the row, and every kind
+ * added would take another bite. A menu spends one control's width however many kinds exist.
+ *
+ * The open-close grammar is `ProfileMenu`'s: outside click and Escape close it, choosing closes
+ * it, and the trigger reports state through `aria-expanded`. The label still names where the
+ * item will land - that moved from the buttons to the trigger, not out of the interface, because
+ * a control whose meaning depends on an invisible selection is the kind people press twice and
+ * then undo.
+ */
+function CreateMenu({ destinationName, disabled, onCreate }: CreateMenuProps): ReactNode {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function onPointerDown(event: MouseEvent): void {
+      if (containerRef.current?.contains(event.target as Node) === false) {
+        setOpen(false);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative ml-auto">
+      <Button
+        variant="ghost"
+        className="px-1.5 py-1 text-xs"
+        aria-label={`New item in ${destinationName}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((current) => !current);
+        }}
+        disabled={disabled}
+      >
+        <Icon icon={Plus} size="sm" />
+        New
+        <Icon icon={ChevronDown} size="sm" />
+      </Button>
+
+      {open ? (
+        <div
+          role="menu"
+          aria-label={`New item in ${destinationName}`}
+          className="absolute right-0 z-20 mt-1 w-[180px] border border-divider bg-background shadow-md"
+        >
+          {CREATABLE_KINDS.map((kind) => (
+            <button
+              key={kind.type}
+              type="button"
+              role="menuitem"
+              aria-label={`New ${kind.type} in ${destinationName}`}
+              onClick={() => {
+                setOpen(false);
+                onCreate(kind.title, kind.type);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={kind.icon} size="sm" />
+              {kind.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -242,7 +326,7 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   if (roots.length === 0) {
     return (
       <p className="px-3 py-2 text-sm text-muted">
-        Nothing here yet. &ldquo;Note&rdquo; creates the first item.
+        Nothing here yet. &ldquo;New&rdquo; creates the first item.
       </p>
     );
   }
