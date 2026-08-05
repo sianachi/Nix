@@ -1,4 +1,4 @@
-import { Icon, Text, focusRing } from '@nix/ui';
+import { Icon, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
@@ -160,10 +160,6 @@ export function AppShell(): ReactNode {
         >
           NX
         </Link>
-
-        <Text variant="caption" as="span" tone="muted" className="uppercase tracking-widest">
-          Acme &middot; Engineering
-        </Text>
 
         <button
           type="button"
