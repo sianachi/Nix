@@ -33,6 +33,11 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
 
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
+        // The innermost layer's Escape wins - see `workspace-sidebar.tsx`'s `CreateMenu` for the
+        // full reasoning. This menu is reachable while the drawer (`sidebar-drawer.tsx`) is open,
+        // since the header stays interactive by design, so without stopping here Escape would
+        // close this menu and the drawer behind it in the same keystroke.
+        event.stopPropagation();
         setOpen(false);
       }
     }

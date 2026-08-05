@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from './app';
 import { item, stubCoreApi } from '../test/api-stub';
 import { renderAt, signedIn } from '../test/render-with-router';
+import { stubViewport } from '../test/stub-viewport';
+import { paneElementId } from '../panes/pane-params';
 import {
   DEFAULT_WIDTH,
   MAXIMUM_WIDTH,
@@ -51,6 +53,14 @@ beforeEach(() => {
 });
 
 const NOTE = item({ id: '3a3a3a3a-3333-4333-8333-3a3a3a3a3a3a', title: 'Roadmap' });
+
+/**
+ * jsdom does not lay a page out, so there is no real viewport width to narrow. What can be
+ * exercised is the code path `use-narrow-viewport.ts` takes when the window query it asks does not
+ * match - the same technique `pane-state.test.tsx` uses for its own, wider breakpoint, and both
+ * share `stubViewport`. The suite's own default (`test/setup.ts`) answers wide for anything, which
+ * is why every test above this line renders the desktop arrangement without asking.
+ */
 
 describe('the workspace tree', () => {
   it('is on screen until somebody hides it', async () => {
@@ -289,5 +299,309 @@ describe('remembering the choice', () => {
     expect(() => {
       storeCollapsed(refusing, true);
     }).not.toThrow();
+  });
+});
+
+/**
+ * The workspace tree on a screen too narrow to share with anything.
+ *
+ * Below Tailwind's own `sm` breakpoint the tree is an off-canvas drawer rather than the fixed
+ * panel above it - `SidebarDrawer` itself is covered in isolation in `sidebar-drawer.test.tsx`.
+ * What belongs here is the decision this shell makes with it: that a narrow window gets a drawer
+ * instead of a squeeze panel, closed by default; that the resize handle does not come along; that
+ * opening or closing it never touches the storage the wide preference uses; and that each of its
+ * three ways out - Escape, a scrim tap, picking an item - sends focus somewhere deliberate rather
+ * than to whatever the browser would have chosen on its own.
+ *
+ * There is no `role="dialog"` to query here any more - see `sidebar-drawer.tsx`'s own comment on
+ * why - so a drawer being open is read the way any other panel is, through the tree's own
+ * `complementary` landmark, and a drawer being *closed* is read the same way `sidebar.collapsed`
+ * already was above: the landmark, and its rows, gone from the document rather than merely hidden.
+ */
+describe('the workspace tree, as a drawer on a narrow screen', () => {
+  it('starts closed on a narrow screen, even though the wide preference is open', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    // A fresh visit on a phone must not inherit the desktop panel's open-by-default preference -
+    // otherwise a shared deep link would open behind a drawer covering the very document it named.
+    await screen.findByRole('button', { name: /show the workspace tree/i });
+    expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the tree landmark over the pane content once opened, with the pane content made inert', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+
+    expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
+    // The pane content this overlays, unreachable without a hand-rolled trap - see
+    // `app-shell.tsx`'s own comment on the `<main>` element.
+    expect(document.getElementById('main')).toHaveAttribute('inert');
+  });
+
+  it('leaves the pane content reachable while the drawer is closed', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: /show the workspace tree/i });
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
+  });
+
+  it('offers no resize handle, since nothing shares the screen with it to resize against', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('complementary', { name: /workspace/i });
+
+    expect(
+      screen.queryByRole('separator', { name: /resize the workspace tree/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('never writes to the desktop preference when the drawer opens or closes', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('complementary', { name: /workspace/i });
+    await user.click(screen.getByRole('button', { name: /hide the workspace tree/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+
+    // Dismissing the drawer on a phone must not silently leave a later, wider visit collapsed.
+    expect(stored.has(STORAGE_KEY)).toBe(false);
+  });
+
+  it('closes when the scrim behind it is tapped, and sends focus back to the toggle', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const toggle = await screen.findByRole('button', { name: /show the workspace tree/i });
+    await user.click(toggle);
+    await screen.findByRole('complementary', { name: /workspace/i });
+
+    await user.click(screen.getByRole('button', { name: /close the workspace tree/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+    expect(toggle).toHaveFocus();
+  });
+
+  it('closes on Escape, and sends focus back to the toggle', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const toggle = await screen.findByRole('button', { name: /show the workspace tree/i });
+    await user.click(toggle);
+    await screen.findByRole('complementary', { name: /workspace/i });
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+    expect(toggle).toHaveFocus();
+  });
+
+  it('closes the "New" menu on Escape without closing the drawer around it', async () => {
+    // A regression for the bug both listened for Escape on the same node without either stopping
+    // propagation, so opening "New" and pressing Escape closed the whole drawer instead of just
+    // the menu it was meant for - see `workspace-sidebar.tsx`'s `CreateMenu` and
+    // `sidebar-drawer.tsx`'s own comment on why they no longer collide.
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(await screen.findByRole('button', { name: /new item in/i }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
+  });
+
+  it('closes the profile menu on Escape without closing the drawer around it', async () => {
+    // The same bug as the "New" menu above, for the other document-level Escape handler that stays
+    // reachable while the drawer is open - the header never becomes inert, by design, so the
+    // profile menu (`profile-menu.tsx`) is operable throughout and has to stop propagation the same
+    // way `CreateMenu` does.
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(await screen.findByRole('button', { name: /test person/i }));
+    expect(screen.getByRole('menu', { name: /account/i })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menu', { name: /account/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
+  });
+
+  it('closes search on Escape without closing the drawer around it', async () => {
+    // Same bug, same fix, for the third document-level Escape handler reachable from behind the
+    // drawer: search (`search-overlay.tsx`) opens from the header's own control, which also stays
+    // interactive while the drawer is open.
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
+    expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
+  });
+
+  it('closes once an item is selected, moving focus to the pane rather than the toggle', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    const toggle = await screen.findByRole('button', { name: /show the workspace tree/i });
+    await user.click(toggle);
+    await user.click(await screen.findByRole('button', { name: 'Roadmap' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+
+    // Picking an item is "there, that one", not "never mind" - so unlike Escape and the scrim
+    // above, focus does not return to the control that opened the drawer.
+    expect(toggle).not.toHaveFocus();
+    await waitFor(() => {
+      expect(document.getElementById(paneElementId(0))).toHaveFocus();
+    });
+  });
+
+  it('reopens from the same toggle that closed it - no second control exists for it', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('complementary', { name: /workspace/i });
+    await user.click(screen.getByRole('button', { name: /hide the workspace tree/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /show the workspace tree/i }));
+
+    expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
+  });
+
+  it('leaves the page entirely once closed, not merely out of view', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('button', { name: 'Roadmap' });
+    await user.click(screen.getByRole('button', { name: /hide the workspace tree/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+    // The rows go with it, the same guarantee the wide panel makes above.
+    expect(screen.queryByRole('button', { name: 'Roadmap' })).not.toBeInTheDocument();
+  });
+
+  it('sends the skip link to the pane instead of the inert main it would otherwise jump to', async () => {
+    // `#main` is `inert` while the drawer covers it, so the plain anchor jump this link used to
+    // rely on landed focus nowhere - the one thing "skip to content" exists to do. Activating it
+    // now closes the drawer first, the same reading `closeDrawerAfter` gives a row selection.
+    //
+    // The note is preselected via the address rather than picked from the tree, the way a shared
+    // link opened on a phone would arrive - the case below covers the other route to pane zero,
+    // where nothing is open at all.
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('complementary', { name: /workspace/i });
+
+    await user.click(screen.getByRole('link', { name: /skip to content/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.getElementById(paneElementId(0))).toHaveFocus();
+    });
+  });
+
+  it('sends the skip link to the empty-workspace message when there is no pane to land on', async () => {
+    // With no items and nothing open, `editor-page.tsx` renders a plain message rather than a
+    // pane - but the skip link still has to land somewhere once it closes the drawer, or
+    // activating it on a phone would leave focus stranded on the link itself while the content it
+    // "skipped to" tells the reader to open the very drawer that was just closed. The message
+    // carries `paneElementId(0)`, the same id `focusPane(0)` always targets, precisely so this
+    // has an answer.
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi();
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('complementary', { name: /workspace/i });
+
+    await user.click(screen.getByRole('link', { name: /skip to content/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.getElementById(paneElementId(0))).toHaveFocus();
+    });
+    expect(screen.getByText(/open the workspace tree to create your first note/i)).toBeVisible();
+  });
+
+  it('leaves the fixed panel and its handle alone on a wide screen', async () => {
+    // The suite's own default (`test/setup.ts`) is asserted here explicitly rather than only
+    // relied on, so a change to that default fails this test - which says what it depends on -
+    // rather than one several files away that merely stops finding a role.
+    stubViewport(true);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
+    expect(
+      screen.getByRole('separator', { name: /resize the workspace tree/i }),
+    ).toBeInTheDocument();
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
   });
 });

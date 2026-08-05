@@ -6,6 +6,7 @@ import { Link, Outlet } from 'react-router';
 import { useWorkspaceTree } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import { useAnnouncement } from './announcer';
+import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
 import { SearchOverlay } from '../search/search-overlay';
@@ -14,6 +15,8 @@ import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from './layout';
 import { ProfileMenu } from './profile-menu';
 import { SidebarDivider } from './sidebar-divider';
+import { SidebarDrawer } from './sidebar-drawer';
+import { useNarrowViewport } from './use-narrow-viewport';
 import { useSidebar } from './use-sidebar';
 
 /**
@@ -65,13 +68,49 @@ export function AppShell(): ReactNode {
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
-  const sidebar = useSidebar();
+  const narrow = useNarrowViewport();
+  const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Selecting something in the drawer is "I'm done with the drawer, show me what I picked" on a
+  // phone - there is no room to leave it open over the thing it just navigated to. Left alone on a
+  // wide screen, where the tree stays open beside the pane it named.
+  //
+  // Focus goes to the pane that just received the document, not back to whatever opened the
+  // drawer: unlike Escape or a scrim tap, this exit is not "never mind", it is "there, that one" -
+  // the reader's next stop is the thing they picked, not the control they picked it from. A phone
+  // never holds more than one pane, so `focusPane(0)` is always the pane in question here.
+  function closeDrawerAfter<Args extends readonly string[]>(
+    action: (...args: Args) => void,
+  ): (...args: Args) => void {
+    return (...args: Args) => {
+      action(...args);
+      if (narrow) {
+        sidebar.toggle();
+        // `focusPane` defers to the next animation frame (`pane-params.ts`) - that comment's own
+        // reason is the pane element may not have rendered yet, but the deferral is now also load-
+        // bearing for a second thing: it gives React a frame to remove `inert` from `<main>` before
+        // the `.focus()` call runs, which a `focus()` on an inert element would silently no-op.
+        focusPane(0);
+      }
+    };
+  }
 
   // The element whose width a drag moves. The divider previews onto it directly - a render per
   // pointer event would re-render the tree and every open editor - and React writes the same
   // number back when the settled value lands in `sidebar.width`.
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // What Escape and a scrim tap - the two "never mind" exits from the drawer - focus afterwards.
+  // Unlike `closeDrawerAfter` above, these are not "there, that one": nothing was chosen, so focus
+  // belongs on the control that reopens the drawer, the same place it already was before the
+  // drawer took it.
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+
+  function closeDrawer(): void {
+    sidebar.toggle();
+    sidebarToggleRef.current?.focus();
+  }
 
   // A link naming an item the tree has not loaded - which is every link to anything nested, since
   // the tree loads roots and then children on expansion. Without this the screen says "select a
@@ -120,8 +159,16 @@ export function AppShell(): ReactNode {
           loses to it and the link paints as bare text in the very corner of the viewport - with the
           top and left of its focus ring outside the window, which is the one thing a focus
           indicator may not be. Offset from the corner and given elevation because it covers the
-          header rather than sitting in the layout; `z-50` clears the profile menu at 20 and the
-          search overlay at 30, both of which come later in the DOM. */}
+          header rather than sitting in the layout.
+
+          The full stacking ladder, lowest to highest: pane content and the drawer's own scrim
+          (`z-0`) < the drawer panel (`z-10`) < the profile menu (`z-20`) < the search overlay
+          (`z-30`) < this skip link (`z-50`). The drawer's own pair sit inside the pane row beside
+          `<main>`, not inside `<main>` itself, but `<main>` carries `isolate` (below) precisely so
+          nothing inside a pane - `sheet-grid.tsx`'s own `z-20`/`z-30`/`z-40` layers, or its drag
+          overlay - can climb into the root context and outrank the header's popovers the way the
+          drawer used to before it got its own numbers put in their place. `z-50` clears the
+          profile menu and the search overlay both, which come later in the DOM. */}
       {/* One live region for the whole shell, mounted for the session. The things it reads -
           a pane opened, a pane closed, a control refusing - happen in components that come and go,
           and a region that unmounted with them would take the message with it. Polite, because it
@@ -137,6 +184,20 @@ export function AppShell(): ReactNode {
 
       <a
         href="#main"
+        onClick={(event) => {
+          // `#main` is `inert` while the drawer covers it (see the `<main>` element below), so the
+          // browser's own anchor-jump would land focus nowhere - the one thing "skip to content" is
+          // for. Dismissing the drawer is part of getting to the content it is covering, the same
+          // reading `closeDrawerAfter` above gives a row selection, so this closes it and sends
+          // focus to the pane exactly as that path does. Left alone everywhere else: on a wide
+          // screen, or a narrow one with the drawer already closed, `<main>` was never inert and the
+          // default jump already works.
+          if (narrow && sidebar.visible) {
+            event.preventDefault();
+            sidebar.toggle();
+            focusPane(0);
+          }
+        }}
         className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
       >
         Skip to content
@@ -146,13 +207,14 @@ export function AppShell(): ReactNode {
         {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
             with the thing it controls cannot bring it back. */}
         <button
+          ref={sidebarToggleRef}
           type="button"
-          aria-label={sidebar.collapsed ? 'Show the workspace tree' : 'Hide the workspace tree'}
-          aria-expanded={!sidebar.collapsed}
+          aria-label={sidebar.visible ? 'Hide the workspace tree' : 'Show the workspace tree'}
+          aria-expanded={sidebar.visible}
           onClick={sidebar.toggle}
           className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
-          <Icon icon={sidebar.collapsed ? PanelLeftOpen : PanelLeftClose} size="sm" />
+          <Icon icon={sidebar.visible ? PanelLeftClose : PanelLeftOpen} size="sm" />
         </button>
 
         <Link
@@ -180,11 +242,29 @@ export function AppShell(): ReactNode {
         <ProfileMenu principal={principal} />
       </header>
 
-      <div className={`flex flex-1 ${paneClip}`}>
+      {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
+          rather than to the viewport. That keeps the overlay below the header, over the pane
+          content only: a phone has no room to share the tree beside a document, but the header's
+          own toggle button is what closes the drawer, and covering it would take away the way
+          back. */}
+      <div className={`relative flex flex-1 ${paneClip}`}>
         {/* Unmounted rather than hidden. A tree that is merely off-screen keeps its rows in the
             tab order and in the accessibility tree, so a keyboard would still walk through a
-            sidebar nobody can see. */}
-        {sidebar.collapsed ? null : (
+            sidebar nobody can see. The same is true of the drawer below the breakpoint: closed
+            means absent, not merely out of view. */}
+        {!sidebar.visible ? null : narrow ? (
+          <SidebarDrawer onClose={closeDrawer}>
+            <WorkspaceSidebar
+              tree={tree}
+              selectedId={selectedId}
+              onSelect={closeDrawerAfter(openPreview)}
+              onOpenBeside={closeDrawerAfter(openBeside)}
+              onOpenPinned={closeDrawerAfter(openPinned)}
+              canOpenBeside={canOpenBeside}
+              besideRefusal={besideRefusal}
+            />
+          </SidebarDrawer>
+        ) : (
           <>
             <div
               ref={sidebarRef}
@@ -202,8 +282,9 @@ export function AppShell(): ReactNode {
               />
             </div>
 
-            {/* Unmounted with the tree: a handle that resizes something not on screen would be
-                a focusable control that visibly does nothing. */}
+            {/* Unmounted with the tree, and on a narrow screen unmounted regardless of it: a
+                handle that resizes something not sharing the screen with anything - hidden here,
+                or overlaid there - would be a focusable control that visibly does nothing. */}
             <SidebarDivider
               width={sidebar.width}
               onPreview={(width) => {
@@ -215,8 +296,30 @@ export function AppShell(): ReactNode {
         )}
 
         {/* The shell owns the main landmark so every screen has exactly one, and a screen that
-            renders panels side by side does not have to nest them inside another. */}
-        <main id="main" className={`flex flex-1 ${paneClip}`}>
+            renders panels side by side does not have to nest them inside another.
+
+            `inert` while the drawer is open: the native (React 19) way of making this region
+            genuinely unreachable to pointer and assistive technology without a hand-rolled focus
+            trap standing in for it - see `sidebar-drawer.tsx`'s own comment on why that trade was
+            made. Scoped to the drawer being open rather than to `narrow` alone, since a narrow
+            window with the drawer closed has nothing covering this region at all.
+
+            `isolate` unconditionally, not only while the drawer is open: it creates a stacking
+            context for everything a pane renders, so nothing in here - `sheet-grid.tsx`'s own
+            `z-20`/`z-30`/`z-40` layers, or its drag overlay - can ever resolve into the *root*
+            stacking context and paint over the header's own popovers. This is a different fix
+            from the drawer's: the drawer sits *beside* `<main>`, not inside it, so `isolate` here
+            does nothing for the drawer's own stacking - that was corrected separately, by giving
+            the drawer numbers low enough to lose to the header outright (see the skip link's
+            comment above for the full ladder). `isolation: isolate` does not change the containing
+            block for `position: fixed`, so a fixed drag overlay still covers the viewport
+            geometrically - this only stops it from painting above chrome that lives outside
+            `<main>`. */}
+        <main
+          id="main"
+          inert={narrow && sidebar.visible}
+          className={`isolate flex flex-1 ${paneClip}`}
+        >
           <Outlet context={{ tree, selectedId }} />
         </main>
       </div>

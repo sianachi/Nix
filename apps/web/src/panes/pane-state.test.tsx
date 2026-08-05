@@ -2,6 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
+import { stubViewport } from '../test/stub-viewport';
 import { clearViewState, parseFilters, parseViewState } from '../views/view-state';
 import { closePaneParams, parsePanes, usePanes } from './pane-state';
 import {
@@ -284,16 +285,7 @@ describe('a window too narrow to hold a second pane', () => {
   const second = '00000000-0000-4000-8000-000000000002';
 
   function panesAt(wide: boolean, search: string) {
-    vi.stubGlobal(
-      'matchMedia',
-      (query: string) =>
-        ({
-          matches: wide,
-          media: query,
-          addEventListener: () => undefined,
-          removeEventListener: () => undefined,
-        }) as unknown as MediaQueryList,
-    );
+    stubViewport(wide);
 
     return renderHook(() => usePanes(), {
       wrapper: ({ children }) => (

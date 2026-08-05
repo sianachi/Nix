@@ -35,6 +35,13 @@ import { Button } from './Button';
  * reported through `onClose` rather than allowed to close the element, so the DOM can never be
  * closed while the prop still says open. Whoever owns the flag decides when it flips - which is
  * also what lets a dialog refuse to close over unsaved work.
+ *
+ * **When not to use this.** A disclosure that must render as a sibling of an ancestor the user
+ * still needs on screen - a header with its own toggle and search, say - cannot use `showModal()`:
+ * the top layer is anchored to the viewport, and covering the viewport is precisely what such a
+ * disclosure exists not to do. `apps/web/src/app/sidebar-drawer.tsx` is that exception, applying
+ * `inert` to what it covers instead of trapping focus; see ADR-0029 for the full reasoning and the
+ * Escape-layering convention a non-modal overlay of this kind has to follow.
  */
 
 export interface DialogProps {

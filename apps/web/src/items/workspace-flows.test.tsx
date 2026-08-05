@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../app/app';
 import { item, stubCoreApi } from '../test/api-stub';
 import { renderAt, signedIn } from '../test/render-with-router';
+import { stubViewport } from '../test/stub-viewport';
 
 /**
  * The flows, rather than the pixels.
@@ -131,6 +132,48 @@ describe('the breadcrumb trail', () => {
     });
 
     expect(within(trail).queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
+  });
+});
+
+describe('opening an item beside another', () => {
+  it('does not render the control at all on a narrow screen, since a phone never has room for a second pane', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await screen.findByRole('button', { name: 'Engineering' });
+
+    // `'narrow'` is a fact about this viewport, true of every row at once - unlike the pane limit
+    // below, it is never going to stop being true without the window itself changing size, so a
+    // disabled control here would be permanently visible and permanently useless, and a screen
+    // reader would hear its refusal read out on every row in the tree.
+    expect(
+      screen.queryByRole('button', { name: /open engineering beside/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /cannot open engineering beside/i }),
+    ).not.toBeInTheDocument();
+
+    // The row's other controls are unaffected by this - they still work at narrow widths.
+    expect(screen.getByRole('button', { name: /delete engineering/i })).toBeInTheDocument();
+  });
+
+  it('keeps the control visible and disabled at the pane limit, since that refusal is transient', async () => {
+    const A = item({ id: '2a2a2a2a-2222-4222-8222-2a2a2a2a2a2a', title: 'Alpha' });
+    const B = item({ id: '2b2b2b2b-2222-4222-8222-2b2b2b2b2b2b', title: 'Bravo' });
+    const C = item({ id: '2c2c2c2c-2222-4222-8222-2c2c2c2c2c2c', title: 'Charlie' });
+    const D = item({ id: '2d2d2d2d-2222-4222-8222-2d2d2d2d2d2d', title: 'Delta' });
+    stubCoreApi({ items: [A, B, C, D] });
+    renderAt(<App />, `/?item=${A.id}&item2=${B.id}&item3=${C.id}`);
+
+    await screen.findByRole('button', { name: 'Delta' });
+
+    // Unlike the narrow case above, three panes already open is a state of this arrangement, not
+    // of this window - closing one changes the answer - so the control stays put, disabled, and
+    // says why.
+    expect(screen.getByRole('button', { name: /cannot open delta beside/i })).toBeDisabled();
   });
 });
 

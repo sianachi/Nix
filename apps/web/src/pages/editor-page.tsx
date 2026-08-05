@@ -14,6 +14,7 @@ import { useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../app/app-shell';
 import { paneClip, paneColumn, paneScroller } from '../app/layout';
+import { useNarrowViewport } from '../app/use-narrow-viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../sheet/sheet-editor';
 
@@ -65,6 +66,7 @@ export function EditorPage(): ReactNode {
   const { tree } = useOutletContext<ShellContext>();
   const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
   const paneClosed = useTabStore((state) => state.paneClosed);
+  const narrow = useNarrowViewport();
 
   const paneCount = panes.length;
 
@@ -90,13 +92,28 @@ export function EditorPage(): ReactNode {
 
   if (panes.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center">
+      <div
+        id={paneElementId(0)}
+        // Focusable only programmatically, the same as a real pane's `<article>` - this is pane
+        // zero in every sense that matters to `focusPane(0)` and to the skip link, which lands
+        // here when the drawer it just closed was covering an empty workspace rather than a pane.
+        tabIndex={-1}
+        className="flex flex-1 items-center justify-center px-6 text-center"
+      >
         <p className="max-w-sm text-sm text-muted">
           {tree.status === 'loading'
             ? 'Loading the workspace…'
             : tree.childrenOf(null).length === 0
-              ? 'This workspace has no items yet. Create a note to begin.'
-              : 'Select a note from the tree, or create one.'}
+              ? // Below `sm` the tree starts as a closed drawer (see `use-sidebar.ts`), so the
+                // control this sentence used to name - "create one" - is not on screen; naming the
+                // toggle that opens it instead is the honest answer, both here and in the sibling
+                // branch below.
+                narrow
+                ? 'Open the workspace tree to create your first note.'
+                : 'This workspace has no items yet. Create a note to begin.'
+              : narrow
+                ? 'Open the workspace tree to pick a note.'
+                : 'Select a note from the tree, or create one.'}
         </p>
       </div>
     );

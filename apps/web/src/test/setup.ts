@@ -4,6 +4,7 @@ import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { stubCoreApi } from './api-stub';
+import { stubViewport } from './stub-viewport';
 import { resetAnnouncements } from '../app/announcer';
 import { resetSession } from './render-with-router';
 
@@ -25,29 +26,11 @@ import { resetSession } from './render-with-router';
  * Not a convenience. Without it, every render that asks whether the window can hold a second pane
  * throws - and the failure surfaces as an unrelated element missing from the page, which is a long
  * way from anything about media queries. Wide by default, so the suite exercises the arrangement
- * the address actually asks for; a test about narrow behaviour stubs this itself.
- *
- * Assigned at module scope rather than in `beforeEach`, because `vi.unstubAllGlobals` in the
- * teardown below would take a stubbed one away again after the first test. Guarded for the same
- * reason the dialog shim below is: a suite that declares `@vitest-environment node` has no window
- * to give one to.
+ * the address actually asks for; a test about narrow behaviour stubs this itself, with the same
+ * `stubViewport` this establishes the default through - see that module's own comment for why this
+ * call, here, is the one exception to "a test stubs its own width".
  */
-if (typeof globalThis.window !== 'undefined') {
-  Object.defineProperty(globalThis, 'matchMedia', {
-    writable: true,
-    value: (query: string): MediaQueryList =>
-      ({
-        matches: true,
-        media: query,
-        onchange: null,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-        addListener: () => undefined,
-        removeListener: () => undefined,
-        dispatchEvent: () => false,
-      }) as MediaQueryList,
-  });
-}
+stubViewport(true);
 
 if (typeof HTMLDialogElement !== 'undefined') {
   Object.assign(HTMLDialogElement.prototype, {
@@ -119,4 +102,12 @@ afterEach(() => {
   // would silently unconfigure every test that ran afterwards.
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+
+  // Defense in depth for the suite's default viewport. `stubViewport`'s plain assignment (see its
+  // own comment) means `vi.unstubAllGlobals()` above does not restore it the way a
+  // `vi.stubGlobal`-based mock would - nothing breaks today only because every narrow-viewport
+  // `stubViewport(false)` call happens to sit in the last describe block of its file. Restoring the
+  // wide default here is cheap insurance against a test appended after one of those blocks silently
+  // inheriting a narrow viewport it never asked for.
+  stubViewport(true);
 });

@@ -1,7 +1,8 @@
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { announce } from '../app/announcer';
+import { useMediaQuery } from '../app/use-media-query';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
 import { clearViewState } from '../views/view-state';
 import {
@@ -209,32 +210,13 @@ const NARROWEST_FOR_TWO_PANES = 768;
 /**
  * Whether the window is currently wide enough for more than one pane.
  *
- * `useSyncExternalStore` rather than an effect that sets state: a media query is exactly the
- * external store that hook exists for, and it closes the gap an effect leaves - React reads the
- * snapshot at subscribe time, so a window resized between the render and the subscription is not
- * missed. It also keeps this off the render-cascade path an effect-plus-setState would put it on.
+ * A one-liner over the shared `useMediaQuery` - see that hook's own comment for why it is
+ * `useSyncExternalStore` rather than an effect that sets state, and for the server/no-`matchMedia`
+ * default: there is no window to measure, so the arrangement the address asks for is rendered
+ * whole rather than pre-emptively narrowed to something the client may not want.
  */
 function useRoomForAnotherPane(): boolean {
-  const query = `(min-width: ${String(NARROWEST_FOR_TWO_PANES)}px)`;
-
-  const subscribe = useCallback(
-    (onChange: () => void): (() => void) => {
-      const media = globalThis.matchMedia(query);
-      media.addEventListener('change', onChange);
-      return () => {
-        media.removeEventListener('change', onChange);
-      };
-    },
-    [query],
-  );
-
-  return useSyncExternalStore(
-    subscribe,
-    () => globalThis.matchMedia(query).matches,
-    // On a server there is no window to measure, so the arrangement the address asks for is
-    // rendered whole rather than pre-emptively narrowed to something the client may not want.
-    () => true,
-  );
+  return useMediaQuery(`(min-width: ${String(NARROWEST_FOR_TWO_PANES)}px)`);
 }
 
 export function usePanes(): PaneControl {

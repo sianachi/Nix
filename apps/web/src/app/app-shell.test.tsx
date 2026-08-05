@@ -55,6 +55,22 @@ describe('the shell', () => {
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main');
   });
 
+  it('gives pane content its own stacking context, so nothing inside a pane can paint over the header', async () => {
+    // A regression for the bug where the narrow-viewport drawer (`sidebar-drawer.tsx`) painted
+    // over the profile menu: neither established a stacking context of its own, so both resolved
+    // into the root context at the same z-index and the tie broke on DOM order. `isolate` here
+    // means everything a pane renders - `sheet-grid.tsx`'s own layered overlays included - stays
+    // contained below the header's popovers regardless of any z-index it picks for itself.
+    //
+    // This checks the class is present, not the paint order it produces: jsdom does not compile
+    // Tailwind for this suite (`vite.config.ts`), so there is no stylesheet for a stacking context
+    // to exist against here. See `sidebar-drawer.test.tsx`'s own comment on the same limit.
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    expect(await screen.findByRole('main')).toHaveClass('isolate');
+  });
+
   it('keeps the workspace tree on screen rather than inside one page', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);

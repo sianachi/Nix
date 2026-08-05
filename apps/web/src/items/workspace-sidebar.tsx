@@ -236,6 +236,12 @@ function CreateMenu({ destinationName, disabled, onCreate }: CreateMenuProps): R
 
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
+        // The innermost layer's Escape wins. Both this and the drawer that can wrap this menu
+        // (`sidebar-drawer.tsx`) listen for Escape, and without this the drawer's own listener -
+        // which sits further out on every keydown's path, on `window` rather than `document` -
+        // would close the whole drawer instead of just this menu. Stopping here keeps the event
+        // from ever reaching it.
+        event.stopPropagation();
         setOpen(false);
       }
     }
@@ -600,6 +606,16 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           />
         ) : null}
 
+        {/* `max-sm:size-(--control-sm)` on both the button and its placeholder, narrow-scoped:
+            below `sm` this is a touch target and 20px (`size-5`) is under WCAG 2.5.8's 24px floor,
+            but the two have to grow together or a row without an expand control would sit at a
+            different gutter width than one with it.
+
+            `pointer-coarse:size-(--control-sm)` rides alongside it: `group-hover:*` only applies
+            under `@media(hover:hover)` (Tailwind v4's `pointer-coarse:` variant maps to
+            `@media(pointer:coarse)`), so a touch-capable device *above* `sm` - an iPad in portrait,
+            say - would otherwise get neither the hover reveal nor the `max-sm:` override, leaving
+            it unreachable rather than merely small. */}
         {expandable ? (
           <button
             type="button"
@@ -607,12 +623,15 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             onClick={() => {
               void tree.toggle(item.id);
             }}
-            className="flex size-5 items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            className="flex size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm) items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={expanded ? ChevronDown : ChevronRight} size="sm" />
           </button>
         ) : (
-          <span aria-hidden="true" className="size-5" />
+          <span
+            aria-hidden="true"
+            className="size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm)"
+          />
         )}
 
         <button
@@ -645,30 +664,48 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         </button>
 
         {/* Beside Delete, in the row's own established grammar: revealed on hover, always
-            reachable by keyboard. The modifier-click and Alt+Enter above are accelerators for
-            this control rather than the whole feature - a gesture only a pointer can make is a
-            feature for only some people, and a `title` tooltip is worse than nothing here,
-            because it is read aloud after every row while never reaching a touch or keyboard
-            user at all. */}
-        <button
-          type="button"
-          disabled={!canOpenBeside}
-          aria-label={
-            besideRefusal === null
-              ? `Open ${item.title || 'Untitled'} beside`
-              : `Cannot open ${item.title || 'Untitled'} beside. ${BESIDE_REFUSAL_COPY[besideRefusal]}`
-          }
-          onClick={() => {
-            onOpenBeside(item.id);
-          }}
-          // `opacity-0`, not `invisible`. `visibility: hidden` takes an element out of the tab
-          // order entirely, so `focus-visible:visible` can never fire - nothing can focus it in
-          // order to un-hide it. The control was pointer-only, which is the objection it exists to
-          // answer. Opacity hides it and keeps it reachable.
-          className={`flex size-5 items-center justify-center text-muted opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 ${disabledState} ${focusRing}`}
-        >
-          <Icon icon={Columns2} size="sm" />
-        </button>
+            reachable by keyboard - and, below `sm`, always visible and at the 28px control size
+            rather than 20px, because touch has no hover to reveal a hidden control with, and a
+            control under WCAG 2.5.8's 24px floor is a thumb's width from the row next to it.
+            The modifier-click and Alt+Enter above are accelerators for this control rather than
+            the whole feature - a gesture only a pointer can make is a feature for only some
+            people, and a `title` tooltip is worse than nothing here, because it is read aloud
+            after every row while never reaching a touch or keyboard user at all.
+
+            Not rendered at all when the refusal is `'narrow'`: that reason is a fact about this
+            viewport, not a transient state of the pane arrangement, and it is true of every row in
+            the tree at once. A disabled, ever-present control whose label is a refusal nobody can
+            ever act around is worse than no control - on a phone a screen reader would hear it on
+            every single row. `'limit'` is the opposite: a temporary state of how many panes happen
+            to be open, so it stays visible and disabled, with the explanation, exactly as before. */}
+        {besideRefusal === 'narrow' ? null : (
+          <button
+            type="button"
+            disabled={!canOpenBeside}
+            aria-label={
+              besideRefusal === null
+                ? `Open ${item.title || 'Untitled'} beside`
+                : `Cannot open ${item.title || 'Untitled'} beside. ${BESIDE_REFUSAL_COPY[besideRefusal]}`
+            }
+            onClick={() => {
+              onOpenBeside(item.id);
+            }}
+            // `opacity-0`, not `invisible`. `visibility: hidden` takes an element out of the tab
+            // order entirely, so `focus-visible:visible` can never fire - nothing can focus it in
+            // order to un-hide it. The control was pointer-only, which is the objection it exists to
+            // answer. Opacity hides it and keeps it reachable.
+            //
+            // `pointer-events-none` rides along with that same `opacity-0` regardless of viewport
+            // width: an element can be hit-tested while fully transparent, so without this a thumb
+            // or pointer landing near the row's edge could trigger a control nothing on screen shows
+            // it landed on. The three states that raise the opacity back to 100 - hover, focus-visible,
+            // group-hover - restore pointer events with it; `max-sm:` does the same unconditionally,
+            // since below `sm` this is never hidden in the first place.
+            className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${disabledState} ${focusRing}`}
+          >
+            <Icon icon={Columns2} size="sm" />
+          </button>
+        )}
 
         <button
           type="button"
@@ -690,8 +727,12 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           }}
           // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
           // takes an element out of the tab order, so this was keyboard-unreachable - and of the
-          // two controls in this row it is the destructive one.
-          className={`flex size-5 items-center justify-center text-muted opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 ${focusRing}`}
+          // two controls in this row it is the destructive one. `pointer-events-none` and the
+          // narrow-scoped sizing and always-visible state follow the same reasoning as that
+          // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
+          // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
+          // the `max-sm:` override without it.
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
         >
           <Icon icon={Trash2} size="sm" />
         </button>
