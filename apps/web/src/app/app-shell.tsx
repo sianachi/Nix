@@ -9,6 +9,7 @@ import { useAnnouncement } from './announcer';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
 import { SearchOverlay } from '../search/search-overlay';
+import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from './layout';
 import { ProfileMenu } from './profile-menu';
@@ -61,7 +62,8 @@ export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
-  const { panes, openBeside, canOpenBeside, besideRefusal } = usePanes();
+  const { panes } = usePanes();
+  const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
   const sidebar = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -192,8 +194,9 @@ export function AppShell(): ReactNode {
               <WorkspaceSidebar
                 tree={tree}
                 selectedId={selectedId}
-                onSelect={select}
+                onSelect={openPreview}
                 onOpenBeside={openBeside}
+                onOpenPinned={openPinned}
                 canOpenBeside={canOpenBeside}
                 besideRefusal={besideRefusal}
               />

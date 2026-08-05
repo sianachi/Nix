@@ -58,6 +58,19 @@ export function selectedItemSearch(itemId: string): string {
   return `?${new URLSearchParams({ [SELECTED_ITEM_PARAM]: itemId }).toString()}`;
 }
 
+/**
+ * Writes one pane's selected item into a set of parameters. Exported, and taking `pane` rather
+ * than reading it from context, so cross-pane navigation - focusing a document that is already
+ * open in a pane other than the one a click originated in - can target that pane directly.
+ * `useSelectedItem` cannot do this itself: it is pinned to `usePaneIndex()`, which only ever
+ * names the pane the calling component is rendered inside.
+ */
+export function writeSelectedItem(params: URLSearchParams, pane: number, itemId: string): void {
+  // See `select`, below, for why the view state is cleared alongside the item.
+  clearViewState(params, pane);
+  params.set(selectedItemParam(pane), itemId);
+}
+
 export interface SelectedItemControl {
   readonly selectedId: string | null;
   readonly select: (itemId: string) => void;
@@ -81,11 +94,10 @@ export function useSelectedItem(): SelectedItemControl {
       //
       // Scoped to this pane. Unscoped, navigating here would clear the *other* pane's view too,
       // which is a change nobody asked for in a part of the screen they were not looking at.
-      clearViewState(next, pane);
-      next.set(name, itemId);
+      writeSelectedItem(next, pane, itemId);
       setSearchParams(next);
     },
-    [name, pane, searchParams, setSearchParams],
+    [pane, searchParams, setSearchParams],
   );
 
   const clear = useCallback((): void => {

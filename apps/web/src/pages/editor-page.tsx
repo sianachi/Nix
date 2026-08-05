@@ -28,7 +28,10 @@ import { PaneGroup } from '../panes/pane-group';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
 import { useItemProperties } from '../properties/use-item-properties';
-import { useSelectedItem } from '../routing/selected-item';
+import { useTabOrientationStore } from '../tabs/tab-orientation-store';
+import { DocumentTabStrip } from '../tabs/document-tab-strip';
+import { useTabStore } from '../tabs/tab-store';
+import { useOpenItem } from '../tabs/use-open-item';
 import { ContainerView } from '../views/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/container-model';
 import { useContainer } from '../views/use-container';
@@ -61,6 +64,7 @@ import { ViewSwitcher } from '../views/view-switcher';
 export function EditorPage(): ReactNode {
   const { tree } = useOutletContext<ShellContext>();
   const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
+  const paneClosed = useTabStore((state) => state.paneClosed);
 
   const paneCount = panes.length;
 
@@ -72,12 +76,16 @@ export function EditorPage(): ReactNode {
       );
       closePane(index);
 
+      // The tab store's own renumbering has to run from the same call site as the address's, or
+      // a pane's tab strip ends up belonging to whichever pane used to sit at that index.
+      paneClosed(index, paneCount);
+
       // The button that was focused is about to be unmounted with its pane, so focus goes to
       // whatever takes its place - the pane that shifts down into this index, or the last one
       // left. Without this it falls to the document body and the reader loses their place.
       focusPane(Math.min(index, left - 1));
     },
-    [closePane, paneCount],
+    [closePane, paneClosed, paneCount],
   );
 
   if (panes.length === 0) {
@@ -153,9 +161,13 @@ interface PaneContentsProps {
 /**
  * One pane's item, resolved.
  *
- * Split out of `EditorPage` because it has to run inside `PaneProvider` - `useSelectedItem` reads
- * the pane from context, and a component that called it above the provider would be reading the
- * first pane's parameters no matter which pane it was drawing.
+ * Split out of `EditorPage` because it has to run inside `PaneProvider` - `useOpenItem` reads the
+ * pane from context (by way of `usePaneIndex`), and a component that called it above the provider
+ * would be reading the first pane's parameters no matter which pane it was drawing.
+ *
+ * Breadcrumbs and in-document links open through `useOpenItem` rather than a bare
+ * `useSelectedItem().select`, the same as a sidebar click - a link inside pane 2 to a document
+ * that is already open, backgrounded, in pane 1 has to focus it there, not open a second copy.
  */
 function PaneContents({
   pane,
@@ -164,84 +176,130 @@ function PaneContents({
   paneLabel,
   hiddenPanes,
 }: PaneContentsProps): ReactNode {
-  const { select } = useSelectedItem();
+  const { openPreview } = useOpenItem();
+  const tabPinned = useTabStore((state) => state.tabPinned);
+  const orientation = useTabOrientationStore((state) => state.orientation);
   const item = tree.find(pane.itemId);
 
-  if (item === null) {
-    // Four different things, said differently. The tree loads roots and then children on
-    // expansion, so anything nested is absent until a reveal walks up to it - and that walk is
-    // several requests, during which "not in this workspace" is simply untrue. It is also the
-    // wrong sentence for an item somebody may not read, which is theirs to ask about rather than
-    // absent, and the wrong sentence again when it is the tree itself that failed.
-    const reveal = tree.revealOf(pane.itemId);
-    const waiting = tree.status === 'loading' || reveal === null || reveal === 'revealing';
-    const failed = reveal === 'failed' || tree.status === 'error';
+  return (
+    <article
+      id={paneElementId(pane.index)}
+      // Focusable only programmatically: a pane is a landmark to be sent to, not a stop on the way
+      // through. Without it, closing a pane drops focus to the document body and a keyboard user
+      // has to Tab through the tree and a whole editor to get back to where they were.
+      tabIndex={-1}
+      aria-label={paneLabel}
+      className={paneColumn}
+    >
+      {/* A row when tabs are vertical, so the rail sits beside the rest of the pane rather than
+          above it; a column otherwise, which is the arrangement this always was. Orientation is
+          one preference for every pane (`tab-orientation-store.ts`), read here rather than
+          threaded down, because this is the one place that has to lay the pane out around it. */}
+      <div
+        className={`flex flex-1 ${paneClip} ${orientation === 'vertical' ? 'flex-row' : 'flex-col'}`}
+      >
+        {/* Mounted here rather than inside `OpenItem`, and above the not-found branch below: an
+            item resolving, forbidden, or failed must not take the rest of the strip down with it,
+            or a person could not click back to a tab that is perfectly fine. */}
+        <DocumentTabStrip
+          paneIndex={pane.index}
+          tree={tree}
+          activeItemId={pane.itemId}
+          onClosePane={onClose}
+        />
 
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="max-w-sm text-sm text-muted">
-          {waiting
-            ? 'Finding this item…'
-            : failed
-              ? 'Something went wrong finding this item.'
-              : reveal === 'forbidden'
-                ? "You can't view this item."
-                : 'We cannot find that item. It may have been deleted.'}
-        </p>
-
-        {/* Without these a bad link is a dead end: the pane shows a sentence and offers nothing,
-            and in a single-pane arrangement there is no other control on the screen at all. A
-            failure is the one outcome worth another go, so it gets a way to take it. */}
-        <div className="flex items-center gap-2">
-          {failed ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void tree.retryReveal(pane.itemId);
-              }}
-            >
-              Try again
-            </Button>
+        <div className={paneColumn}>
+          {hiddenPanes > 0 ? (
+            <p className="shrink-0 px-8 pb-1 pt-1 text-xs text-muted">
+              {hiddenPanes === 1
+                ? 'One more pane in this link opens on a wider screen.'
+                : `${String(hiddenPanes)} more panes in this link open on a wider screen.`}
+            </p>
           ) : null}
 
-          {waiting || onClose === undefined ? null : (
-            <Button variant="ghost" onClick={onClose}>
-              Close this pane
-            </Button>
+          {item === null ? (
+            <NotFoundItem tree={tree} pane={pane} onClose={onClose} />
+          ) : (
+            // Keyed on the item throughout: switching notes has to build a new Yjs document and
+            // a new title draft rather than reuse one, which is the failure that would otherwise
+            // carry one note's text into another.
+            <OpenItem
+              key={item.id}
+              tree={tree}
+              itemId={item.id}
+              title={item.title}
+              bodyKind={item.type}
+              onOpen={openPreview}
+              onClose={onClose}
+              onCommit={() => {
+                tabPinned(pane.index, item.id);
+              }}
+            />
           )}
         </div>
       </div>
-    );
-  }
+    </article>
+  );
+}
 
-  // Keyed on the item throughout: switching notes has to build a new Yjs document and a new title
-  // draft rather than reuse one, which is the failure that would otherwise carry one note's text
-  // into another.
+interface NotFoundItemProps {
+  readonly tree: ShellContext['tree'];
+  readonly pane: PaneState;
+  readonly onClose: (() => void) | undefined;
+}
+
+/**
+ * Four different things, said differently. The tree loads roots and then children on expansion,
+ * so anything nested is absent until a reveal walks up to it - and that walk is several requests,
+ * during which "not in this workspace" is simply untrue. It is also the wrong sentence for an
+ * item somebody may not read, which is theirs to ask about rather than absent, and the wrong
+ * sentence again when it is the tree itself that failed.
+ */
+function NotFoundItem({ tree, pane, onClose }: NotFoundItemProps): ReactNode {
+  const reveal = tree.revealOf(pane.itemId);
+  const waiting = tree.status === 'loading' || reveal === null || reveal === 'revealing';
+  const failed = reveal === 'failed' || tree.status === 'error';
+
   return (
-    <OpenItem
-      key={item.id}
-      tree={tree}
-      itemId={item.id}
-      title={item.title}
-      bodyKind={item.type}
-      paneIndex={pane.index}
-      hiddenPanes={hiddenPanes}
-      onOpen={select}
-      onClose={onClose}
-      paneLabel={paneLabel}
-    />
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+      <p className="max-w-sm text-sm text-muted">
+        {waiting
+          ? 'Finding this item…'
+          : failed
+            ? 'Something went wrong finding this item.'
+            : reveal === 'forbidden'
+              ? "You can't view this item."
+              : 'We cannot find that item. It may have been deleted.'}
+      </p>
+
+      {/* Without these a bad link is a dead end: the pane shows a sentence and offers nothing,
+          and in a single-pane arrangement there is no other control on the screen at all. A
+          failure is the one outcome worth another go, so it gets a way to take it. */}
+      <div className="flex items-center gap-2">
+        {failed ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void tree.retryReveal(pane.itemId);
+            }}
+          >
+            Try again
+          </Button>
+        ) : null}
+
+        {waiting || onClose === undefined ? null : (
+          <Button variant="ghost" onClick={onClose}>
+            Close this pane
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
 interface OpenItemProps {
   readonly tree: ShellContext['tree'];
   readonly itemId: string;
-
-  /** Which pane this is drawn in, so it can be addressed for focus. */
-  readonly paneIndex: number;
-
-  /** How many panes this address holds that this window is too narrow to draw. */
-  readonly hiddenPanes: number;
   readonly title: string;
 
   /** The item's `type`: how its own body is drawn. Never gates what it may contain. */
@@ -251,25 +309,19 @@ interface OpenItemProps {
   /** Closes this pane, or absent when it is the only one and there is nothing to close to. */
   readonly onClose: (() => void) | undefined;
 
-  /**
-   * What this region is called, when there is more than one of it.
-   *
-   * Absent for a single pane, because "Pane 1 of 1" is noise. With two open, an unnamed second
-   * article is all a screen reader would otherwise be told about the screen having split.
-   */
-  readonly paneLabel: string | undefined;
+  /** Editing the title is a commitment to this document - it gets pinned, the way a double-click
+   * from the tree does. */
+  readonly onCommit: () => void;
 }
 
 function OpenItem({
   tree,
   itemId,
-  paneIndex,
-  hiddenPanes,
   title,
   bodyKind,
   onOpen,
   onClose,
-  paneLabel,
+  onCommit,
 }: OpenItemProps): ReactNode {
   // Creation goes through the tree, which is the only thing that knows how to put a new item into
   // the store the sidebar reads and expand its parent so it is visible. The container borrows it
@@ -315,24 +367,14 @@ function OpenItem({
   const showingDocument = active === null;
 
   return (
-    <article
-      id={paneElementId(paneIndex)}
-      // Focusable only programmatically: a pane is a landmark to be sent to, not a stop on the way
-      // through. Without it, closing a pane drops focus to the document body and a keyboard user
-      // has to Tab through the tree and a whole editor to get back to where they were.
-      tabIndex={-1}
-      aria-label={paneLabel}
-      className={paneColumn}
-    >
-      <ItemHeader tree={tree} itemId={itemId} title={title} onNavigate={onOpen} />
-
-      {hiddenPanes > 0 ? (
-        <p className="shrink-0 px-8 pb-1 text-xs text-muted">
-          {hiddenPanes === 1
-            ? 'One more pane in this link opens on a wider screen.'
-            : `${String(hiddenPanes)} more panes in this link open on a wider screen.`}
-        </p>
-      ) : null}
+    <>
+      <ItemHeader
+        tree={tree}
+        itemId={itemId}
+        title={title}
+        onNavigate={onOpen}
+        onCommit={onCommit}
+      />
 
       <div className="flex shrink-0 items-center">
         <div className="min-w-0 flex-1">
@@ -421,7 +463,7 @@ function OpenItem({
           <ItemPanel container={container} details={details} onClose={togglePanel} />
         ) : null}
       </div>
-    </article>
+    </>
   );
 }
 
@@ -430,9 +472,12 @@ interface ItemHeaderProps {
   readonly itemId: string;
   readonly title: string;
   readonly onNavigate: (itemId: string) => void;
+
+  /** Editing the title is a commitment to this document. */
+  readonly onCommit: () => void;
 }
 
-function ItemHeader({ tree, itemId, title, onNavigate }: ItemHeaderProps): ReactNode {
+function ItemHeader({ tree, itemId, title, onNavigate, onCommit }: ItemHeaderProps): ReactNode {
   const trail = tree.breadcrumbs(itemId);
   // Keyed on the item by its caller, so the draft is rebuilt rather than carried. A title held in
   // state and not reset is the classic mirrored-prop bug: navigating from one note to another would
@@ -482,6 +527,7 @@ function ItemHeader({ tree, itemId, title, onNavigate }: ItemHeaderProps): React
         value={draft}
         onChange={(event) => {
           setDraft(event.target.value);
+          onCommit();
         }}
         onBlur={() => {
           // On blur rather than on every keystroke: a rename is a write to the item row, and one

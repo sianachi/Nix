@@ -64,6 +64,13 @@ export interface WorkspaceSidebarProps {
    */
   readonly onOpenBeside: (itemId: string) => void;
 
+  /**
+   * Commits to an item as a permanent tab, rather than the preview tab a plain click leaves
+   * behind. A double-click, in the row's own established grammar - the same gesture a file
+   * manager already uses to mean "open this one for real".
+   */
+  readonly onOpenPinned: (itemId: string) => void;
+
   /** Whether another pane would fit. A control that silently refuses reads as a broken one. */
   readonly canOpenBeside: boolean;
 
@@ -72,7 +79,8 @@ export interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
-  const { tree, selectedId, onSelect, onOpenBeside, canOpenBeside, besideRefusal } = props;
+  const { tree, selectedId, onSelect, onOpenBeside, onOpenPinned, canOpenBeside, besideRefusal } =
+    props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -155,6 +163,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           selectedId={selectedId}
           onSelect={onSelect}
           onOpenBeside={onOpenBeside}
+          onOpenPinned={onOpenPinned}
           canOpenBeside={canOpenBeside}
           besideRefusal={besideRefusal}
           dragged={dragged}
@@ -291,6 +300,7 @@ interface TreeBodyProps {
   readonly selectedId: string | null;
   readonly onSelect: (itemId: string) => void;
   readonly onOpenBeside: (itemId: string) => void;
+  readonly onOpenPinned: (itemId: string) => void;
   readonly canOpenBeside: boolean;
   readonly besideRefusal: BesideRefusal | null;
   readonly dragged: string | null;
@@ -445,6 +455,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     selectedId,
     onSelect,
     onOpenBeside,
+    onOpenPinned,
     canOpenBeside,
     besideRefusal,
     dragged,
@@ -619,6 +630,9 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               return;
             }
             onSelect(item.id);
+          }}
+          onDoubleClick={() => {
+            onOpenPinned(item.id);
           }}
           // On the row's own control rather than on the wrapper: this is the element that takes
           // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a

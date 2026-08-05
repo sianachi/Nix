@@ -78,6 +78,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
@@ -101,6 +102,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
@@ -123,6 +125,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
@@ -147,6 +150,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
@@ -167,6 +171,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
@@ -187,6 +192,7 @@ describe('moving an item from the keyboard', () => {
         selectedId={null}
         onSelect={vi.fn()}
         onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
       />,
