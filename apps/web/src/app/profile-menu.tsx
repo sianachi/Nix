@@ -1,7 +1,6 @@
 import { Icon, focusRing } from '@nix/ui';
-import { ChevronDown, LogOut, ShieldCheck, User } from 'lucide-react';
+import { ChevronDown, LogOut, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { ThemeChoice } from '../theme/theme-choice';
@@ -10,15 +9,6 @@ import type { CurrentPrincipalState } from '../session/use-current-principal';
 /**
  * The profile menu, top right: who you are, and the things that belong to you rather than to the
  * document you are looking at.
- *
- * **The administrative entry is gated on the server's answer, not on a token claim.** Roles live
- * in the database and never in tokens, so the browser cannot decide this by decoding what it
- * already holds - it asks, and until the answer arrives the entry is simply absent. Absent is the
- * honest default: showing it optimistically would put a door in front of people who cannot open
- * it, and hiding it after the fact would make the menu flicker.
- *
- * Hiding the entry is not access control and is not pretending to be. Every administrative
- * endpoint asks the database the same question for itself.
  */
 
 export interface ProfileMenuProps {
@@ -57,7 +47,6 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
   }, [open]);
 
   const name = principal.principal?.displayName ?? 'Loading…';
-  const isAdministrator = principal.principal?.isTenantAdministrator ?? false;
 
   return (
     <div ref={containerRef} className="relative">
@@ -100,23 +89,6 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
             ) : null}
           </div>
 
-          {isAdministrator ? (
-            <Link
-              role="menuitem"
-              to="/settings/audit"
-              onClick={() => {
-                setOpen(false);
-              }}
-              className="flex items-center gap-2 px-3 py-2 text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon icon={ShieldCheck} size="sm" />
-              Admin · Audit
-            </Link>
-          ) : null}
-
-          {/* Appearance sits with the account rather than in a settings page: it belongs to the
-              person rather than to the workspace, and it is the kind of thing somebody changes on
-              impulse and wants immediately, not after a navigation. */}
           <ThemeChoice />
 
           <button
