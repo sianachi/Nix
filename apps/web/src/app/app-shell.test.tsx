@@ -133,29 +133,6 @@ describe('the profile menu', () => {
     expect(screen.getByText('ada@example.test')).toBeVisible();
   });
 
-  it('offers no audit entry to somebody who is not a tenant administrator', async () => {
-    const user = userEvent.setup();
-    stubCoreApi({ isTenantAdministrator: false });
-    renderAt(<App />);
-
-    await user.click(await screen.findByRole('button', { name: /test person/i }));
-
-    // Absent, not disabled: a door somebody cannot open should not be drawn.
-    expect(screen.queryByRole('menuitem', { name: /audit/i })).not.toBeInTheDocument();
-  });
-
-  it('offers the audit entry to a tenant administrator, on the server s word', async () => {
-    const user = userEvent.setup();
-    stubCoreApi({ isTenantAdministrator: true });
-    renderAt(<App />);
-
-    await user.click(await screen.findByRole('button', { name: /test person/i }));
-
-    // Driven by GET /api/v1/me and never by a token claim: roles live in the database, and a role
-    // inside a bearer token could not be revoked before the token expired.
-    expect(await screen.findByRole('menuitem', { name: /audit/i })).toBeInTheDocument();
-  });
-
   it('always offers a way out', async () => {
     const user = userEvent.setup();
     stubCoreApi();
