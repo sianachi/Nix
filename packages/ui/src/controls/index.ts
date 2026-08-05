@@ -28,3 +28,4 @@ export {
   type TableSortDirection,
 } from './Table';
 export { Tag, type TagProps, type TagTone } from './Tag';
+export { Tabs, type TabItem, type TabsOrientation, type TabsProps } from './Tabs';
