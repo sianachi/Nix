@@ -382,4 +382,56 @@ describe('the calendar view', () => {
     // runs ten hours west of UTC precisely so a date turned into a moment would land on the 26th.
     expect(create).toHaveBeenCalledWith('Retro', { due: '2026-03-27' });
   });
+
+  describe('the month grid at a narrow width', () => {
+    /**
+     * The month grid's own width floor: a real `<table>` with `table-layout: fixed`, which takes
+     * its column widths from the header row alone. Below, `MONTH_DAY_COLUMN` and
+     * `MONTH_GRID_MIN_WIDTH` in calendar-view.tsx.
+     *
+     * **What this cannot prove.** jsdom performs no layout - every element is zero by zero, nothing
+     * overflows anything, and there is no scrollbar to measure - so nothing here can show that
+     * seven 6.5rem columns actually push the table past a 375px viewport, or that `Blueprint`'s
+     * `overflow-x-auto` visibly takes over once they do. That is a claim about rendered layout,
+     * which belongs in a browser-based pass (Storybook + axe, U10), not a jsdom one; see
+     * `calendar-hours.test.tsx`'s own note on the same limit. What is checkable, and what this
+     * checks, is the class contract: the table's own floor and each column's floor are each spelled
+     * out as Tailwind classes, and those classes are either present on the right element or they
+     * are not.
+     */
+    it('gives the table a floor no viewport can squeeze it under', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      expect(screen.getByRole('table')).toHaveClass('min-w-[45.5rem]', 'table-fixed');
+    });
+
+    it('gives every weekday column its own floor width, so table-fixed cannot divide it away', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      for (const name of [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ]) {
+        expect(screen.getByRole('columnheader', { name })).toHaveClass('w-[6.5rem]');
+      }
+    });
+
+    it('scrolls the table through a region a keyboard can reach without a pointer', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      // `overflow-x-auto` is the class the whole fix actually depends on: without it, a table
+      // wider than its frame would simply overflow the page rather than scroll inside it - see
+      // calendar-view.tsx's own comment on why the width floor and the scroller are two different
+      // classes doing two different jobs.
+      const region = screen.getByRole('region', { name: /march 2026/i });
+      expect(region).toHaveClass('overflow-x-auto');
+      expect(region).toHaveAttribute('tabIndex', '0');
+      expect(screen.getByRole('table').closest('.overflow-x-auto')).toBe(region);
+    });
+  });
 });
