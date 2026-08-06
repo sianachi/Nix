@@ -414,8 +414,19 @@ function OpenItem({
 
         {/* One control rather than two, and the panel it opens configures this item and nothing
             else. Somebody who wants a board wants it for the item they are looking at, and sending
-            them to a settings page to say so loses their place. */}
-        <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
+            them to a settings page to say so loses their place.
+
+            `pr-8`, not `px-2`: this row and the view switcher beside it are one flex row, sandwiched
+            between the item header and the document body, both `px-8` on both sides - and every
+            other chrome row in this pane (the toolbar, the sync footer, the canvas editor's own
+            right-aligned row) is box-aligned to that same edge, not label-aligned to it. A `pr-6`
+            here once lined a ghost button's *label* up with the header's title, but the button's
+            own transparent border still paints a hover/focus wash at its real box edge - 20.4px
+            from the right rather than 27.2px - so whichever of these two controls happens to be
+            focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
+            box where every sibling row's box already is; the label sits a further `px-2` in from
+            there, which is the same relationship the switcher's own tabs have to their nav. */}
+        <div className="flex shrink-0 items-center gap-1 py-1.5 pl-2 pr-8">
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"

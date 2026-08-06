@@ -24,6 +24,8 @@ on:
       - '.prettierignore'
       - 'scripts/check-raw-design-values.sh'
       - 'scripts/check-raw-design-values.test.sh'
+      - 'scripts/check-spacing-roles.sh'
+      - 'scripts/check-spacing-roles.test.sh'
       - '.github/workflows/ci-frontend.yml'
   pull_request:
     paths:
@@ -39,6 +41,8 @@ on:
       - '.prettierignore'
       - 'scripts/check-raw-design-values.sh'
       - 'scripts/check-raw-design-values.test.sh'
+      - 'scripts/check-spacing-roles.sh'
+      - 'scripts/check-spacing-roles.test.sh'
       - '.github/workflows/ci-frontend.yml'
 
 concurrency:
@@ -124,6 +128,14 @@ jobs:
 
       - name: Design-token guard (no raw hex, length, tracking or inline style)
         run: ./scripts/check-raw-design-values.sh
+
+      # Catches what the design-token guard above structurally cannot: a real, valid spacing
+      # token chosen wrongly for a shape that has an established one elsewhere (U13).
+      - name: Spacing-role guard self-test
+        run: ./scripts/check-spacing-roles.test.sh
+
+      - name: Spacing-role guard (one structural role, one spacing step)
+        run: ./scripts/check-spacing-roles.sh
 
   frontend-unit:
     name: frontend unit

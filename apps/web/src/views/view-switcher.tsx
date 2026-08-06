@@ -47,7 +47,16 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
   }
 
   return (
-    <nav aria-label="Views" className="flex items-center gap-1 px-4 py-1.5">
+    // px-8, not px-4: this nav's own box sits in the same left-reading edge as the item header
+    // above it (`ItemHeader`, `px-8 pb-3 pt-4`) and the document body below it (`NoteEditor`,
+    // `px-8 py-6`) - the first tab's border, not its label, is what lines up at that edge, the
+    // label sitting a further px-2 in from the tab's own padding. At px-4 the row sat 13.6px inside
+    // where the title and the prose both start, which is exactly the "gap between a view's chrome
+    // and its content" the owner report named. True of the header and the document body only: a
+    // view's own content (board, gallery, list, calendar, timeline) carries no horizontal padding
+    // of its own at all, and this correction widens rather than closes that separate mismatch - see
+    // the rhythm specimen's own note on the point (`rhythm-specimen.tsx`).
+    <nav aria-label="Views" className="flex items-center gap-1 px-8 py-1.5">
       {documentLabel === undefined ? null : (
         <SwitcherTab
           icon={FileText}

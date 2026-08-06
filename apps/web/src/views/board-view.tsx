@@ -250,7 +250,12 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
       }}
       onDrop={onDrop}
       className={cn(
-        'flex w-80 shrink-0 flex-col gap-2 border border-divider p-2',
+        // p-3, not p-2: every other bordered `flex-col gap-2` panel in the views layer - the
+        // calendar's unscheduled tray, the timeline's off-axis lists and reschedule panel, the
+        // schema and view editors' draft rows - pads at p-3. A column was the one place this rhythm
+        // had drifted, and cards inside it sat visibly closer to the frame than the same shape does
+        // everywhere else it appears.
+        'flex w-80 shrink-0 flex-col gap-2 border border-divider p-3',
         dropTarget && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
     >
