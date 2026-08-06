@@ -82,7 +82,7 @@ describe('the sidebar drawer', () => {
     );
   });
 
-  it('orders the scrim behind the panel, both below the header\'s own popovers', () => {
+  it("orders the scrim behind the panel, both below the header's own popovers", () => {
     // The literal ladder this component is responsible for: the scrim (`z-0`) has to sit behind
     // its own panel (`z-10`), and both have to leave room below the profile menu's `z-20` and
     // search's `z-30` - see `app-shell.tsx`'s skip-link comment for the full ladder and why
