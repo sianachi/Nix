@@ -52,6 +52,23 @@ export interface CreateOutcome {
 }
 
 /**
+ * What a {@link WorkspaceTree.remove} or {@link WorkspaceTree.restore} came back with.
+ *
+ * `null` means it happened; anything else is why it did not. There is no success payload to carry
+ * alongside it the way {@link CreateOutcome} carries an id - the caller already knows which item it
+ * asked to remove or restore - so a single field says everything a caller needs to decide whether
+ * to trust what it was about to claim happened. Before this existed, both calls were fire-and-
+ * forget: the caller set state claiming success in the same breath as the request, with the
+ * request's own failure only reaching the tree's foot-of-sidebar error, never the caller that had
+ * already told somebody the opposite. `rename` and `move` do not follow this pattern yet - both
+ * still return `Promise<void>` - which is a real inconsistency, left alone here as a separate,
+ * later change rather than folded into this one.
+ */
+export interface MutationOutcome {
+  readonly refusal: string | null;
+}
+
+/**
  * Where a reveal got to.
  *
  * `revealing` while the ancestor walk is in flight; then one of the four things it can have found.
@@ -121,8 +138,8 @@ export interface WorkspaceTree {
   ) => Promise<CreateOutcome>;
   readonly rename: (itemId: string, title: string) => Promise<void>;
   readonly move: (itemId: string, parentId: string | null, afterId: string | null) => Promise<void>;
-  readonly remove: (itemId: string) => Promise<void>;
-  readonly restore: (itemId: string) => Promise<void>;
+  readonly remove: (itemId: string) => Promise<MutationOutcome>;
+  readonly restore: (itemId: string) => Promise<MutationOutcome>;
   readonly reload: () => Promise<void>;
 }
 
@@ -509,19 +526,25 @@ export function useWorkspaceTree(): WorkspaceTree {
   );
 
   const remove = useCallback(
-    async (itemId: string): Promise<void> => {
+    async (itemId: string): Promise<MutationOutcome> => {
       setIsSaving(true);
       try {
         const response = await request(`/api/v1/items/${itemId}`, { method: 'DELETE' });
 
         if (!response.ok) {
-          setError(`The item could not be deleted (${String(response.status)}).`);
-          return;
+          const refusal = `The item could not be deleted (${String(response.status)}).`;
+          // Kept alongside the return value, not instead of it: this still renders at the foot of
+          // the sidebar for anything that reaches this hook without reading the outcome, and the
+          // return value is what lets a caller that does read it - `app-shell.tsx`'s `requestDelete`
+          // - refuse to report a deletion that never happened.
+          setError(refusal);
+          return { refusal };
         }
 
         // Descendants stay in the store and simply stop being reachable, exactly as they do in
         // the database: deletion is a flag on one row, never a cascade.
         setItems((current) => current.filter((item) => item.id !== itemId));
+        return { refusal: null };
       } finally {
         setIsSaving(false);
       }
@@ -530,18 +553,20 @@ export function useWorkspaceTree(): WorkspaceTree {
   );
 
   const restore = useCallback(
-    async (itemId: string): Promise<void> => {
+    async (itemId: string): Promise<MutationOutcome> => {
       setIsSaving(true);
       try {
         const response = await request(`/api/v1/items/${itemId}/restore`, { method: 'POST' });
 
         if (!response.ok) {
-          setError(`The item could not be restored (${String(response.status)}).`);
-          return;
+          const refusal = `The item could not be restored (${String(response.status)}).`;
+          setError(refusal);
+          return { refusal };
         }
 
         const restored = toItem((await response.json()) as ItemPayload);
         setItems((current) => [...current.filter((item) => item.id !== itemId), restored]);
+        return { refusal: null };
       } finally {
         setIsSaving(false);
       }

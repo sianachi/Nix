@@ -56,6 +56,12 @@ export interface StubOptions {
   /** Makes every create fail, with this as the problem detail. */
   readonly createRefusal?: string;
 
+  /** Makes every delete fail, rather than the ordinary always-succeeds stub behavior. */
+  readonly removeFails?: boolean;
+
+  /** Makes every restore fail, rather than the ordinary always-succeeds stub behavior. */
+  readonly restoreFails?: boolean;
+
   /**
    * Views per item. Anything not listed offers none, which is what an item nobody has configured
    * reports and therefore what most tests want.
@@ -96,6 +102,8 @@ export function stubCoreApi(options: StubOptions = {}): void {
     treeFails = false,
     views = {},
     createRefusal,
+    removeFails = false,
+    restoreFails = false,
   } = options;
 
   // The items the stub knows about. Mutable, because a create has to be visible to the reads that
@@ -187,9 +195,25 @@ export function stubCoreApi(options: StubOptions = {}): void {
         );
       }
 
-      // A single item by id, which is what revealing a deep link walks up through.
+      // Undoing a delete. Answered from the same `known` list a delete never actually removes an
+      // item from - only the client's own state drops it, optimistically, the moment the request
+      // is sent - so restoring just hands the item back.
+      const restoreFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/restore$/.exec(url);
+      if (restoreFor !== null && method === 'POST') {
+        if (restoreFails) {
+          return Promise.resolve(json({ detail: 'The item could not be restored.' }, 500));
+        }
+        const found = known.find((candidate) => candidate.id === restoreFor[1]);
+        return Promise.resolve(found === undefined ? json({}, 404) : json(found));
+      }
+
+      // A single item by id, which is what revealing a deep link walks up through and what a
+      // delete or a plain read both address.
       const single = /\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(url);
       if (single !== null) {
+        if (method === 'DELETE' && removeFails) {
+          return Promise.resolve(json({ detail: 'The item could not be deleted.' }, 500));
+        }
         const found = known.find((candidate) => candidate.id === single[1]);
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
       }

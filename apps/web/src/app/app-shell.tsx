@@ -1,9 +1,9 @@
-import { Icon, focusRing } from '@nix/ui';
+import { Icon, Toast, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
 
-import { useWorkspaceTree } from '../items/use-workspace-tree';
+import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import { useAnnouncement } from './announcer';
 import { focusPane } from '../panes/pane-params';
@@ -61,6 +61,38 @@ import { useSidebar } from './use-sidebar';
  * rather than restructured from the shell; a view that genuinely wants its own vertical axis would
  * need a definite height first, and that is a decision for the view.
  */
+
+/**
+ * One shell-level toast: either a deletion still open for undo, or - once Undo has been tried and
+ * failed - a plain notice that it could not be undone. `key` is what `<Toast key>` mounts fresh per
+ * notice on (see the component's own doc on why a caller reaches for a fresh key rather than
+ * updating one in place), and is namespaced per kind so a failed-undo notice for an item never
+ * collides with a still-pending deletion of it.
+ */
+interface ShellToast {
+  readonly key: string;
+  readonly message: string;
+  readonly action?: { readonly label: string; readonly onAction: () => void };
+
+  /**
+   * Passed through to `<Toast autoFocus>`. Only ever `false` - there is no reason to spell out
+   * the default - for the failed-undo notice pushed by `undoDeletion` below: by the time it lands,
+   * Undo has already dismissed the toast that offered it and returned focus to the tree, and the
+   * reader has had that whole round trip to go do something else. Landing focus here anyway would
+   * reproduce, one step later, the exact bug already fixed for the primary deletion toast.
+   */
+  readonly autoFocus?: false;
+}
+
+// Capped at two rather than one. `tree.restore` has exactly one caller in the whole application -
+// this toast - and no trash view exists anywhere, so a single slot meant a second deletion silently
+// discarded the first's toast and made the first genuinely unrecoverable through the product (it is
+// still a soft delete in the database, which helps nobody without direct database access). Two
+// slots mean only a *third* deletion in a row now costs an earlier one its undo window - still a
+// bound, just a more forgiving one than one, and the one a real trash view would eventually make
+// unnecessary rather than the one it would need to replace outright.
+const MAX_SHELL_TOASTS = 2;
+
 export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
@@ -110,6 +142,98 @@ export function AppShell(): ReactNode {
   function closeDrawer(): void {
     sidebar.toggle();
     sidebarToggleRef.current?.focus();
+  }
+
+  // Where focus goes once a delete toast's undo window closes, by any path. The row that opened it
+  // is gone by then - deleted, which is why there is a toast at all - so there is no invoker to
+  // return focus to the way `<Dialog>` does; the tree's own scroll region, inside
+  // `<WorkspaceSidebar>`, is the nearest thing that is still guaranteed to be there. Owned here
+  // rather than by the sidebar because the toast that reads it is rendered here too - see the
+  // toast state below for why.
+  const treeRegionRef = useRef<HTMLDivElement>(null);
+
+  const [shellToasts, setShellToasts] = useState<readonly ShellToast[]>([]);
+
+  function pushShellToast(toast: ShellToast): void {
+    setShellToasts((current) => {
+      // Oldest evicted first: a toast that has already had its window on screen the longest is the
+      // one that most likely either got noticed or did not need to be, ahead of one that just
+      // arrived.
+      const next = [...current.filter((existing) => existing.key !== toast.key), toast];
+      return next.length > MAX_SHELL_TOASTS ? next.slice(next.length - MAX_SHELL_TOASTS) : next;
+    });
+  }
+
+  function dismissShellToast(key: string): void {
+    setShellToasts((current) => current.filter((toast) => toast.key !== key));
+  }
+
+  /**
+   * Deletes at once and reports it, rather than asking first: the interface used to gate this
+   * behind `globalThis.confirm()`, on the reasoning that deletion read as permanent with no way
+   * back. `tree.restore` already existed and had no caller - the honest fix was to give deletion
+   * an undo instead of a better-looking confirmation, which is what the toast below is for.
+   *
+   * **Awaits `tree.remove` before claiming anything happened.** A toast that appeared the instant
+   * the request was sent, rather than once it actually succeeded, would assert a past-tense fact
+   * ("Deleted") before it was one - and on a failure would go on asserting it while the item sat
+   * unchanged in the tree, its real error rendered at the sidebar's foot, underneath the toast that
+   * was lying about it. No toast at all is the honest response to a refusal; the foot-of-sidebar
+   * alert (`tree.error`, set by `tree.remove` itself) is what explains it.
+   *
+   * Lives here rather than on `<WorkspaceSidebar>` because the toast this shows is a shell-level
+   * overlay, not a sidebar-scoped one - see `shellToasts`' own comment for why that move mattered.
+   */
+  async function requestDelete(item: TreeItem): Promise<void> {
+    const title = item.title || 'Untitled';
+    const { refusal } = await tree.remove(item.id);
+    if (refusal !== null) {
+      return;
+    }
+
+    pushShellToast({
+      key: item.id,
+      message: item.hasChildren
+        ? `Deleted "${title}" and everything inside it.`
+        : `Deleted "${title}".`,
+      action: {
+        label: 'Undo',
+        onAction: () => {
+          void undoDeletion(item.id, title);
+        },
+      },
+    });
+  }
+
+  /**
+   * What Undo actually does, and what it says when it fails.
+   *
+   * `<Toast>` dismisses itself the instant its action is pressed, whatever that action does - so by
+   * the time `tree.restore` could possibly fail, the toast that offered Undo is already gone, and a
+   * reader who pressed it has every reason to believe it worked. Saying nothing further would be
+   * the same silent-failure shape `requestDelete` above exists to avoid, just one step later - so a
+   * restore failure pushes its own notice, in the item's own name, rather than leaving the item
+   * gone with only the tree's own foot-of-sidebar alert (`tree.error`) to explain it.
+   *
+   * `autoFocus: false` (see `ShellToast`'s own comment): the round trip to here - Undo pressed, the
+   * request sent, the response awaited - is time enough for the reader to have moved on to
+   * something else entirely, unlike the primary deletion toast this one follows, which mounts while
+   * the row it names is still what just happened. `role="status"` is left as it is rather than
+   * reached past for `role="alert"`, despite this being a genuine failure: `<Toast>` deliberately
+   * has no severity axis (see its own doc), and there is nothing time-critical about the message
+   * that would justify one - it is something to notice and possibly retry, not something that
+   * needs to interrupt whatever the reader is doing right now, and `status`'s `aria-live="polite"`
+   * still gets it announced regardless of not grabbing focus.
+   */
+  async function undoDeletion(itemId: string, title: string): Promise<void> {
+    const { refusal } = await tree.restore(itemId);
+    if (refusal !== null) {
+      pushShellToast({
+        key: `${itemId}-restore-failed`,
+        message: `"${title}" could not be restored.`,
+        autoFocus: false,
+      });
+    }
   }
 
   // A link naming an item the tree has not loaded - which is every link to anything nested, since
@@ -162,13 +286,27 @@ export function AppShell(): ReactNode {
           header rather than sitting in the layout.
 
           The full stacking ladder, lowest to highest: pane content and the drawer's own scrim
-          (`z-0`) < the drawer panel (`z-10`) < the profile menu (`z-20`) < the search overlay
-          (`z-30`) < this skip link (`z-50`). The drawer's own pair sit inside the pane row beside
-          `<main>`, not inside `<main>` itself, but `<main>` carries `isolate` (below) precisely so
-          nothing inside a pane - `sheet-grid.tsx`'s own `z-20`/`z-30`/`z-40` layers, or its drag
-          overlay - can climb into the root context and outrank the header's popovers the way the
-          drawer used to before it got its own numbers put in their place. `z-50` clears the
-          profile menu and the search overlay both, which come later in the DOM. */}
+          (`z-0`) < the drawer panel (`z-10`) < the profile menu (`z-20`) < the delete-undo toast
+          (`z-[25]`, below) < the search overlay (`z-30`, `aria-modal="true"`) < this skip link
+          (`z-50`). The drawer's own pair sit inside the pane row beside `<main>`, not inside
+          `<main>` itself, but `<main>` carries `isolate` (below) precisely so nothing inside a pane
+          - `sheet-grid.tsx`'s own `z-20`/`z-30`/`z-40` layers, or its drag overlay - can climb into
+          the root context and outrank the header's popovers the way the drawer used to before it
+          got its own numbers put in their place.
+
+          The toast sits *below* the search overlay rather than above it, which used to be
+          backwards: an earlier version of this comment argued the toast should outrank search
+          because its undo window is time-limited, but the overlay it would have outranked is
+          `role="dialog" aria-modal="true"` - telling assistive technology that everything outside
+          it, the toast included, is unavailable for as long as it is open. A toast that visually
+          sat on top of that while being declared unreachable by the platform's own modality
+          contract was the contradiction, not the ordering. The honest trade-off this ladder now
+          encodes: opening search while a toast is showing costs the toast's visibility for as long
+          as search stays open, exactly as it costs every other item behind the dialog - the timer
+          underneath keeps running regardless, so a long search session can still let the window
+          close unseen, which is the correct read of "unavailable while the dialog is open" rather
+          than a difference this ordering tries to paper over. `z-50` clears all of them, being the
+          one control that must never be covered. */}
       {/* One live region for the whole shell, mounted for the session. The things it reads -
           a pane opened, a pane closed, a control refusing - happen in components that come and go,
           and a region that unmounted with them would take the message with it. Polite, because it
@@ -262,6 +400,10 @@ export function AppShell(): ReactNode {
               onOpenPinned={closeDrawerAfter(openPinned)}
               canOpenBeside={canOpenBeside}
               besideRefusal={besideRefusal}
+              onDeleteItem={(item) => {
+                void requestDelete(item);
+              }}
+              treeRegionRef={treeRegionRef}
             />
           </SidebarDrawer>
         ) : (
@@ -279,6 +421,10 @@ export function AppShell(): ReactNode {
                 onOpenPinned={openPinned}
                 canOpenBeside={canOpenBeside}
                 besideRefusal={besideRefusal}
+                onDeleteItem={(item) => {
+                  void requestDelete(item);
+                }}
+                treeRegionRef={treeRegionRef}
               />
             </div>
 
@@ -333,6 +479,41 @@ export function AppShell(): ReactNode {
           setSearchOpen(false);
         }}
       />
+
+      {/* Shell-level rather than a child of `<WorkspaceSidebar>` (where this used to live): on a
+          narrow viewport that sidebar is itself a child of the off-canvas drawer, and closing the
+          drawer - the very next thing a phone user does after deleting something, to get back to
+          their document - would have unmounted this along with it and silently cut an eight-second
+          undo window down to whatever fraction of it had elapsed. Rendered as a sibling of the pane
+          row instead, so it survives both the drawer and whichever pane is open. Stacked oldest on
+          top, newest at the bottom, closest to wherever a hand already is right after a delete -
+          see `shellToasts`' own comment for the two-slot cap. `z-[25]`: see the skip link's own
+          comment for the full ladder and why this sits below the search overlay rather than above
+          it. */}
+      {shellToasts.length === 0 ? null : (
+        <div className="fixed inset-x-4 bottom-4 z-[25] mx-auto flex max-w-sm flex-col gap-2 sm:inset-x-auto sm:left-4 sm:right-auto">
+          {shellToasts.map((toast) => (
+            <Toast
+              key={toast.key}
+              message={toast.message}
+              // `exactOptionalPropertyTypes` treats an explicitly-`undefined` `action` prop as a
+              // different thing from an omitted one, so a plain `action={toast.action}` (typed
+              // `ToastAction | undefined`) does not satisfy `ToastProps.action?: ToastAction` -
+              // the spread leaves the key out entirely when there is nothing to undo.
+              {...(toast.action === undefined ? {} : { action: toast.action })}
+              // Same reasoning as `action` above, for the same `exactOptionalPropertyTypes`
+              // constraint: `toast.autoFocus` is only ever `false` or absent, so the key is left
+              // out entirely rather than passed as an explicit `undefined`, which lets `<Toast>`'s
+              // own default of `true` apply for every toast except the failed-undo notice.
+              {...(toast.autoFocus === false ? { autoFocus: false } : {})}
+              onDismiss={() => {
+                dismissShellToast(toast.key);
+              }}
+              returnFocusRef={treeRegionRef}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

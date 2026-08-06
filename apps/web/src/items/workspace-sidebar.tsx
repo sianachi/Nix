@@ -18,6 +18,7 @@ import {
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 
 import { announce } from '../app/announcer';
@@ -76,11 +77,39 @@ export interface WorkspaceSidebarProps {
 
   /** Why not, when it would not - so the control can say which of two reasons it is. */
   readonly besideRefusal: BesideRefusal | null;
+
+  /**
+   * Deletes an item. Owned by `app-shell.tsx` rather than by this component - see its own
+   * `requestDelete` for the full reasoning - because the undo toast it shows lives at shell level,
+   * not nested inside whatever is currently presenting this sidebar. On a phone that presenter is
+   * the off-canvas drawer (`sidebar-drawer.tsx`), and a toast nested inside it would unmount, undo
+   * window and all, the moment the drawer closes - which is the very next thing a phone user does
+   * after deleting something, to get back to their document.
+   */
+  readonly onDeleteItem: (item: TreeItem) => void;
+
+  /**
+   * Where focus should land once a delete toast's undo window closes, by any path. Supplied by
+   * `app-shell.tsx` - which owns the toast - rather than created here, so the shell can pass the
+   * same ref to `<Toast returnFocusRef>`. The row that opened a toast is gone by then - deleted,
+   * which is why there is a toast at all - so there is no invoker to return focus to the way
+   * `<Dialog>` does; this scroll region is the nearest thing that is still guaranteed to be there.
+   */
+  readonly treeRegionRef: RefObject<HTMLDivElement | null>;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
-  const { tree, selectedId, onSelect, onOpenBeside, onOpenPinned, canOpenBeside, besideRefusal } =
-    props;
+  const {
+    tree,
+    selectedId,
+    onSelect,
+    onOpenBeside,
+    onOpenPinned,
+    canOpenBeside,
+    besideRefusal,
+    onDeleteItem,
+    treeRegionRef,
+  } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -157,7 +186,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* `tabIndex={-1}`: not in the tab order on its own, but a legitimate script-focusable
+          landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
+          here rather than to the row it deleted, which is gone by the time that matters. */}
+      <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
         <TreeBody
           tree={tree}
           selectedId={selectedId}
@@ -168,11 +200,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           besideRefusal={besideRefusal}
           dragged={dragged}
           setDragged={setDragged}
+          onDeleteItem={onDeleteItem}
         />
       </div>
 
       {/* The error lives at the foot rather than replacing the tree: a failed rename must not take
-          away the items that loaded perfectly well. */}
+          away the items that loaded perfectly well. It is also where a failed delete surfaces -
+          `app-shell.tsx`'s `requestDelete` shows no toast at all when `tree.remove` refuses, so
+          this is the only report of it. */}
       {tree.error === null ? null : (
         <div role="alert" className="mx-2 mb-2 rounded-md bg-background px-3 py-2">
           <Text variant="caption" as="p" tone="muted">
@@ -311,6 +346,9 @@ interface TreeBodyProps {
   readonly besideRefusal: BesideRefusal | null;
   readonly dragged: string | null;
   readonly setDragged: (itemId: string | null) => void;
+
+  /** Deletes an item and starts its undo window. */
+  readonly onDeleteItem: (item: TreeItem) => void;
 }
 
 function TreeBody(props: TreeBodyProps): ReactNode {
@@ -466,6 +504,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     besideRefusal,
     dragged,
     setDragged,
+    onDeleteItem,
   } = props;
 
   const expanded = tree.isExpanded(item.id);
@@ -711,19 +750,12 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           type="button"
           aria-label={`Delete ${item.title}`}
           onClick={() => {
-            // Asked, because the control is revealed on hover and sits a few pixels from the one
-            // that opens the item. Deletion is reversible in the database, but nothing in the
-            // interface offers the way back yet, so from here it reads as permanent - and a
-            // confirmation is the honest thing until an undo exists.
-            const inside = tree.childrenOf(item.id).length;
-            const warning =
-              inside === 0
-                ? `Delete "${item.title || 'Untitled'}"?`
-                : `Delete "${item.title || 'Untitled'}" and the ${String(inside)} item${inside === 1 ? '' : 's'} inside it?`;
-
-            if (globalThis.confirm(warning)) {
-              void tree.remove(item.id);
-            }
+            // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast
+            // with Undo replaced the `globalThis.confirm()` this control used to sit behind. The
+            // control is revealed on hover and sits a few pixels from the one that opens the
+            // item, which is exactly the situation Undo (rather than a slower "are you sure") is
+            // meant to answer.
+            onDeleteItem(item);
           }}
           // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
           // takes an element out of the tab order, so this was keyboard-unreachable - and of the

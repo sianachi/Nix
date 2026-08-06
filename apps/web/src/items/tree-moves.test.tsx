@@ -81,6 +81,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
@@ -105,6 +107,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
@@ -128,6 +132,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
@@ -153,6 +159,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
@@ -174,6 +182,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
@@ -195,6 +205,8 @@ describe('moving an item from the keyboard', () => {
         onOpenPinned={() => undefined}
         besideRefusal={null}
         canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
       />,
     );
 
