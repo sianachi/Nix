@@ -585,13 +585,15 @@ function DayCell(props: DayCellProps): ReactNode {
         {/* Created already dated to this day - the same write a drop onto it makes. Revealed on
             hover and on focus, following the tree's delete control: forty-two always-visible
             buttons would be more plus signs than calendar, but one that only exists for a pointer
-            would be a way to add things that a keyboard does not have. */}
+            would be a way to add things that a keyboard does not have.
+            `opacity-0`/`pointer-events-none`, not `invisible` - see calendar-hours.tsx's hour-slot
+            and all-day controls for why `visibility: hidden` breaks the keyboard path entirely. */}
         <CreateItemControl
           compact
           label={`Add an item on ${name}`}
           properties={{ [card.dateProperty]: cell.date }}
           onCreate={card.onCreate}
-          className="invisible mt-auto self-start focus-within:visible focus-visible:visible group-hover/day:visible"
+          className="opacity-0 pointer-events-none mt-auto self-start focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/day:pointer-events-auto group-hover/day:opacity-100"
         />
       </div>
     </td>

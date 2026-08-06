@@ -1,7 +1,7 @@
-import { Text } from '@nix/ui';
+import { Text, cn, focusRing } from '@nix/ui';
 import type { ReactNode } from 'react';
 
-import { dayLabel, dayText, type CalendarDay } from './calendar-dates';
+import { dayLabel, dayText, weekLabel, type CalendarDay } from './calendar-dates';
 import { readPropertyText, type Item } from './container-model';
 import { CreateItemControl } from './create-item-control';
 import { formatTime, minutesFor, readTimestampValue, writeTimestampValue } from './timestamps';
@@ -46,6 +46,51 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
  */
 const ROW_HEIGHT = 44;
 
+/**
+ * One day column's floor width, shared by the header cell, the all-day band's cell and the hour
+ * grid's own column - the same "the gutter's width has to match the one below it" requirement the
+ * hour gutter already had, extended to every column rather than just the leftmost one.
+ *
+ * `min-w-0 flex-1` used to let seven columns divide up whatever width the viewport offered with no
+ * floor, which on a phone is around 47px each: too narrow for the event card below to show a title
+ * next to its time, and the column kept shrinking instead of the grid ever scrolling.
+ *
+ * 7rem (112px) is sized off what the card actually draws, not guessed: the event button sits
+ * `inset-x-1` inside the column (4px a side) and pads itself `px-1.5` (6px a side), which leaves
+ * about 92px of text at `text-xs` - comfortably one truncated title on its own line and a short time
+ * like "09:00" on the one below, the two lines the card usually renders (a cross-zone entry's time
+ * span carries its own `truncate` too, for the rarer third line a zone name can add). Below that a
+ * title stops being a title and starts being an ellipsis before the second word. `sm:min-w-[9rem]`
+ * widens it a touch once there is room, the way timeline-view.tsx's `LABEL_COLUMN` widens its own
+ * floor at the same breakpoint.
+ *
+ * `[contain:inline-size]` stops a different failure than the floor above: without it, a browser
+ * computing this row's max-content width (needed once the row has to overflow rather than shrink)
+ * looks *through* a `flex-1` column at its children's own natural width - so one long all-day title
+ * anywhere in the week inflates that column's contribution to hundreds of pixels, and flexbox's
+ * max-content algorithm then multiplies that single widest column's width across every other
+ * `flex-1` sibling, blowing the whole row out past 2000px. `contain: inline-size` tells the browser
+ * this element's own intrinsic size is whatever its explicit `min-width`/`flex-basis` says, full
+ * stop - it does not go looking at what is drawn inside. Verified in both week (7 columns) and day
+ * (1 column) mode: a long all-day title no longer moves the row's width at all.
+ */
+const DAY_COLUMN = 'min-w-[7rem] sm:min-w-[9rem] flex-1 [contain:inline-size]';
+
+/**
+ * The hour gutter's own footprint, in whichever of the three rows it appears: the header's blank
+ * spacer, the all-day band's "All day" label, and the hour column's row of clock times.
+ *
+ * `sticky left-0`, matching timeline-view.tsx's `LABEL_COLUMN` - once the grid scrolls horizontally
+ * to reach a later day, a reader still needs to see which hour a row is without scrolling back.
+ * `bg-surface` is load-bearing rather than decorative: without it, a day column's tinted event card
+ * would show straight through the gutter as it slides underneath a sticky element with no fill of
+ * its own. `border-r` is its own edge rather than a coincidence: without one, the gutter's right
+ * boundary only ever looked bordered because a day column's own `border-l` happened to line up
+ * behind it at a zero scroll offset - scroll even a pixel and the gutter has no edge of its own at
+ * all.
+ */
+const HOUR_GUTTER = 'sticky left-0 z-10 w-12 shrink-0 border-r border-divider bg-surface';
+
 export interface HourGridProps {
   /** The days across the top. One for a day view, seven for a week. */
   readonly days: readonly CalendarDay[];
@@ -87,59 +132,120 @@ export function HourGrid(props: HourGridProps): ReactNode {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex">
-        {/* The gutter's width has to match the one below it, or the columns and the hours drift
-            apart as the grid scrolls. */}
-        <span aria-hidden="true" className="w-12 shrink-0" />
+      {/*
+       * One scroll container for the whole grid, on both axes, rather than the header and the
+       * all-day band scrolling through an outer frame while the hour body scrolls through a nested
+       * one of its own. CSS ties `overflow-x` and `overflow-y` together the moment either leaves
+       * `visible`: an element given `overflow-y-auto` and no opinion on `overflow-x` does not let
+       * its horizontal content spill out to a wider ancestor's scrollbar - it silently computes its
+       * own `overflow-x` to `auto` and clips right there instead. Two scroll boundaries for content
+       * that has to move together as one grid would mean two scrollbars that can drift out of sync,
+       * with the day headers no longer lined up over the hours they name. So the header, the
+       * all-day band and the hour rows all live inside this single scroller, and staying in view
+       * while it scrolls is `sticky`'s job below rather than a second scroller's.
+       *
+       * `role="region"` plus a tab stop, matching timeline-view.tsx's own scrollable track: without
+       * one, this content is reachable only by dragging a scrollbar, which a keyboard user does not
+       * have.
+       */}
+      <div
+        role="region"
+        aria-label={regionLabel(days)}
+        // The rule cannot see that this element scrolls, and only its author can. Without a tab
+        // stop the grid is reachable by keyboard only by tabbing through the controls inside it, so
+        // somebody who wants to read a later day has to activate something to get there.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
+        tabIndex={0}
+        className={cn('min-h-0 flex-1 overflow-auto', focusRing)}
+      >
+        {/* The one element whose own box actually spans the true scroll-content width. `min-w-max`
+            asks it to be at least as wide as its content's max-content size - and that size is now
+            trustworthy because every `DAY_COLUMN` inside carries `[contain:inline-size]`, so a long
+            title cannot inflate it. The sticky header block and the hour body both have to sit
+            inside this same width owner: a `sticky` element's containing block is its nearest
+            scrolling ancestor, but its *edge* only reaches as far as this box actually extends, so
+            without a shared wide ancestor the header's background and the gutter's sticky
+            positioning would both stop at the scroller's own (narrower) viewport width instead of
+            the real scrolled extent. */}
+        <div className="min-w-max">
+          {/* Pinned to the top of the scroller as the hour rows scroll past beneath it - the same
+              frozen header a spreadsheet gives its column titles. Both rows sit inside one sticky
+              block, rather than each being sticky on its own, so nothing has to know the header's
+              rendered height to place the all-day band directly under it. */}
+          <div className="sticky top-0 z-20 bg-surface">
+            <div className="flex">
+              <span aria-hidden="true" className={HOUR_GUTTER} />
 
-        {days.map((day) => (
-          <div key={dayText(day)} className="min-w-0 flex-1 px-1 py-1 text-center">
-            <Text variant="caption" as="span" tone={dayText(day) === today ? 'accent' : 'muted'}>
-              {dayLabel(day)}
-            </Text>
-          </div>
-        ))}
-      </div>
+              {days.map((day) => (
+                <div key={dayText(day)} className={cn(DAY_COLUMN, 'px-1 py-1 text-center')}>
+                  <Text
+                    variant="caption"
+                    as="span"
+                    tone={dayText(day) === today ? 'accent' : 'muted'}
+                  >
+                    {dayLabel(day)}
+                  </Text>
+                </div>
+              ))}
+            </div>
 
-      <AllDayBand
-        days={days}
-        items={items}
-        dateProperty={dateProperty}
-        onOpen={onOpen}
-        onCreate={onCreate}
-      />
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex">
-          <div className="w-12 shrink-0">
-            {HOURS.map((hour) => (
-              <div
-                key={hour}
-                style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it // design-token-exempt: an hour's height is the grid's unit; the labels must share it exactly or the columns drift apart down the day
-                className="pr-1 text-right"
-              >
-                <Text variant="caption" as="span" tone="muted">
-                  {`${String(hour).padStart(2, '0')}:00`}
-                </Text>
-              </div>
-            ))}
-          </div>
-
-          {days.map((day) => (
-            <DayColumn
-              key={dayText(day)}
-              day={day}
-              placed={placeOn(day, items, dateProperty, zone)}
+            <AllDayBand
+              days={days}
+              items={items}
               dateProperty={dateProperty}
-              zone={zone}
               onOpen={onOpen}
               onCreate={onCreate}
             />
-          ))}
+          </div>
+
+          <div className="flex">
+            <div className={HOUR_GUTTER}>
+              {HOURS.map((hour) => (
+                <div
+                  key={hour}
+                  style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: an hour's height is the grid's unit; the labels must share it exactly or the columns drift apart down the day
+                  className="pr-1 text-right"
+                >
+                  <Text variant="caption" as="span" tone="muted">
+                    {`${String(hour).padStart(2, '0')}:00`}
+                  </Text>
+                </div>
+              ))}
+            </div>
+
+            {days.map((day) => (
+              <DayColumn
+                key={dayText(day)}
+                day={day}
+                placed={placeOn(day, items, dateProperty, zone)}
+                dateProperty={dateProperty}
+                zone={zone}
+                onOpen={onOpen}
+                onCreate={onCreate}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * How the scroll region names itself to a screen reader: the week it spans, or the single day, the
+ * same distinction `weekLabel`/`dayLabel` already draw for the heading above this grid.
+ *
+ * Falls back to a bare "Calendar" rather than throwing on an empty `days` - callers only ever pass
+ * one day or seven, but a prop typed as an array can still arrive empty, and a label is not worth a
+ * crash.
+ */
+function regionLabel(days: readonly CalendarDay[]): string {
+  const first = days[0];
+  if (first === undefined) {
+    return 'Calendar';
+  }
+
+  return days.length === 1 ? dayLabel(first) : weekLabel(first);
 }
 
 /**
@@ -195,7 +301,7 @@ function DayColumn(props: {
   return (
     <div
       aria-label={dayLabel(day)}
-      className="relative min-w-0 flex-1 border-l border-divider"
+      className={cn(DAY_COLUMN, 'relative border-l border-divider')}
       style={{ height: `${String(HOURS.length * ROW_HEIGHT)}px` }} // design-token-exempt: twenty-four hours of grid, computed from the row height rather than restated by hand
     >
       {HOURS.map((hour) => (
@@ -205,13 +311,17 @@ function DayColumn(props: {
           style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it
         >
           {/* One per hour, revealed on hover and on focus. Always in the tree, because a way to add
-              something that exists only for a pointer is not a way everybody has. */}
+              something that exists only for a pointer is not a way everybody has.
+              `opacity-0`/`pointer-events-none`, not `invisible`: `visibility: hidden` takes an
+              element out of the tab order entirely, so `focus-visible:visible` could never fire -
+              nothing could tab to the control in order to un-hide it. See the same pattern, with
+              the same reasoning, on workspace-sidebar.tsx's row-hover controls. */}
           <CreateItemControl
             compact
             label={`Add an item at ${String(hour).padStart(2, '0')}:00 on ${dayLabel(day)}`}
             properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
             onCreate={onCreate}
-            className="invisible focus-within:visible focus-visible:visible group-hover/slot:visible"
+            className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
           />
         </div>
       ))}
@@ -224,10 +334,10 @@ function DayColumn(props: {
             onOpen(entry.item.id);
           }}
           style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }} // design-token-exempt: where an item sits is its own time - 09:30 is half a row down - a position read off the data, computed at runtime, so not a token
-          className="absolute inset-x-1 flex flex-col items-start gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          className="absolute inset-x-1 flex flex-col gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
           <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
-          <span className="text-muted">{timeLabel(entry, zone)}</span>
+          <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
         </button>
       ))}
     </div>
@@ -275,7 +385,7 @@ function AllDayBand(props: {
 
   return (
     <div className="flex border-y border-divider">
-      <span aria-hidden="true" className="w-12 shrink-0 pr-1 text-right">
+      <span aria-hidden="true" className={cn(HOUR_GUTTER, 'pr-1 text-right')}>
         <Text variant="caption" as="span" tone="muted">
           All day
         </Text>
@@ -289,7 +399,7 @@ function AllDayBand(props: {
           <div
             key={wanted}
             aria-label={`All day on ${dayLabel(day)}`}
-            className="group/allday min-w-0 flex-1 border-l border-divider p-1"
+            className={cn(DAY_COLUMN, 'group/allday border-l border-divider p-1')}
           >
             {allDay.map((item) => (
               <button
@@ -304,12 +414,14 @@ function AllDayBand(props: {
               </button>
             ))}
 
+            {/* `opacity-0`/`pointer-events-none`, not `invisible` - see the hour cell's own
+                control above for why `visibility: hidden` breaks the keyboard path entirely. */}
             <CreateItemControl
               compact
               label={`Add an all-day item on ${dayLabel(day)}`}
               properties={{ [dateProperty]: wanted }}
               onCreate={onCreate}
-              className="invisible focus-within:visible focus-visible:visible group-hover/allday:visible"
+              className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/allday:pointer-events-auto group-hover/allday:opacity-100"
             />
           </div>
         );
