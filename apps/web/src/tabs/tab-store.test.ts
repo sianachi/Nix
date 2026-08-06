@@ -19,12 +19,20 @@ describe('previewing a document', () => {
 
   it('replaces the pane’s existing preview tab in place', () => {
     useTabStore.setState({
-      byPane: { 0: [{ itemId: 'a', pinned: true }, { itemId: 'b', pinned: false }] },
+      byPane: {
+        0: [
+          { itemId: 'a', pinned: true },
+          { itemId: 'b', pinned: false },
+        ],
+      },
     });
 
     useTabStore.getState().tabPreviewed(0, 'c');
 
-    expect(tabs(0)).toEqual([{ itemId: 'a', pinned: true }, { itemId: 'c', pinned: false }]);
+    expect(tabs(0)).toEqual([
+      { itemId: 'a', pinned: true },
+      { itemId: 'c', pinned: false },
+    ]);
   });
 
   it('does not demote a tab that is already pinned', () => {
@@ -47,12 +55,20 @@ describe('previewing a document', () => {
 describe('pinning a document', () => {
   it('promotes an already-open preview tab in place', () => {
     useTabStore.setState({
-      byPane: { 0: [{ itemId: 'a', pinned: true }, { itemId: 'b', pinned: false }] },
+      byPane: {
+        0: [
+          { itemId: 'a', pinned: true },
+          { itemId: 'b', pinned: false },
+        ],
+      },
     });
 
     useTabStore.getState().tabPinned(0, 'b');
 
-    expect(tabs(0)).toEqual([{ itemId: 'a', pinned: true }, { itemId: 'b', pinned: true }]);
+    expect(tabs(0)).toEqual([
+      { itemId: 'a', pinned: true },
+      { itemId: 'b', pinned: true },
+    ]);
   });
 
   it('inserts a pinned tab directly when the document was not already open', () => {
@@ -65,7 +81,12 @@ describe('pinning a document', () => {
 describe('closing a tab', () => {
   it('removes only that tab', () => {
     useTabStore.setState({
-      byPane: { 0: [{ itemId: 'a', pinned: true }, { itemId: 'b', pinned: false }] },
+      byPane: {
+        0: [
+          { itemId: 'a', pinned: true },
+          { itemId: 'b', pinned: false },
+        ],
+      },
     });
 
     useTabStore.getState().tabClosed(0, 'a');

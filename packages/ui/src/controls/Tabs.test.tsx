@@ -82,7 +82,13 @@ describe('Tabs', () => {
     const onClose = vi.fn();
 
     render(
-      <Tabs label="Open documents" items={OPEN} activeId="a" onActivate={onActivate} onClose={onClose} />,
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={onActivate}
+        onClose={onClose}
+      />,
     );
     await user.click(screen.getByRole('button', { name: 'Close Roadmap' }));
 
@@ -95,7 +101,15 @@ describe('Tabs', () => {
       { id: 'a', label: 'Meeting notes', pinned: true, closable: false },
     ];
 
-    render(<Tabs label="Open documents" items={items} activeId="a" onActivate={vi.fn()} onClose={vi.fn()} />);
+    render(
+      <Tabs
+        label="Open documents"
+        items={items}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
 
     expect(screen.queryByRole('button', { name: 'Close Meeting notes' })).not.toBeInTheDocument();
   });

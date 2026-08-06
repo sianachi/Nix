@@ -261,8 +261,7 @@ export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
             );
           } else if (event.key === 'Enter') {
             event.preventDefault();
-            if (commands[highlightedIndex])
-            {
+            if (commands[highlightedIndex]) {
               insert(commands[highlightedIndex]);
             }
           }

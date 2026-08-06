@@ -109,7 +109,9 @@ export function DocumentTabStrip({
           collapse control uses. */}
       <button
         type="button"
-        aria-label={orientation === 'vertical' ? 'Show tabs across the top' : 'Show tabs on the side'}
+        aria-label={
+          orientation === 'vertical' ? 'Show tabs across the top' : 'Show tabs on the side'
+        }
         onClick={orientationToggled}
         className={cn(
           'flex shrink-0 items-center justify-center p-1.5 text-muted hover:text-foreground',

@@ -108,7 +108,14 @@ describe('opening a document beside', () => {
   });
 
   it('focuses and pins an already-open backgrounded tab instead of opening a duplicate pane', () => {
-    useTabStore.setState({ byPane: { 0: [{ itemId: A, pinned: true }, { itemId: B, pinned: false }] } });
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: A, pinned: true },
+          { itemId: B, pinned: false },
+        ],
+      },
+    });
     const { result } = renderOpenItem(`item=${A}`);
 
     let openedPane: number | null = null;

@@ -93,8 +93,15 @@ const tabVariants = cva(
 );
 
 export function Tabs(props: TabsProps): ReactNode {
-  const { label, items, activeId, onActivate, onClose, orientation = 'horizontal', className } =
-    props;
+  const {
+    label,
+    items,
+    activeId,
+    onActivate,
+    onClose,
+    orientation = 'horizontal',
+    className,
+  } = props;
   const listRef = useRef<HTMLDivElement>(null);
 
   function focusTabAt(index: number): void {

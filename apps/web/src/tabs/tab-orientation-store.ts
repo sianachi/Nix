@@ -37,7 +37,10 @@ export function readTabOrientation(storage: Storage | undefined): TabsOrientatio
 }
 
 /** Writes the preference. Horizontal is the default, so it is the one spelling never stored. */
-export function storeTabOrientation(storage: Storage | undefined, orientation: TabsOrientation): void {
+export function storeTabOrientation(
+  storage: Storage | undefined,
+  orientation: TabsOrientation,
+): void {
   try {
     if (orientation === 'vertical') {
       storage?.setItem(STORAGE_KEY, 'vertical');

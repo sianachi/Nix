@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { readTabOrientation, storeTabOrientation, useTabOrientationStore } from './tab-orientation-store';
+import {
+  readTabOrientation,
+  storeTabOrientation,
+  useTabOrientationStore,
+} from './tab-orientation-store';
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
