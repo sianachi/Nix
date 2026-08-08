@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { type LucideIcon } from 'lucide-react';
 
 import { cn } from '../lib/cn';
@@ -27,6 +27,19 @@ import { Text } from '../primitives/Text';
  * A listbox that swallowed Escape would close the picker inside a dialog and leave the dialog open,
  * or worse, close both.
  */
+
+/**
+ * As much of a keyboard event as the key model reads.
+ *
+ * Structural rather than React's `KeyboardEvent`, because not every caller has one. The reference
+ * picker keeps focus in the editor - the query it filters on lives in the document, so a field of
+ * its own would swallow the typing - and hands this a DOM event off `editor.view.dom`. Both shapes
+ * satisfy it, and neither has to be converted.
+ */
+export interface ListboxKeyEvent {
+  readonly key: string;
+  preventDefault: () => void;
+}
 
 /** One choice. */
 export interface ListboxOption {
@@ -68,12 +81,12 @@ export interface ListboxController {
   readonly select: (index: number) => void;
 
   /**
-   * Arrow keys, Home, End and Enter, for the caller's input.
+   * Arrow keys, Home, End and Enter, for whatever holds the focus.
    *
    * Not Escape, and not Tab: see the note on the module. Every other key falls through untouched,
-   * so the field it is attached to still behaves like a field.
+   * so the thing it is attached to still behaves like itself.
    */
-  readonly onKeyDown: (event: KeyboardEvent) => void;
+  readonly onKeyDown: (event: ListboxKeyEvent) => void;
 }
 
 /**
@@ -102,7 +115,7 @@ export function useListbox(
     }
   }
 
-  function onKeyDown(event: KeyboardEvent): void {
+  function onKeyDown(event: ListboxKeyEvent): void {
     if (options.length === 0) {
       return;
     }

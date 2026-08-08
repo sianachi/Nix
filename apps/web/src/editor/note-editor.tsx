@@ -2,7 +2,7 @@ import { nixExtensions } from '@nix/editor-schema';
 import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Plugin } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
@@ -16,6 +16,9 @@ import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
+import { ReferenceMenu } from './reference-menu';
+import { ReferenceResolutionProvider } from './reference-resolution';
+import { ReferenceView } from './reference-view';
 import { SlashMenu } from './slash-menu';
 
 /**
@@ -178,6 +181,23 @@ const styledExtensions = nixExtensions.map((extension) => {
         );
 
         element.replaceChildren(chevron());
+      },
+    });
+  }
+
+  if (extension.name === 'reference') {
+    return extension.extend({
+      /**
+       * Drawn by React, because what it says depends on an answer from the server.
+       *
+       * The schema's own `renderHTML` puts the stored label on the page, which is right for the
+       * collaboration service and for an export - neither can ask anybody anything. In the editor
+       * it is only ever a stand-in: the title may have changed since the link was made, and the
+       * reader may not be entitled to it at all. Both are questions only a component that can
+       * fetch is able to answer, so the node gets a view rather than a class.
+       */
+      addNodeView() {
+        return ReactNodeViewRenderer(ReferenceView);
       },
     });
   }
@@ -453,35 +473,41 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   }, [awareness, doc]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between pr-8">
-        <EditorToolbar
-          editor={editor}
-          // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
-          // rather than imported by the toolbar, which has no business knowing the document is a
-          // CRDT.
-          onUndo={() => {
-            undo(editor.state);
-          }}
-          onRedo={() => {
-            redo(editor.state);
-          }}
-        />
-        <PresenceList awareness={awareness} />
+    // One resolver per open document. Every reference in the note asks it for its target, and it
+    // sends one request for all of them - which is the difference between opening a note with
+    // forty links and opening forty connections.
+    <ReferenceResolutionProvider>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between pr-8">
+          <EditorToolbar
+            editor={editor}
+            // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
+            // rather than imported by the toolbar, which has no business knowing the document is a
+            // CRDT.
+            onUndo={() => {
+              undo(editor.state);
+            }}
+            onRedo={() => {
+              redo(editor.state);
+            }}
+          />
+          <PresenceList awareness={awareness} />
+        </div>
+
+        {refusal === null ? null : (
+          <p role="alert" className="shrink-0 px-8 py-1.5 text-xs text-accent-text">
+            {refusal}
+          </p>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <SlashMenu editor={editor} />
+          <ReferenceMenu editor={editor} />
+          <EditorContent editor={editor} className="h-full" />
+        </div>
+
+        <SyncFooter state={syncState} />
       </div>
-
-      {refusal === null ? null : (
-        <p role="alert" className="shrink-0 px-8 py-1.5 text-xs text-accent-text">
-          {refusal}
-        </p>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-        <SlashMenu editor={editor} />
-        <EditorContent editor={editor} className="h-full" />
-      </div>
-
-      <SyncFooter state={syncState} />
-    </div>
+    </ReferenceResolutionProvider>
   );
 }
