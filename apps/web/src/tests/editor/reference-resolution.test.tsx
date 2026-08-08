@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '../../auth/auth-provider';
@@ -56,7 +56,14 @@ function stubReferences(
 
   vi.stubGlobal(
     'fetch',
-    vi.fn((input: RequestInfo | URL) => {
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      // A real fetch refuses an already-aborted signal before anything reaches the wire. A stub
+      // that ignored the signal would hide exactly the class of bug the StrictMode test below
+      // exists to catch - which is how it shipped.
+      if (init?.signal?.aborted === true) {
+        return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+      }
+
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       calls.push(url);
 
@@ -210,6 +217,34 @@ describe('resolving what a document points at', () => {
     for (const id of many) {
       expect(screen.getByTestId(id)).toHaveTextContent('refused');
     }
+  });
+
+  it('still resolves after StrictMode has probed the provider with an extra mount cycle', async () => {
+    // The app mounts under StrictMode, whose development-only probe unmounts and remounts every
+    // component once. The provider held one AbortController for the life of the component
+    // instance, the probe's unmount aborted it, and a controller aborted once is aborted forever:
+    // every flush after the remount was cancelled before it reached the wire and returned through
+    // the cancellation branch. No request, no warning - and every reference in every document
+    // stayed on `loading`, which draws the stored label and nothing clickable. This is the test
+    // that fails without a controller per mount; the suite's default render has no probe, which
+    // is how the bug shipped past every other test here.
+    const { calls } = stubReferences(coreAnswer);
+
+    render(
+      <StrictMode>
+        <AuthProvider>
+          <ReferenceResolutionProvider>
+            <Probe targetId={READABLE} />
+          </ReferenceResolutionProvider>
+        </AuthProvider>
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId(READABLE)).toHaveTextContent('resolved:Quarterly ledger');
+    });
+
+    expect(calls.length).toBeGreaterThan(0);
   });
 
   it('leaves a reference unresolved outside a provider rather than failing the document', async () => {

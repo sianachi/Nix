@@ -97,13 +97,21 @@ export function ReferenceResolutionProvider({
   const flushScheduled = useRef(false);
   const live = useRef(true);
 
-  // One controller for the provider's lifetime. Closing a document with two hundred references
-  // in flight otherwise leaves the browser holding the connection and parsing a response nobody
-  // will read; CLAUDE.md asks that every request be cancellable and this was the one that was not.
+  // One controller per *mount*, so closing a document with two hundred references in flight
+  // cancels them rather than leaving the browser parsing responses nobody will read.
   const abort = useRef(new AbortController());
 
   useEffect(() => {
-    const controller = abort.current;
+    // Replaced on every mount, not created once with the instance. The instance's controller
+    // was aborted by StrictMode's probe unmount, and a controller aborted once is aborted
+    // forever - so after the remount every flush this provider ever ran started with a dead
+    // signal, was cancelled before it reached the wire, and returned through the cancellation
+    // branch below. No request, no warning, and every reference in every document stayed
+    // `loading` - which draws the stored label and, deliberately, nothing clickable - for as
+    // long as the note was open. The probe is development-only, but the pattern was wrong for
+    // any remount.
+    const controller = new AbortController();
+    abort.current = controller;
     live.current = true;
 
     return () => {
@@ -131,6 +139,11 @@ export function ReferenceResolutionProvider({
   }, []);
 
   const flush = useCallback(async (): Promise<void> => {
+    // The controller as of this flush's start. Teardown aborts exactly this one, so the catch
+    // below can tell "cancelled on purpose" from "failed" - which reading the ref at catch time
+    // cannot, because a remount has already swapped a fresh controller in by then.
+    const controller = abort.current;
+
     const ids = [...pending.current].slice(0, BATCH_LIMIT);
     for (const id of ids) {
       pending.current.delete(id);
@@ -155,7 +168,7 @@ export function ReferenceResolutionProvider({
       const response = await fetch(
         `/api/v1/search/references?ids=${ids.map((id) => encodeURIComponent(id)).join(',')}`,
         {
-          signal: abort.current.signal,
+          signal: controller.signal,
           headers: token === null ? {} : { authorization: `Bearer ${token}` },
         },
       );
@@ -187,7 +200,7 @@ export function ReferenceResolutionProvider({
         return next;
       });
     } catch (cause) {
-      if (abort.current.signal.aborted || !live.current) {
+      if (controller.signal.aborted || !live.current) {
         return;
       }
 
