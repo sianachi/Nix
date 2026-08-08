@@ -129,6 +129,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the per-item searchable text. Derived from the log and rebuildable from it.</summary>
     public DbSet<ItemSearchEntry> ItemSearchEntries => Set<ItemSearchEntry>();
 
+    /// <summary>Gets every principal's personal canvas library.</summary>
+    public DbSet<CanvasLibrary> CanvasLibraries => Set<CanvasLibrary>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -202,5 +205,6 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ContentSnapshotConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLinkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
+        modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
     }
 }

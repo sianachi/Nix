@@ -161,6 +161,12 @@ internal static class M0SchemaSeed
             -- and a self-edge proves that as well as any other pair would.
             INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
             VALUES ({tenant}, {item}, {item}, 1, 1);
+
+            -- One library per principal, and the seeded principal gets theirs. Present so the
+            -- isolation theories have a row to see and a row to try to relabel; the contents are
+            -- opaque to Core, so an empty array says as much as anything else would.
+            INSERT INTO canvas_library (principal_id, tenant_id, library_items, updated_at)
+            VALUES ({principal}, {tenant}, '[]'::jsonb, now());
             """;
     }
 

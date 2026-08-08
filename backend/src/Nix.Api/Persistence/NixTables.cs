@@ -74,6 +74,9 @@ public static class NixTables
     /// <summary>The searchable text of each item's document. Derived, rebuildable.</summary>
     public const string ItemSearch = "item_search";
 
+    /// <summary>A principal's personal set of reusable Excalidraw shapes.</summary>
+    public const string CanvasLibrary = "canvas_library";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -97,6 +100,7 @@ public static class NixTables
         ContentSnapshot,
         ItemLink,
         ItemSearch,
+        CanvasLibrary,
     ];
 
     /// <summary>
@@ -164,6 +168,10 @@ public static class NixTables
             // was derived and never derives it.
             [ItemLink] = ReadOnly,
             [ItemSearch] = ReadOnly,
+
+            // A principal's own library, read and written by Core alone - nothing else ever
+            // touches it.
+            [CanvasLibrary] = FullDml,
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }
