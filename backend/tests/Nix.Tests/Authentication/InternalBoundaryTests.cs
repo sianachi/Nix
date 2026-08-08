@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Authentication;
+using Nix.Tests.Harness;
 
 namespace Nix.Tests.Authentication;
 
@@ -126,20 +127,34 @@ public sealed class InternalBoundaryTests
 /// The internal surface stays out of the published contract and off the unauthenticated host,
 /// proven through the real application rather than through the middleware in isolation.
 /// </summary>
-public sealed class InternalSurfaceContractTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class InternalSurfaceContractTests(ContractHostFactory factory)
+    : IClassFixture<ContractHostFactory>
 {
+    /// <summary>
+    /// The internal surface is absent from the contract clients are generated from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from <c>backend/openapi/nix-api.json</c> rather than from the <c>/openapi/v1.json</c>
+    /// route. That file is the contract of record - it is what <c>packages/api-client</c> generates
+    /// from, and the route's own comment in <c>Program</c> says it exists for local exploration
+    /// only. The route is also mapped exclusively in the Development environment, so asserting
+    /// against it made this test require the host to be running as a developer's machine.
+    /// </para>
+    /// <para>
+    /// Nothing is given up by the change: the backend build regenerates the committed document and
+    /// CI fails on <c>git diff --exit-code -- backend/openapi</c>, so the file and the endpoint
+    /// cannot disagree.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task The_internal_surface_is_absent_from_the_openapi_document()
     {
-        var cancellationToken = TestContext.Current.CancellationToken;
-        using var client = factory.CreateClient();
+        var contract = PublishedContract.Path();
 
-        var document = await client.GetStringAsync(
-            new Uri("/openapi/v1.json", UriKind.Relative),
-            cancellationToken);
+        var document = await File.ReadAllTextAsync(contract, TestContext.Current.CancellationToken);
         var paths = JsonNode.Parse(document)?["paths"]?.AsObject()
-            ?? throw new InvalidOperationException("The OpenAPI document has no paths object.");
+            ?? throw new InvalidOperationException($"The OpenAPI document at {contract} has no paths object.");
 
         Assert.DoesNotContain(paths, path => path.Key.StartsWith("/internal", StringComparison.OrdinalIgnoreCase));
     }

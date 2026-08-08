@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Domain.Views;
 using Nix.Features.Views;
+using Nix.Tests.Harness;
 
 namespace Nix.Tests.Features.Contracts;
 
@@ -28,8 +29,8 @@ namespace Nix.Tests.Features.Contracts;
 /// visible, and it needs neither a database nor the OpenAPI route.
 /// </para>
 /// </remarks>
-public sealed class PublishedViewKindDescriptionTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class PublishedViewKindDescriptionTests(ContractHostFactory factory)
+    : IClassFixture<ContractHostFactory>
 {
     [Fact]
     public void The_published_description_names_every_view_kind_this_build_defines()

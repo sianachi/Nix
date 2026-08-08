@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Nix.Tests.Harness;
 
 namespace Nix.Tests.Errors;
 
@@ -8,8 +9,8 @@ namespace Nix.Tests.Errors;
 /// The error contract, pinned. The frontend switches on <c>code</c>, so a change to
 /// any assertion here is a breaking API change, not a test that needs updating.
 /// </summary>
-public sealed class ProblemDetailsContractTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ProblemDetailsContractTests(ContractHostFactory factory)
+    : IClassFixture<ContractHostFactory>
 {
     [Fact]
     public async Task Endpoint_failure_answers_RFC_9457_problem_details_with_a_stable_code()

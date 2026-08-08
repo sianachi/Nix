@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Nix.Tests.Harness;
 using Nix.Tests.Support;
 
 namespace Nix.Tests.Features.Health;
@@ -13,8 +14,8 @@ namespace Nix.Tests.Features.Health;
 /// routing, the source-generated serializer, and the wire format are all under test
 /// rather than the delegates in isolation.
 /// </summary>
-public sealed class HealthEndpointsTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class HealthEndpointsTests(ContractHostFactory factory)
+    : IClassFixture<ContractHostFactory>
 {
     [Fact]
     public async Task Liveness_probe_answers_200_with_a_healthy_status()

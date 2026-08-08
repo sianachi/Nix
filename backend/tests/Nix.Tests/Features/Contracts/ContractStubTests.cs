@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Nix.Tests.Harness;
 
 namespace Nix.Tests.Features.Contracts;
 
@@ -29,8 +30,8 @@ namespace Nix.Tests.Features.Contracts;
 /// a misconfiguration. What remains is workspaces, permissions and roles.
 /// </para>
 /// </remarks>
-public sealed class ContractStubTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ContractStubTests(ContractHostFactory factory)
+    : IClassFixture<ContractHostFactory>
 {
     private const string ItemId = "8f7c3a10-0000-4000-8000-000000000001";
     private const string WorkspaceId = "8f7c3a10-0000-4000-8000-000000000002";
