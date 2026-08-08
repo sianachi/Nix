@@ -9,6 +9,7 @@ import { createCanvasBinding, type CanvasElement } from './canvas-binding';
 import { startCollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
+import { useCanvasLibrary } from './use-canvas-library';
 
 // Excalidraw ships its own stylesheet for the drawing chrome it renders. Importing a
 // third-party component's own styles is the same boundary as TipTap rendering prose
@@ -36,12 +37,17 @@ export interface CanvasEditorProps {
 /** The slice of Excalidraw's imperative API this editor needs. */
 interface SceneApi {
   updateScene(scene: { elements: readonly CanvasElement[] }): void;
+  updateLibrary(options: {
+    libraryItems: readonly unknown[];
+    merge?: boolean;
+  }): Promise<readonly unknown[]>;
 }
 
 export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+  const library = useCanvasLibrary();
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -89,6 +95,17 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
     };
   }, [awareness, doc]);
 
+  // Pushed imperatively rather than through Excalidraw's `initialData`, because the library loads
+  // asynchronously from Core and may resolve well after Excalidraw has already mounted with an
+  // empty one - the same reason the scene above is seeded through `updateScene` rather than
+  // `initialData.elements`. `merge: false` because this hook already holds the caller's complete
+  // library; asking Excalidraw to merge would duplicate items it already has.
+  useEffect(() => {
+    if (library.status === 'ready') {
+      void apiRef.current?.updateLibrary({ libraryItems: library.items, merge: false });
+    }
+  }, [library.status, library.items]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-end px-8 py-1.5">
@@ -108,6 +125,13 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
           }}
           onChange={(elements) => {
             bindingRef.current?.applyLocal(elements);
+          }}
+          // The caller's own shapes, not the scene's - carried into every canvas they open, in
+          // every workspace, which is why this is backed by a per-user hook rather than anything
+          // read out of the shared Yjs document. Seeding happens imperatively above, through
+          // `updateLibrary`; this only reports what the caller changed.
+          onLibraryChange={(nextItems) => {
+            library.save(nextItems);
           }}
         />
       </div>
