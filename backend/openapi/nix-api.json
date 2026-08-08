@@ -70,6 +70,68 @@
         }
       }
     },
+    "/api/v1/me/canvas-library": {
+      "get": {
+        "tags": [
+          "Canvas"
+        ],
+        "summary": "The caller's own canvas library",
+        "description": "Returns the caller's personal set of reusable Excalidraw shapes, the same shape Excalidraw itself stores locally - empty for a caller who has never saved one. Available to them on every canvas they open, in every workspace.",
+        "operationId": "GetCanvasLibrary",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasLibraryResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Canvas"
+        ],
+        "summary": "Replace the caller's own canvas library",
+        "description": "Replaces the caller's library wholesale with what Excalidraw's onLibraryChange reports, which is always the library's complete contents rather than a delta. Fails with 'canvas_library.too_large' when the library exceeds the stored bound.",
+        "operationId": "SaveCanvasLibrary",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCanvasLibraryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasLibraryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health/status": {
       "get": {
         "tags": [
@@ -1545,6 +1607,17 @@
           }
         }
       },
+      "CanvasLibraryResponse": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "$ref": "#/components/schemas/JsonArray"
+          }
+        }
+      },
       "ContainerViewsResponse": {
         "required": [
           "views",
@@ -1834,6 +1907,9 @@
           }
         }
       },
+      "JsonArray": {
+        "type": "array"
+      },
       "JsonObject": {
         "type": "object",
         "additionalProperties": { }
@@ -2051,6 +2127,17 @@
           "grantedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "SaveCanvasLibraryRequest": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "$ref": "#/components/schemas/JsonArray"
           }
         }
       },
@@ -2433,6 +2520,9 @@
     },
     {
       "name": "Me"
+    },
+    {
+      "name": "Canvas"
     },
     {
       "name": "Workspaces"
