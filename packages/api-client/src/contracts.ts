@@ -28,3 +28,6 @@ export type PropertyDefinitionContract = components['schemas']['PropertyDefiniti
 
 /** The signed-in caller, as `GET /api/v1/me` returns it. */
 export type CurrentPrincipalContract = components['schemas']['CurrentPrincipalResponse'];
+
+/** The caller's own canvas library, as `GET /api/v1/me/canvas-library` returns it. */
+export type CanvasLibraryContract = components['schemas']['CanvasLibraryResponse'];

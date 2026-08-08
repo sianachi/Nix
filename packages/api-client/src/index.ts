@@ -93,6 +93,7 @@ export type { CursorPage, Item, KnownItemType, ProblemDetails } from './schemas/
  * `pnpm --filter @nix/api-client generate` and is not an editable surface.
  */
 export type {
+  CanvasLibraryContract,
   ContainerViewsContract,
   CurrentPrincipalContract,
   EffectiveSchemaContract,
@@ -105,3 +106,4 @@ export type {
  * to the client, so nothing above this package ever sees a URL.
  */
 export * as items from './resources/items.js';
+export * as canvasLibrary from './resources/canvas-library.js';

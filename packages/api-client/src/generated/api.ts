@@ -44,6 +44,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/canvas-library': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The caller's own canvas library
+     * @description Returns the caller's personal set of reusable Excalidraw shapes, the same shape Excalidraw itself stores locally - empty for a caller who has never saved one. Available to them on every canvas they open, in every workspace.
+     */
+    get: operations['GetCanvasLibrary'];
+    /**
+     * Replace the caller's own canvas library
+     * @description Replaces the caller's library wholesale with what Excalidraw's onLibraryChange reports, which is always the library's complete contents rather than a delta. Fails with 'canvas_library.too_large' when the library exceeds the stored bound.
+     */
+    put: operations['SaveCanvasLibrary'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/health/status': {
     parameters: {
       query?: never;
@@ -474,6 +498,9 @@ export interface components {
       limit: number | string;
       truncated: boolean;
     };
+    CanvasLibraryResponse: {
+      items: components['schemas']['JsonArray'];
+    };
     ContainerViewsResponse: {
       views: components['schemas']['ViewResponse'][];
       unrenderable: string[];
@@ -543,6 +570,7 @@ export interface components {
       /** Format: date-time */
       updatedAt: string;
     };
+    JsonArray: unknown[];
     JsonObject: {
       [key: string]: unknown;
     };
@@ -598,6 +626,9 @@ export interface components {
       role: string;
       /** Format: date-time */
       grantedAt: string;
+    };
+    SaveCanvasLibraryRequest: {
+      items: components['schemas']['JsonArray'];
     };
     SearchHitResponse: {
       /** Format: uuid */
@@ -739,6 +770,59 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetCanvasLibrary: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CanvasLibraryResponse'];
+        };
+      };
+    };
+  };
+  SaveCanvasLibrary: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SaveCanvasLibraryRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CanvasLibraryResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

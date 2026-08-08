@@ -23,6 +23,7 @@ export {
   type Item,
   type KnownItemType,
 } from './item.js';
+export { canvasLibrarySchema, type CanvasLibrary } from './canvas-library.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport
