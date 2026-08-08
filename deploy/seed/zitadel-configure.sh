@@ -131,35 +131,63 @@ else
 fi
 
 # ── OIDC application (SPA, PKCE, no secret) ─────────────────────────────────
-client_id="$(api POST "/management/v1/projects/$project_id/apps/_search" \
-  "$(jq -nc '{queries:[]}')" \
-  | jq -r --arg n "$app_name" \
-      'first(.result[]? | select(.name == $n) | .oidcConfig.clientId) // empty')"
+# Both dev redirect URIs are registered: the login callback, and the hidden
+# iframe target that automatic silent renewal navigates to with prompt=none.
+# Tokens are held in memory only (apps/web/src/auth/oidc-config.ts), so every
+# page reload depends on a silent renew - and Zitadel answers an authorize
+# request naming an unregistered redirect_uri with a hard 400, which turns a
+# missing entry here into a session that cannot survive a reload.
+redirect_uris="$(jq -nc \
+  --arg callback "$web_origin/auth/callback" \
+  --arg silent "$web_origin/auth/silent-renew" \
+  '[$callback, $silent]')"
 
-if [ -n "$client_id" ]; then
+# devMode allows the plain-http localhost redirects the dev server uses.
+# Access tokens are JWTs so the API can validate them against JWKS, and role
+# assertion is off on purpose: roles live in the database, never in a token.
+oidc_config="$(jq -nc \
+  --argjson redirects "$redirect_uris" \
+  --arg logout "$web_origin" \
+  '{
+    redirectUris: $redirects,
+    postLogoutRedirectUris: [$logout],
+    responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
+    grantTypes: ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"],
+    appType: "OIDC_APP_TYPE_USER_AGENT",
+    authMethodType: "OIDC_AUTH_METHOD_TYPE_NONE",
+    devMode: true,
+    accessTokenType: "OIDC_TOKEN_TYPE_JWT",
+    accessTokenRoleAssertion: false,
+    idTokenRoleAssertion: false,
+    idTokenUserinfoAssertion: true
+  }')"
+
+app_json="$(api POST "/management/v1/projects/$project_id/apps/_search" \
+  "$(jq -nc '{queries:[]}')" \
+  | jq -c --arg n "$app_name" 'first(.result[]? | select(.name == $n)) // empty')"
+
+if [ -n "$app_json" ]; then
+  client_id="$(jq -r '.oidcConfig.clientId' <<<"$app_json")"
+  app_id="$(jq -r '.id' <<<"$app_json")"
   echo "zitadel-configure: application '$app_name' already present"
+
+  # Re-assert the OIDC configuration when a URI this script now registers is
+  # missing, so an application created by an older run converges - the same
+  # reason the developer password below is re-asserted. Guarded rather than
+  # unconditional, because Zitadel answers an update that changes nothing with
+  # an error, not a no-op.
+  missing="$(jq -r --argjson want "$redirect_uris" \
+    '(.oidcConfig.redirectUris // []) as $have | $want - $have | length' <<<"$app_json")"
+  if [ "$missing" != "0" ]; then
+    api PUT "/management/v1/projects/$project_id/apps/$app_id/oidc_config" \
+      "$oidc_config" >/dev/null
+    echo "zitadel-configure: re-asserted the redirect URIs (silent-renew was missing)"
+  fi
 else
   app_payload="$(jq -nc \
     --arg name "$app_name" \
-    --arg redirect "$web_origin/auth/callback" \
-    --arg logout "$web_origin" \
-    '{
-      name: $name,
-      redirectUris: [$redirect],
-      postLogoutRedirectUris: [$logout],
-      responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
-      grantTypes: ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE", "OIDC_GRANT_TYPE_REFRESH_TOKEN"],
-      appType: "OIDC_APP_TYPE_USER_AGENT",
-      authMethodType: "OIDC_AUTH_METHOD_TYPE_NONE",
-      devMode: true,
-      accessTokenType: "OIDC_TOKEN_TYPE_JWT",
-      accessTokenRoleAssertion: false,
-      idTokenRoleAssertion: false,
-      idTokenUserinfoAssertion: true
-    }')"
-  # devMode allows the plain-http localhost redirect the dev server uses.
-  # Access tokens are JWTs so the API can validate them against JWKS, and role
-  # assertion is off on purpose: roles live in the database, never in a token.
+    --argjson config "$oidc_config" \
+    '{name: $name} + $config')"
   client_id="$(api POST "/management/v1/projects/$project_id/apps/oidc" \
     "$app_payload" | jq -r '.clientId')"
   echo "zitadel-configure: created application '$app_name' (client $client_id)"
@@ -209,9 +237,11 @@ NIX_OIDC_POST_LOGOUT_REDIRECT_URI=$web_origin
 NIX_DEV_USERNAME=$dev_username
 NIX_DEV_PASSWORD=$dev_password
 # The issuer's subject claim for the developer user. seed.sh maps the Acme
-# administrator principal onto it, because Core resolves a token's `sub` against
-# `principal.external_subject` and refuses a subject nobody provisioned - a token
-# alone must never mint an identity.
+# administrator principal onto it, because Core resolves a token's subject claim
+# against principal.external_subject and refuses a subject nobody provisioned -
+# a token alone must never mint an identity.
+# (No backticks in this comment: the heredoc is unquoted so the shell can
+# interpolate the values above, which makes a backtick a command substitution.)
 NIX_DEV_USER_ID=$user_id
 EOF
 
