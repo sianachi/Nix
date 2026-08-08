@@ -9,7 +9,8 @@ import { useAnnouncement } from './announcer';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
-import { SearchOverlay } from '../search/search-overlay';
+import { CommandPalette } from '../search/command-palette';
+import { builtInCommands } from '../search/commands';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from './layout';
@@ -470,11 +471,18 @@ export function AppShell(): ReactNode {
         </main>
       </div>
 
-      <SearchOverlay
+      <CommandPalette
         open={searchOpen}
-        items={tree.items}
-        loaded={tree.status === 'ready'}
-        onSelect={select}
+        commands={builtInCommands({
+          // Built here rather than inside the palette, because the shell is what holds each of
+          // these. A palette that reached for them itself would be a second owner of the sidebar's
+          // state and a second caller of the tree's create.
+          createItem: () => {
+            void tree.create(selectedId, 'Untitled');
+          },
+          toggleSidebar: sidebar.toggle,
+        })}
+        onSelectItem={select}
         onClose={() => {
           setSearchOpen(false);
         }}

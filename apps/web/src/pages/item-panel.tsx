@@ -2,6 +2,7 @@ import { Icon, Segmented, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
+import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
 import type { ItemProperties } from '../properties/use-item-properties';
 import type { ContainerData } from '../views/use-container';
@@ -9,7 +10,8 @@ import { SchemaEditor } from '../views/schema-editor';
 import { ViewEditor } from '../views/view-editor';
 
 /**
- * One panel, three panes: what this item *is*, what its children may carry, and how they are shown.
+ * One panel, four panes: what this item *is*, what its children may carry, how they are shown, and
+ * what elsewhere points at it.
  *
  * **The rename is the point.** Two surfaces were called Properties - the values on this item, and
  * the schema it gives its children - and they are different questions with the same answer only by
@@ -20,12 +22,16 @@ import { ViewEditor } from '../views/view-editor';
  * reopening it to continue.
  */
 
-export type Pane = 'details' | 'fields' | 'views';
+export type Pane = 'details' | 'fields' | 'views' | 'links';
 
 const PANES = [
   { value: 'details', label: 'Details' },
   { value: 'fields', label: 'Fields' },
   { value: 'views', label: 'Views' },
+  // Last, and not first: what points *at* this item is a question people ask after the ones about
+  // what it is. It sits here rather than in a surface of its own because it is another way of
+  // configuring nothing and reading something, which is what this panel already is.
+  { value: 'links', label: 'Links' },
 ] as const;
 
 export interface ItemPanelProps {
@@ -72,6 +78,8 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
         {pane === 'details' ? (
           <DetailsPane container={container} details={details} />
+        ) : pane === 'links' ? (
+          <BacklinksPane itemId={details.item?.id ?? null} />
         ) : pane === 'fields' ? (
           // Both editors render inline now rather than as modals. `open` stays in their contract
           // because it is what re-seeds their draft, and a pane that is not showing is closed as

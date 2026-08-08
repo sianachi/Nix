@@ -463,7 +463,7 @@ describe('the workspace tree, as a drawer on a narrow screen', () => {
 
   it('closes search on Escape without closing the drawer around it', async () => {
     // Same bug, same fix, for the third document-level Escape handler reachable from behind the
-    // drawer: search (`search-overlay.tsx`) opens from the header's own control, which also stays
+    // drawer: search (`command-palette.tsx`) opens from the header's own control, which also stays
     // interactive while the drawer is open.
     const user = userEvent.setup();
     stubViewport(false);

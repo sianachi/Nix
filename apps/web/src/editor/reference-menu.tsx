@@ -256,7 +256,7 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
         // The innermost open layer wins and stops the event, so Escape here does not also close
-        // the pane behind it. See `search-overlay.tsx` for the full convention.
+        // the pane behind it. See `command-palette.tsx` for the full convention.
         event.preventDefault();
         event.stopPropagation();
         setDismissed(dismissAt);

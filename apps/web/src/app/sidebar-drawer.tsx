@@ -45,7 +45,7 @@ export function SidebarDrawer({ onClose, children }: SidebarDrawerProps): ReactN
     // On `window`, not `document`. `document` sits between a keydown's target and `window` on
     // every event's path, so anything nested inside this drawer that needs "my own Escape wins"
     // stops propagation at `document` - see `CreateMenu` (`workspace-sidebar.tsx`), `ProfileMenu`
-    // and `SearchOverlay` for that half of the convention - and never reaches a listener out here
+    // and `CommandPalette` for that half of the convention - and never reaches a listener out here
     // at all. That ordering is fixed by where each listener sits in the DOM's own propagation
     // path, not by which of them happened to attach first: two listeners on the very same node run
     // in attachment order regardless of `stopPropagation`, which is why the drawer listens further

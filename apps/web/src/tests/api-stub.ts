@@ -53,6 +53,20 @@ export interface StubOptions {
   /** Makes the tree request fail. */
   readonly treeFails?: boolean;
 
+  /** Makes every search fail, for tests about what the palette says then. */
+  readonly searchFails?: boolean;
+
+  /** Makes every backlinks read fail. */
+  readonly backlinksFail?: boolean;
+
+  /**
+   * Which items link to which, keyed by the target.
+   *
+   * Stated rather than derived from document contents: this stub knows nothing about documents,
+   * and the edges are extracted from them by the collaboration service in the real system.
+   */
+  readonly backlinks?: Readonly<Record<string, readonly string[]>>;
+
   /** Makes every create fail, with this as the problem detail. */
   readonly createRefusal?: string;
 
@@ -100,6 +114,9 @@ export function stubCoreApi(options: StubOptions = {}): void {
     items = [],
     profileFails = false,
     treeFails = false,
+    searchFails = false,
+    backlinksFail = false,
+    backlinks = {},
     views = {},
     createRefusal,
     removeFails = false,
@@ -110,6 +127,21 @@ export function stubCoreApi(options: StubOptions = {}): void {
   // follow it - a stub whose POST returns an item that the next GET has never heard of tests the
   // opposite of what a creation test means to.
   const known = [...items];
+
+  /** The four fields every item listing projects, as Core returns them. */
+  function digest(item: StubItem): {
+    id: string;
+    workspaceId: string;
+    type: string;
+    title: string | null;
+  } {
+    return {
+      id: item.id,
+      workspaceId: item.workspaceId,
+      type: item.type,
+      title: item.title.length === 0 ? null : item.title,
+    };
+  }
 
   // What has been written back. Seeded from the options so a test can start with an item already
   // configured, and updated by every PUT so the read that follows one agrees with it.
@@ -246,6 +278,60 @@ export function stubCoreApi(options: StubOptions = {}): void {
 
         known.push(created);
         return Promise.resolve(json(created, 201));
+      }
+
+      // Search, reference resolution and backlinks all read the same seeded items, so a test that
+      // stubs a workspace gets a working palette and a working picker without saying anything more.
+      // Ordered before the tree route below because a backlinks url contains "/items" too.
+      const backlinksFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/backlinks/.exec(url);
+      if (backlinksFor !== null) {
+        const target = backlinksFor[1] ?? '';
+        const sources = (backlinks[target] ?? []).flatMap((sourceId) => {
+          const source = known.find((candidate) => candidate.id === sourceId);
+          return source === undefined ? [] : [{ source: digest(source), occurrences: 1 }];
+        });
+
+        return Promise.resolve(
+          backlinksFail
+            ? json({ detail: 'The backlinks could not be read.' }, 500)
+            : json({ backlinks: sources, limit: 25, truncated: false }),
+        );
+      }
+
+      if (url.includes('/api/v1/search/references')) {
+        const ids = (/ids=([^&]*)/.exec(url)?.[1] ?? '')
+          .split(',')
+          .filter((id) => id.length > 0)
+          .map((id) => decodeURIComponent(id));
+
+        return Promise.resolve(
+          json({
+            references: ids.map((id) => {
+              // Absent from the seeded workspace stands in for every reason the server refuses to
+              // distinguish: deleted, never existed, and not visible to this caller.
+              const item = known.find((candidate) => candidate.id === id);
+              return item === undefined
+                ? { id, readable: false, item: null }
+                : { id, readable: true, item: digest(item) };
+            }),
+          }),
+        );
+      }
+
+      if (url.includes('/api/v1/search')) {
+        if (searchFails) {
+          return Promise.resolve(json({ detail: 'The search could not be run.' }, 500));
+        }
+
+        const needle = decodeURIComponent(/q=([^&]*)/.exec(url)?.[1] ?? '').toLowerCase();
+        const results =
+          needle.length === 0
+            ? []
+            : known
+                .filter((candidate) => candidate.title.toLowerCase().includes(needle))
+                .map(digest);
+
+        return Promise.resolve(json({ query: needle, results, limit: 20, truncated: false }));
       }
 
       if (url.includes('/items')) {

@@ -119,21 +119,47 @@ describe('the shell', () => {
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
     await user.click(screen.getByRole('button', { name: /^search/i }));
-    await user.type(screen.getByRole('textbox', { name: /search items/i }), 'acquisition');
+    await user.type(screen.getByRole('combobox', { name: /search items/i }), 'acquisition');
 
+    // Awaited rather than read straight away: the search is debounced and answered by the server,
+    // so a synchronous assertion here would be asserting on the empty list that precedes it.
     const dialog = screen.getByRole('dialog', { name: /search/i });
-    expect(within(dialog).getByText('Acquisition memo')).toBeVisible();
+    const result = await within(dialog).findByRole('option', { name: /Acquisition memo/ });
+
+    // And it opens: the palette closes and the note is what the pane now shows.
+    await user.click(result);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
+    });
   });
 
-  it('says what search can and cannot reach rather than implying it searches everything', async () => {
+  it('says a search failed rather than reporting an empty workspace', async () => {
+    // The caveat this replaces - "matches titles of the notes loaded" - described a limitation
+    // that no longer exists: the palette asks the server, which searches titles and document text
+    // across every workspace the caller may read. What still has to be said out loud is the
+    // failure, because a palette that reports nothing found when the request never succeeded sends
+    // somebody off to recreate a document they already have.
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE], searchFails: true });
+    renderAt(<App />);
+
+    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.type(screen.getByRole('combobox', { name: /search items/i }), 'acquisition');
+
+    expect(await screen.findByText(/could not be run/i)).toBeVisible();
+  });
+
+  it('offers commands beside the items it found', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
     await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.type(screen.getByRole('combobox', { name: /search items/i }), 'note');
 
-    // The honest scope, said out loud: it matches loaded titles, and full-text search is later.
-    expect(screen.getByText(/matches titles of the notes loaded/i)).toBeVisible();
+    // One list, ordered commands then items, so a single run of arrow keys walks the whole answer.
+    expect(await screen.findByRole('option', { name: /New note/ })).toBeVisible();
   });
 });
 
