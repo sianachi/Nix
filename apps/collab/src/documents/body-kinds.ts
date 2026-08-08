@@ -16,6 +16,7 @@ import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import type * as Y from 'yjs';
 
 import { LIMITS } from './limits.ts';
+import { extractItemLinks } from './links.ts';
 
 /** What one measurement of a merged document says about it. */
 export interface Measurement {
@@ -83,6 +84,22 @@ export interface BodyKindStrategy {
    * column; the plaintext feeds search.
    */
   materialize(state: Y.Doc): { json: unknown; plaintext: string };
+
+  /**
+   * Which other items this body refers to, and how many times each.
+   *
+   * Takes what {@link materialize} already produced rather than the `Y.Doc`, because the caller
+   * has it and re-deriving a typed document to walk it would parse the whole thing twice on a
+   * path that runs on every snapshot.
+   *
+   * Optional, like {@link explain}, and for the same kind of reason: a body kind that cannot hold
+   * a reference has nothing to say here, and an implementation returning an empty map on every
+   * call is a worse answer than not claiming to answer. Only prose can hold a reference today.
+   * A canvas will, when cards referencing items arrive, and its edges come out of scene elements
+   * rather than out of document nodes - which is exactly why this is a member of the strategy and
+   * not a function the caller applies to every body kind alike.
+   */
+  extractLinks?(json: unknown, sourceItemId: string): ReadonlyMap<string, number>;
 }
 
 /**
@@ -134,6 +151,10 @@ export const noteStrategy: BodyKindStrategy = {
       // of a topic is a link to it was unfindable by that topic.
       plaintext: document === null ? '' : document.textBetween(0, document.content.size, '\n'),
     };
+  },
+
+  extractLinks(json: unknown, sourceItemId: string): ReadonlyMap<string, number> {
+    return extractItemLinks(json, sourceItemId);
   },
 };
 

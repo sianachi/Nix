@@ -49,6 +49,7 @@ export const TENANTS: { readonly alpha: TestTenant; readonly beta: TestTenant } 
     workspaceId: 'c1000000-0000-4000-8000-000000000011',
     principalId: 'c1000000-0000-4000-8000-000000000021',
     itemId: 'c1000000-0000-4000-8000-000000000031',
+    targetItemId: 'c1000000-0000-4000-8000-000000000051',
     docId: 'c1000000-0000-4000-8000-000000000041',
     slug: 'collab-alpha',
   },
@@ -57,6 +58,7 @@ export const TENANTS: { readonly alpha: TestTenant; readonly beta: TestTenant } 
     workspaceId: 'c2000000-0000-4000-8000-000000000012',
     principalId: 'c2000000-0000-4000-8000-000000000022',
     itemId: 'c2000000-0000-4000-8000-000000000032',
+    targetItemId: 'c2000000-0000-4000-8000-000000000052',
     docId: 'c2000000-0000-4000-8000-000000000042',
     slug: 'collab-beta',
   },
@@ -74,6 +76,10 @@ export interface TestTenant {
   readonly workspaceId: string;
   readonly principalId: string;
   readonly itemId: string;
+
+  /** A second item in the same workspace, for a document to point at. */
+  readonly targetItemId: string;
+
   readonly docId: string;
   readonly slug: string;
 }
@@ -119,21 +125,33 @@ export async function seedTenants(): Promise<void> {
         [tenant.principalId, tenant.tenantId, `${tenant.slug}-subject`, `${tenant.slug} user`],
       );
 
-      await admin.query(
-        `INSERT INTO item
-             (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
-              purge_after, created_by, last_modified_by, created_at, last_modified_at)
-         VALUES ($1, $2, $3, 'note', NULL, 1000, NULL, 'active', NULL, $4, $4, now(), now())
-         ON CONFLICT (id) DO NOTHING`,
-        [tenant.itemId, tenant.tenantId, tenant.workspaceId, tenant.principalId],
-      );
+      // Two items: the one documents are opened on, and one for a document to point at.
+      for (const [itemId, title] of [
+        [tenant.itemId, `${tenant.slug} note`],
+        [tenant.targetItemId, `${tenant.slug} target`],
+      ] as const) {
+        await admin.query(
+          `INSERT INTO item
+               (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                purge_after, created_by, last_modified_by, created_at, last_modified_at)
+           VALUES ($1, $2, $3, 'note', NULL, 1000, $5::jsonb, 'active', NULL, $4, $4, now(), now())
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            itemId,
+            tenant.tenantId,
+            tenant.workspaceId,
+            tenant.principalId,
+            JSON.stringify({ title }),
+          ],
+        );
 
-      await admin.query(
-        `INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
-         VALUES ($1, $1, $2, $3, 0)
-         ON CONFLICT DO NOTHING`,
-        [tenant.itemId, tenant.tenantId, tenant.workspaceId],
-      );
+        await admin.query(
+          `INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+           VALUES ($1, $1, $2, $3, 0)
+           ON CONFLICT DO NOTHING`,
+          [itemId, tenant.tenantId, tenant.workspaceId],
+        );
+      }
     }
   } finally {
     await admin.end();
@@ -145,10 +163,15 @@ export async function clearContent(): Promise<void> {
   const admin = adminPool();
 
   try {
+    const tenants = [TENANTS.alpha.tenantId, TENANTS.beta.tenantId];
+
     // Cascades to updates and snapshots through their composite foreign keys.
-    await admin.query('DELETE FROM content_doc WHERE tenant_id = ANY($1)', [
-      [TENANTS.alpha.tenantId, TENANTS.beta.tenantId],
-    ]);
+    await admin.query('DELETE FROM content_doc WHERE tenant_id = ANY($1)', [tenants]);
+
+    // Not reached by that cascade: both hang off `item`, which the suite does not delete,
+    // because the items are seeded once and shared by every test.
+    await admin.query('DELETE FROM item_link WHERE tenant_id = ANY($1)', [tenants]);
+    await admin.query('DELETE FROM item_search WHERE tenant_id = ANY($1)', [tenants]);
   } finally {
     await admin.end();
   }

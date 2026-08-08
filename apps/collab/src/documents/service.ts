@@ -5,14 +5,17 @@ import {
   appendUpdate,
   createDoc,
   findDocByItem,
+  replaceItemLinks,
   snapshotAtOrBefore,
   updatesAfter,
+  writeItemSearchText,
   writeSnapshot,
   type ContentDocRow,
 } from '../db/documents.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
 import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, type Rejection, rejection } from './limits.ts';
+import { boundSearchText } from './links.ts';
 
 export { FRAGMENT_NAME } from './body-kinds.ts';
 
@@ -199,6 +202,7 @@ export async function applyUpdate(
   const snapshotWritten = await maybeSnapshot(sql, {
     tenantId: input.tenantId,
     docId: input.doc.doc_id,
+    itemId: input.doc.item_id,
     seq,
     state,
     snapshotEvery: input.snapshotEvery,
@@ -289,6 +293,7 @@ async function maybeSnapshot(
   input: {
     tenantId: string;
     docId: string;
+    itemId: string;
     seq: bigint;
     state: Y.Doc;
     snapshotEvery: number;
@@ -303,17 +308,29 @@ async function maybeSnapshot(
 }
 
 /**
- * Materialises and writes a snapshot at a sequence, cadence already decided.
+ * Materialises and writes a snapshot at a sequence, cadence already decided, along with the two
+ * things derived from the same materialisation: the item's outgoing link edges and its searchable
+ * text.
  *
  * Exported for the resident-document path, whose cadence is richer than "every N": it also
  * snapshots on a activity timer and on eviction, and those decisions live with the session
  * rather than being restated here.
+ *
+ * **All three writes share the caller's transaction, deliberately.** A snapshot whose edges did
+ * not land would leave the backlinks panel describing a document that no longer says what it
+ * claims - and unlike the snapshot itself, nothing downstream re-derives an edge on read. Landing
+ * together or not at all is what makes "derived, and rebuildable" true rather than aspirational.
+ *
+ * **Extraction is bounded by the same ceiling the snapshot is.** A document too large to store is
+ * returned from before any of this, so the walk never runs on a document the service already
+ * declined to materialise.
  */
 export async function writeSnapshotNow(
   sql: ScopedQuery,
   input: {
     tenantId: string;
     docId: string;
+    itemId: string;
     seq: bigint;
     state: Y.Doc;
     strategy?: BodyKindStrategy;
@@ -327,10 +344,12 @@ export async function writeSnapshotNow(
     return false;
   }
 
+  const strategy = input.strategy ?? noteStrategy;
+
   // The materialised column is named for prose - it predates body kinds - but it holds
   // whatever the body kind materialises: a ProseMirror document for a note, a scene for a
   // canvas. Renaming it is a migration this deliberately does not require.
-  const materialized = (input.strategy ?? noteStrategy).materialize(input.state);
+  const materialized = strategy.materialize(input.state);
 
   await writeSnapshot(sql, {
     tenantId: input.tenantId,
@@ -340,6 +359,25 @@ export async function writeSnapshotNow(
     prosemirrorJson: materialized.json,
     plaintext: materialized.plaintext,
   });
+
+  await writeItemSearchText(sql, {
+    tenantId: input.tenantId,
+    itemId: input.itemId,
+    seq: input.seq,
+    text: boundSearchText(materialized.plaintext),
+  });
+
+  // A body kind that cannot hold a reference does not implement extraction, and a document that
+  // held links and no longer does still needs its edges cleared - so the empty map is written,
+  // not skipped. Only a kind that can never produce an edge at all is passed over entirely.
+  if (strategy.extractLinks !== undefined) {
+    await replaceItemLinks(sql, {
+      tenantId: input.tenantId,
+      sourceItemId: input.itemId,
+      seq: input.seq,
+      links: strategy.extractLinks(materialized.json, input.itemId),
+    });
+  }
 
   return true;
 }

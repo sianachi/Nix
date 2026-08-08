@@ -4,6 +4,7 @@ using Nix.Domain.Authorization;
 using Nix.Domain.Content;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
+using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
 using Nix.Persistence.Configurations;
 using Nix.Persistence.Conversion;
@@ -115,6 +116,19 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the materialised snapshots. Derived from the log and rebuildable from it.</summary>
     public DbSet<ContentSnapshot> ContentSnapshots => Set<ContentSnapshot>();
 
+    /// <summary>
+    /// Gets the item-to-item reference edges backlinks are read from.
+    /// </summary>
+    /// <remarks>
+    /// Mapped so the model owns the schema, and never queried through here: the backlinks read is
+    /// a hand-written statement in <c>LinksSql</c>, because it filters on what the acting principal
+    /// may see and that filtering belongs inside the query rather than after it.
+    /// </remarks>
+    public DbSet<ItemLink> ItemLinks => Set<ItemLink>();
+
+    /// <summary>Gets the per-item searchable text. Derived from the log and rebuildable from it.</summary>
+    public DbSet<ItemSearchEntry> ItemSearchEntries => Set<ItemSearchEntry>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -186,5 +200,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ContentDocConfiguration());
         modelBuilder.ApplyConfiguration(new ContentUpdateConfiguration());
         modelBuilder.ApplyConfiguration(new ContentSnapshotConfiguration());
+        modelBuilder.ApplyConfiguration(new ItemLinkConfiguration());
+        modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
     }
 }

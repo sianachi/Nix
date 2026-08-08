@@ -148,6 +148,19 @@ internal static class M0SchemaSeed
             INSERT INTO content_snapshot
                 (doc_id, seq, tenant_id, yjs_state, prosemirror_json, plaintext, created_at)
             VALUES ({contentDoc}, 1, {tenant}, '\\x0102'::bytea, NULL, '{slug} note body', now());
+
+            INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_vector)
+            VALUES ({tenant}, {item}, 1, now(), to_tsvector('english', '{slug} note body'));
+
+            -- A self-edge, which extraction never produces: a document linking to itself is
+            -- dropped precisely so it cannot appear in its own backlinks panel. It is used here
+            -- because the seed holds exactly one item per tenant and every isolation theory in
+            -- this suite asserts a count of one against each table - seeding a second item to
+            -- make this edge realistic would change what ten other test classes see. What is
+            -- being proved here is that the row carries a tenant and the policy honours it,
+            -- and a self-edge proves that as well as any other pair would.
+            INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
+            VALUES ({tenant}, {item}, {item}, 1, 1);
             """;
     }
 

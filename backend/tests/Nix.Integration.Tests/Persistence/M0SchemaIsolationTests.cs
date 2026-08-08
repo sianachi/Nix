@@ -282,7 +282,20 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {
-            foreach (var table in new[] { NixTables.ContentDoc, NixTables.ContentUpdate, NixTables.ContentSnapshot })
+            var split = new[]
+            {
+                NixTables.ContentDoc,
+                NixTables.ContentUpdate,
+                NixTables.ContentSnapshot,
+
+                // The same split, one step further along: an edge and a search vector are read out
+                // of a materialised document, and materialising one needs the CRDT runtime only
+                // the collaboration service has.
+                NixTables.ItemLink,
+                NixTables.ItemSearch,
+            };
+
+            foreach (var table in split)
             {
                 var application = await RawSql.TextListAsync(
                     connection,
@@ -305,6 +318,44 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                 Assert.Equal(["SELECT"], application);
                 Assert.Equal(["DELETE", "INSERT", "SELECT", "UPDATE"], collaboration);
             }
+        }
+    }
+
+    [Fact]
+    public async Task The_collaboration_role_can_test_an_item_s_existence_and_read_nothing_else_about_it()
+    {
+        // The links migration grants this role SELECT on item, which looks like a hole in the
+        // split until you read which columns. It needs one question answered - "is this reference
+        // pointing at an item that exists?" - because without it a stale link fails a foreign key
+        // and takes a document's whole snapshot down with it.
+        //
+        // Granted column by column, the answer to that question is all it can get. A title, a
+        // body, a parent and a workspace stay unreadable, which matters because the service holds
+        // documents for every tenant on one process and has no business reading items at all.
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var readable = await RawSql.TextListAsync(
+                connection,
+                $"""
+                SELECT column_name FROM information_schema.column_privileges
+                WHERE table_schema = 'public' AND table_name = '{NixTables.Item}'
+                  AND grantee = '{NixDatabaseRoles.Collaboration}' AND privilege_type = 'SELECT'
+                ORDER BY column_name
+                """);
+
+            Assert.Equal(["id", NixTables.TenantIdColumn], readable);
+
+            // And the table-level grant stays absent, or the column grants would be decoration.
+            var wholeTable = await RawSql.TextListAsync(
+                connection,
+                $"""
+                SELECT privilege_type FROM information_schema.table_privileges
+                WHERE table_schema = 'public' AND table_name = '{NixTables.Item}'
+                  AND grantee = '{NixDatabaseRoles.Collaboration}'
+                """);
+
+            Assert.Empty(wholeTable);
         }
     }
 

@@ -263,3 +263,89 @@ export async function writeSnapshot(
     ],
   );
 }
+
+/**
+ * Replaces an item's outgoing link edges with the ones just extracted.
+ *
+ * Two statements rather than a delete-then-insert, so an item whose links did not change is not
+ * churned: the upsert carries every current edge forward at the new sequence, and the delete then
+ * removes exactly the rows the new extraction did not touch, identified by their older sequence.
+ *
+ * **A target that does not exist is silently dropped, and that is the point.** `targetId` comes
+ * out of a document, which means it comes from a browser: a reference can point at an item that
+ * was deleted, or that never existed. Left to the foreign key, one such reference would abort the
+ * transaction and take the snapshot with it - a document that stops saving because of a stale
+ * link. The `EXISTS` filter is what keeps that a missing backlink instead. It is the only reason
+ * this role holds `SELECT (tenant_id, id)` on `item`, and it reads nothing else.
+ *
+ * **Ordering.** Two processes holding the same document resident can snapshot concurrently.
+ * `seq` decides: an older extraction never overwrites a newer one's counts. It can briefly
+ * reinstate an edge a newer extraction had removed, because the guard is per row rather than per
+ * document - the next snapshot deletes it again, which is the correct amount of effort to spend
+ * on derived data that costs a panel row and nothing else.
+ */
+export async function replaceItemLinks(
+  sql: ScopedQuery,
+  input: {
+    tenantId: string;
+    sourceItemId: string;
+    seq: bigint;
+    links: ReadonlyMap<string, number>;
+  },
+): Promise<void> {
+  const seq = input.seq.toString();
+
+  if (input.links.size > 0) {
+    await sql.query(
+      `INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
+       SELECT $1, $2, edge.target_id, edge.occurrences, $3
+         FROM unnest($4::uuid[], $5::int[]) AS edge(target_id, occurrences)
+        WHERE EXISTS (SELECT 1 FROM item WHERE item.tenant_id = $1 AND item.id = edge.target_id)
+       ON CONFLICT (tenant_id, source_item_id, target_item_id) DO UPDATE
+          SET occurrences = EXCLUDED.occurrences, seq = EXCLUDED.seq
+        WHERE item_link.seq < EXCLUDED.seq`,
+      [
+        input.tenantId,
+        input.sourceItemId,
+        seq,
+        [...input.links.keys()],
+        [...input.links.values()],
+      ],
+    );
+  }
+
+  await sql.query(
+    `DELETE FROM item_link
+      WHERE tenant_id = $1 AND source_item_id = $2 AND seq < $3`,
+    [input.tenantId, input.sourceItemId, seq],
+  );
+}
+
+/**
+ * Writes an item's searchable text.
+ *
+ * One row per item, replaced in place. `content_snapshot` keeps its history and this does not: a
+ * search index of what a document used to say returns documents that no longer match.
+ *
+ * No `EXISTS` guard on the item, unlike the link edges above - the item is the one this document
+ * belongs to, and `content_doc` already holds a foreign key to it, so it cannot be missing without
+ * the row this was loaded from having been missing too.
+ *
+ * The dictionary is named here and in the migration and must agree; a vector built under one
+ * configuration and searched under another stops matching without erroring.
+ */
+export async function writeItemSearchText(
+  sql: ScopedQuery,
+  input: { tenantId: string; itemId: string; seq: bigint; text: string },
+): Promise<void> {
+  await sql.query(
+    `INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_vector)
+     VALUES ($1, $2, $3, now(), to_tsvector('english', $4))
+     ON CONFLICT (tenant_id, item_id) DO UPDATE
+        SET seq = EXCLUDED.seq,
+            updated_at = EXCLUDED.updated_at,
+            body_vector = EXCLUDED.body_vector
+      WHERE item_search.seq < EXCLUDED.seq`,
+    [input.tenantId, input.itemId, input.seq.toString(), input.text],
+  );
+}

@@ -112,6 +112,16 @@ export class DocumentSession {
 
   #idleSince: number | null = null;
 
+  /**
+   * A snapshot the cadence did not ask for but the last reader leaving did.
+   *
+   * Set on the detach that empties the room and cleared by the next flush. It exists because a
+   * snapshot is not only an optimisation any more: it is what publishes the document's outgoing
+   * links and its searchable text, and both are things a person expects to be true the moment
+   * they stop typing rather than whenever the two-hundred-update counter next rolls over.
+   */
+  #snapshotWhenIdle = false;
+
   /** Awareness changes are coalesced onto a short tick rather than fanned out per message. */
   readonly #awarenessDirty = new Set<number>();
   #awarenessTimer: NodeJS.Timeout | null = null;
@@ -543,6 +553,12 @@ export class DocumentSession {
     try {
       const queue = this.#pending;
       if (queue.length === 0) {
+        // An empty queue does not mean nothing is owed. The last reader leaving asks for a
+        // snapshot whatever the cadence says, and by then the queue is almost always already
+        // empty - the 500 ms timer will have drained it seconds before the tab closed. Returning
+        // here unconditionally, as this did, is what would leave a document's links and its
+        // searchable text unpublished until the session was evicted five minutes later.
+        await this.#maybeSnapshot();
         return;
       }
       this.#pending = [];
@@ -581,6 +597,7 @@ export class DocumentSession {
 
   async #maybeSnapshot(): Promise<void> {
     const due =
+      this.#snapshotWhenIdle ||
       this.#headSeq - this.#lastSnapshotSeq >= BigInt(this.#context.config.snapshotEvery) ||
       (this.#headSeq > this.#lastSnapshotSeq &&
         this.now() - this.#lastSnapshotAt >= this.#context.config.snapshotIntervalMs);
@@ -589,6 +606,9 @@ export class DocumentSession {
       return;
     }
 
+    // Cleared whether or not a snapshot is actually written: `#snapshotNow` declines when the log
+    // has not moved since the last one, and a request that found nothing to do has been answered.
+    this.#snapshotWhenIdle = false;
     await this.#snapshotNow();
   }
 
@@ -606,6 +626,7 @@ export class DocumentSession {
         writeSnapshotNow(sql, {
           tenantId: this.tenantId,
           docId: this.docRow.doc_id,
+          itemId: this.docRow.item_id,
           seq,
           state: this.#doc,
           strategy: this.strategy,
@@ -636,6 +657,11 @@ export class DocumentSession {
 
     if (this.#sockets.size === 0) {
       this.#idleSince = this.now();
+      // A snapshot is what publishes a document's link edges and its searchable text, so the
+      // moment the last person stops editing is exactly when they are owed. Without this the
+      // cadence decides - every two hundred updates or every five minutes - and somebody who
+      // writes a link and closes the tab watches the backlinks panel stay empty for both.
+      this.#snapshotWhenIdle = true;
       // Flush on disconnect is one of the three §17 triggers, and it is what bounds the
       // crash-loss window to "sub-second" rather than "whatever was pending when the last
       // person left".

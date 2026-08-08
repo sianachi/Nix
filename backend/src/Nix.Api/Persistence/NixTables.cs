@@ -68,6 +68,12 @@ public static class NixTables
     /// <summary>Materialisations of the update log. Derived, rebuildable, never authoritative.</summary>
     public const string ContentSnapshot = "content_snapshot";
 
+    /// <summary>Item-to-item reference edges, extracted from documents. Derived, rebuildable.</summary>
+    public const string ItemLink = "item_link";
+
+    /// <summary>The searchable text of each item's document. Derived, rebuildable.</summary>
+    public const string ItemSearch = "item_search";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -89,6 +95,8 @@ public static class NixTables
         ContentDoc,
         ContentUpdate,
         ContentSnapshot,
+        ItemLink,
+        ItemSearch,
     ];
 
     /// <summary>
@@ -149,6 +157,13 @@ public static class NixTables
             [ContentDoc] = ReadOnly,
             [ContentUpdate] = ReadOnly,
             [ContentSnapshot] = ReadOnly,
+
+            // Read-only for the same reason as the content tables, one step further along: an edge
+            // and a search vector are extracted from a materialised document, and materialising a
+            // document needs the CRDT runtime only the collaboration service has. Core reads what
+            // was derived and never derives it.
+            [ItemLink] = ReadOnly,
+            [ItemSearch] = ReadOnly,
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }
