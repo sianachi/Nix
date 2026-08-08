@@ -1,4 +1,4 @@
-import { Icon } from '@nix/ui';
+import { Listbox, useListbox } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import {
@@ -151,7 +151,15 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
 ];
 
-/** Filters the list the way a person typing expects: label first, then keywords. */
+/**
+ * Filters the list the way a person typing expects: label first, then keywords.
+ *
+ * The label arm used to read `needle.substring(1, needle.length)`, dropping the needle's first
+ * character - a leftover from when the query still carried the `/` that opened the menu. It went
+ * unnoticed because the shortened needle is a substring of the real one, so every correct match
+ * still matched; what it also did was match things it should not. Searching for "able" found
+ * "Table", and so did searching for "zable".
+ */
 export function filterSlashCommands(query: string): readonly SlashCommand[] {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) {
@@ -160,7 +168,7 @@ export function filterSlashCommands(query: string): readonly SlashCommand[] {
 
   return SLASH_COMMANDS.filter(
     (command) =>
-      command.label.toLowerCase().includes(needle.substring(1, needle.length)) ||
+      command.label.toLowerCase().includes(needle) ||
       command.keywords.some((keyword) => keyword.includes(needle)),
   );
 }
@@ -175,11 +183,39 @@ export function filterSlashCommands(query: string): readonly SlashCommand[] {
 export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  // The highlight follows the list it points into, so every event that changes the list - opening,
-  // typing, inserting - resets it in the same handler rather than in an effect chasing the change
-  // a render later.
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const filterRef = useRef<HTMLInputElement>(null);
+
+  const commands = filterSlashCommands(query);
+
+  function insert(command: SlashCommand): void {
+    // The `/` and whatever was typed after it are the menu's, not the document's, so they come
+    // back out before the block goes in.
+    const { from } = editor.state.selection;
+    const start = Math.max(0, from - (query.length + 1));
+    editor.chain().focus().deleteRange({ from: start, to: from }).run();
+
+    command.run(editor);
+    setOpen(false);
+    setQuery('');
+  }
+
+  // The highlight, the arrow keys and the option markup all come from `<Listbox>` now. What used
+  // to be here was the first of what would have been four copies of the same keyboard model - the
+  // reference picker and the command palette are the others - and it was the only one of them with
+  // options as focusable buttons, which put a listbox's contents into the tab order.
+  const options = commands.map((command) => ({
+    id: command.id,
+    label: command.label,
+    hint: command.hint,
+    icon: command.icon,
+  }));
+
+  const listbox = useListbox(options, (_option, index) => {
+    const command = commands[index];
+    if (command !== undefined) {
+      insert(command);
+    }
+  });
 
   // Focus moved deliberately rather than declared with autoFocus: the menu appears in response to
   // a keystroke, so moving the caret into it is continuing what the person started - which is the
@@ -201,7 +237,6 @@ export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
       if (event.key === '/' && editor.isFocused && !open) {
         setOpen(true);
         setQuery('');
-        setHighlightedIndex(0);
       }
     }
 
@@ -211,87 +246,34 @@ export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
     };
   }, [editor, open]);
 
-  const commands = filterSlashCommands(query);
-
-  function insert(command: SlashCommand): void {
-    // The `/` and whatever was typed after it are the menu's, not the document's, so they come
-    // back out before the block goes in.
-    const { from } = editor.state.selection;
-    const start = Math.max(0, from - (query.length + 1));
-    editor.chain().focus().deleteRange({ from: start, to: from }).run();
-
-    command.run(editor);
-    setOpen(false);
-    setQuery('');
-    setHighlightedIndex(0);
-  }
-
   if (!open) {
     return null;
   }
 
   return (
-    <div
-      role="listbox"
-      aria-label="Insert a block"
-      className="absolute z-20 mt-1 max-h-[280px] w-[280px] overflow-y-auto border border-divider bg-background shadow-md"
-    >
+    <div className="absolute z-20 mt-1 flex max-h-[280px] w-[280px] flex-col overflow-y-auto border border-divider bg-background shadow-md">
       <input
         aria-label="Filter blocks"
+        role="combobox"
+        aria-expanded
+        aria-controls={listbox.id}
+        aria-activedescendant={listbox.activeOptionId}
         ref={filterRef}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
-          setHighlightedIndex(0);
         }}
-        onKeyDown={(event) => {
-          if (commands.length === 0) {
-            return; // No commands to select or navigate
-          }
-
-          if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            setHighlightedIndex((prevIndex) =>
-              prevIndex === 0 ? commands.length - 1 : prevIndex - 1,
-            );
-          } else if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            setHighlightedIndex((prevIndex) =>
-              prevIndex === commands.length - 1 ? 0 : prevIndex + 1,
-            );
-          } else if (event.key === 'Enter') {
-            event.preventDefault();
-            if (commands[highlightedIndex]) {
-              insert(commands[highlightedIndex]);
-            }
-          }
-        }}
+        onKeyDown={listbox.onKeyDown}
         className="w-full border-b border-divider bg-transparent px-3 py-2 text-base outline-none"
         placeholder="Filter blocks"
       />
 
-      {commands.length === 0 ? (
-        <p className="px-3 py-2 text-sm text-muted">No block matches.</p>
-      ) : (
-        commands.map((command, index) => (
-          <button
-            key={command.id}
-            type="button"
-            role="option"
-            aria-selected={index === highlightedIndex}
-            onClick={() => {
-              insert(command);
-            }}
-            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-              index === highlightedIndex ? 'bg-accent/10' : ''
-            }`}
-          >
-            <Icon icon={command.icon} size="sm" />
-            <span className="flex-1 truncate">{command.label}</span>
-            <span className="text-xs text-muted">{command.hint}</span>
-          </button>
-        ))
-      )}
+      <Listbox
+        label="Insert a block"
+        options={options}
+        controller={listbox}
+        emptyMessage="No block matches."
+      />
     </div>
   );
 }

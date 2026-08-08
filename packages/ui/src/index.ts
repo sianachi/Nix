@@ -33,4 +33,5 @@
 
 export * from './primitives';
 export * from './controls';
+export * from './patterns';
 export { cn } from './lib/cn';

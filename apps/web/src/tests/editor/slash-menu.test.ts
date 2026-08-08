@@ -51,6 +51,19 @@ describe('the slash menu', () => {
     expect(filterSlashCommands('  TABLE ').map((command) => command.id)).toEqual(['table']);
   });
 
+  it('matches the whole of what was typed, first character included', () => {
+    // The label arm used to drop the needle's first character - a leftover from when the query
+    // still carried the `/` that opened the menu. Every correct match still matched, which is why
+    // it survived unnoticed; what it also did was match things it should not.
+    //
+    // "zable" is the query that tells the two apart. Its tail is a real label, so the old arm
+    // found "Table"; nothing in the list contains the whole of it, so the fixed arm finds nothing.
+    // "able" would not have shown it, because that one is a genuine substring of the *keyword*
+    // "table" and matches on the keywords arm either way.
+    expect(filterSlashCommands('zable')).toEqual([]);
+    expect(filterSlashCommands('table').map((command) => command.id)).toEqual(['table']);
+  });
+
   it('returns nothing when nothing matches', () => {
     expect(filterSlashCommands('spreadsheet')).toEqual([]);
   });
