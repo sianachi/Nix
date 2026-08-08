@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,7 +37,7 @@ function Picker({
       <input
         aria-label="Find a fruit"
         role="combobox"
-        aria-expanded
+        aria-expanded={listbox.expanded}
         aria-controls={listbox.id}
         aria-activedescendant={listbox.activeOptionId}
         value={query}
@@ -58,7 +58,9 @@ function Picker({
 
 /** The option the highlight is on, read the way assistive technology reads it. */
 function highlighted(): HTMLElement | undefined {
-  return screen.getAllByRole('option').find((option) => option.getAttribute('aria-selected') === 'true');
+  return screen
+    .getAllByRole('option')
+    .find((option) => option.getAttribute('aria-selected') === 'true');
 }
 
 describe('a listbox driven from a text field', () => {
@@ -103,17 +105,54 @@ describe('a listbox driven from a text field', () => {
     expect(highlighted()).toHaveTextContent('Apple');
   });
 
-  it('jumps to the ends with Home and End', async () => {
+  it('leaves Home and End to the caret in the text being typed', async () => {
+    // These moved the highlight at first, and taking them was worse than useless: in the reference
+    // picker the same handler is bound to the editor itself, so from `[[` until the picker closed,
+    // Home and End would have stopped working in the document.
+    const user = userEvent.setup();
+    render(<Picker />);
+
+    const field = screen.getByRole('combobox');
+    await user.click(field);
+    await user.keyboard('{ArrowDown}');
+    expect(highlighted()).toHaveTextContent('Apricot');
+
+    await user.keyboard('{Home}');
+    expect(highlighted()).toHaveTextContent('Apricot');
+
+    await user.keyboard('{End}');
+    expect(highlighted()).toHaveTextContent('Apricot');
+  });
+
+  it('brings the highlighted option into view, since focus never will', async () => {
+    // jsdom performs no layout, so this asserts the call rather than the pixels - but the call is
+    // the whole mechanism: with focus staying in the field, nothing else scrolls the list, and a
+    // highlight below the fold means Enter commits something the person cannot see.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
     const user = userEvent.setup();
     render(<Picker />);
 
     await user.click(screen.getByRole('combobox'));
+    scrollIntoView.mockClear();
+    await user.keyboard('{ArrowDown}');
 
-    await user.keyboard('{End}');
-    expect(highlighted()).toHaveTextContent('Banana');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
 
-    await user.keyboard('{Home}');
-    expect(highlighted()).toHaveTextContent('Apple');
+  it('reports the popup as collapsed when there is nothing in it', async () => {
+    // Every caller was hard-coding this true, which told assistive technology a list was open while
+    // the person was reading "nothing matches".
+    const user = userEvent.setup();
+    render(<Picker filter />);
+
+    const field = screen.getByRole('combobox');
+    expect(field).toHaveAttribute('aria-expanded', 'true');
+
+    await user.type(field, 'zzz');
+
+    expect(field).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('leaves every other key to the field it is attached to', async () => {
@@ -170,7 +209,7 @@ describe('a listbox driven from a text field', () => {
 
     const field = screen.getByRole('combobox');
     await user.click(field);
-    await user.keyboard('{End}');
+    await user.keyboard('{ArrowDown}{ArrowDown}');
     expect(highlighted()).toHaveTextContent('Banana');
 
     await user.type(field, 'ap');
@@ -203,7 +242,10 @@ describe('a listbox driven from a text field', () => {
     expect(field.getAttribute('aria-activedescendant')).toBeNull();
   });
 
-  it('heads each group once, where it starts', () => {
+  it('owns each run of options as a named group, so an option says which list it came from', () => {
+    // A listbox may own only options and groups. It also matters to a reader: in the palette the
+    // heading is the only thing telling "run this command" from "open this document", and a bare
+    // wrapper would have kept that visual-only.
     const grouped: readonly ListboxOption[] = [
       { id: 'go', label: 'Go to today', group: 'Commands' },
       { id: 'new', label: 'New note', group: 'Commands' },
@@ -212,8 +254,23 @@ describe('a listbox driven from a text field', () => {
 
     render(<Picker options={grouped} />);
 
-    expect(screen.getByText('Commands')).toBeInTheDocument();
-    expect(screen.getByText('Items')).toBeInTheDocument();
-    expect(screen.getAllByRole('option')).toHaveLength(3);
+    const groups = screen.getAllByRole('group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toHaveAccessibleName('Commands');
+    expect(groups[1]).toHaveAccessibleName('Items');
+
+    const [commands, items] = groups;
+    expect(commands === undefined ? [] : within(commands).getAllByRole('option')).toHaveLength(2);
+    expect(items === undefined ? [] : within(items).getAllByRole('option')).toHaveLength(1);
+  });
+
+  it('does not hide the listbox element when it is empty', () => {
+    // `hidden` is `display: none`, which removes the element from the accessibility tree - undoing
+    // the `aria-controls` guarantee the empty element exists to provide.
+    render(<Picker options={[]} />);
+
+    const listbox = screen.getByRole('listbox');
+    expect(listbox).toBeInTheDocument();
+    expect(listbox).not.toHaveClass('hidden');
   });
 });

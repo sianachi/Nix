@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { VIEW_KINDS, findViewKind, isKnownViewKind, type ViewConfiguration } from '../../views/view-kinds';
+import {
+  VIEW_KINDS,
+  findViewKind,
+  isKnownViewKind,
+  type ViewConfiguration,
+} from '../../views/view-kinds';
 
 /**
  * The registry that makes adding a view kind one entry.

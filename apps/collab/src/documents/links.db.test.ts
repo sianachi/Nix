@@ -190,7 +190,10 @@ describe.skipIf(!DB_TESTS_ENABLED)('the link graph, against Postgres', () => {
   it('refuses to write an edge into another tenant s item', async () => {
     // The worst case, and the one the constraint exists for: a document naming an identifier it
     // could only have got by guessing. The target is real, and it is not this tenant's.
-    await writeAndSnapshot(TENANTS.alpha, editor().rewriteTo(referenceTo(TENANTS.beta.targetItemId)));
+    await writeAndSnapshot(
+      TENANTS.alpha,
+      editor().rewriteTo(referenceTo(TENANTS.beta.targetItemId)),
+    );
 
     expect(await edgesOf(TENANTS.alpha)).toEqual([]);
   });

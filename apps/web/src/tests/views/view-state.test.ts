@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_SORT_DIRECTION, parseDirection, parseFilters, parseViewState } from '../../views/view-state';
+import {
+  DEFAULT_SORT_DIRECTION,
+  parseDirection,
+  parseFilters,
+  parseViewState,
+} from '../../views/view-state';
 
 /**
  * The view's state, read out of a query string.

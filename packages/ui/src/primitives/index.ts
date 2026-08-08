@@ -20,4 +20,5 @@ export {
   focusRing,
   focusRingInset,
   inkWashStates,
+  listboxActiveOption,
 } from './interaction';

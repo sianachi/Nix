@@ -3,10 +3,7 @@ import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '../../auth/auth-provider';
-import {
-  ReferenceResolutionProvider,
-  useReference,
-} from '../../editor/reference-resolution';
+import { ReferenceResolutionProvider, useReference } from '../../editor/reference-resolution';
 
 /**
  * What a reference resolves to, and - the part that matters - what it refuses to resolve to.
@@ -182,6 +179,37 @@ describe('resolving what a document points at', () => {
     });
 
     expect(calls).toHaveLength(1);
+  });
+
+  it('resolves every reference on a document that holds more than one batch', async () => {
+    // The server refuses more than 200 identifiers at once, so a document that links widely - a
+    // map-of-content page, the most predictable shape in a wiki-links product - arrives in several
+    // batches. Dropping the tail left those references on `loading` forever, and `loading` draws
+    // the stored label: a cached title that was never checked against this reader's permissions.
+    const { calls } = stubReferences(coreAnswer);
+    const many = Array.from(
+      { length: 250 },
+      (_unused, index) => `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
+    );
+
+    renderProbes(
+      <>
+        {many.map((id) => (
+          <Probe key={id} targetId={id} />
+        ))}
+      </>,
+    );
+
+    const last = many.at(-1) ?? '';
+    await waitFor(() => {
+      expect(screen.getByTestId(last)).not.toHaveTextContent('loading');
+    });
+
+    // Two requests, not one dropped tail.
+    expect(calls.length).toBeGreaterThan(1);
+    for (const id of many) {
+      expect(screen.getByTestId(id)).toHaveTextContent('refused');
+    }
   });
 
   it('leaves a reference unresolved outside a provider rather than failing the document', async () => {

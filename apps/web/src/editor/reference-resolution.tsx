@@ -97,11 +97,37 @@ export function ReferenceResolutionProvider({
   const flushScheduled = useRef(false);
   const live = useRef(true);
 
+  // One controller for the provider's lifetime. Closing a document with two hundred references
+  // in flight otherwise leaves the browser holding the connection and parsing a response nobody
+  // will read; CLAUDE.md asks that every request be cancellable and this was the one that was not.
+  const abort = useRef(new AbortController());
+
   useEffect(() => {
+    const controller = abort.current;
     live.current = true;
+
     return () => {
       live.current = false;
+      controller.abort();
     };
+  }, []);
+
+  // `flush` and `scheduleFlush` call each other - a batch re-arms for its own tail - so one of them
+  // is reached through a ref. Written this way rather than as a loop because the scheduling is a
+  // microtask either way, and a `while` here would send every batch in the same tick.
+  const flushRef = useRef<() => void>(() => undefined);
+
+  const scheduleFlush = useCallback((): void => {
+    if (flushScheduled.current) {
+      return;
+    }
+
+    flushScheduled.current = true;
+    // A microtask, so every reference that renders in the same commit lands in one request.
+    queueMicrotask(() => {
+      flushScheduled.current = false;
+      flushRef.current();
+    });
   }, []);
 
   const flush = useCallback(async (): Promise<void> => {
@@ -114,11 +140,22 @@ export function ReferenceResolutionProvider({
       return;
     }
 
+    // **The tail is re-armed before the request is made, not after.** The server refuses more than
+    // `BATCH_LIMIT` identifiers at once, so a document with more references than that arrives here
+    // in several batches - and the surplus is already in `asked`, so nothing would ever ask for it
+    // again. Dropped, those references stay `loading` for the life of the document, and `loading`
+    // draws the stored label: a cached title that was never checked against this reader's
+    // permissions, shown indefinitely, on exactly the documents most likely to link widely.
+    if (pending.current.size > 0) {
+      scheduleFlush();
+    }
+
     try {
       const token = await getAccessToken();
       const response = await fetch(
         `/api/v1/search/references?ids=${ids.map((id) => encodeURIComponent(id)).join(',')}`,
         {
+          signal: abort.current.signal,
           headers: token === null ? {} : { authorization: `Bearer ${token}` },
         },
       );
@@ -149,12 +186,17 @@ export function ReferenceResolutionProvider({
         }
         return next;
       });
-    } catch {
-      // Left as `unavailable`, never as `refused`. Drawing a failed lookup as "not yours to see"
-      // would tell a reader something about their own permissions that nobody actually checked.
-      if (!live.current) {
+    } catch (cause) {
+      if (abort.current.signal.aborted || !live.current) {
         return;
       }
+
+      // Reported, not swallowed. A Zod parse failure and a 503 are different problems and both
+      // reach an operator here; parse failures are telemetry rather than a silent fallback.
+      console.warn('The reference lookup failed.', cause);
+
+      // Left as `unavailable`, never as `refused`. Drawing a failed lookup as "not yours to see"
+      // would tell a reader something about their own permissions that nobody actually checked.
 
       // Cleared from `asked` so a later render tries again: a reader who reconnects should see
       // their links resolve without reopening the document.
@@ -170,7 +212,18 @@ export function ReferenceResolutionProvider({
         return next;
       });
     }
-  }, [getAccessToken]);
+  }, [getAccessToken, scheduleFlush]);
+
+  // Assigned in an effect rather than during render: writing a ref while rendering is a side
+  // effect React is entitled to discard, and the rule that forbids it is the React Compiler's own.
+  // An effect is soon enough - nothing can call `flushRef` before the first commit, because the
+  // only thing that schedules one is a reference asking to be resolved, and that happens in an
+  // effect too.
+  useEffect(() => {
+    flushRef.current = () => {
+      void flush();
+    };
+  }, [flush]);
 
   const request = useCallback(
     (targetId: string) => {
@@ -180,19 +233,9 @@ export function ReferenceResolutionProvider({
 
       asked.current.add(targetId);
       pending.current.add(targetId);
-
-      if (flushScheduled.current) {
-        return;
-      }
-
-      flushScheduled.current = true;
-      // A microtask, so every reference that renders in the same commit lands in one request.
-      queueMicrotask(() => {
-        flushScheduled.current = false;
-        void flush();
-      });
+      scheduleFlush();
     },
-    [flush],
+    [scheduleFlush],
   );
 
   const resolver = useMemo<ReferenceResolver>(

@@ -96,10 +96,15 @@ internal static class SearchEndpoints
     /// </remarks>
     internal static ProblemDetails Problem(HttpContext httpContext, NixError error)
     {
+        // Total over the codes this feature can raise, and 500 for anything else. A default of 404
+        // would be the worst possible one: a code added to SearchErrors and forgotten here would
+        // reach clients as the one status they already handle, carrying a message about something
+        // else entirely.
         var status = error.Code switch
         {
+            NotFoundCode => StatusCodes.Status404NotFound,
             TooManyReferencesCode or MalformedReferencesCode => StatusCodes.Status400BadRequest,
-            _ => StatusCodes.Status404NotFound,
+            _ => StatusCodes.Status500InternalServerError,
         };
 
         return ApiProblem.Create(httpContext, status, error.Code, "Request refused", error.Message);

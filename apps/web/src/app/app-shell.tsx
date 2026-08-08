@@ -5,7 +5,7 @@ import { Link, Outlet } from 'react-router';
 
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
-import { useAnnouncement } from './announcer';
+import { announce, useAnnouncement } from './announcer';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
@@ -478,7 +478,18 @@ export function AppShell(): ReactNode {
           // these. A palette that reached for them itself would be a second owner of the sidebar's
           // state and a second caller of the tree's create.
           createItem: () => {
-            void tree.create(selectedId, 'Untitled');
+            // Awaited for its answer, not fired and forgotten. `create` reports either an id or a
+            // refusal, and dropping both meant the palette closed onto either a document nobody
+            // could find or a silent failure - which is how people end up with six items called
+            // "Untitled". The sidebar's own create has handled both since U8; this now does too.
+            void tree.create(selectedId, 'Untitled').then((outcome) => {
+              if (outcome.id !== null) {
+                select(outcome.id);
+                return;
+              }
+
+              announce(outcome.refusal ?? 'That could not be created.');
+            });
           },
           toggleSidebar: sidebar.toggle,
         })}

@@ -606,10 +606,16 @@ export class DocumentSession {
       return;
     }
 
-    // Cleared whether or not a snapshot is actually written: `#snapshotNow` declines when the log
-    // has not moved since the last one, and a request that found nothing to do has been answered.
-    this.#snapshotWhenIdle = false;
-    await this.#snapshotNow();
+    // Cleared only once the write has actually been attempted. `#snapshotNow` does real I/O, and
+    // clearing first meant a transient database error lost the request outright - on an idle
+    // document `headSeq` never moves again, so "eventually" would have meant "at eviction".
+    // Declining because the log has not moved is different, and is answered: that is a request
+    // with nothing to do.
+    try {
+      await this.#snapshotNow();
+    } finally {
+      this.#snapshotWhenIdle = false;
+    }
   }
 
   async #snapshotNow(): Promise<void> {
@@ -662,10 +668,14 @@ export class DocumentSession {
       // cadence decides - every two hundred updates or every five minutes - and somebody who
       // writes a link and closes the tab watches the backlinks panel stay empty for both.
       this.#snapshotWhenIdle = true;
-      // Flush on disconnect is one of the three §17 triggers, and it is what bounds the
-      // crash-loss window to "sub-second" rather than "whatever was pending when the last
-      // person left".
-      this.scheduleFlush(0);
+
+      // `flush` directly, not `scheduleFlush(0)`, and the difference is the whole fix.
+      // `scheduleFlush` returns immediately when the pending queue is empty - which is right for
+      // what it was written for, and wrong here: by the time the last tab closes the 500 ms timer
+      // has almost always already drained the queue, so the snapshot this asks for was never
+      // reached. Flush on disconnect is one of the three §17 triggers, and it still is; it now
+      // also carries the snapshot request, and `flush` handles an empty queue itself.
+      void this.flush();
     }
   }
 

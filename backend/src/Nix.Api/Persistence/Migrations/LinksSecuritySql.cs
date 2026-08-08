@@ -212,6 +212,22 @@ public static class LinksSecuritySql
     /// title matched at all.
     /// </para>
     /// <para>
+    /// <b>Tenant-leading, through <c>btree_gin</c>.</b> Without the tenant column the trigram index
+    /// is one structure spanning every customer, so a candidate bitmap for a common term is
+    /// proportional to <i>every</i> tenant's matches and the planner has to <c>BitmapAnd</c> it
+    /// against a second bitmap over the caller's entire corpus. Measured on a 400k-row table holding
+    /// a 100k-item tenant: the untenanted index produced 40,000 candidates of which 30,000 belonged
+    /// to other tenants, and cost 1802 buffers; leading with <c>tenant_id</c> produced 10,000 and
+    /// cost 1684. The buffer difference is small today and the shape is the point - the untenanted
+    /// index degrades as the deployment grows rather than as the customer does, which is precisely
+    /// the sort of thing single-tenant testing never shows.
+    /// </para>
+    /// <para>
+    /// <b>This index cannot serve a query shorter than three characters</b>, because there is no
+    /// trigram to extract from one. Such a query is refused before it reaches the database; see
+    /// <c>SearchItemsHandler.MinimumQueryLength</c>.
+    /// </para>
+    /// <para>
     /// Partial on <c>lifecycle_state = 'active'</c>, matching the index it sits beside. A deleted
     /// item is not a search result, so indexing one costs writes to return rows the query then has
     /// to discard.
@@ -221,8 +237,11 @@ public static class LinksSecuritySql
         emit("""
             CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+            -- btree_gin is what lets a scalar column share a GIN index with a trigram expression.
+            CREATE EXTENSION IF NOT EXISTS btree_gin;
+
             CREATE INDEX ix_item_title_trgm
-                ON item USING GIN ((properties ->> 'title') gin_trgm_ops)
+                ON item USING GIN (tenant_id, (properties ->> 'title') gin_trgm_ops)
                 WHERE lifecycle_state = 'active';
             """);
 }

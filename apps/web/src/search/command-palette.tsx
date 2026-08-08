@@ -1,4 +1,4 @@
-import { Icon, Input, Listbox, useListbox, type ListboxOption } from '@nix/ui';
+import { Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
 import { FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -55,6 +55,16 @@ const DEBOUNCE_MS = 150;
 /** The most items to offer. A palette is scanned, not read. */
 const RESULT_LIMIT = 20;
 
+/**
+ * The shortest query sent to the server, matching `SearchItemsHandler.MinimumQueryLength`.
+ *
+ * Below three characters there is no trigram to look up, so the server would read every item in
+ * every workspace the caller can reach and filter it - measured at nearly four times the cost of a
+ * real query, growing with the workspace rather than with the number of matches. Commands are still
+ * filtered locally at any length, because that list is five entries in memory.
+ */
+const MINIMUM_QUERY = 3;
+
 export interface CommandPaletteProps {
   readonly open: boolean;
   readonly commands: readonly PaletteCommand[];
@@ -69,6 +79,12 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // What had the focus when the palette opened, so it can be given back. Without this, closing
+  // drops focus to the body and the next Tab starts at the skip link - which for somebody who hit
+  // Cmd-K mid-sentence and changed their mind means losing their place in the document. `<Dialog>`
+  // makes the same argument at length for the same reason.
+  const returnFocusTo = useRef<HTMLElement | null>(null);
+
   // Reset on the way out rather than in an effect on the way in: a setState inside an effect body
   // cascades a second render for something the close already knew, and reopening has to start
   // fresh rather than showing the last search's results as though they were current.
@@ -76,6 +92,10 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     setQuery('');
     setAnswer(null);
     onClose();
+
+    // After `onClose`, so the palette has been asked to unmount before focus moves back.
+    returnFocusTo.current?.focus();
+    returnFocusTo.current = null;
   }, [onClose]);
 
   const needle = query.trim();
@@ -85,11 +105,13 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
       return;
     }
 
+    returnFocusTo.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
-    if (!open || needle.length === 0) {
+    if (!open || needle.length < MINIMUM_QUERY) {
       return;
     }
 
@@ -140,6 +162,11 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const current = answer !== null && answer.query === needle ? answer : null;
   const hits = current?.hits ?? EMPTY_HITS;
   const matched = filterCommands(commands, query);
+
+  // In flight, and said out loud regardless of how many options happen to be showing. Carried by
+  // `emptyMessage` alone, this was invisible whenever a command matched: type "n", the item results
+  // for the previous query vanish because they answer a different needle, and nothing explains why.
+  const searching = needle.length >= MINIMUM_QUERY && current === null;
 
   // Commands first, then items, in one list. The index into it is what the keyboard walks, so the
   // two kinds are told apart on the way out rather than on the way in.
@@ -210,7 +237,9 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
             ref={inputRef}
             tone="plain"
             role="combobox"
-            aria-expanded
+            aria-expanded={listbox.expanded}
+            aria-autocomplete="list"
+            autoComplete="off"
             aria-controls={listbox.id}
             aria-activedescendant={listbox.activeOptionId}
             aria-label="Search items or run a command"
@@ -245,18 +274,53 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
               ? 'The search could not be run just now. Check your connection and try again.'
               : needle.length === 0
                 ? 'Type to search this workspace, or to find a command.'
-                : current === null
-                  ? 'Searching…'
-                  : `Nothing matches “${needle}”.`
+                : needle.length < MINIMUM_QUERY
+                  ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
+                  : searching
+                    ? 'Searching…'
+                    : `Nothing matches “${needle}”.`
           }
           className="max-h-[50vh] overflow-y-auto"
         />
 
-        {current?.truncated === true ? (
-          <p className="border-t border-divider px-4 py-2 text-xs text-muted">
-            Showing the first {hits.length} items. Type more to narrow it down.
-          </p>
-        ) : null}
+        {/*
+          One line under the list, carrying whichever of these applies. `role="status"` because all
+          three arrive without the person doing anything, and the mounted-empty region is what makes
+          the announcement reliable.
+        */}
+        <div role="status" className="empty:hidden">
+          {searching ? (
+            <Text
+              as="p"
+              variant="caption"
+              tone="muted"
+              className="border-t border-divider px-4 py-2"
+            >
+              Searching…
+            </Text>
+          ) : current?.truncated === true ? (
+            <Text
+              as="p"
+              variant="caption"
+              tone="muted"
+              className="border-t border-divider px-4 py-2"
+            >
+              Showing the first {hits.length} items. Type more to narrow it down.
+            </Text>
+          ) : current !== null && hits.length === 0 && matched.length > 0 ? (
+            // The palette found a command but no document, and the reason may be timing rather than
+            // absence: text inside documents becomes searchable when the document is saved. Said
+            // here for the same reason the backlinks panel says it.
+            <Text
+              as="p"
+              variant="caption"
+              tone="muted"
+              className="border-t border-divider px-4 py-2"
+            >
+              No items matched. Text inside a document becomes searchable once it has been saved.
+            </Text>
+          ) : null}
+        </div>
       </div>
     </div>
   );

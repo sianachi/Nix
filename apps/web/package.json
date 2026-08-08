@@ -25,7 +25,6 @@
     "@tiptap/extensions": "^3.29.0",
     "@tiptap/pm": "^3.29.0",
     "@tiptap/react": "^3.29.0",
-    "@tiptap/suggestion": "^3.29.0",
     "lib0": "^0.2.117",
     "lucide-react": "^1.27.0",
     "luxon": "^3.7.2",

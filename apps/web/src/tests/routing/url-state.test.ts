@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_STATE_PREVIEW, parseStatePreview, statePreviewSearch } from '../../routing/url-state';
+import {
+  DEFAULT_STATE_PREVIEW,
+  parseStatePreview,
+  statePreviewSearch,
+} from '../../routing/url-state';
 
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);

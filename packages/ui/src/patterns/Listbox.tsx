@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { type LucideIcon } from 'lucide-react';
 
 import { cn } from '../lib/cn';
 import { Icon } from '../primitives/Icon';
+import { listboxActiveOption } from '../primitives/interaction';
 import { Text } from '../primitives/Text';
 
 /**
@@ -74,6 +75,14 @@ export interface ListboxController {
   /** The highlighted option's element id, for the input's `aria-activedescendant`. */
   readonly activeOptionId: string | undefined;
 
+  /**
+   * Whether there is a popup to speak of, for the input's `aria-expanded`.
+   *
+   * Every caller was hard-coding this to true, which told assistive technology a list was open
+   * while the person was looking at "nothing matches".
+   */
+  readonly expanded: boolean;
+
   /** Moves the highlight. For pointer movement over the list. */
   readonly setActiveIndex: (index: number) => void;
 
@@ -81,10 +90,16 @@ export interface ListboxController {
   readonly select: (index: number) => void;
 
   /**
-   * Arrow keys, Home, End and Enter, for whatever holds the focus.
+   * The arrow keys and Enter, for whatever holds the focus.
    *
-   * Not Escape, and not Tab: see the note on the module. Every other key falls through untouched,
-   * so the thing it is attached to still behaves like itself.
+   * **Not Home and End**, though they were here at first. They move the caret in the text somebody
+   * is typing, and taking them is worse than useless in the reference picker, where this handler is
+   * attached to the editor itself: from `[[` until the picker closes, Home and End would stop
+   * working in the document. The APG combobox pattern leaves them to the textbox for exactly this
+   * reason.
+   *
+   * Not Escape and not Tab either: see the note on the module. Every other key falls through
+   * untouched, so the thing it is attached to still behaves like itself.
    */
   readonly onKeyDown: (event: ListboxKeyEvent) => void;
 }
@@ -133,16 +148,6 @@ export function useListbox(
         setStoredIndex(activeIndex === 0 ? options.length - 1 : activeIndex - 1);
         break;
 
-      case 'Home':
-        event.preventDefault();
-        setStoredIndex(0);
-        break;
-
-      case 'End':
-        event.preventDefault();
-        setStoredIndex(options.length - 1);
-        break;
-
       case 'Enter':
         event.preventDefault();
         select(activeIndex);
@@ -153,13 +158,33 @@ export function useListbox(
     }
   }
 
+  // The handlers are given a stable identity, with the current bodies reached through a ref at
+  // call time. `useCallback` here is load-bearing rather than decorative, on the first of the three
+  // grounds CLAUDE.md allows: the identity is a dependency of a subscription. The reference picker
+  // binds a `keydown` listener on the editor's own element in an effect keyed on this controller,
+  // and without a stable identity that listener is torn down and re-added on every keystroke.
+  const latest = useRef({ select, onKeyDown });
+
+  useEffect(() => {
+    latest.current = { select, onKeyDown };
+  });
+
+  const stableSelect = useCallback((index: number): void => {
+    latest.current.select(index);
+  }, []);
+
+  const stableKeyDown = useCallback((event: ListboxKeyEvent): void => {
+    latest.current.onKeyDown(event);
+  }, []);
+
   return {
     id,
     activeIndex,
     activeOptionId: options.length === 0 ? undefined : optionElementId(id, activeIndex),
+    expanded: options.length > 0,
     setActiveIndex: setStoredIndex,
-    select,
-    onKeyDown,
+    select: stableSelect,
+    onKeyDown: stableKeyDown,
   };
 }
 
@@ -180,6 +205,33 @@ export interface ListboxProps {
 
 export function Listbox(props: ListboxProps): ReactNode {
   const { label, options, controller, emptyMessage, className } = props;
+  const listRef = useRef<HTMLDivElement>(null);
+  const { activeIndex, id: listboxId } = controller;
+
+  // Scrolled here because nothing else will. Focus never moves into the list, so the browser has
+  // no reason to bring the highlight into view - and both callers show more options than fit.
+  // Without this, arrowing past the fold moves an invisible highlight and Enter commits something
+  // the person cannot see, which is a wrong-item hazard rather than a cosmetic one.
+  useEffect(() => {
+    const active = listRef.current?.querySelector(
+      `#${CSS.escape(optionElementId(listboxId, activeIndex))}`,
+    );
+    active?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, listboxId]);
+
+  // Runs of options sharing a heading. Built here rather than rendered inline so each run can be a
+  // real `role="group"`: a listbox may own only options and groups, and a bare wrapper holding a
+  // paragraph is neither. It also makes the heading part of every option's announcement, which is
+  // what tells "run this command" from "open this document" in the palette's merged list.
+  const runs: { group: string | undefined; from: number; options: ListboxOption[] }[] = [];
+  for (const [index, option] of options.entries()) {
+    const last = runs.at(-1);
+    if (last !== undefined && last.group === option.group) {
+      last.options.push(option);
+    } else {
+      runs.push({ group: option.group, from: index, options: [option] });
+    }
+  }
 
   return (
     <div className={cn('flex flex-col', className)}>
@@ -187,31 +239,23 @@ export function Listbox(props: ListboxProps): ReactNode {
         Rendered even when empty, so the input's `aria-controls` always resolves to something. An
         id that points at nothing is worse than an empty list: assistive technology reports the
         relationship as broken rather than as "no results".
+
+        It carries no `hidden`, which it used to: `hidden` is `display: none`, which takes the
+        element out of the accessibility tree and so undoes the very thing this comment is about.
+        With no options the element has no children and no height, so there was nothing for it to
+        hide either.
       */}
-      <div
-        id={controller.id}
-        role="listbox"
-        aria-label={label}
-        className={cn(options.length === 0 && 'hidden')}
-      >
-        {options.map((option, index) => {
-          const active = index === controller.activeIndex;
-          const heading = option.group !== undefined && option.group !== options[index - 1]?.group;
+      <div id={listboxId} ref={listRef} role="listbox" aria-label={label}>
+        {runs.map((run) => {
+          const headingId =
+            run.group === undefined ? undefined : `${listboxId}-group-${String(run.from)}`;
 
-          return (
-            <div key={option.id}>
-              {heading ? (
-                <Text
-                  as="p"
-                  variant="caption"
-                  tone="muted"
-                  className="px-3 pt-3 pb-1 uppercase tracking-wide"
-                >
-                  {option.group}
-                </Text>
-              ) : null}
+          const rendered = run.options.map((option, offset) => {
+            const index = run.from + offset;
+            const active = index === activeIndex;
 
-              {/*
+            return (
+              /*
                 An option, not a button. Focus stays in the field the person is typing into and the
                 highlight travels by `aria-activedescendant`; making these focusable would put them
                 in the tab order and announce each one as a button.
@@ -219,17 +263,15 @@ export function Listbox(props: ListboxProps): ReactNode {
                 `onMouseDown` with `preventDefault` rather than `onClick`: a click first moves focus
                 away from the input, and in the editor's picker that closes the whole thing before
                 the selection is read. Committing on press keeps the field focused throughout.
-              */}
-              {/*
-                eslint-disable-next-line jsx-a11y/interactive-supports-focus --
-                Justification: an option in this pattern must NOT be focusable. Focus stays on the
-                caller's text field and the highlight travels by `aria-activedescendant`, which is
-                the composite-widget pattern this component exists to provide. The rule is checking
-                for the other mistake - an interactive role on something a keyboard cannot reach at
-                all - and cannot see that the field carries the keyboard model on its behalf.
-              */}
+
+                The disable below says the same thing to the linter: the rule is checking for the
+                other mistake - an interactive role on something a keyboard cannot reach at all -
+                and cannot see that the caller's field carries the keyboard model on its behalf.
+              */
+              // eslint-disable-next-line jsx-a11y/interactive-supports-focus
               <div
-                id={optionElementId(controller.id, index)}
+                key={option.id}
+                id={optionElementId(listboxId, index)}
                 role="option"
                 aria-selected={active}
                 onMouseDown={(event) => {
@@ -243,7 +285,7 @@ export function Listbox(props: ListboxProps): ReactNode {
                 }}
                 className={cn(
                   'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
-                  active && 'bg-accent/10',
+                  active ? listboxActiveOption : 'hover:bg-foreground/7',
                 )}
               >
                 {option.icon === undefined ? null : (
@@ -258,23 +300,42 @@ export function Listbox(props: ListboxProps): ReactNode {
                   </Text>
                 )}
               </div>
+            );
+          });
+
+          if (run.group === undefined || headingId === undefined) {
+            return rendered;
+          }
+
+          return (
+            <div key={headingId} role="group" aria-labelledby={headingId}>
+              <Text
+                as="p"
+                id={headingId}
+                variant="caption"
+                tone="muted"
+                className="px-3 pt-3 pb-1 tracking-wide uppercase"
+              >
+                {run.group}
+              </Text>
+              {rendered}
             </div>
           );
         })}
       </div>
 
-      {options.length === 0 ? (
-        // `role="status"` so the sentence is announced when the filtering produces it, rather than
-        // leaving somebody typing into a field whose list silently emptied. On a wrapper rather
-        // than on the text: <Text> takes a variant and a tone and deliberately not arbitrary
-        // attributes, and widening a primitive every layer above it shares is a poor trade for one
-        // element saved.
-        <div role="status">
+      {/*
+        Mounted whether or not it has anything to say. A live region inserted into the document at
+        the same moment as its text is unreliably announced - the region has to be there first for
+        the change to be a change - which is the opposite of what this is for.
+      */}
+      <div role="status">
+        {options.length === 0 ? (
           <Text as="p" variant="body" tone="muted" className="px-3 py-2">
             {emptyMessage}
           </Text>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

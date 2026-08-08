@@ -59,6 +59,18 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     return harness;
   }
 
+  /** How many snapshots Alpha's document has, read as an owner that can see them all. */
+  async function snapshotCount(): Promise<number> {
+    const { rows } = await verifyPool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM content_snapshot s JOIN content_doc d USING (doc_id)
+       WHERE d.tenant_id = $1 AND d.item_id = $2`,
+      [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
+    );
+
+    return Number(rows[0]?.count ?? '0');
+  }
+
   function open(url: string, itemId: string, token = 'as-first-principal'): TestClient {
     const client = connectTestClient(url, itemId, token);
     clients.push(client);
@@ -197,6 +209,39 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     const reader = open(harness.url, TENANTS.alpha.itemId);
     await reader.ready;
     await until(() => textOf(reader.doc).includes('Paragraph 5.'), 'the reload to catch up');
+  });
+
+  it('snapshots when the last reader leaves, without waiting for the idle sweep', async () => {
+    // The snapshot is what publishes a document's link edges and its searchable text, so closing
+    // the tab has to be enough - a backlinks panel that stays empty for five minutes after
+    // somebody writes a link reads as broken rather than as behind.
+    //
+    // This exists because the first attempt did not work and nothing said so. `detach` asked for
+    // the snapshot through `scheduleFlush(0)`, which returns immediately when the pending queue is
+    // empty - and by the time the last tab closes, the 500ms timer has almost always drained it.
+    // The request was made, the code read as correct, and the snapshot never happened.
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+
+    typeParagraph(alice.doc, 'A paragraph worth publishing.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the flush to land',
+    );
+
+    // The queue is drained and the cadence is nowhere near due: `snapshotEvery` and the interval
+    // are both far above one update. Only the detach can produce a snapshot from here.
+    const before = await snapshotCount();
+    expect(before).toBe(0);
+
+    alice.close();
+
+    await until(async () => (await snapshotCount()) > 0, 'the detach snapshot to land');
+
+    // And the document is still resident - this is not the eviction path, which happens minutes
+    // later and would have produced the same row.
+    expect(harness.registry.size).toBeGreaterThan(0);
   });
 
   it('cancels a drain when a socket reattaches mid-way', async () => {

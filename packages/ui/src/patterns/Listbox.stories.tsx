@@ -35,6 +35,7 @@ const meta = {
       id: 'listbox-story-placeholder',
       activeIndex: 0,
       activeOptionId: undefined,
+      expanded: false,
       setActiveIndex: () => undefined,
       select: () => undefined,
       onKeyDown: () => undefined,
@@ -87,7 +88,9 @@ function Picker({
           tone="plain"
           aria-label={fieldLabel}
           role="combobox"
-          aria-expanded
+          aria-expanded={listbox.expanded}
+          aria-autocomplete="list"
+          autoComplete="off"
           aria-controls={listbox.id}
           aria-activedescendant={listbox.activeOptionId}
           placeholder={placeholder}
@@ -148,6 +151,28 @@ export const Grouped: Story = {
       fieldLabel="Search or run a command"
       placeholder="Search or run a command"
       emptyMessage="Nothing matches that."
+    />
+  ),
+};
+
+/**
+ * More options than fit.
+ *
+ * The case the pattern's `scrollIntoView` exists for: focus never enters the list, so nothing else
+ * would bring the highlight back into view. Arrow past the fold and the active row follows.
+ */
+export const Scrolling: Story = {
+  render: () => (
+    <Picker
+      options={Array.from({ length: 40 }, (_unused, index) => ({
+        id: `note-${String(index)}`,
+        label: `Meeting note ${String(index + 1)}`,
+        icon: FileText,
+      }))}
+      label="Items"
+      fieldLabel="Search items"
+      placeholder="Search items"
+      emptyMessage="No item matches that."
     />
   ),
 };

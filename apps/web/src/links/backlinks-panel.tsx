@@ -1,4 +1,4 @@
-import { Button, Icon, Text, focusRing } from '@nix/ui';
+import { Button, Icon, Text, focusRing, inkWashStates } from '@nix/ui';
 import { FileText } from 'lucide-react';
 import { type ReactNode } from 'react';
 
@@ -25,11 +25,19 @@ export function BacklinksPane({ itemId }: { readonly itemId: string | null }): R
   const { select } = useSelectedItem();
 
   if (itemId === null) {
-    return <Text variant="bodySmall" tone="muted">Open an item to see what links to it.</Text>;
+    return (
+      <Text variant="bodySmall" tone="muted">
+        Open an item to see what links to it.
+      </Text>
+    );
   }
 
   if (status === 'loading') {
-    return <Text variant="bodySmall" tone="muted">Looking for links to this item…</Text>;
+    return (
+      <Text variant="bodySmall" tone="muted">
+        Looking for links to this item…
+      </Text>
+    );
   }
 
   if (status === 'error') {
@@ -47,9 +55,12 @@ export function BacklinksPane({ itemId }: { readonly itemId: string | null }): R
 
   if (backlinks.length === 0) {
     return (
-      <Text variant="bodySmall" tone="muted">
-        Nothing links here yet. Type <code>[[</code> in another document to make one.
-      </Text>
+      <div className="flex flex-col gap-2">
+        <Text variant="bodySmall" tone="muted">
+          Nothing links here yet. Type two square brackets in another document to make one.
+        </Text>
+        <LagNote />
+      </div>
     );
   }
 
@@ -63,7 +74,7 @@ export function BacklinksPane({ itemId }: { readonly itemId: string | null }): R
               onClick={() => {
                 select(backlink.source.id);
               }}
-              className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-foreground/7 ${focusRing}`}
+              className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm ${inkWashStates} ${focusRing}`}
             >
               <Icon icon={FileText} size="sm" className="shrink-0 text-muted" />
               <span className="min-w-0 flex-1 truncate">{backlink.source.title ?? 'Untitled'}</span>
@@ -86,9 +97,23 @@ export function BacklinksPane({ itemId }: { readonly itemId: string | null }): R
         </Text>
       ) : null}
 
-      <Text variant="caption" tone="muted">
-        Links appear here once the document holding them has been saved.
-      </Text>
+      <LagNote />
     </div>
+  );
+}
+
+/**
+ * Why a link somebody just made may not be here.
+ *
+ * Rendered in the empty state as well as beside a list, and the empty one is where it matters:
+ * somebody who writes a link in another tab, opens this panel and reads "nothing links here yet"
+ * concludes the feature is broken. Backlinks are extracted when a document is snapshotted, so
+ * "not yet" is often the truth and "nothing" is not.
+ */
+function LagNote(): ReactNode {
+  return (
+    <Text variant="caption" tone="muted">
+      Links appear here once the document holding them has been saved.
+    </Text>
   );
 }

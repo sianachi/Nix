@@ -304,13 +304,7 @@ export async function replaceItemLinks(
        ON CONFLICT (tenant_id, source_item_id, target_item_id) DO UPDATE
           SET occurrences = EXCLUDED.occurrences, seq = EXCLUDED.seq
         WHERE item_link.seq < EXCLUDED.seq`,
-      [
-        input.tenantId,
-        input.sourceItemId,
-        seq,
-        [...input.links.keys()],
-        [...input.links.values()],
-      ],
+      [input.tenantId, input.sourceItemId, seq, [...input.links.keys()], [...input.links.values()]],
     );
   }
 

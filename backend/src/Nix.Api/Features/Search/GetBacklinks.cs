@@ -27,12 +27,12 @@ public sealed record BacklinkResults(IReadOnlyList<Backlink> Backlinks, int Limi
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two permission questions, not one.</b> The caller must be able to read the item they are
+/// <b>One permission answer, used twice.</b> The caller must be able to read the item they are
 /// asking about - otherwise this endpoint answers "nothing points at it", which for an identifier
-/// they guessed is still a statement about a document they may not see. And each referring
-/// document must be one they may read, which is the filter inside the query: being entitled to the
-/// item in front of you does not entitle you to know that a document in another workspace mentions
-/// it.
+/// they guessed is still a statement about a document they may not see. And each referring document
+/// must be one they may read: being entitled to the item in front of you does not entitle you to
+/// know that a document in another workspace mentions it. Both fall out of the readable-workspace
+/// set, so the port is asked once and the two uses cannot drift apart.
 /// </para>
 /// <para>
 /// An unreadable target is reported as not found, matching every other item read. "You may not see
@@ -85,18 +85,19 @@ public sealed class GetBacklinksHandler : IQueryHandler<GetBacklinks, Result<Bac
             return Result.Failure<BacklinkResults>(notFound);
         }
 
-        var mayRead = await _permissions
-            .CanReadWorkspaceAsync(target.WorkspaceId, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!mayRead)
-        {
-            return Result.Failure<BacklinkResults>(notFound);
-        }
-
+        // One question, asked once. This used to call `CanReadWorkspaceAsync` for the target and
+        // then `ReadableWorkspacesAsync` for the filter - two statements answering the same
+        // question, which are equivalent only while permission is per workspace. The moment access
+        // control entries make it per item, the handler would be gating on one answer and filtering
+        // by another, and nothing would fail until somebody noticed a backlink they should not see.
         var workspaces = await _permissions
             .ReadableWorkspacesAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        if (!workspaces.Contains(target.WorkspaceId))
+        {
+            return Result.Failure<BacklinkResults>(notFound);
+        }
 
         var backlinks = await _links
             .BacklinksAsync(query.TargetId, workspaces, limit, cancellationToken)

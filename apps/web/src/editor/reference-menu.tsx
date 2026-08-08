@@ -39,6 +39,14 @@ const DEBOUNCE_MS = 150;
 /** The most candidates to offer. A picker is scanned, not read. */
 const RESULT_LIMIT = 8;
 
+/**
+ * The shortest query sent to the server, matching `SearchItemsHandler.MinimumQueryLength`.
+ *
+ * Below three characters there is no trigram to look up and the server falls back to reading every
+ * item the caller can reach. The picker opens on the trigger and offers a prompt until then.
+ */
+const MINIMUM_QUERY = 3;
+
 const SearchSchema = z.object({
   results: z.array(
     z.object({
@@ -80,7 +88,7 @@ export interface FoundTrigger {
  * Exported for its own tests: it is pure string handling, and the alternative is asserting it
  * through an editor, a document and a selection.
  */
-export function findTrigger(text: string): FoundTrigger | null {
+export function findTrigger(text: string, truncated = false): FoundTrigger | null {
   const brackets = text.lastIndexOf('[[');
   const at = text.lastIndexOf('@');
 
@@ -90,7 +98,11 @@ export function findTrigger(text: string): FoundTrigger | null {
   }
 
   const isBrackets = start === brackets;
-  const before = start === 0 ? ' ' : text[start - 1];
+
+  // Position zero is the start of a word only when it really is the start of the block. When the
+  // caller handed over a window cut out of a longer paragraph, the character before it is unknown -
+  // and guessing "whitespace" would turn the middle of an email address into a people picker.
+  const before = start === 0 ? (truncated ? undefined : ' ') : text[start - 1];
   if (before === undefined || !/\s/.test(before)) {
     return null;
   }
@@ -130,9 +142,14 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
         return;
       }
 
+      // Only the tail of the block is read. This runs on every transaction - every local keystroke
+      // and every remote update arriving through the CRDT - and at most `MAX_QUERY` plus the
+      // trigger can ever matter, so reading a whole paragraph would allocate a fresh copy of it
+      // per keystroke per collaborator to look at its last sixty characters.
       const at = state.doc.resolve(from);
-      const text = at.parent.textBetween(0, at.parentOffset, '\n', '\n');
-      const found = findTrigger(text);
+      const window = Math.max(0, at.parentOffset - (MAX_QUERY + 2));
+      const text = at.parent.textBetween(window, at.parentOffset, '\n', '\n');
+      const found = findTrigger(text, window > 0);
 
       if (found === null) {
         setTrigger(null);
@@ -151,10 +168,20 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
       });
     }
 
+    // Closed when the editor loses the focus. `open` derives from the document's selection, which
+    // survives a blur - so clicking into the sidebar with `[[` half-typed left the picker floating
+    // on screen with its only keyboard handler bound to an element that no longer had focus.
+    function onBlur(): void {
+      setTrigger(null);
+    }
+
     readTrigger();
     editor.on('transaction', readTrigger);
+    editor.on('blur', onBlur);
+
     return () => {
       editor.off('transaction', readTrigger);
+      editor.off('blur', onBlur);
     };
   }, [editor]);
 
@@ -176,6 +203,10 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
       return;
     }
 
+    if (query.length < MINIMUM_QUERY) {
+      return;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void (async () => {
@@ -193,7 +224,11 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
             throw new Error(`Search answered ${String(response.status)}.`);
           }
 
-          setAnswer({ query, hits: SearchSchema.parse(await response.json()).results, failed: false });
+          setAnswer({
+            query,
+            hits: SearchSchema.parse(await response.json()).results,
+            failed: false,
+          });
         } catch (cause) {
           if (controller.signal.aborted) {
             return;
@@ -314,9 +349,11 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
         emptyMessage={
           failed
             ? 'Could not search just now. Check your connection and try again.'
-            : query.length === 0
-              ? 'Type to find an item.'
-              : 'No item matches that.'
+            : query.length < MINIMUM_QUERY
+              ? `Type ${String(MINIMUM_QUERY)} letters or more to find an item.`
+              : current === null
+                ? 'Searching…'
+                : 'No item matches that.'
         }
       />
     </div>

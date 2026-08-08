@@ -92,3 +92,18 @@ export const inkWashStates = 'hover:bg-foreground/7 active:bg-foreground/14';
 export const accentFillStates =
   'hover:border-accent-fill-hover hover:bg-accent-fill-hover ' +
   'active:border-accent-fill-pressed active:bg-accent-fill-pressed';
+
+/**
+ * The active option of a listbox whose focus lives somewhere else.
+ *
+ * Its own state rather than a reuse of `accentWashStates`' hover tint, which is what it was. Two
+ * things were wrong with borrowing that. The wash is a 10% tint and this is the *only* indication
+ * of where the keyboard is - focus never enters the list - so it is a state indicator and owes
+ * WCAG 1.4.11's 3:1, which a 10% tint does not come close to. And on anything with a pointer,
+ * hover painted the same colour, so "where the keyboard is" and "where the mouse happens to be"
+ * became indistinguishable at the moment Enter would commit one of them.
+ *
+ * A leading accent rule carries the contrast; the wash behind it keeps the row legible as a row.
+ * Hover stays at the lighter `inkWashStates` tint in the component, so the two read apart.
+ */
+export const listboxActiveOption = 'bg-accent/15 shadow-[inset_2px_0_0_0_var(--color-accent)]'; // design-token-exempt: an inset rule is a shadow geometry, not a scale step; the colour it draws is the accent token.

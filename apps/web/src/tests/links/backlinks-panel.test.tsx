@@ -1,6 +1,9 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
+
+import { useLocation } from 'react-router';
 
 import { AuthProvider } from '../../auth/auth-provider';
 import { BacklinksPane } from '../../links/backlinks-panel';
@@ -23,10 +26,17 @@ beforeEach(() => {
 const TARGET = item({ id: '11111111-1111-4111-8111-111111111111', title: 'Quarterly ledger' });
 const SOURCE = item({ id: '22222222-2222-4222-8222-222222222222', title: 'Ledger review' });
 
+/** Reports the address, so navigation can be asserted the way a person experiences it. */
+function Address(): ReactNode {
+  const location = useLocation();
+  return <span data-testid="address">{`${location.pathname}${location.search}`}</span>;
+}
+
 function renderPane(itemId: string | null): void {
   renderAt(
     <AuthProvider>
       <BacklinksPane itemId={itemId} />
+      <Address />
     </AuthProvider>,
   );
 }
@@ -37,6 +47,19 @@ describe('the backlinks pane', () => {
     renderPane(TARGET.id);
 
     expect(await screen.findByRole('button', { name: /Ledger review/ })).toBeVisible();
+  });
+
+  it('opens a referring document when it is chosen', async () => {
+    // A backlink that lists a document and cannot take you to it is a citation, not a link.
+    const user = userEvent.setup();
+    stubCoreApi({ items: [TARGET, SOURCE], backlinks: { [TARGET.id]: [SOURCE.id] } });
+    renderPane(TARGET.id);
+
+    await user.click(await screen.findByRole('button', { name: /Ledger review/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('address')).toHaveTextContent(SOURCE.id);
+    });
   });
 
   it('says nothing links here yet, and says how to make one', async () => {

@@ -81,7 +81,14 @@ describe('extracting the links out of a document', () => {
     // The target comes out of a document, which means it comes from a browser. Sent on to a uuid
     // column it would fail the insert and take the whole snapshot with it - a document that
     // stops saving because of one bad link.
-    for (const malformed of ['banana', '', '../../etc/passwd', "'; DROP TABLE item; --", 42, null]) {
+    for (const malformed of [
+      'banana',
+      '',
+      '../../etc/passwd',
+      "'; DROP TABLE item; --",
+      42,
+      null,
+    ]) {
       expect([...extractItemLinks(documentOf(reference(malformed)), SOURCE)]).toEqual([]);
     }
   });
@@ -96,7 +103,10 @@ describe('extracting the links out of a document', () => {
   it('returns nothing for a document with no references', () => {
     // The empty answer matters as much as a full one: it is what clears the edges of a document
     // whose last link was just deleted.
-    const links = extractItemLinks(documentOf({ type: 'text', text: 'Nothing points anywhere' }), SOURCE);
+    const links = extractItemLinks(
+      documentOf({ type: 'text', text: 'Nothing points anywhere' }),
+      SOURCE,
+    );
 
     expect(links.size).toBe(0);
   });

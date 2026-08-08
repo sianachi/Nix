@@ -94,13 +94,21 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
         // The administrator check first, because it decides which statement to run rather than
         // adding to its result: an administrator reaches every workspace in the tenant, so the
         // membership arms would only ever return a subset of what is already granted.
-        var statement = await IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false)
-            ? AuthorizationSql.WorkspacesInTenant
-            : AuthorizationSql.WorkspacesReadableByPrincipal;
+        //
+        // One branch producing both halves. Written as two - a statement chosen, then the
+        // parameters recovered by comparing that statement's text against the constant - it was a
+        // decision taken once and reconstructed once, which is one place too many for the two to
+        // disagree.
+        var administrator = await IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false);
 
-        var parameters = string.Equals(statement, AuthorizationSql.WorkspacesInTenant, StringComparison.Ordinal)
-            ? new[] { Uuid("tenant_id", context.TenantId.Value) }
-            : [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value)];
+        var (statement, parameters) = administrator
+            ? (AuthorizationSql.WorkspacesInTenant, new[] { Uuid("tenant_id", context.TenantId.Value) })
+            : (AuthorizationSql.WorkspacesReadableByPrincipal,
+               new[]
+               {
+                   Uuid("tenant_id", context.TenantId.Value),
+                   Uuid("principal_id", context.PrincipalId.Value),
+               });
 
         var workspaces = new List<WorkspaceId>();
         var rows = _sql.QueryAsync<WorkspaceId, WorkspaceIdMapper>(

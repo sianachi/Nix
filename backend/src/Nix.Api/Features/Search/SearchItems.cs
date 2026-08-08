@@ -60,6 +60,29 @@ public sealed class SearchItemsHandler : IQueryHandler<SearchItems, Result<Searc
     /// <summary>The number of results returned when a caller names none.</summary>
     public const int DefaultLimit = 20;
 
+    /// <summary>
+    /// The shortest query that is actually searched.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three because that is the length of a trigram.</b> <c>gin_trgm_ops</c> cannot extract one
+    /// from a shorter pattern, so the planner drops <c>ix_item_title_trgm</c> entirely and falls
+    /// back to reading every item in the caller's readable workspaces and applying the <c>ILIKE</c>
+    /// as a filter. Measured on a hundred-thousand-item tenant, a two-character query cost 30.6ms
+    /// against 8.1ms for an eight-character one - and the two-character figure grows with the
+    /// workspace while the eight-character one grows with the number of matches. Both the palette
+    /// and the reference picker debounce at 150ms, so somebody typing a word emits two of those
+    /// before the third character lands.
+    /// </para>
+    /// <para>
+    /// Returning nothing is therefore the honest answer rather than a refusal: the interface asks
+    /// for more letters. Making one- and two-character search work needs a prefix path against
+    /// <c>ix_item_title</c>'s <c>text_pattern_ops</c>, which is a different query and a different
+    /// goal.
+    /// </para>
+    /// </remarks>
+    public const int MinimumQueryLength = 3;
+
     private readonly IItemSearch _search;
     private readonly IPermissionResolver _permissions;
 
@@ -88,7 +111,10 @@ public sealed class SearchItemsHandler : IQueryHandler<SearchItems, Result<Searc
         var text = query.Query.Trim();
         var limit = Math.Clamp(query.Limit, 1, MaximumLimit);
 
-        if (text.Length == 0)
+        // Below the trigram floor this would be a corpus scan per keystroke; see MinimumQueryLength.
+        // The empty query lands here too, which is what an interface sends while somebody is still
+        // deleting what they typed.
+        if (text.Length < MinimumQueryLength)
         {
             return Result.Success(new SearchResults(text, [], limit));
         }

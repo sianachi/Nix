@@ -121,7 +121,7 @@ public sealed class NixDbContext : DbContext
     /// </summary>
     /// <remarks>
     /// Mapped so the model owns the schema, and never queried through here: the backlinks read is
-    /// a hand-written statement in <c>LinksSql</c>, because it filters on what the acting principal
+    /// a hand-written statement in <c>SearchSql</c>, because it filters on what the acting principal
     /// may see and that filtering belongs inside the query rather than after it.
     /// </remarks>
     public DbSet<ItemLink> ItemLinks => Set<ItemLink>();
