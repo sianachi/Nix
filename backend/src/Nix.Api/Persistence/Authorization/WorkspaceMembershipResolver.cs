@@ -40,6 +40,7 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
     private readonly Dictionary<WorkspaceId, WorkspaceRole?> _roles = [];
 
     private bool? _isAdministrator;
+    private IReadOnlyList<WorkspaceId>? _readableWorkspaces;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WorkspaceMembershipResolver"/> class.
@@ -77,6 +78,48 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
     {
         var role = await RoleInAsync(workspaceId, cancellationToken).ConfigureAwait(false);
         return role is { } held && held.GrantsWrite();
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_readableWorkspaces is { } cached)
+        {
+            return cached;
+        }
+
+        var context = Session;
+
+        // The administrator check first, because it decides which statement to run rather than
+        // adding to its result: an administrator reaches every workspace in the tenant, so the
+        // membership arms would only ever return a subset of what is already granted.
+        var statement = await IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false)
+            ? AuthorizationSql.WorkspacesInTenant
+            : AuthorizationSql.WorkspacesReadableByPrincipal;
+
+        var parameters = string.Equals(statement, AuthorizationSql.WorkspacesInTenant, StringComparison.Ordinal)
+            ? new[] { Uuid("tenant_id", context.TenantId.Value) }
+            : [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value)];
+
+        var workspaces = new List<WorkspaceId>();
+        var rows = _sql.QueryAsync<WorkspaceId, WorkspaceIdMapper>(
+            statement,
+            default,
+            parameters,
+            cancellationToken);
+
+        await foreach (var workspaceId in rows.ConfigureAwait(false))
+        {
+            workspaces.Add(workspaceId);
+        }
+
+        // Deliberately not seeding `_roles` from this. The statement answers "may read", and the
+        // cache holds "which role", which is a strictly stronger claim: writing `Owner` for every
+        // workspace that came back would turn a reader into a writer the next time anything asked
+        // `CanWriteWorkspaceAsync`. One saved round trip is not worth a cache that can promote.
+        _readableWorkspaces = workspaces;
+        return workspaces;
     }
 
     /// <inheritdoc />
@@ -154,6 +197,18 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
 
     private static NpgsqlParameter Uuid(string name, Guid value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value };
+
+    /// <summary>Reads the single <c>workspace_id</c> column.</summary>
+    /// <remarks>A struct, so the query loop devirtualises and allocates nothing per row.</remarks>
+    private readonly struct WorkspaceIdMapper : INixRowMapper<WorkspaceId>
+    {
+        /// <inheritdoc />
+        public WorkspaceId Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+            return WorkspaceId.From(reader.GetGuid(0));
+        }
+    }
 
     /// <summary>Reads the single <c>role</c> column.</summary>
     /// <remarks>

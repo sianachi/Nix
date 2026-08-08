@@ -1303,6 +1303,147 @@
           }
         }
       }
+    },
+    "/api/v1/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "Find items by title or document text",
+        "description": "Returns items whose title contains 'q', or whose document text matches it, with title matches ranked first. The search covers every workspace the caller may read and nothing else - the filter is a predicate inside the query, so the limit is never spent on rows that would then be discarded. An item in a workspace the caller cannot reach is omitted entirely rather than redacted. A blank query returns no results rather than every item.",
+        "operationId": "SearchItems",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search/references": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "Resolve the items a document's references point at",
+        "description": "Takes 'ids' as a comma-separated list of identifiers and returns one entry for each, in the order asked. An entry the caller may read carries the item's current title; one they may not carries 'readable: false' and no title at all. The two are distinguishable on purpose, because a reference node caches the target's title for rendering and must show a stub rather than that cache when the reader has no permission on it. Why an identifier did not resolve is deliberately not reported: deleted, never existed, and not visible to you are one answer.",
+        "operationId": "ResolveReferences",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferencesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/backlinks": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "The documents that refer to an item",
+        "description": "Returns the items whose documents link to this one, most-referring first. Only referring documents the caller may read are included, and they are excluded from the count as well as from the list: being able to read an item does not entitle you to know that a document elsewhere mentions it. Backlinks are derived from documents when they are snapshotted, so a link made moments ago may not have been published yet.",
+        "operationId": "GetBacklinks",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacklinksResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1354,6 +1495,53 @@
               "string"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "BacklinkResponse": {
+        "required": [
+          "source",
+          "occurrences"
+        ],
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/SearchHitResponse"
+          },
+          "occurrences": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "BacklinksResponse": {
+        "required": [
+          "backlinks",
+          "limit",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "backlinks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BacklinkResponse"
+            }
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       },
@@ -1796,6 +1984,47 @@
           }
         }
       },
+      "ReferenceResolutionResponse": {
+        "required": [
+          "id",
+          "readable",
+          "item"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "readable": {
+            "type": "boolean"
+          },
+          "item": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SearchHitResponse"
+              }
+            ]
+          }
+        }
+      },
+      "ReferencesResponse": {
+        "required": [
+          "references"
+        ],
+        "type": "object",
+        "properties": {
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReferenceResolutionResponse"
+            }
+          }
+        }
+      },
       "RoleGrantResponse": {
         "required": [
           "subjectType",
@@ -1822,6 +2051,65 @@
           "grantedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "SearchHitResponse": {
+        "required": [
+          "id",
+          "workspaceId",
+          "type",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SearchResponse": {
+        "required": [
+          "query",
+          "results",
+          "limit",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchHitResponse"
+            }
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       },
@@ -2160,6 +2448,9 @@
     },
     {
       "name": "Roles"
+    },
+    {
+      "name": "Search"
     }
   ]
 }

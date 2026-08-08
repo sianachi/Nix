@@ -8,6 +8,7 @@ using Nix.Features.Me;
 using Nix.Features.Permissions;
 using Nix.Features.Properties;
 using Nix.Features.Roles;
+using Nix.Features.Search;
 using Nix.Features.Workspaces;
 using Nix.Persistence;
 using Nix.Serialization;
@@ -42,6 +43,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(PermissionsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(RolesJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(InternalJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(SearchJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -185,6 +187,7 @@ app.MapStructureEndpoints();
 app.MapPermissionEndpoints();
 app.MapRoleEndpoints();
 app.MapInternalEndpoints();
+app.MapSearchEndpoints();
 
 app.Run();
 

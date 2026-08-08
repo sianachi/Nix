@@ -384,6 +384,66 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/search': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Find items by title or document text
+     * @description Returns items whose title contains 'q', or whose document text matches it, with title matches ranked first. The search covers every workspace the caller may read and nothing else - the filter is a predicate inside the query, so the limit is never spent on rows that would then be discarded. An item in a workspace the caller cannot reach is omitted entirely rather than redacted. A blank query returns no results rather than every item.
+     */
+    get: operations['SearchItems'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/search/references': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Resolve the items a document's references point at
+     * @description Takes 'ids' as a comma-separated list of identifiers and returns one entry for each, in the order asked. An entry the caller may read carries the item's current title; one they may not carries 'readable: false' and no title at all. The two are distinguishable on purpose, because a reference node caches the target's title for rendering and must show a stub rather than that cache when the reader has no permission on it. Why an identifier did not resolve is deliberately not reported: deleted, never existed, and not visible to you are one answer.
+     */
+    get: operations['ResolveReferences'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/backlinks': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The documents that refer to an item
+     * @description Returns the items whose documents link to this one, most-referring first. Only referring documents the caller may read are included, and they are excluded from the count as well as from the list: being able to read an item does not entitle you to know that a document elsewhere mentions it. Backlinks are derived from documents when they are snapshotted, so a link made moments ago may not have been published yet.
+     */
+    get: operations['GetBacklinks'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -402,6 +462,17 @@ export interface components {
       breaksInheritance: boolean;
       /** Format: uuid */
       inheritedFromItemId: null | string;
+    };
+    BacklinkResponse: {
+      source: components['schemas']['SearchHitResponse'];
+      /** Format: int32 */
+      occurrences: number | string;
+    };
+    BacklinksResponse: {
+      backlinks: components['schemas']['BacklinkResponse'][];
+      /** Format: int32 */
+      limit: number | string;
+      truncated: boolean;
     };
     ContainerViewsResponse: {
       views: components['schemas']['ViewResponse'][];
@@ -510,6 +581,15 @@ export interface components {
       options: string[];
       required: boolean;
     };
+    ReferenceResolutionResponse: {
+      /** Format: uuid */
+      id: string;
+      readable: boolean;
+      item: null | components['schemas']['SearchHitResponse'];
+    };
+    ReferencesResponse: {
+      references: components['schemas']['ReferenceResolutionResponse'][];
+    };
     RoleGrantResponse: {
       subjectType: string;
       /** Format: uuid */
@@ -518,6 +598,21 @@ export interface components {
       role: string;
       /** Format: date-time */
       grantedAt: string;
+    };
+    SearchHitResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      type: string;
+      title: null | string;
+    };
+    SearchResponse: {
+      query: string;
+      results: components['schemas']['SearchHitResponse'][];
+      /** Format: int32 */
+      limit: number | string;
+      truncated: boolean;
     };
     ServiceStatusResponse: {
       service: string;
@@ -1517,6 +1612,93 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SearchItems: {
+    parameters: {
+      query?: {
+        q?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SearchResponse'];
+        };
+      };
+    };
+  };
+  ResolveReferences: {
+    parameters: {
+      query?: {
+        ids?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReferencesResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetBacklinks: {
+    parameters: {
+      query?: {
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BacklinksResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

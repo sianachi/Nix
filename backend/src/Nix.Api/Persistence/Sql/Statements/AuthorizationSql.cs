@@ -64,6 +64,65 @@ public static class AuthorizationSql
         """;
 
     /// <summary>
+    /// Every workspace the acting principal holds any role in, directly or through a group.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>UNION</c> rather than <c>UNION ALL</c>: unlike
+    /// <see cref="WorkspaceRolesForPrincipal"/>, which wants every grant so the caller can pick the
+    /// strongest, this wants each workspace once. A principal granted the same workspace by name
+    /// and through a group would otherwise be told to search it twice, and the duplicate would
+    /// travel all the way into the search statement's parameter array.
+    /// </para>
+    /// <para>
+    /// Holding <i>any</i> role is the right test while a role is the whole answer: every workspace
+    /// role can read, and which of them can also write is
+    /// <c>Nix.Domain.Authorization.WorkspaceRoles</c>'s question, not this one's. A reader-only
+    /// role that could not read would be a contradiction rather than a policy.
+    /// </para>
+    /// <para>
+    /// Index dependencies: <c>IX_workspace_member_tenant_id_subject_type_subject_id</c> for both
+    /// arms and <c>IX_group_membership_tenant_id_principal_id</c> for the group lookup.
+    /// </para>
+    /// </remarks>
+    public const string WorkspacesReadableByPrincipal = """
+        SELECT member.workspace_id
+        FROM workspace_member member
+        WHERE member.tenant_id = @tenant_id
+          AND member.subject_type = 'principal'
+          AND member.subject_id = @principal_id
+
+        UNION
+
+        SELECT member.workspace_id
+        FROM workspace_member member
+        JOIN group_membership membership
+          ON membership.group_id = member.subject_id
+         AND membership.tenant_id = member.tenant_id
+        WHERE member.tenant_id = @tenant_id
+          AND member.subject_type = 'group'
+          AND membership.principal_id = @principal_id
+        """;
+
+    /// <summary>
+    /// Every workspace in the tenant, for a principal whose reach is the tenant.
+    /// </summary>
+    /// <remarks>
+    /// Asked only after <see cref="PrincipalIsTenantAdministrator"/> has said yes. An administrator
+    /// who could be locked out of a workspace could not administer the tenant, which is the same
+    /// rule the per-workspace resolution applies - stated here as a second statement rather than as
+    /// a third arm of the union above, so that an ordinary member never pays for the table scan an
+    /// administrator needs.
+    ///
+    /// Index dependency: <c>IX_workspace_tenant_id</c>.
+    /// </remarks>
+    public const string WorkspacesInTenant = """
+        SELECT workspace.workspace_id
+        FROM workspace
+        WHERE workspace.tenant_id = @tenant_id
+        """;
+
+    /// <summary>
     /// Whether the acting principal holds a tenant-wide administrative role, by name or through a
     /// group.
     /// </summary>

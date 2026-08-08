@@ -63,6 +63,32 @@ public interface IPermissionResolver
     public ValueTask<bool> CanWriteWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Every workspace the acting principal may read.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The readable workspaces, which may be empty.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The question a search asks, and the reason it is on the port rather than in the query.</b>
+    /// <see cref="CanReadWorkspaceAsync"/> answers about a workspace the caller already named. A
+    /// search names none: it has to be told where it is allowed to look before it looks, or it
+    /// would have to read rows first and discard them afterwards - and filtering after the fact is
+    /// how a result count, a ranking, or a page boundary ends up describing rows the caller was
+    /// never entitled to see.
+    /// </para>
+    /// <para>
+    /// The answer is bound into the query as a parameter, so the filtering happens inside it. When
+    /// access control entries arrive this becomes the set of workspaces whose chain-root grant is
+    /// an allow, the item-level predicate joins it, and the call sites do not move.
+    /// </para>
+    /// <para>
+    /// Returned as a collection rather than streamed because a principal belongs to tens of
+    /// workspaces, not thousands, and every caller needs the whole set at once to pass it on.
+    /// </para>
+    /// </remarks>
+    public ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Whether the acting principal holds a tenant-wide administrative role.
     /// </summary>
     /// <param name="cancellationToken">Cancels the lookup.</param>

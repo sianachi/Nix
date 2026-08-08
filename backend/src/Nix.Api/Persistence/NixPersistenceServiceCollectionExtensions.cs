@@ -11,13 +11,16 @@ using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Me;
 using Nix.Features.Properties;
+using Nix.Features.Search;
 using Nix.Features.Views;
 using Nix.Messaging;
 using Nix.Persistence.Authorization;
 using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
+using Nix.Persistence.Links;
 using Nix.Persistence.Properties;
 using Nix.Persistence.Rls;
+using Nix.Persistence.Search;
 using Nix.Persistence.Sql;
 using Npgsql;
 
@@ -131,6 +134,12 @@ public static class NixPersistenceServiceCollectionExtensions
         // acting as one principal in one tenant.
         services.AddScoped<IPermissionResolver, WorkspaceMembershipResolver>();
 
+        // The two readers over the derived tables. Scoped like the stores: both borrow the unit of
+        // work's connection so their statements run inside the transaction that published the RLS
+        // session context.
+        services.AddScoped<IItemSearch, ItemSearch>();
+        services.AddScoped<IItemLinks, ItemLinks>();
+
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
         // host that registers nothing still gets a working graph instead of a resolution failure at
@@ -169,6 +178,10 @@ public static class NixPersistenceServiceCollectionExtensions
 
         services.AddScoped<IQueryHandler<GetItemAuthorization, Result<ItemAuthorization>>, GetItemAuthorizationHandler>();
         services.AddScoped<ICommandHandler<TouchItem, ItemId>, TouchItemHandler>();
+
+        services.AddScoped<IQueryHandler<SearchItems, Result<SearchResults>>, SearchItemsHandler>();
+        services.AddScoped<IQueryHandler<ResolveReferences, Result<ResolvedReferences>>, ResolveReferencesHandler>();
+        services.AddScoped<IQueryHandler<GetBacklinks, Result<BacklinkResults>>, GetBacklinksHandler>();
 
         return services;
     }
