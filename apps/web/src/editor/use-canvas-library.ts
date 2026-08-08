@@ -12,6 +12,13 @@ import { useAuth } from '../auth/auth-provider';
  * way a physical stencil is not left behind in one notebook. That is why this hook takes no
  * `itemId`: it asks Core for the caller's own library, the same request wherever a canvas mounts.
  *
+ * **`items` is a seed, not live state.** It changes exactly once, when the mount-time read
+ * resolves, and `save` deliberately does not mirror what it was handed back into it. Excalidraw
+ * owns the live library; mirroring it here gave every save a state change, and a state change
+ * re-armed the editor's seeding effect, whose `updateLibrary` echoed back through
+ * `onLibraryChange` into another save - a feedback loop that hammered Core with identical PUTs
+ * and hung the tab.
+ *
  * Talks to Core directly with `fetch` rather than through `@nix/api-client`'s cache layer, matching
  * `use-current-principal.ts` and `use-backlinks.ts`: the client's descriptor execution wants a
  * configured `NixClient`, and this needs one thing, a bearer token on each request.
@@ -35,7 +42,7 @@ export type CanvasLibraryStatus = 'loading' | 'ready' | 'error';
 
 export interface CanvasLibraryState {
   readonly status: CanvasLibraryStatus;
-  /** The library's items, empty while loading or on a failed read. */
+  /** What Core held at mount, for seeding Excalidraw. Empty while loading or on a failed read. */
   readonly items: readonly unknown[];
   /** Replaces the library wholesale with what Excalidraw's own `onLibraryChange` reports. */
   readonly save: (items: readonly unknown[]) => void;
@@ -48,10 +55,18 @@ export function useCanvasLibrary(): CanvasLibraryState {
   const [status, setStatus] = useState<CanvasLibraryStatus>('loading');
   const [items, setItems] = useState<readonly unknown[]>(NONE);
 
-  // Guards the mount-time read against a save that lands first: without it, a save fired the
-  // instant a canvas mounts (Excalidraw replays a saved library through `onLibraryChange` on
-  // load) could be overwritten by the read's response arriving after.
+  // Guards saves until the mount-time read lands: Excalidraw fires `onLibraryChange` with
+  // whatever it booted with, and saving that before the fetch resolves would overwrite a library
+  // that has not been read yet with an empty one. Stays false forever when the read fails, which
+  // makes saving impossible for the mount - overwriting state we could not read is worse than
+  // dropping one session's additions.
   const loadedRef = useRef(false);
+
+  // The request body Core is known to hold, or null when that is unknown (before the read, or
+  // after a failed save). A save whose body matches is dropped without a request - which is what
+  // breaks the echo: `updateLibrary` re-announces the seeded library through `onLibraryChange`,
+  // and without this comparison that announcement was a PUT of content Core already had, forever.
+  const knownRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -78,6 +93,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
         }
 
         loadedRef.current = true;
+        knownRef.current = JSON.stringify({ items: parsed.items });
         setItems(parsed.items);
         setStatus('ready');
       } catch (cause) {
@@ -98,14 +114,18 @@ export function useCanvasLibrary(): CanvasLibraryState {
 
   const save = useCallback(
     (nextItems: readonly unknown[]) => {
-      setItems(nextItems);
-
-      // Excalidraw fires `onLibraryChange` once on mount with whatever it booted with, before this
-      // hook's own read has necessarily returned. Saving that early would overwrite a library that
-      // has not been fetched yet with an empty one.
       if (!loadedRef.current) {
         return;
       }
+
+      const body = JSON.stringify({ items: nextItems });
+      if (body === knownRef.current) {
+        return;
+      }
+
+      // Claimed before the request rather than after it, so the echoes that arrive while the PUT
+      // is in flight are deduplicated too; the failure path below un-claims it.
+      knownRef.current = body;
 
       void (async () => {
         try {
@@ -117,13 +137,16 @@ export function useCanvasLibrary(): CanvasLibraryState {
               'content-type': 'application/json',
               ...(token === null ? {} : { authorization: `Bearer ${token}` }),
             },
-            body: JSON.stringify({ items: nextItems }),
+            body,
           });
 
           if (!response.ok) {
             throw new Error(`The canvas library could not be saved (${String(response.status)}).`);
           }
         } catch (cause) {
+          // Core does not hold what we claimed it does, so forget the claim: the next change
+          // retries instead of being deduplicated against a write that never landed.
+          knownRef.current = null;
           console.warn('The canvas library save failed.', cause);
         }
       })();

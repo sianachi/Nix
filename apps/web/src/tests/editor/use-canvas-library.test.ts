@@ -96,6 +96,27 @@ describe('the caller’s own canvas library', () => {
     expect(JSON.parse(init.body as string)).toEqual({ items: [{ id: 'shape-2' }] });
   });
 
+  it('drops a save identical to what Core already holds instead of echoing it back', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [{ id: 'shape-1' }] }), { status: 200 }),
+    );
+
+    const { result } = renderHook(() => useCanvasLibrary());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
+
+    // Seeding Excalidraw with the loaded library makes it announce that same library back
+    // through `onLibraryChange`. Saving that announcement was a feedback loop: an unbounded
+    // stream of identical PUTs that hung the tab. The unchanged echo must die here.
+    act(() => {
+      result.current.save([{ id: 'shape-1' }]);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not save back to Core before the initial read has resolved', async () => {
     fetchMock.mockImplementation(() => new Promise(() => undefined));
 

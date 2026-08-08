@@ -59,6 +59,10 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
   const apiRef = useRef<SceneApi | null>(null);
   const bindingRef = useRef<ReturnType<typeof createCanvasBinding> | null>(null);
 
+  // State rather than only the ref above, because the library-seeding effect below must run when
+  // the imperative API arrives, and a ref write re-runs nothing.
+  const [excalidrawReady, setExcalidrawReady] = useState(false);
+
   useEffect(() => {
     const binding = createCanvasBinding(doc, (elements) => {
       apiRef.current?.updateScene({ elements });
@@ -98,13 +102,23 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
   // Pushed imperatively rather than through Excalidraw's `initialData`, because the library loads
   // asynchronously from Core and may resolve well after Excalidraw has already mounted with an
   // empty one - the same reason the scene above is seeded through `updateScene` rather than
-  // `initialData.elements`. `merge: false` because this hook already holds the caller's complete
-  // library; asking Excalidraw to merge would duplicate items it already has.
+  // `initialData.elements`. `merge: false` because the hook holds the caller's complete library;
+  // asking Excalidraw to merge would duplicate items it already has.
+  //
+  // Seeded exactly once per mount, which the ref enforces. `updateLibrary` announces its result
+  // back through `onLibraryChange`, so a seed that re-armed on later renders turned that echo
+  // into a feedback loop - seed, echo, save, render, seed again - that flooded Core with
+  // identical writes and hung the tab. The hook's own content comparison drops the echo's save;
+  // this ref makes sure the seed itself cannot recur either.
+  const seededRef = useRef(false);
   useEffect(() => {
-    if (library.status === 'ready') {
-      void apiRef.current?.updateLibrary({ libraryItems: library.items, merge: false });
+    if (!excalidrawReady || library.status !== 'ready' || seededRef.current) {
+      return;
     }
-  }, [library.status, library.items]);
+
+    seededRef.current = true;
+    void apiRef.current?.updateLibrary({ libraryItems: library.items, merge: false });
+  }, [excalidrawReady, library.status, library.items]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -116,6 +130,7 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
         <Excalidraw
           excalidrawAPI={(api) => {
             apiRef.current = api as unknown as SceneApi;
+            setExcalidrawReady(true);
             // The shared scene is the source of truth; whatever the server already
             // holds replaces the empty scene Excalidraw booted with.
             const scene = bindingRef.current?.snapshot() ?? [];
