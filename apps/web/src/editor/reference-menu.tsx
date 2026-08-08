@@ -21,17 +21,21 @@ import { useAuth } from '../auth/auth-provider';
  * at all - a field of its own would take the focus, and the next character typed would go into the
  * picker instead of into the note.
  *
- * The slash menu does hold its query in a field, which is why its removal arithmetic assumes the
- * caret has not moved. That is a real difference in robustness between the two, and this is the
- * shape the slash menu should eventually take.
+ * The slash menu now takes exactly this shape too - it held its query in a field of its own once,
+ * and both of the bugs that design produced are written up on `SlashMenu` itself.
  *
  * **The search is the server's, not the loaded tree's.** The sidebar fetches children per folder
  * on expansion, so a client-side filter can only see what somebody has already clicked open -
  * which for a picker means the item you are trying to link to is usually the one it cannot find.
  */
 
-/** How far into a trigger somebody can type before it stops being a link and starts being prose. */
-const MAX_QUERY = 64;
+/**
+ * How far into a trigger somebody can type before it stops being a link and starts being prose.
+ *
+ * Exported for the slash menu, which reads the same size of window out of the document: its
+ * deferral to this picker only works if it can see every trigger this picker can.
+ */
+export const MAX_QUERY = 64;
 
 /** How long to wait after the last keystroke before asking the server. */
 const DEBOUNCE_MS = 150;

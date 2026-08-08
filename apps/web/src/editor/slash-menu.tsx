@@ -1,5 +1,5 @@
 import { Listbox, useListbox } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import {
   Code,
@@ -7,6 +7,7 @@ import {
   Heading2,
   Heading3,
   Image as ImageIcon,
+  Link,
   List,
   ListOrdered,
   ListTodo,
@@ -17,6 +18,11 @@ import {
   Type,
   type LucideIcon,
 } from 'lucide-react';
+
+import {
+  MAX_QUERY as REFERENCE_MAX_QUERY,
+  findTrigger as findReferenceTrigger,
+} from './reference-menu';
 
 /**
  * Everything `/` can insert.
@@ -149,6 +155,18 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
       }
     },
   },
+  {
+    id: 'link-item',
+    label: 'Link to item',
+    hint: 'Reference another document',
+    icon: Link,
+    keywords: ['link', 'reference', 'wiki', 'mention', 'backlink', 'item', 'document'],
+    // Written as the trigger it abbreviates rather than opening the picker directly: the
+    // reference menu reads `[[` out of the document on every transaction, so inserting the
+    // trigger *is* opening the picker - one opening mechanism, not two to keep in step. The
+    // insertion point is always a word start, because this menu's own trigger required one.
+    run: (editor) => editor.chain().focus().insertContent('[[').run(),
+  },
 ];
 
 /**
@@ -174,35 +192,151 @@ export function filterSlashCommands(query: string): readonly SlashCommand[] {
 }
 
 /**
- * The block inserter, opened with `/`.
- *
- * Filtering happens as you type, and the list is flat because a menu you filter beats a menu you
- * navigate. Escape closes it without inserting anything, which is what a person who typed `/` in
- * the middle of a sentence needs.
+ * How far into `/` somebody can type before it stops being a command and goes back to being
+ * prose. Longer than any label or keyword, with room for a typo; past it, this is a sentence
+ * that happens to start with a slash.
  */
-export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const filterRef = useRef<HTMLInputElement>(null);
+const MAX_QUERY = 24;
 
-  const commands = filterSlashCommands(query);
+/** An open `/` trigger: where its text starts and what has been typed after it. */
+export interface FoundSlashTrigger {
+  readonly start: number;
+  readonly query: string;
+}
 
-  function insert(command: SlashCommand): void {
-    // The `/` and whatever was typed after it are the menu's, not the document's, so they come
-    // back out before the block goes in.
-    const { from } = editor.state.selection;
-    const start = Math.max(0, from - (query.length + 1));
-    editor.chain().focus().deleteRange({ from: start, to: from }).run();
-
-    command.run(editor);
-    setOpen(false);
-    setQuery('');
+/**
+ * Finds an open `/` in the text before the caret.
+ *
+ * The same contract as the reference picker's `findTrigger`, for the same reasons. A slash only
+ * counts at the start of a word - after whitespace, or at the very start of the block - so
+ * "and/or" and the slashes inside a URL stay text. The query may contain spaces, because the
+ * labels do ("Task list"); a newline ends it, and so does a query longer than any command name.
+ * A *second* slash re-anchors the search and then fails the word-start test, which is what closes
+ * the menu when somebody carries on typing a path.
+ *
+ * Exported for its own tests: it is pure string handling, and the alternative is asserting it
+ * through an editor, a document and a selection.
+ */
+export function findSlashTrigger(text: string, truncated = false): FoundSlashTrigger | null {
+  const start = text.lastIndexOf('/');
+  if (start < 0) {
+    return null;
   }
 
-  // The highlight, the arrow keys and the option markup all come from `<Listbox>` now. What used
-  // to be here was the first of what would have been four copies of the same keyboard model - the
-  // reference picker and the command palette are the others - and it was the only one of them with
-  // options as focusable buttons, which put a listbox's contents into the tab order.
+  // Position zero is the start of a word only when it really is the start of the block. When the
+  // caller handed over a window cut out of a longer paragraph, the character before it is unknown.
+  const before = start === 0 ? (truncated ? undefined : ' ') : text[start - 1];
+  if (before === undefined || !/\s/.test(before)) {
+    return null;
+  }
+
+  const query = text.slice(start + 1);
+  if (query.length > MAX_QUERY || query.includes('\n')) {
+    return null;
+  }
+
+  return { start, query };
+}
+
+/** Where the menu sits, and what it is filtering. */
+interface OpenTrigger {
+  /** Document positions of the trigger's text - the `/` and the query - so it can be removed exactly. */
+  readonly from: number;
+  readonly to: number;
+  readonly query: string;
+  /** Viewport coordinates of the caret. */
+  readonly left: number;
+  readonly top: number;
+}
+
+/**
+ * The block inserter, opened by typing `/` at the start of a word.
+ *
+ * **The same shape as the reference picker, deliberately.** The query lives in the document and
+ * focus never leaves it; the trigger is read back out of the document on every transaction, and
+ * the keys are taken off the editor's own element while the menu is open. The previous version
+ * held its query in a field of its own and moved focus into it, and both reported bugs fell out
+ * of exactly that: the `/` keystroke raced the focus move and landed in the field - so the menu
+ * opened showing "No block matches" until a backspace cleared the stray slash - and the keyboard
+ * model was attached to a field the focus had not reliably reached. Its removal arithmetic also
+ * assumed the query had been typed into the document when it never was, so committing a command
+ * deleted that many characters of real content.
+ *
+ * Escape closes it without unwriting anything: the `/` somebody typed is theirs. Committing a
+ * command removes the trigger text and inserts the block in its place.
+ */
+export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
+  const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+
+  // Read from the document on every transaction, because the document is where the trigger lives.
+  useEffect(() => {
+    function readTrigger(): void {
+      const { state } = editor;
+      const { from, empty } = state.selection;
+
+      if (!empty) {
+        setTrigger(null);
+        return;
+      }
+
+      // The window is the *reference* picker's, not this menu's own smaller one, because the
+      // deferral below has to see everything that picker can: a `[[` that sits further back than
+      // a slash query is long would otherwise be invisible here, and both menus would open at
+      // once over the same caret.
+      const at = state.doc.resolve(from);
+      const window = Math.max(0, at.parentOffset - (REFERENCE_MAX_QUERY + 2));
+      const text = at.parent.textBetween(window, at.parentOffset, '\n', '\n');
+      const truncated = window > 0;
+
+      // The reference picker wins. `[[quarterly /q2` is somebody typing a slash inside a link
+      // query, and two floating menus fighting over the same arrow keys helps nobody.
+      if (findReferenceTrigger(text, truncated) !== null) {
+        setTrigger(null);
+        return;
+      }
+
+      const found = findSlashTrigger(text, truncated);
+      if (found === null) {
+        setTrigger(null);
+        return;
+      }
+
+      const start = from - (text.length - found.start);
+      const coords = editor.view.coordsAtPos(from);
+
+      setTrigger({
+        from: start,
+        to: from,
+        query: found.query,
+        left: coords.left,
+        top: coords.bottom,
+      });
+    }
+
+    // Closed when the editor loses the focus: the trigger derives from the document's selection,
+    // which survives a blur, so clicking into the sidebar with `/` half-typed would otherwise
+    // leave the menu floating with its keyboard handler bound to an element nobody is typing in.
+    function onBlur(): void {
+      setTrigger(null);
+    }
+
+    readTrigger();
+    editor.on('transaction', readTrigger);
+    editor.on('blur', onBlur);
+
+    return () => {
+      editor.off('transaction', readTrigger);
+      editor.off('blur', onBlur);
+    };
+  }, [editor]);
+
+  // Escape closes a trigger without unwriting it, and the dismissal is of one position: typing
+  // another `/` elsewhere opens the menu again.
+  const open = trigger !== null && trigger.from !== dismissed;
+  const query = trigger?.query ?? '';
+
+  const commands = filterSlashCommands(query);
   const options = commands.map((command) => ({
     id: command.id,
     label: command.label,
@@ -212,62 +346,83 @@ export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
 
   const listbox = useListbox(options, (_option, index) => {
     const command = commands[index];
-    if (command !== undefined) {
-      insert(command);
+    if (command === undefined || trigger === null) {
+      return;
     }
+
+    // The trigger's text - the `/` and the query, at the positions just read from the document -
+    // comes out first, then the command runs against the caret it leaves behind. Nothing else is
+    // touched, which is what the field-based version got wrong: its arithmetic deleted characters
+    // the document actually owned.
+    editor.chain().focus().deleteRange({ from: trigger.from, to: trigger.to }).run();
+    command.run(editor);
   });
 
-  // Focus moved deliberately rather than declared with autoFocus: the menu appears in response to
-  // a keystroke, so moving the caret into it is continuing what the person started - which is the
-  // one case where taking focus is right, and the attribute cannot express the distinction.
+  // The keys are taken off the editor's own element, because that is what holds the focus. Capture
+  // phase, so the arrow keys move the highlight rather than the caret while the menu is open.
   useEffect(() => {
-    if (open) {
-      filterRef.current?.focus();
+    if (!open) {
+      return;
     }
-  }, [open]);
 
-  useEffect(() => {
+    const dom = editor.view.dom;
+    const dismissAt = trigger.from;
+
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape' && open) {
-        setOpen(false);
-        setQuery('');
+      if (event.key === 'Escape') {
+        // The innermost open layer wins and stops the event, so Escape here does not also close
+        // the pane behind it. See `command-palette.tsx` for the full convention.
+        event.preventDefault();
+        event.stopPropagation();
+        setDismissed(dismissAt);
         return;
       }
 
-      if (event.key === '/' && editor.isFocused && !open) {
-        setOpen(true);
-        setQuery('');
-      }
+      listbox.onKeyDown(event);
     }
 
-    document.addEventListener('keydown', onKeyDown);
+    dom.addEventListener('keydown', onKeyDown, true);
     return () => {
-      document.removeEventListener('keydown', onKeyDown);
+      dom.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [editor, open]);
+  }, [editor, listbox, open, trigger]);
+
+  // `aria-activedescendant` on the editor itself. It is a textbox with a listbox attached, which
+  // is what the attribute is for; without it the highlight moves silently for anybody who cannot
+  // see it. The reference picker sets the same attributes; the deferral above is what guarantees
+  // the two are never open - and never writing here - at once.
+  useEffect(() => {
+    const dom = editor.view.dom;
+    if (!open) {
+      dom.removeAttribute('aria-activedescendant');
+      dom.removeAttribute('aria-controls');
+      return;
+    }
+
+    dom.setAttribute('aria-controls', listbox.id);
+    if (listbox.activeOptionId === undefined) {
+      dom.removeAttribute('aria-activedescendant');
+    } else {
+      dom.setAttribute('aria-activedescendant', listbox.activeOptionId);
+    }
+
+    return () => {
+      dom.removeAttribute('aria-activedescendant');
+      dom.removeAttribute('aria-controls');
+    };
+  }, [editor, listbox.activeOptionId, listbox.id, open]);
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="absolute z-20 mt-1 flex max-h-[280px] w-[280px] flex-col overflow-y-auto border border-divider bg-background shadow-md">
-      <input
-        aria-label="Filter blocks"
-        role="combobox"
-        aria-expanded
-        aria-controls={listbox.id}
-        aria-activedescendant={listbox.activeOptionId}
-        ref={filterRef}
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-        }}
-        onKeyDown={listbox.onKeyDown}
-        className="w-full border-b border-divider bg-transparent px-3 py-2 text-base outline-none"
-        placeholder="Filter blocks"
-      />
-
+    <div
+      // Positioned against the caret in viewport coordinates, so it follows the text rather than
+      // the scroller - which the editor does under it.
+      style={{ left: trigger.left, top: trigger.top }} // design-token-exempt: a caret's position is a runtime measurement, not a scale step.
+      className="fixed z-20 mt-1 flex max-h-[280px] w-[280px] flex-col overflow-y-auto border border-divider bg-background shadow-md"
+    >
       <Listbox
         label="Insert a block"
         options={options}
