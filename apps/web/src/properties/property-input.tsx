@@ -1,7 +1,18 @@
-import { Field, Input, blueprintFrame, cn, disabledState, focusRing } from '@nix/ui';
+import {
+  Field,
+  Input,
+  Text,
+  blueprintFrame,
+  cn,
+  disabledState,
+  fieldLabel,
+  focusRing,
+} from '@nix/ui';
 import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/timestamps';
+
+import { ImageValue } from './image-value';
 
 import {
   UNSET_LABEL,
@@ -115,12 +126,12 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
     case 'url':
       return <TypedValue {...props} kind="url" />;
 
-    // Edited as an address, because an address is what it holds. **Not a file picker**: there is no
-    // file or media model in this build to pick from, and a control that opened one would be
-    // offering something the system cannot store. It becomes a picker at MVP-6 alongside the media
-    // model, and this arm is where that change lands.
+    // A picker over an address, because an address is what it holds. **Still not a file picker**:
+    // there is no file or media model in this build to pick from, and a control that opened one
+    // would be offering something the system cannot store. Choosing, pasting or dragging a picture
+    // in all hand over a URL; the upload arrives with the media model.
     case 'image':
-      return <TypedValue {...props} kind="url" />;
+      return <ImageValue {...props} />;
 
     case 'number':
       return <TypedValue {...props} kind="number" />;
@@ -226,13 +237,13 @@ function CellShell(props: ValueShellProps): ReactNode {
       {/* The refusal sits in the cell that caused it and nowhere else. A banner over the table
           would name a property and leave somebody counting rows to find which one. */}
       {invalid ? (
-        <p id={noteId} role="alert" className="font-body text-sm text-foreground">
+        <Text variant="note" id={noteId} role="alert">
           {error}
-        </p>
+        </Text>
       ) : hint === undefined ? null : (
-        <p id={noteId} className="font-body text-sm text-muted">
+        <Text variant="note" tone="muted" id={noteId}>
           {hint}
-        </p>
+        </Text>
       )}
     </div>
   );
@@ -407,13 +418,7 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
   // says the same word.
   return (
     <fieldset disabled={disabled} className="flex flex-col gap-1 border-0 p-0">
-      <legend
-        className={
-          density === 'cell'
-            ? 'sr-only'
-            : 'font-heading text-xs uppercase tracking-wider text-muted'
-        }
-      >
+      <legend className={density === 'cell' ? 'sr-only' : fieldLabel}>
         {controlName(density, item, property)}
         {property.required ? (
           <span aria-hidden="true" className="ml-1 text-accent-text">
@@ -444,9 +449,9 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
       ))}
 
       {error === null ? null : (
-        <p role="alert" className="font-body text-sm text-foreground">
+        <Text variant="note" role="alert">
           {error}
-        </p>
+        </Text>
       )}
     </fieldset>
   );
@@ -548,9 +553,9 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
           <Field> around them had no place to put the refusal, and a refusal with nowhere to go is
           a refusal nobody reads. */}
       {error === null || error.length === 0 ? null : (
-        <p role="alert" className="font-body text-sm text-foreground">
+        <Text variant="note" role="alert">
           {error}
-        </p>
+        </Text>
       )}
     </div>
   );

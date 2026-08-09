@@ -26,6 +26,8 @@ on:
       - 'scripts/check-raw-design-values.test.sh'
       - 'scripts/check-spacing-roles.sh'
       - 'scripts/check-spacing-roles.test.sh'
+      - 'scripts/check-text-primitive.sh'
+      - 'scripts/check-text-primitive.test.sh'
       - '.github/workflows/ci-frontend.yml'
   pull_request:
     paths:
@@ -43,6 +45,8 @@ on:
       - 'scripts/check-raw-design-values.test.sh'
       - 'scripts/check-spacing-roles.sh'
       - 'scripts/check-spacing-roles.test.sh'
+      - 'scripts/check-text-primitive.sh'
+      - 'scripts/check-text-primitive.test.sh'
       - '.github/workflows/ci-frontend.yml'
 
 concurrency:
@@ -136,6 +140,14 @@ jobs:
 
       - name: Spacing-role guard (one structural role, one spacing step)
         run: ./scripts/check-spacing-roles.sh
+
+      # Catches what neither guard above can: a text element wearing a perfectly valid step of the
+      # type scale instead of asking <Text> for a variant (U11).
+      - name: Text-primitive guard self-test
+        run: ./scripts/check-text-primitive.test.sh
+
+      - name: Text-primitive guard (text elements take their type from <Text>)
+        run: ./scripts/check-text-primitive.sh
 
   frontend-unit:
     name: frontend unit
