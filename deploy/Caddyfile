@@ -1,0 +1,74 @@
+# Production serving story for the Nix web app.
+#
+# In development none of this runs: the Vite dev server on 5173 serves the app and proxies the API
+# and the collaboration service (see apps/web/vite.config.ts). This file is what replaces that
+# proxy when the built app is deployed - one origin in front of the static bundle, the API, and
+# the collaboration service, so the browser sees the same same-origin shape it saw in development.
+#
+# Environment:
+#
+#   NIX_OIDC_ISSUER   the identity provider's ORIGIN - scheme, host and optional port, no path
+#                     (https://id.example.com). It is named by the Content-Security-Policy below,
+#                     and CSP source expressions match on origin, so an issuer URL carrying a path
+#                     must be trimmed before it is set here. Unset, the policy falls back to 'self'
+#                     and sign-in will not work.
+#
+#   caddy run --config deploy/Caddyfile
+#
+# The site address is plain :8090 because TLS termination is the host environment's decision
+# (a load balancer, or Caddy's own automatic HTTPS once a real hostname replaces the port). It is
+# not 8080: deploy/compose.dev.yml keeps Zitadel off that port for being too popular to claim, and
+# apps/web/src/auth/oidc-config.ts still names http://localhost:8080 as its issuer fallback, so a
+# Caddy sitting there would answer requests meant for an identity provider.
+
+:8090 {
+	# The built frontend: pnpm --filter @nix/web build writes apps/web/dist.
+	root * /srv/nix/web
+
+	encode zstd gzip
+
+	# The API keeps its /api prefix - the backend's routes are themselves under /api/v1, so
+	# nothing is rewritten, exactly like the Vite proxy.
+	handle /api/* {
+		reverse_proxy localhost:5014
+	}
+
+	# The collaboration service does not know it lives under a path: its own routes are
+	# /documents/..., so the /collab prefix is stripped (handle_path strips its matcher prefix),
+	# mirroring the rewrite the Vite proxy performs. WebSocket upgrades proxy transparently.
+	handle_path /collab/* {
+		reverse_proxy localhost:8100
+	}
+
+	# Everything else is the single-page app: real files as themselves, any other path falls
+	# back to index.html so client-side routes survive a refresh.
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# Same policy as the meta tag in apps/web/index.html - keep the two in step, including
+		# the script hash, which covers the inline theme script there - plus frame-ancestors,
+		# which only a header can carry. The header wins where both are present because it is
+		# strictly the same policy plus one directive. The reasoning behind the three looser
+		# directives (style-src's 'unsafe-inline' for runtime geometry attributes, img-src's
+		# http: for third-party cover images, connect-src/frame-src naming the issuer for the
+		# OIDC code exchange and the silent-renew iframe) is written out in that file; this is
+		# the same policy, so changing one without the other is the bug.
+		#
+		# The issuer origin is a build-time substitution there and an environment placeholder
+		# here - see NIX_OIDC_ISSUER at the top of this file.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {env.NIX_OIDC_ISSUER}; frame-src 'self' {env.NIX_OIDC_ISSUER}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+		# Belt to the CSP's braces for older user agents.
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+		# Enable once the site is served exclusively over HTTPS on its final hostname - HSTS on a
+		# host that still answers plain HTTP locks browsers out for the max-age.
+		# Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}

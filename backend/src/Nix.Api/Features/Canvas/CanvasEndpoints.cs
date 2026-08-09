@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Http;
 using Nix.Messaging;
 
 namespace Nix.Features.Canvas;
@@ -42,7 +43,13 @@ internal static class CanvasEndpoints
                 + "reports, which is always the library's complete contents rather than a delta. "
                 + "Fails with 'canvas_library.too_large' when the library exceeds the stored bound.")
             .Produces<CanvasLibraryResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            // The host-wide bound is 256 KB and this is the one payload legitimately larger: the
+            // stored bound is 1 MiB of UTF-8 (SaveCanvasLibrary.MaxLibraryBytes), measured after
+            // deserialization, so 2 MiB on the wire leaves room for JSON escaping and the request
+            // envelope while still refusing an oversized body before it is copied.
+            .WithRequestBodyLimit(2 * 1024 * 1024)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }

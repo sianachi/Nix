@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Nix.Http;
 
 namespace Nix.Errors;
 
@@ -35,20 +38,31 @@ namespace Nix.Errors;
 /// controllers are prohibited (engineering plan section 2.3).
 /// </para>
 /// </remarks>
-internal static class ApiProblem
+public static class ApiProblem
 {
+    // These four name the wire contract, so they share one visibility: a test asserting the shape
+    // of a problem payload must be able to say the same words the payload does.
+
     /// <summary>Extension member carrying the stable machine-readable error code.</summary>
-    internal const string CodeExtension = "code";
+    public const string CodeExtension = "code";
 
     /// <summary>Extension member carrying the correlating trace identifier.</summary>
-    internal const string TraceIdExtension = "traceId";
+    public const string TraceIdExtension = "traceId";
 
     /// <summary>
     /// Fallback code for problems the framework produced without a feature-owned
     /// code (an unmatched route, an unhandled exception). Clients must not branch
     /// on it beyond "unexpected"; it exists so <c>code</c> is never absent.
     /// </summary>
-    internal const string UnexpectedCode = "api.unexpected_error";
+    public const string UnexpectedCode = "api.unexpected_error";
+
+    /// <summary>
+    /// Stable code for a request body over the connection's bound. The status is decided where the
+    /// body is refused - Kestrel's limit, or an endpoint's <c>WithRequestBodyLimit</c> - and both
+    /// surface as a 413 that only this enrichment path turns into a coded problem, so the code
+    /// lives here rather than with any one endpoint.
+    /// </summary>
+    public const string BodyTooLargeCode = "request.body_too_large";
 
     /// <summary>
     /// Builds a problem-details payload with the stable <paramref name="code"/> and
@@ -87,12 +101,37 @@ internal static class ApiProblem
     /// <c>traceId</c>. Safe to call on a payload that already carries a code — an
     /// existing code is never overwritten.
     /// </summary>
-    internal static void Enrich(ProblemDetails problem, HttpContext httpContext)
+    /// <param name="problem">The payload being completed.</param>
+    /// <param name="httpContext">The request the problem describes.</param>
+    public static void Enrich(ProblemDetails problem, HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(problem);
         ArgumentNullException.ThrowIfNull(httpContext);
 
         problem.Instance ??= httpContext.Request.Path.Value;
+
+        // A 413 reaches here from two directions - the exception handler mapping Kestrel's
+        // BadHttpRequestException (see Program), and the status-code-pages path when the refusal
+        // never threw. Neither owns a feature code, so the stable code is stamped centrally.
+        if (problem.Status == StatusCodes.Status413PayloadTooLarge
+            && !problem.Extensions.ContainsKey(CodeExtension))
+        {
+            problem.Title ??= "Request body too large";
+            problem.Extensions[CodeExtension] = BodyTooLargeCode;
+
+            // The only place a 413 becomes visible to an operator. Service location rather than an
+            // injected logger because Enrich is called from ProblemDetailsOptions and from static
+            // factories that have no container of their own; it runs once per refused request, not
+            // on any success path. Null-tolerant so a unit test may enrich a bare context.
+            var logger = httpContext.RequestServices?.GetService<ILoggerFactory>()?.CreateLogger(typeof(ApiProblem));
+            if (logger is not null)
+            {
+                ApiLog.RequestBodyTooLarge(
+                    logger,
+                    httpContext.Request.Path.Value ?? string.Empty,
+                    ClientKey.For(httpContext));
+            }
+        }
 
         if (!problem.Extensions.ContainsKey(CodeExtension))
         {

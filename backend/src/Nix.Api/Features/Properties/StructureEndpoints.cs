@@ -3,6 +3,7 @@ using Nix.Domain.Primitives;
 using Nix.Errors;
 using Nix.Features.Items;
 using Nix.Features.Views;
+using Nix.Http;
 
 namespace Nix.Features.Properties;
 
@@ -54,7 +55,8 @@ internal static class StructureEndpoints
             .Produces<EffectiveSchemaResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapPatch("/{itemId:guid}/properties", SetItemPropertiesEndpoint.Handle)
             .WithName("SetItemProperties")
@@ -68,7 +70,8 @@ internal static class StructureEndpoints
             .Produces<ItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapGet("/{itemId:guid}/views", GetContainerViewsEndpoint.Handle)
             .WithName("GetContainerViews")
@@ -97,7 +100,8 @@ internal static class StructureEndpoints
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }

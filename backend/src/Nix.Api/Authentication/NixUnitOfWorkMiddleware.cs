@@ -1,8 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
 using Nix.Errors;
+using Nix.Http;
 using Nix.Persistence;
 
 namespace Nix.Authentication;
@@ -66,19 +69,25 @@ internal sealed class NixUnitOfWorkMiddleware
     /// <param name="directory">Resolves the principal behind it.</param>
     /// <param name="accessor">Where the session context is written, once per scope.</param>
     /// <param name="dbContext">The context whose transaction carries the scope.</param>
+    /// <param name="throttle">Counts failed validations per client, so guessing meets a 429.</param>
+    /// <param name="logger">Where a refusal is recorded.</param>
     /// <returns>A task that completes when the request has been handled.</returns>
     public async Task InvokeAsync(
         HttpContext context,
         NixTokenValidator validator,
         IIdentityDirectory directory,
         ScopedNixSessionContextAccessor accessor,
-        NixDbContext dbContext)
+        NixDbContext dbContext,
+        FailedAuthenticationThrottle throttle,
+        ILogger<NixUnitOfWorkMiddleware> logger)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(accessor);
         ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(throttle);
+        ArgumentNullException.ThrowIfNull(logger);
 
         var token = ReadBearerToken(context.Request);
         if (token is null)
@@ -93,9 +102,34 @@ internal sealed class NixUnitOfWorkMiddleware
             return;
         }
 
+        // The throttle covers requests that present a token, because a presented token is a guess.
+        // A request with no token at all took no shot at the oracle and keeps its plain 401 above,
+        // so a misconfigured client that lost its token cannot throttle its own address into
+        // opacity. Keyed by remote address: it is what a pre-authentication surface has, and the
+        // limit is generous enough that people behind one NAT retrying honest failures never meet
+        // it. That address is the originating client's only because UseForwardedHeaders runs first
+        // and rewrites it from a trusted proxy's X-Forwarded-For; without that, every request
+        // behind the proxy shares one window and this throttle is global. Checked before
+        // validating, so a client already over the limit costs no signature verification.
+        var clientKey = ClientKey.For(context);
+        if (throttle.IsThrottled(clientKey, out var retryAfter))
+        {
+            // Information, not Warning: the crossing was already logged at Warning below, and the
+            // refusals that follow it are the same fact repeated once per request in the scan.
+            await RateLimitRefusal.WriteAsync(
+                context,
+                logger,
+                RateLimitRefusal.FailedAuthenticationLimiterName,
+                retryAfter,
+                LogLevel.Information,
+                context.RequestAborted).ConfigureAwait(false);
+            return;
+        }
+
         var validated = await validator.ValidateAsync(token, context.RequestAborted).ConfigureAwait(false);
         if (validated is null)
         {
+            RecordFailure(throttle, logger, context, clientKey);
             await WriteProblemAsync(
                 context,
                 StatusCodes.Status401Unauthorized,
@@ -113,7 +147,9 @@ internal sealed class NixUnitOfWorkMiddleware
         if (principal is null)
         {
             // A valid token for a subject nobody provisioned. Refused, and never used to create
-            // one: provisioning is SCIM's job, and a token alone must not mint an identity.
+            // one: provisioning is SCIM's job, and a token alone must not mint an identity. It
+            // also counts against the throttle - enumerating subjects is a guessing loop too.
+            RecordFailure(throttle, logger, context, clientKey);
             await WriteProblemAsync(
                 context,
                 StatusCodes.Status401Unauthorized,
@@ -159,6 +195,28 @@ internal sealed class NixUnitOfWorkMiddleware
         }
     }
 
+    private static void RecordFailure(
+        FailedAuthenticationThrottle throttle,
+        ILogger logger,
+        HttpContext context,
+        IPAddress clientKey)
+    {
+        if (!throttle.RecordFailure(clientKey))
+        {
+            return;
+        }
+
+        // The failure that reached the limit is still answered with a 401; what changes is that
+        // every later request from this address is refused without a validation. That transition is
+        // the operator-visible event, so it is logged once, here, at Warning.
+        throttle.IsThrottled(clientKey, out var window);
+        ApiLog.FailedAuthenticationLimitReached(
+            logger,
+            clientKey,
+            context.Request.Path.Value ?? string.Empty,
+            Math.Max(1L, (long)Math.Ceiling(window.TotalSeconds)));
+    }
+
     private static string? ReadBearerToken(HttpRequest request)
     {
         const string prefix = "Bearer ";
@@ -178,7 +236,11 @@ internal sealed class NixUnitOfWorkMiddleware
     {
         var problem = ApiProblem.Create(context, status, code, title, detail);
         context.Response.StatusCode = status;
-        context.Response.ContentType = "application/problem+json";
-        await context.Response.WriteAsJsonAsync(problem, context.RequestAborted).ConfigureAwait(false);
+
+        // The content type must ride the write call: the two-argument WriteAsJsonAsync overload
+        // stamps application/json over anything set on the response beforehand.
+        await context.Response
+            .WriteAsJsonAsync(problem, options: null, "application/problem+json", context.RequestAborted)
+            .ConfigureAwait(false);
     }
 }

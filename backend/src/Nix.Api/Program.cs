@@ -1,3 +1,6 @@
+using System.Net;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Nix;
 using Nix.Authentication;
 using Nix.Errors;
@@ -11,6 +14,7 @@ using Nix.Features.Properties;
 using Nix.Features.Roles;
 using Nix.Features.Search;
 using Nix.Features.Workspaces;
+using Nix.Http;
 using Nix.Persistence;
 using Nix.Serialization;
 
@@ -58,6 +62,103 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddProblemDetails(options =>
     options.CustomizeProblemDetails = context =>
         ApiProblem.Enrich(context.ProblemDetails, context.HttpContext));
+
+// Request bodies are bounded before any payload is copied. Kestrel's default ceiling is 30 MB
+// against an API whose largest post-deserialization bound is 32 KB (property bags, view
+// definitions).
+//
+// Be precise about what this buys, because the ceiling is not itself an allocation: Kestrel does
+// not reserve 30 MB per request, it bounds how much a client may stream before the read throws.
+// What the gap costs is everything downstream of the socket that is sized by what actually arrives
+// - the JSON reader's buffering of an incomplete document, and the pooled-buffer copies feeding it.
+// At 30 MB those land on the large object heap and stay there until a compacting collection; at
+// 256 KB they stay under the 85 KB-per-segment pooling regime this codebase budgets for. So the
+// real result is LOH avoidance and a bounded read, not a reclaimed reservation.
+//
+// 256 KB leaves room for the domain bounds plus JSON escaping and envelope. The one legitimately
+// larger payload, the canvas library PUT (stored bound 1 MiB), raises its own ceiling at the route
+// via WithRequestBodyLimit.
+builder.WebHost.ConfigureKestrel(static options =>
+    options.Limits.MaxRequestBodySize = 256 * 1024);
+
+// When Kestrel refuses an oversized body, the read throws BadHttpRequestException carrying 413.
+// Left alone, the exception handler would report it as a 500; carrying the exception's own status
+// through lets ApiProblem.Enrich stamp the stable request.body_too_large code on the payload.
+builder.Services.Configure<ExceptionHandlerOptions>(static options =>
+    options.StatusCodeSelector = static exception =>
+        exception is BadHttpRequestException badRequest
+            ? badRequest.StatusCode
+            : StatusCodes.Status500InternalServerError);
+
+// Who the client is, before anything partitions on it. Core is deployed behind a reverse proxy, so
+// without this every request carries the proxy's address and both limiters below become one global
+// bucket. The allowlist is the whole point and is never widened to "any peer" - see TrustedProxies.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    TrustedProxies.Configure(options, builder.Configuration));
+
+// Rate limits are baseline hardening, not throttling: bounds a person never meets, a runaway
+// client does. Limits read from configuration so a deployment (or the Testing host) can move them
+// without a rebuild; the defaults are the policy.
+var writesPerMinute = builder.Configuration.GetValue("Nix:RateLimits:WritesPerMinute", 120);
+
+// One window, named once: the limiter's window and the fallback the rejection reports are the same
+// interval by definition, and two literals would eventually disagree.
+var writesWindow = TimeSpan.FromMinutes(1);
+builder.Services.AddRateLimiter(options =>
+{
+    // Partitioned by remote address, not principal: this middleware runs before
+    // NixUnitOfWorkMiddleware has authenticated anyone, so the principal simply is not known at
+    // rate-limit time, and running the limiter after authentication would put the expensive part
+    // (token validation, a database round trip) inside the unprotected region. An address is what
+    // a pre-authentication surface has; the limit is sized so shared NATs do not meet it. The
+    // address is the client's own only because UseForwardedHeaders runs ahead of the limiter.
+    options.AddPolicy<IPAddress>(RateLimitRefusal.WritesPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey.For(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = writesPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            }));
+
+    options.OnRejected = (context, cancellationToken) =>
+    {
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var value)
+            ? value
+            : writesWindow;
+
+        // Information: a client meeting a write limit is a runaway or a burst, not a security
+        // event, and one line per refused request at Warning would bury the ones that are.
+        var logger = context.HttpContext.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger(RateLimitRefusal.WritesPolicyName);
+
+        return new ValueTask(RateLimitRefusal.WriteAsync(
+            context.HttpContext,
+            logger,
+            RateLimitRefusal.WritesPolicyName,
+            retryAfter,
+            LogLevel.Information,
+            cancellationToken));
+    };
+});
+
+// Failed-authentication backpressure for the unit-of-work middleware. Registered unconditionally -
+// it holds no connection and costs a dictionary - even though only the persistence-configured
+// pipeline consults it.
+builder.Services.AddSingleton(static provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    return new FailedAuthenticationThrottle(
+        provider.GetRequiredService<TimeProvider>(),
+        configuration.GetValue(
+            FailedAuthenticationThrottle.LimitConfigurationKey,
+            FailedAuthenticationThrottle.DefaultLimit),
+        TimeSpan.FromSeconds(configuration.GetValue(
+            FailedAuthenticationThrottle.WindowSecondsConfigurationKey,
+            (int)FailedAuthenticationThrottle.DefaultWindow.TotalSeconds)));
+});
 
 // Persistence, when a connection string is configured.
 //
@@ -130,10 +231,23 @@ if (!persistenceConfigured)
     ApiLog.PersistenceNotConfigured(app.Logger, nixConnectionStringName);
 }
 
+// First, ahead of everything: the body-limit middleware, the rate limiter and the failed-
+// authentication throttle all read Connection.RemoteIpAddress, and this is what makes that the
+// client's address rather than the proxy's. Registered before any of them so no refusal is ever
+// decided on the wrong identity.
+app.UseForwardedHeaders();
+
 // Unhandled exceptions and bare status codes both become problem details, so a
 // client only ever has to parse one error shape.
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// Routing runs first (WebApplication places it at the front of the pipeline), so both of these see
+// the matched endpoint: body limits declared per route are applied to the connection before
+// anything reads a body, and the writes rate limit refuses over-limit mutations before the
+// unit-of-work branch below spends a token validation on them.
+app.UseMiddleware<RequestBodyLimitMiddleware>();
+app.UseRateLimiter();
 
 // The committed artifact at backend/openapi/nix-api.json is the contract of record;
 // this endpoint exists for local exploration only and is not exposed in deployed

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Nix.Contracts;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Http;
 
 namespace Nix.Features.Items;
 
@@ -76,7 +77,8 @@ internal static class ItemEndpoints
                 + "visible to the caller.")
             .Produces<ItemResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         var items = endpoints.MapGroup("/api/v1/items")
             .WithTags("Items");
@@ -97,7 +99,8 @@ internal static class ItemEndpoints
             .WithDescription("Changes the item's own fields. Moving and deleting are separate operations.")
             .Produces<ItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapPost("/{itemId:guid}/move", MoveItemEndpoint.Handle)
             .WithName("MoveItem")
@@ -110,7 +113,8 @@ internal static class ItemEndpoints
             .Produces<ItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapDelete("/{itemId:guid}", DeleteItemEndpoint.Handle)
             .WithName("DeleteItem")
@@ -121,7 +125,8 @@ internal static class ItemEndpoints
                 + "flag flip. Purging is a separate, retention-driven operation.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapPost("/{itemId:guid}/restore", RestoreItemEndpoint.Handle)
             .WithName("RestoreItem")
@@ -132,7 +137,8 @@ internal static class ItemEndpoints
             .Produces<ItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }

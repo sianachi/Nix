@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Nix.Errors;
+using Nix.Http;
 
 namespace Nix.Features.Permissions;
 
@@ -59,7 +60,8 @@ internal static class PermissionEndpoints
             .Produces<AclEntryResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         permissions.MapDelete("/entries/{aclEntryId:guid}", DeleteAclEntry)
             .WithName("DeleteAclEntry")
@@ -71,7 +73,8 @@ internal static class PermissionEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }

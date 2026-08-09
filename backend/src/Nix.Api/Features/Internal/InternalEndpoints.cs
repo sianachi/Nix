@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Http;
 
 namespace Nix.Features.Internal;
 
@@ -33,7 +34,8 @@ internal static class InternalEndpoints
         var group = endpoints.MapGroup("/internal").ExcludeFromDescription();
 
         group.MapGet("/authz/items/{itemId:guid}", GetItemAuthorizationEndpoint.Handle);
-        group.MapPost("/items/{itemId:guid}/touched", TouchItemEndpoint.Handle);
+        group.MapPost("/items/{itemId:guid}/touched", TouchItemEndpoint.Handle)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }
