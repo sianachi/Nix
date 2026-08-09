@@ -89,6 +89,7 @@ public static class ViewDefinitionsJson
     private const string DatePropertyKey = "dateProperty";
     private const string EndDatePropertyKey = "endDateProperty";
     private const string CoverPropertyKey = "coverProperty";
+    private const string CardSizeKey = "cardSize";
     private const string ModeKey = "mode";
     private const string SortByKey = "sortBy";
     private const string SortDescendingKey = "sortDescending";
@@ -202,6 +203,11 @@ public static class ViewDefinitionsJson
                 entry[ModeKey] = view.Mode;
             }
 
+            if (view.CardSize is not null)
+            {
+                entry[CardSizeKey] = view.CardSize;
+            }
+
             if (view.SortBy is not null)
             {
                 entry[SortByKey] = view.SortBy;
@@ -275,8 +281,22 @@ public static class ViewDefinitionsJson
             view[SortDescendingKey] is JsonValue flag && flag.TryGetValue(out bool value) && value,
             ReadString(view[ModeKey]),
             ReadString(view[CoverPropertyKey]),
-            ReadString(view[EndDatePropertyKey]));
+            ReadString(view[EndDatePropertyKey]),
+            ReadCardSize(view[CardSizeKey]));
     }
+
+    /// <summary>
+    /// Reads a stored card size, dropping a value this build does not define.
+    /// </summary>
+    /// <remarks>
+    /// The write path refuses an invalid size outright, so one in the column can only have been put
+    /// there by some other writer. Fail closed to null - the gallery draws medium - rather than
+    /// passing a token downstream that no renderer and no published contract has a meaning for.
+    /// Costing the size, never the view: the reader's contract is that a malformed field is a
+    /// malformed field, not a dropped switcher entry.
+    /// </remarks>
+    private static string? ReadCardSize(JsonNode? node) =>
+        ReadString(node) is { } size && GalleryCardSizes.IsValid(size) ? size : null;
 
     private static ImmutableArray<string> ReadStrings(JsonNode? node)
     {

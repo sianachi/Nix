@@ -686,6 +686,7 @@ export interface components {
       mode: null | string;
       coverProperty: null | string;
       endDateProperty: null | string;
+      cardSize: null | string;
     };
     ViewResponse: {
       id: string;
@@ -700,6 +701,7 @@ export interface components {
       mode: null | string;
       coverProperty: null | string;
       endDateProperty: null | string;
+      cardSize: null | string;
     };
     WorkspaceResponse: {
       /** Format: uuid */

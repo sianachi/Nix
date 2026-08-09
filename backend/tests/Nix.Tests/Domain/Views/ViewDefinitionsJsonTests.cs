@@ -59,7 +59,9 @@ public sealed class ViewDefinitionsJsonTests
                 null,
                 false,
                 Mode: null,
-                CoverProperty: "cover"),
+                CoverProperty: "cover",
+                EndDateProperty: null,
+                CardSize: "large"),
             new ViewDefinition(
                 "v5",
                 "Delivery",
@@ -110,6 +112,7 @@ public sealed class ViewDefinitionsJsonTests
         Assert.False(entry.ContainsKey("coverProperty"));
         Assert.False(entry.ContainsKey("endDateProperty"));
         Assert.False(entry.ContainsKey("mode"));
+        Assert.False(entry.ContainsKey("cardSize"));
         Assert.Equal("list", (string?)entry["kind"]);
     }
 
@@ -186,6 +189,61 @@ public sealed class ViewDefinitionsJsonTests
         Assert.False(entry.ContainsKey("groupBy"));
         Assert.False(entry.ContainsKey("dateProperty"));
         Assert.False(entry.ContainsKey("mode"));
+    }
+
+    [Fact]
+    public void A_gallery_that_names_no_card_size_is_read_and_kept()
+    {
+        // Every gallery stored before the field existed, and every one whose author never touched
+        // the size. Null is what the renderer draws as medium; the reader does not spell that out.
+        var read = ReadViews("""{"views":[{"id":"v1","name":"Covers","kind":"gallery"}]}""");
+
+        Assert.Null(Assert.Single(read).CardSize);
+    }
+
+    [Theory]
+    [InlineData("huge")]
+    [InlineData("Medium")]
+    [InlineData("")]
+    [InlineData("md")]
+    public void A_card_size_this_build_does_not_define_reads_as_no_size_at_all(string size)
+    {
+        // The write path refuses these, so one in the column came from some other writer. It costs
+        // the size and never the view: the gallery draws at medium, with every card still on
+        // screen, rather than a token no renderer has a meaning for travelling any further. The
+        // near-misses matter - "Medium" is the right word in the wrong case, and the set is closed
+        // and lowercase on the wire.
+        var read = ReadViews(
+            $$"""{"views":[{"id":"v1","name":"Covers","kind":"gallery","cardSize":"{{size}}"}]}""");
+
+        var gallery = Assert.Single(read);
+
+        Assert.Equal(ViewKind.Gallery, gallery.Kind);
+        Assert.Null(gallery.CardSize);
+    }
+
+    [Theory]
+    [InlineData("small")]
+    [InlineData("medium")]
+    [InlineData("large")]
+    public void Every_card_size_this_build_defines_survives_being_written_and_read_back(string size)
+    {
+        var gallery = new ViewDefinition(
+            "v1",
+            "Covers",
+            ViewKind.Gallery,
+            [],
+            null,
+            [],
+            null,
+            null,
+            false,
+            Mode: null,
+            CoverProperty: null,
+            EndDateProperty: null,
+            CardSize: size);
+
+        Assert.Equal(size, Assert.Single(ReadViews(ViewDefinitionsJson.Write([gallery]))).CardSize);
     }
 
     [Fact]
@@ -344,6 +402,7 @@ public sealed class ViewDefinitionsJsonTests
         Assert.Equal(expected.Mode, actual.Mode);
         Assert.Equal(expected.CoverProperty, actual.CoverProperty);
         Assert.Equal(expected.EndDateProperty, actual.EndDateProperty);
+        Assert.Equal(expected.CardSize, actual.CardSize);
     }
 
     [Fact]

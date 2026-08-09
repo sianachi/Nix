@@ -58,6 +58,37 @@ describe('Segmented', () => {
     expect(screen.getByRole('button', { name: 'Week' })).toHaveAttribute('aria-current', 'true');
   });
 
+  it('carries the explanatory note as its description when the caller wires one', () => {
+    // A note rendered beside the control but not wired to it is invisible to the reader who needs
+    // it most: they land on the group, hear three unexplained words, and move on.
+    render(
+      <>
+        <Segmented
+          label="Card size"
+          describedBy="card-size-note"
+          options={GRAINS}
+          value="week"
+          onChange={vi.fn()}
+        />
+        <p id="card-size-note">Larger cards show the cover image.</p>
+      </>,
+    );
+
+    expect(screen.getByRole('group', { name: 'Card size' })).toHaveAccessibleDescription(
+      'Larger cards show the cover image.',
+    );
+  });
+
+  it('leaves the description off entirely when there is nothing to point at', () => {
+    // An `aria-describedby` resolving to no element is reported as a broken relationship, which is
+    // worse than having no description at all.
+    render(<Segmented label="Calendar grain" options={GRAINS} value="week" onChange={vi.fn()} />);
+
+    expect(screen.getByRole('group', { name: 'Calendar grain' })).not.toHaveAttribute(
+      'aria-describedby',
+    );
+  });
+
   it('reaches every member from the keyboard', async () => {
     const user = userEvent.setup();
     render(<Segmented label="Calendar grain" options={GRAINS} value="month" onChange={vi.fn()} />);

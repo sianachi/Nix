@@ -1,12 +1,12 @@
-import { Button, Field, Icon, Input, Select } from '@nix/ui';
+import { Button, Field, Icon, Input, Segmented, Select, Text, fieldLabel } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
 import { TEMPLATES, applyTemplate, type Template } from './templates';
-import { VIEW_KINDS, findViewKind } from './view-kinds';
+import { VIEW_KINDS, findViewKind, type ViewChoice } from './view-kinds';
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -28,6 +28,60 @@ export interface ViewEditorProps {
 
   /** Renders as a column in the settings panel rather than as a dialog over the view. */
   readonly inline?: boolean;
+}
+
+interface ChoiceBlockProps {
+  readonly choice: ViewChoice;
+
+  /** What the view stores, which may be null or a token this build does not offer. */
+  readonly value: string | null;
+
+  readonly onChange: (value: string) => void;
+}
+
+/**
+ * One closed-set choice: a caption, a segmented control, and the sentence explaining it.
+ *
+ * **Its own component because the sentence needs an id, and an id needs a hook.** The hint used to
+ * be a `<Text>` sitting loose beneath the group - visible to a reader, invisible to a screen
+ * reader, which landed on the group, heard three unexplained words ("Small Medium Large") and had
+ * no way to reach the explanation. `useId` cannot be called inside the `.map` that draws these, so
+ * the block is a component rather than a fragment.
+ *
+ * Not `<Field>`: its label wires `htmlFor` to one labelable control, and a group of buttons is not
+ * one. So the caption and the description are carried here, with the group's name coming from
+ * `label` and its description from `describedBy`.
+ */
+function ChoiceBlock({ choice, value, onChange }: ChoiceBlockProps): ReactNode {
+  const hintId = useId();
+
+  // Resolved against the options rather than passed through, so a token stored by a newer build
+  // marks the same option current that the renderer will actually draw. A raw `value ?? fallback`
+  // would mark nothing current and leave the control looking unset.
+  const current = choice.options.find((option) => option.value === value)?.value ?? choice.fallback;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {/* Hidden from assistive technology because the group already announces the same words as
+          its name; a visible caption keeps the block reading like the fields above it. */}
+      <span aria-hidden="true" className={fieldLabel}>
+        {choice.label}
+      </span>
+
+      <Segmented
+        label={choice.label}
+        options={choice.options}
+        value={current}
+        onChange={onChange}
+        describedBy={hintId}
+        className="self-start"
+      />
+
+      <Text variant="note" tone="muted" id={hintId}>
+        {choice.hint}
+      </Text>
+    </div>
+  );
 }
 
 /**
@@ -168,27 +222,29 @@ export function ViewEditor({
       saveLabel="Save views"
     >
       <div className="flex flex-col gap-4">
-        <p className="text-base text-muted">
+        <Text variant="bodySmall" tone="muted">
           A view is a way of looking at this item. Everybody who can see it sees the same views.
-        </p>
+        </Text>
 
         {error === null ? null : (
-          <p role="alert" className="border border-foreground px-3 py-2 text-base">
+          <Text variant="bodySmall" role="alert" className="border border-foreground px-3 py-2">
             {error}
-          </p>
+          </Text>
         )}
 
         {draft.length === 0 ? (
-          <p className="text-base text-muted">
+          <Text variant="bodySmall" tone="muted">
             No views yet. Without one, this item shows a plain list.
-          </p>
+          </Text>
         ) : null}
 
         {/* Offered first, and only while there is nothing configured. Somebody who has already
             built a view does not want a row of buttons that would add a second one beside it. */}
         {draft.length === 0 ? (
           <div className="flex flex-col gap-2 rounded-md bg-surface p-3">
-            <p className="text-sm text-muted">Start from a template</p>
+            <Text variant="note" tone="muted">
+              Start from a template
+            </Text>
 
             <div className="flex flex-wrap gap-2">
               {TEMPLATES.map((template) => (
@@ -202,7 +258,9 @@ export function ViewEditor({
                   }}
                 >
                   <span>{template.label}</span>
-                  <span className="text-xs text-muted">{template.detail}</span>
+                  <Text variant="caption" as="span" tone="muted">
+                    {template.detail}
+                  </Text>
                 </Button>
               ))}
             </div>
@@ -318,6 +376,21 @@ export function ViewEditor({
                 </Field>
               );
             })}
+
+            {/* The closed-set choices, after the property selects: a segmented control rather
+                than another property `<Select>`, because a size is not a key into the schema and
+                the set is three words the server polices. `ChoiceBlock` carries the caption, the
+                group's name and the description it is wired to. */}
+            {(findViewKind(view.kind)?.chooses ?? []).map((choice) => (
+              <ChoiceBlock
+                key={choice.field}
+                choice={choice}
+                value={view[choice.field]}
+                onChange={(value) => {
+                  update(index, { [choice.field]: value });
+                }}
+              />
+            ))}
           </div>
         ))}
 
@@ -342,6 +415,7 @@ export function ViewEditor({
                 mode: null,
                 coverProperty: null,
                 endDateProperty: null,
+                cardSize: null,
               },
             ]);
           }}

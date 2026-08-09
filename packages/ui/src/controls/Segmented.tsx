@@ -35,17 +35,30 @@ export interface SegmentedProps<TValue extends string> {
 
   readonly onChange: (value: TValue) => void;
 
+  /**
+   * The id of an element that explains what the choice does, wired to the group as
+   * `aria-describedby`.
+   *
+   * For the common case of a sentence rendered beneath the control - "cards keep their aspect
+   * ratio", "hours are shown in your timezone". Without this the note is a loose paragraph that
+   * happens to sit nearby: a person reading with a screen reader lands on the group, hears three
+   * unexplained words, and never meets the sentence that would have explained them. The label is
+   * still the name; this is the description, and the two are separate slots for a reason.
+   */
+  readonly describedBy?: string;
+
   /** Layout only. */
   readonly className?: string;
 }
 
 export function Segmented<TValue extends string>(props: SegmentedProps<TValue>): ReactNode {
-  const { label, options, value, onChange, className } = props;
+  const { label, options, value, onChange, describedBy, className } = props;
 
   return (
     <div
       role="group"
       aria-label={label}
+      aria-describedby={describedBy}
       className={cn('flex items-center gap-0.5 rounded-md bg-surface p-0.5', className)}
     >
       {options.map((option) => {

@@ -98,6 +98,16 @@ export const ViewSchema = z.object({
    * as a precondition for drawing the view.
    */
   endDateProperty: z.string().nullable(),
+
+  /**
+   * For a gallery: how large each card is drawn - `small`, `medium` or `large`.
+   *
+   * Null means `medium`, which is what every gallery stored before the field existed has always
+   * looked like. A plain string rather than an enum, matching `mode` and for the same reason: the
+   * server polices the set on write, and a value a newer server admits must cost an older build the
+   * size - the gallery falls back to medium - never the parse of the whole view set.
+   */
+  cardSize: z.string().nullable(),
 });
 
 export type View = z.infer<typeof ViewSchema>;

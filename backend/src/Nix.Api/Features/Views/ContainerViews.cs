@@ -249,6 +249,18 @@ public sealed class SetContainerViewsHandler
             {
                 return PropertyErrors.InvalidViews($"'{view.Name}': {requirement.Missing}.");
             }
+
+            // The one per-kind field whose value set is closed. Not gated to galleries - like
+            // coverProperty on a board, a size on a kind that does not read it is stored and
+            // ignored (ADR-0020: cheap to ignore, expensive to police) - but the *value* has to be
+            // one this build defines, because nothing anywhere gives "huge" a meaning to fall back
+            // to. Mode's strays are defaulted instead; GalleryCardSizes says why the two differ.
+            if (view.CardSize is { } size && !GalleryCardSizes.IsValid(size))
+            {
+                return PropertyErrors.InvalidViews(
+                    $"'{view.Name}': '{size}' is not a card size; "
+                        + $"use '{GalleryCardSizes.Small}', '{GalleryCardSizes.Medium}' or '{GalleryCardSizes.Large}'.");
+            }
         }
 
         // A default has to name something that will still be there once this write lands. Storing

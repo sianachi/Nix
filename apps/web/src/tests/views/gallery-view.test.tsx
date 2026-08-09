@@ -3,6 +3,7 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
 import { aContainer, views } from '../../views/container-fixture';
 import type { EffectiveSchema, Item, PropertyDefinition, View } from '../../views/container-model';
 import { GalleryView } from '../../views/gallery-view';
@@ -55,21 +56,13 @@ function itemOf(overrides: Partial<Item> & { id: string; title: string }): Item 
 }
 
 function viewOf(overrides: Partial<View> = {}): View {
-  return {
+  return aView({
     id: 'v1000000-0000-4000-8000-000000000001',
     name: 'Covers',
     kind: 'gallery',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
     coverProperty: 'cover',
-    endDateProperty: null,
     ...overrides,
-  };
+  });
 }
 
 const SHOT = 'https://images.example.test/shot.jpg';
@@ -136,7 +129,97 @@ function card(title: string): HTMLElement {
   return item;
 }
 
+/** The fixed-ratio frame around a card's cover picture, found from the picture inside it. */
+function coverFrame(title: string): HTMLElement {
+  const image = within(card(title)).getByRole('presentation', { hidden: true });
+  const frame = image.closest('[class*="aspect-"]');
+
+  if (!(frame instanceof HTMLElement)) {
+    throw new Error(`The cover on "${title}" is not inside a fixed-ratio frame.`);
+  }
+
+  return frame;
+}
+
 describe('the gallery view', () => {
+  it('reflows to one column at the base width, widening only as the breakpoints allow', () => {
+    renderAt(galleryOf({ items: [WITH_COVER, WITHOUT_COVER] }));
+
+    // Class contract, jsdom measuring nothing: the grid is mobile-first - one column with no
+    // breakpoint qualifier, so a 375px viewport gets a single stack - and every wider count is
+    // gated behind a breakpoint. Asserted so the mobile claim is verified rather than assumed;
+    // the rendered reflow itself belongs to a real-browser pass.
+    expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
+      'grid-cols-1',
+      'sm:grid-cols-2',
+      'lg:grid-cols-3',
+      'xl:grid-cols-4',
+    );
+  });
+
+  it('draws at medium when the view names no size, exactly as every gallery always has', () => {
+    // Null is the ordinary state - every gallery stored before the field existed - so the classes
+    // here must be the ones the view shipped with, verbatim, or old galleries change shape on
+    // upgrade. Class contract, like the reflow test above: jsdom measures nothing.
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: null }) }));
+
+    expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
+      'grid-cols-1',
+      'sm:grid-cols-2',
+      'lg:grid-cols-3',
+      'xl:grid-cols-4',
+    );
+    expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-video');
+  });
+
+  it('packs small cards denser and squares their covers', () => {
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: 'small' }) }));
+
+    expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
+      'grid-cols-2',
+      'sm:grid-cols-3',
+      'lg:grid-cols-4',
+      'xl:grid-cols-6',
+    );
+
+    // The aspect is part of the size, not left to the grid: a sixth of a row at 16:9 is a
+    // letterbox sliver nobody can read a picture in.
+    expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-square');
+  });
+
+  it('gives large cards fewer columns and a deeper cover', () => {
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: 'large' }) }));
+
+    expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
+      'grid-cols-1',
+      'lg:grid-cols-2',
+      'xl:grid-cols-3',
+    );
+    expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-4/3');
+  });
+
+  it('draws a size this build does not know as medium rather than failing the view', () => {
+    // A newer server's token: the size costs itself, never the cards. Falling back to medium keeps
+    // every item on screen at the shape galleries have always been.
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: 'huge' }) }));
+
+    expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
+      'grid-cols-1',
+      'xl:grid-cols-4',
+    );
+    expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-video');
+  });
+
+  it('sizes the wordy cover states with the same frame as the pictures', () => {
+    // The frame's whole contract is that its geometry is identical in every state, so the size has
+    // to reach the "No cover" words too - a grid where the pictures are square and the absences
+    // are 16:9 reflows as covers resolve, which is the fault the frame exists to prevent.
+    renderAt(galleryOf({ items: [WITHOUT_COVER], view: viewOf({ cardSize: 'small' }) }));
+
+    const frame = within(card('Notes from the site visit')).getByText('No cover').parentElement;
+    expect(frame).toHaveClass('aspect-square');
+  });
+
   it('draws a card for every item whether or not it has a cover', () => {
     // The headline rule. An item with no picture is an item, and a gallery that showed only the
     // ones it could illustrate would be hiding the container's contents behind a decoration.

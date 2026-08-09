@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { View } from '../../views/container-model';
 import { ViewSwitcher } from '../../views/view-switcher';
+import { aView } from '../view-fixture';
 
 /**
  * The per-container switcher.
@@ -14,19 +15,7 @@ import { ViewSwitcher } from '../../views/view-switcher';
  */
 
 function viewOf(overrides: Partial<View> & { id: string; name: string }): View {
-  return {
-    kind: 'list',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
-    ...overrides,
-  };
+  return aView(overrides);
 }
 
 const VIEWS: View[] = [

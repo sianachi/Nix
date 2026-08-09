@@ -6,6 +6,7 @@ import { CalendarView } from '../../views/calendar-view';
 import { aContainer, views } from '../../views/container-fixture';
 import type { EffectiveSchema, Item, View } from '../../views/container-model';
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
 import type { ContainerData } from '../../views/use-container';
 
 /**
@@ -29,21 +30,13 @@ const SCHEMA: EffectiveSchema = {
 };
 
 function viewOf(overrides: Partial<View> = {}): View {
-  return {
+  return aView({
     id: 'schedule',
     name: 'Schedule',
     kind: 'calendar',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
     dateProperty: 'starts',
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
     ...overrides,
-  };
+  });
 }
 
 function itemOf(id: string, title: string, properties: Record<string, unknown>): Item {

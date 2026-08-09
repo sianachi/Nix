@@ -5,6 +5,7 @@ import { useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
 import type { EffectiveSchema, Item, PropertyDefinition, View } from '../../views/container-model';
 import { ListView } from '../../views/list-view';
 import { aContainer } from '../../views/container-fixture';
@@ -47,21 +48,7 @@ function schemaOf(...properties: PropertyDefinition[]): EffectiveSchema {
 }
 
 function viewOf(overrides: Partial<View> = {}): View {
-  return {
-    id: 'view-1',
-    name: 'Everything',
-    kind: 'list',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
-    ...overrides,
-  };
+  return aView(overrides);
 }
 
 function containerData(overrides: Partial<ContainerData> = {}): ContainerData {

@@ -111,6 +111,7 @@ export interface ViewSnapshot {
   readonly mode: string | null;
   readonly coverProperty: string | null;
   readonly endDateProperty: string | null;
+  readonly cardSize: string | null;
 }
 
 /** The view set an item offers over its children. */

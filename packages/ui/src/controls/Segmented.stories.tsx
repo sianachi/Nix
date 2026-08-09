@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
 
+import { Text } from '../primitives/Text';
 import { Segmented } from './Segmented';
 
 /**
@@ -77,6 +78,42 @@ export const Panes: Story = {
       initial="details"
     />
   ),
+};
+
+/**
+ * A choice whose consequence needs a sentence.
+ *
+ * The note beneath is wired to the group with `describedBy`, so it is part of what the control
+ * announces rather than a paragraph that happens to sit nearby. Without the wiring, somebody
+ * reading with a screen reader lands on the group, hears three unexplained words - "Small, Medium,
+ * Large" - and moves on before the explanation is ever read.
+ */
+function Described(): ReactNode {
+  const noteId = useId();
+  const [value, setValue] = useState('medium');
+
+  return (
+    <div className="flex flex-col gap-1">
+      <Segmented
+        label="Card size"
+        describedBy={noteId}
+        options={[
+          { value: 'small', label: 'Small' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'large', label: 'Large' },
+        ]}
+        value={value}
+        onChange={setValue}
+      />
+      <Text id={noteId} variant="note" tone="muted">
+        Larger cards show the cover image and the first line of the body.
+      </Text>
+    </div>
+  );
+}
+
+export const DescribedByANote: Story = {
+  render: () => <Described />,
 };
 
 /** Two members, which is the smallest set worth this shape. */

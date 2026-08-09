@@ -4,6 +4,7 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
 import { BoardView } from '../../views/board-view';
 import type { EffectiveSchema, Item, PropertyDefinition, View } from '../../views/container-model';
 import { aContainer, views } from '../../views/container-fixture';
@@ -58,21 +59,13 @@ function itemOf(overrides: Partial<Item> & { id: string; title: string }): Item 
 }
 
 function viewOf(overrides: Partial<View> = {}): View {
-  return {
+  return aView({
     id: 'v1000000-0000-4000-8000-000000000001',
     name: 'Delivery',
     kind: 'board',
-    columns: [],
     groupBy: 'status',
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
     ...overrides,
-  };
+  });
 }
 
 function containerOf(overrides: Partial<ContainerData> = {}): ContainerData {

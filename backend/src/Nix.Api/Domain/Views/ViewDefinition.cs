@@ -184,6 +184,43 @@ public static class ViewKinds
 }
 
 /// <summary>
+/// The sizes a gallery may draw its cards at.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A closed set, unlike <c>Mode</c>, whose unrecognised values each kind quietly defaults: the
+/// grain vocabularies overlap across kinds on purpose, so the field has to stay open for a view to
+/// switch kinds losslessly. A card size is one kind's own and shared with nothing, so there is
+/// nothing an unknown value could be preserving - <c>SetContainerViewsHandler.Refuse</c> refuses it
+/// outright, which tells the person typing it now rather than the person reading a silently
+/// medium-sized gallery later.
+/// </para>
+/// <para>
+/// Stored as text rather than as an enum for the same reason <see cref="ViewKinds"/> stores text:
+/// the words are the contract, and renumbering nothing can reinterpret them.
+/// </para>
+/// </remarks>
+public static class GalleryCardSizes
+{
+    /// <summary>Denser columns and a squarer cover.</summary>
+    public const string Small = "small";
+
+    /// <summary>The default, and what absent has always meant.</summary>
+    public const string Medium = "medium";
+
+    /// <summary>Fewer columns and a more generous cover.</summary>
+    public const string Large = "large";
+
+    /// <summary>Whether a stored or requested value names a size this build defines.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns><see langword="true"/> when it is one of the three sizes.</returns>
+    public static bool IsValid(string value) =>
+        string.Equals(value, Small, StringComparison.Ordinal)
+        || string.Equals(value, Medium, StringComparison.Ordinal)
+        || string.Equals(value, Large, StringComparison.Ordinal);
+}
+
+/// <summary>
 /// One named way of looking at a container.
 /// </summary>
 /// <param name="Id">
@@ -218,6 +255,11 @@ public static class ViewKinds
 /// </param>
 /// <param name="EndDateProperty">
 /// For a timeline: the date a bar ends on, or <see langword="null"/> for a timeline of milestones.
+/// </param>
+/// <param name="CardSize">
+/// For a gallery: how large each card is drawn - <c>small</c>, <c>medium</c> or <c>large</c>, and
+/// <see langword="null"/> means <c>medium</c>, which is what every gallery stored before this field
+/// existed has always looked like.
 /// </param>
 /// <remarks>
 /// <para>
@@ -268,7 +310,13 @@ public sealed record ViewDefinition(
     // timeline draws as a point rather than as a bar. Nothing here refuses an end that falls before
     // its start; see ViewKind.Timeline for why that is the view's report to make and not the
     // server's.
-    string? EndDateProperty = null)
+    string? EndDateProperty = null,
+
+    // Same rule once more: last and defaulted, so no positional construction re-binds. Null means
+    // medium - the size every gallery drew at before the field existed - and the value set is
+    // closed and policed on write; see GalleryCardSizes for why this one is refused where Mode's
+    // strays are defaulted.
+    string? CardSize = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

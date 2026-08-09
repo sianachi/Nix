@@ -667,6 +667,47 @@ public sealed class PropertyWriteTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_card_size_this_build_does_not_define_is_refused()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Project", null, "folder");
+
+            var dispatcher = work.Resolve<NixDispatcher>();
+
+            // The set is closed - small, medium, large - and unlike Mode, whose strays each kind
+            // defaults, an unknown size has nothing to fall back to that anybody chose. Refused on
+            // write, so the person typing "huge" hears about it now rather than reading a silently
+            // medium gallery later.
+            var stored = await dispatcher.SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new SetContainerViews(
+                    folder.Id,
+                    [
+                        new ViewDefinition(
+                            "covers",
+                            "Covers",
+                            ViewKind.Gallery,
+                            [],
+                            null,
+                            [],
+                            null,
+                            null,
+                            false,
+                            Mode: null,
+                            CoverProperty: null,
+                            EndDateProperty: null,
+                            CardSize: "huge"),
+                    ],
+                    null),
+                Cancellation);
+
+            Assert.True(stored.IsFailure);
+            Assert.Equal("views.invalid", stored.Error.Code);
+        }
+    }
+
+    [Fact]
     public async Task Views_round_trip_through_storage()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

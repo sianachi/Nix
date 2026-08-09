@@ -40,6 +40,11 @@ namespace Nix.Features.Views;
 /// before its start is stored as it is and reported by the view; two independent property writes
 /// cannot both be valid at every instant.
 /// </param>
+/// <param name="CardSize">
+/// Gallery views: how large each card is drawn - <c>small</c>, <c>medium</c> or <c>large</c>. Null
+/// means <c>medium</c>, which is what every gallery stored before this field existed has always
+/// looked like. Anything else is refused on write; the set is closed.
+/// </param>
 /// <remarks>
 /// <b>There is no placement or layout field, and there will not be one.</b> Where a card sits is
 /// its property value and its sibling order - never a coordinate stored against a view. That is
@@ -58,7 +63,8 @@ internal sealed record ViewResponse(
     bool SortDescending,
     string? Mode,
     string? CoverProperty,
-    string? EndDateProperty);
+    string? EndDateProperty,
+    string? CardSize);
 
 /// <summary>
 /// The views a container offers.
@@ -117,6 +123,10 @@ internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views, string?
 /// </param>
 /// <param name="CoverProperty">Gallery views: the image property each card shows as its cover.</param>
 /// <param name="EndDateProperty">Timeline views: the date a bar ends on, or null for a milestone.</param>
+/// <param name="CardSize">
+/// Gallery views: <c>small</c>, <c>medium</c> or <c>large</c>, or null for <c>medium</c>. A value
+/// outside the set is refused.
+/// </param>
 internal sealed record ViewRequest(
     string Id,
     string Name,
@@ -129,4 +139,5 @@ internal sealed record ViewRequest(
     bool SortDescending,
     string? Mode,
     string? CoverProperty,
-    string? EndDateProperty);
+    string? EndDateProperty,
+    string? CardSize);

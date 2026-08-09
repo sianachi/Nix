@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { BoardView } from './board-view';
 import { CalendarView } from './calendar-view';
 import type { PropertyDefinition, View } from './container-model';
-import { GalleryView } from './gallery-view';
+import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from './gallery-view';
 import { ListView } from './list-view';
 import { TimelineView } from './timeline-view';
 import type { ContainerData } from './use-container';
@@ -87,6 +87,53 @@ export interface ViewConfiguration {
   readonly clears?: Partial<View>;
 }
 
+/**
+ * One closed-set choice a kind offers, and the tokens it may take.
+ *
+ * The sibling of {@link ViewConfiguration} for the fields that are not properties: a card size is
+ * not a key into the schema, so a property `<Select>` filtered by `accepts` has nothing to offer
+ * it. The set is closed and small - which is `<Segmented>`'s territory - and the server refuses a
+ * token outside it, so the options here are the contract's words and not a suggestion.
+ */
+/**
+ * Which tokens each choosable field may take, named by the renderer that draws them.
+ *
+ * This is the join that used to be missing. `value` and `fallback` were plain `string`, so the
+ * editor's options and the gallery's classes were two lists nothing compared - a fourth size added
+ * here compiled, shipped, and drew as medium. Keying the tokens off the field makes the descriptor
+ * below refuse a word the renderer has no classes for.
+ */
+interface ChoiceTokens {
+  readonly cardSize: CardSize;
+}
+
+type ChoiceField = keyof ChoiceTokens;
+
+interface ViewChoiceOf<TField extends ChoiceField, TToken extends string> {
+  /** The field on the view that stores the chosen token. */
+  readonly field: TField;
+
+  readonly label: string;
+
+  /** Guidance under the control, said in terms of what changes on screen. */
+  readonly hint: string;
+
+  /** The tokens, in the order offered, each with the word a person sees. */
+  readonly options: readonly { readonly value: TToken; readonly label: string }[];
+
+  /**
+   * The token a null field draws as, shown as current until somebody chooses.
+   *
+   * Null and this token render identically, so the control marking it current is the truth rather
+   * than a claim about what is stored: choosing it explicitly changes nothing anybody can see.
+   */
+  readonly fallback: TToken;
+}
+
+export type ViewChoice = {
+  [TField in ChoiceField]: ViewChoiceOf<TField, ChoiceTokens[TField]>;
+}[ChoiceField];
+
 export interface ViewKindDescriptor {
   /** The name this kind is stored and published under. */
   readonly kind: string;
@@ -119,7 +166,28 @@ export interface ViewKindDescriptor {
    * Empty for a list, which needs nothing configured to draw.
    */
   readonly configures: readonly ViewConfiguration[];
+
+  /**
+   * The closed-set choices this kind offers, in the order the editor should offer them.
+   *
+   * Empty for every kind whose look is not adjustable, which keeps "adding a kind is one entry"
+   * true for this axis the same way `configures` keeps it true for properties.
+   */
+  readonly chooses: readonly ViewChoice[];
 }
+
+/**
+ * The word a person sees for each card size.
+ *
+ * A `Record<CardSize, ...>` rather than a capitalisation of the stored token: the copy stays
+ * written out, and a size added to `CARD_SIZES` fails to compile here until somebody says what it
+ * is called. Deriving the label would have shipped a size named after its wire word instead.
+ */
+const CARD_SIZE_LABELS: Record<CardSize, string> = {
+  small: 'Small',
+  medium: 'Medium',
+  large: 'Large',
+};
 
 export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
   {
@@ -128,6 +196,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     icon: LayoutList,
     render: (props) => <ListView {...props} />,
     configures: [],
+    chooses: [],
   },
   {
     kind: 'board',
@@ -145,6 +214,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         clears: { groupOrder: [] },
       },
     ],
+    chooses: [],
   },
   {
     kind: 'calendar',
@@ -163,6 +233,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         accepts: (property) => property.type === 'date' || property.type === 'timestamp',
       },
     ],
+    chooses: [],
   },
   {
     kind: 'gallery',
@@ -187,6 +258,22 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // Not "Choose a property": the gallery is complete without one.
         emptyChoice: 'None',
         accepts: (property) => property.type === 'image',
+      },
+    ],
+    chooses: [
+      {
+        field: 'cardSize',
+        label: 'Card size',
+        // In terms of what changes on screen, not in terms of the stored token: columns and cover
+        // room are the two things the size actually moves.
+        hint: 'Small fits more cards in a row; large gives each cover more room.',
+        // The renderer's own tuple, in its own order, rather than a second list of the same words:
+        // the gallery is what has classes for these tokens, so it is what says which exist.
+        options: CARD_SIZES.map((value) => ({ value, label: CARD_SIZE_LABELS[value] })),
+        // What a gallery that has never been asked already draws as, so the control marking it
+        // current is a description rather than a change waiting to be saved. The renderer resolves
+        // null to this same constant.
+        fallback: DEFAULT_CARD_SIZE,
       },
     ],
   },
@@ -229,6 +316,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         accepts: (property) => property.type === 'date' || property.type === 'timestamp',
       },
     ],
+    chooses: [],
   },
 ];
 

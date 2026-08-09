@@ -53,6 +53,7 @@ function view(overrides: Partial<View> & { id: string; name: string; kind: strin
     mode: null,
     coverProperty: null,
     endDateProperty: null,
+    cardSize: null,
     ...overrides,
   };
 }

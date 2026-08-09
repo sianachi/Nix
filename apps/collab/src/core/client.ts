@@ -143,6 +143,7 @@ export function createCoreClient(options: CoreClientOptions): CoreClient {
         mode: nullableText(view.mode),
         coverProperty: nullableText(view.coverProperty),
         endDateProperty: nullableText(view.endDateProperty),
+        cardSize: nullableText(view.cardSize),
       }));
 
       return { views, default: text(body.default) };

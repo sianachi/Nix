@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { aContainer, views as viewsOf } from '../../views/container-fixture';
 import type { PropertyDefinition, View } from '../../views/container-model';
 import { TEMPLATES, applyTemplate, findTemplate, type Template } from '../../views/templates';
+import { aView } from '../view-fixture';
 
 /**
  * The ready-made setups.
@@ -144,20 +145,7 @@ describe('applying one', () => {
   });
 
   it('keeps what the item already offered', async () => {
-    const existing: View = {
-      id: 'all',
-      name: 'Everything',
-      kind: 'list',
-      columns: [],
-      groupBy: null,
-      groupOrder: [],
-      dateProperty: null,
-      sortBy: null,
-      sortDescending: false,
-      mode: null,
-      coverProperty: null,
-      endDateProperty: null,
-    };
+    const existing: View = aView({ id: 'all', name: 'Everything' });
 
     const { container, setViews } = containerWith([], [existing]);
 

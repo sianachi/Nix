@@ -6,6 +6,7 @@ import type { EffectiveSchema, PropertyDefinition, View } from '../../views/cont
 import { aContainer, views as offered } from '../../views/container-fixture';
 import type { ContainerData } from '../../views/use-container';
 import { ViewEditor } from '../../views/view-editor';
+import { aView } from '../view-fixture';
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -22,19 +23,7 @@ function propertyOf(overrides: Partial<PropertyDefinition> & { key: string }): P
 }
 
 function viewOf(overrides: Partial<View> & { id: string; name: string }): View {
-  return {
-    kind: 'list',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
-    ...overrides,
-  };
+  return aView(overrides);
 }
 
 const SCHEMA: EffectiveSchema = {
@@ -348,6 +337,75 @@ describe('the view editor', () => {
     await user.click(screen.getByRole('button', { name: /save views/i }));
 
     expect(setViews).toHaveBeenCalledWith([]);
+  });
+
+  it('offers a card size for a gallery and for nothing else', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ViewEditor
+        container={containerOf([viewOf({ id: 'g', name: 'Covers', kind: 'gallery' })])}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    // A group of three words, not another property select: a size is not a key into the schema.
+    const sizes = screen.getByRole('group', { name: /card size/i });
+    expect(within(sizes).getByRole('button', { name: 'Small' })).toBeInTheDocument();
+    expect(within(sizes).getByRole('button', { name: 'Medium' })).toBeInTheDocument();
+    expect(within(sizes).getByRole('button', { name: 'Large' })).toBeInTheDocument();
+
+    // A view that has never been asked draws at medium, so medium is marked current rather than
+    // nothing being: the control describes what is on screen, not what is stored.
+    expect(within(sizes).getByRole('button', { name: 'Medium' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+
+    // And it is the gallery's own: a list offered a card size would be a control that does nothing.
+    await user.selectOptions(screen.getByRole('combobox', { name: /shown as/i }), 'list');
+    expect(screen.queryByRole('group', { name: /card size/i })).not.toBeInTheDocument();
+  });
+
+  it('explains the card size group to a screen reader, not only to the eye', () => {
+    render(
+      <ViewEditor
+        container={containerOf([viewOf({ id: 'g', name: 'Covers', kind: 'gallery' })])}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    // The sentence under the control used to be wired to nothing: a person reading with a screen
+    // reader landed on the group, heard "Card size" and three one-word buttons, and never met the
+    // explanation sitting right underneath. `toHaveAccessibleDescription` is the assertion that
+    // the two are actually connected rather than merely adjacent.
+    expect(screen.getByRole('group', { name: /card size/i })).toHaveAccessibleDescription(
+      /small fits more cards in a row/i,
+    );
+  });
+
+  it('records the card size somebody chose', async () => {
+    const user = userEvent.setup();
+    const setViews = vi.fn(() => Promise.resolve(null));
+
+    render(
+      <ViewEditor
+        container={containerOf([viewOf({ id: 'g', name: 'Covers', kind: 'gallery' })], setViews)}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      within(screen.getByRole('group', { name: /card size/i })).getByRole('button', {
+        name: 'Small',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: /save views/i }));
+
+    expect(setViews).toHaveBeenCalledWith([expect.objectContaining({ cardSize: 'small' })]);
   });
 
   it('shows the server s refusal and stays open', async () => {

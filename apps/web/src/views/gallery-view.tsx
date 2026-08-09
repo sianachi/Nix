@@ -50,11 +50,80 @@ import { useViewState } from './view-state';
  *     card, for something nobody attempted to load. It gets its own sentence instead.
  */
 
+/**
+ * The sizes a card can be drawn at, in the order the editor offers them.
+ *
+ * **One tuple, and everything else on this axis is derived from it** - the union below, the two
+ * class tables, the resolver's accepted tokens, and the editor's `<Segmented>` options through
+ * `view-kinds.tsx`. The vocabulary used to be written out four times with nothing tying the copies
+ * together, so a fourth size added to the editor's options compiled clean and drew as medium.
+ * Adding one now is this line plus the two tables, and every other site follows or fails to
+ * compile.
+ *
+ * The only copy left outside TypeScript is the server's `GalleryCardSizes`, which the OpenAPI
+ * contract check covers.
+ */
+export const CARD_SIZES = ['small', 'medium', 'large'] as const;
+
+/** The wire tokens; anything else draws as {@link DEFAULT_CARD_SIZE}. */
+export type CardSize = (typeof CARD_SIZES)[number];
+
+/**
+ * What a gallery that has never been asked draws at.
+ *
+ * Named once because two places need the same answer for different reasons: this file resolves a
+ * null or unrecognised token to it, and the editor marks it current so the control describes what
+ * is on screen rather than proposing a change.
+ */
+export const DEFAULT_CARD_SIZE: CardSize = 'medium';
+
+/**
+ * The grid each size lays out, as one whole literal per size.
+ *
+ * Full class strings rather than assembled ones, because Tailwind only generates what it can read
+ * in the source text - a computed `grid-cols-${n}` is a class that does not exist at runtime.
+ * Medium is verbatim what this grid was before sizes existed, so a stored gallery that has never
+ * been asked keeps looking exactly as it always has.
+ */
+const CARD_SIZE_GRID: Record<CardSize, string> = {
+  small: 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
+  medium: 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
+  large: 'grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3',
+};
+
+/**
+ * The shape of the picture region at each size.
+ *
+ * Part of the size, not left to the grid: a small card keeping a 16:9 cover would be a sliver of
+ * letterbox nobody can read a picture in, so the denser the columns the squarer the frame. Medium
+ * keeps `aspect-video`, which is what every cover drew at before sizes existed.
+ */
+const CARD_SIZE_COVER: Record<CardSize, string> = {
+  small: 'aspect-square',
+  medium: 'aspect-video',
+  large: 'aspect-4/3',
+};
+
+/**
+ * Which size to draw, given what the view stores.
+ *
+ * Null is the ordinary state - every gallery stored before the field existed - and an unrecognised
+ * token is a newer server's word this build has no classes for. Both draw as medium, because a
+ * fallback that keeps every card on screen at the size galleries have always been is honest, and
+ * failing the render over a cosmetic token would not be.
+ */
+function resolveCardSize(stored: string | null): CardSize {
+  // Read off the tuple rather than a hand-written literal check, so a size added there is
+  // recognised here without a second edit - and so the resolver can never fall behind the classes.
+  return CARD_SIZES.find((size) => size === stored) ?? DEFAULT_CARD_SIZE;
+}
+
 export function GalleryView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
   const viewState = useViewState();
 
   const cover = resolveCover(container, view);
+  const size = resolveCardSize(view.cardSize);
 
   const chrome = resolveViewChrome({
     container,
@@ -123,16 +192,13 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
           Justification: the rule is right about the specification and wrong about the platform.
           The role is implicit until `list-style: none` removes it in WebKit, which preflight does
           to every `ul` in this application, so here it restores a role rather than repeating one. */}
-      <ul
-        role="list"
-        aria-label={view.name}
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-      >
+      <ul role="list" aria-label={view.name} className={CARD_SIZE_GRID[size]}>
         {chrome.items.map((item) => (
           <GalleryCard
             key={item.id}
             item={item}
             cover={resolved}
+            size={size}
             secondary={secondary}
             schema={schema}
             onOpen={onOpen}
@@ -213,13 +279,14 @@ function countOf(total: number, noun: string): string {
 interface GalleryCardProps {
   readonly item: Item;
   readonly cover: Cover;
+  readonly size: CardSize;
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
 }
 
 function GalleryCard(props: GalleryCardProps): ReactNode {
-  const { item, cover, secondary, schema, onOpen } = props;
+  const { item, cover, size, secondary, schema, onOpen } = props;
 
   // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
   // of blank labels tells nobody anything.
@@ -275,6 +342,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           <CoverPane
             src={readPropertyText(item, cover.property.key)}
             label={cover.property.label}
+            size={size}
           />
         </div>
       ) : null}
@@ -298,7 +366,15 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
 }
 
 /** The card's picture region: the cover, or the words that say why there is not one. */
-function CoverPane({ src, label }: { readonly src: string; readonly label: string }): ReactNode {
+function CoverPane({
+  src,
+  label,
+  size,
+}: {
+  readonly src: string;
+  readonly label: string;
+  readonly size: CardSize;
+}): ReactNode {
   // **The state is the address that failed, not a flag plus a copy of the address.** Holding a
   // boolean would need a mirrored `src` beside it to know when to clear, which is a prop copied
   // into state by hand - the thing the state ladder exists to avoid - and it would need a
@@ -314,7 +390,7 @@ function CoverPane({ src, label }: { readonly src: string; readonly label: strin
     // In words, not as an empty box. An empty box is indistinguishable from a cover that failed to
     // load and from a picture that happens to be white.
     return (
-      <CoverFrame>
+      <CoverFrame size={size}>
         <Text variant="caption" tone="muted" as="span">
           No cover
         </Text>
@@ -332,7 +408,7 @@ function CoverPane({ src, label }: { readonly src: string; readonly label: strin
     //
     // It is not "No cover" either - there is a value - so it says what is actually wrong.
     return (
-      <CoverFrame>
+      <CoverFrame size={size}>
         <Text variant="caption" tone="muted" as="span">
           This is not a picture address
         </Text>
@@ -347,7 +423,7 @@ function CoverPane({ src, label }: { readonly src: string; readonly label: strin
     // already right. The property is named because that is where the correction is made, and the
     // address is shown because it is the only evidence on the card.
     return (
-      <CoverFrame>
+      <CoverFrame size={size}>
         <Text variant="caption" tone="muted" as="span">
           {`This cover could not be loaded. Check the address in ${label}.`}
         </Text>
@@ -363,7 +439,7 @@ function CoverPane({ src, label }: { readonly src: string; readonly label: strin
   // about progress - it just means the card never has a hole in it, and the geometry is identical
   // in every state so nothing reflows as pictures resolve.
   return (
-    <CoverFrame>
+    <CoverFrame size={size}>
       <CoverImage
         src={src}
         // Empty on purpose, and this is the accessible-name decision rather than an omission. The
@@ -391,9 +467,15 @@ function CoverPane({ src, label }: { readonly src: string; readonly label: strin
  */
 function CoverDetail({ children }: { readonly children: string }): ReactNode {
   return (
-    <span title={children} className="line-clamp-2 break-all font-body text-xs text-muted">
+    <Text
+      variant="caption"
+      as="span"
+      tone="muted"
+      title={children}
+      className="line-clamp-2 break-all"
+    >
       {children}
-    </span>
+    </Text>
   );
 }
 
@@ -404,12 +486,19 @@ function CoverDetail({ children }: { readonly children: string }): ReactNode {
  * hole. `overflow-hidden` is what keeps a long address inside the hairline; `relative` is what the
  * picture fills.
  */
-function CoverFrame({ children }: { readonly children: ReactNode }): ReactNode {
+function CoverFrame({
+  children,
+  size,
+}: {
+  readonly children: ReactNode;
+  readonly size: CardSize;
+}): ReactNode {
   return (
     <div
       className={cn(
         blueprintFrame,
-        'relative flex aspect-video w-full flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center',
+        CARD_SIZE_COVER[size],
+        'relative flex w-full flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center',
       )}
     >
       {children}
