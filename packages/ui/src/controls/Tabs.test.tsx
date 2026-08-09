@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -90,10 +90,138 @@ describe('Tabs', () => {
         onClose={onClose}
       />,
     );
-    await user.click(screen.getByRole('button', { name: 'Close Roadmap' }));
+    // Queried by title rather than role because the affordance is pointer-only by design - it is
+    // aria-hidden with no role, so the tab is not a nested interactive, and Delete on the tab is
+    // the accessible route.
+    await user.click(screen.getByTitle('Close Roadmap (Delete)'));
 
     expect(onClose).toHaveBeenCalledWith('b');
     expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it('exposes no interactive control inside the tab, and says Delete is the keyboard route', () => {
+    // A tablist may own nothing but tabs, and a tab may not contain another interactive control -
+    // assistive technology flattens a tab to its name and never reaches a nested button. The
+    // visible close affordance is therefore pointer-only, absent from the accessibility tree and
+    // the tab order, and the tab itself announces the keyboard route in its place.
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const tab = screen.getByRole('tab', { name: 'Roadmap' });
+    expect(within(tab).queryByRole('button', { hidden: true })).not.toBeInTheDocument();
+    expect(tab).toHaveAttribute('aria-keyshortcuts', 'Delete Backspace');
+
+    // The pointer target still exists for mouse users, outside the accessibility tree - queried
+    // by its title because having no role is exactly the property under test.
+    const affordance = screen.getByTitle('Close Roadmap (Delete)');
+    expect(affordance).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('announces Backspace as well as Delete, because a Mac laptop Delete key sends Backspace', () => {
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // The pair has to agree three ways: what the handler accepts, what `aria-keyshortcuts` says,
+    // and what the key is physically labelled. Announcing only 'Delete' names a key a large share
+    // of people do not have.
+    expect(screen.getByRole('tab', { name: 'Roadmap' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Delete Backspace',
+    );
+  });
+
+  it('writes the shortcut where a sighted keyboard user can find it', () => {
+    // `aria-keyshortcuts` reaches a screen reader and nobody else. Somebody who navigates by
+    // keyboard and can see the strip has no other way to learn that Delete closes a tab.
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: 'Roadmap' })).toHaveAttribute(
+      'title',
+      'Roadmap (Delete to close)',
+    );
+    expect(screen.getByTitle('Close Roadmap (Delete)')).toBeInTheDocument();
+  });
+
+  it('closes the focused tab from the keyboard with Backspace as well', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    screen.getByRole('tab', { name: 'Roadmap' }).focus();
+
+    await user.keyboard('{Backspace}');
+    expect(onClose).toHaveBeenCalledWith('b');
+  });
+
+  it('closes the focused tab from the keyboard with Delete', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    screen.getByRole('tab', { name: 'Roadmap' }).focus();
+
+    await user.keyboard('{Delete}');
+    expect(onClose).toHaveBeenCalledWith('b');
+  });
+
+  it('ignores Delete on a tab marked not closable', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const items: readonly TabItem[] = [
+      { id: 'a', label: 'Meeting notes', pinned: true, closable: false },
+    ];
+
+    render(
+      <Tabs
+        label="Open documents"
+        items={items}
+        activeId="a"
+        onActivate={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    screen.getByRole('tab', { name: 'Meeting notes' }).focus();
+
+    await user.keyboard('{Delete}');
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('offers no close control for a tab marked not closable', () => {
@@ -111,13 +239,17 @@ describe('Tabs', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: 'Close Meeting notes' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Close Meeting notes (Delete)')).not.toBeInTheDocument();
+    const tab = screen.getByRole('tab', { name: 'Meeting notes' });
+    expect(tab).not.toHaveAttribute('aria-keyshortcuts');
+    // Nor the tooltip that promises the shortcut, which would be a lie on this tab.
+    expect(tab).not.toHaveAttribute('title');
   });
 
   it('offers no close control at all when the caller does not accept one', () => {
     render(<Tabs label="Open documents" items={OPEN} activeId="a" onActivate={vi.fn()} />);
 
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^Close /)).not.toBeInTheDocument();
   });
 });
 

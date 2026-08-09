@@ -21,6 +21,14 @@ import { focusRing, inkWashStates } from '../primitives/interaction';
  * selection follows" reading of the ARIA pattern would make browsing the strip itself expensive.
  * Enter or Space activates whatever is focused; the arrow keys only move focus.
  *
+ * **The close affordance is pointer-only; the keyboard closes with Delete or Backspace on the
+ * tab itself.** A tablist may own nothing but tabs, and a tab may not contain another interactive
+ * control - a nested control is unreachable for assistive technology, which flattens a tab to its
+ * name, and even a button at `tabindex="-1"` remains natively focusable. So the visible close
+ * affordance is a plain `aria-hidden` span: mouse users get the familiar target, and everyone else
+ * gets the same action from the tab element they are already on, announced through
+ * `aria-keyshortcuts` on each closable tab.
+ *
  * `pinned` is the only thing this component knows about preview tabs - it renders one italic and
  * nothing more. Which tab is a preview, when one is replaced, and when it is promoted to pinned
  * are all decisions the caller makes; this component only draws the result.
@@ -162,7 +170,7 @@ export function Tabs(props: TabsProps): ReactNode {
     >
       {items.map((item, index) => {
         const active = item.id === activeId;
-        const closable = item.closable ?? true;
+        const closable = (item.closable ?? true) && onClose !== undefined;
 
         return (
           <div
@@ -170,6 +178,16 @@ export function Tabs(props: TabsProps): ReactNode {
             role="tab"
             tabIndex={active ? 0 : -1}
             aria-selected={active}
+            // Two shortcuts, space-separated, because the handler accepts both and the physical
+            // keyboard makes that necessary rather than generous: the key labelled Delete on a Mac
+            // laptop sends Backspace, so announcing only one of the pair names a key a large share
+            // of people do not have.
+            aria-keyshortcuts={closable ? 'Delete Backspace' : undefined}
+            // The only place the key is written down for someone who can see the strip. The tab
+            // already names itself through its own text, so this tooltip is additive rather than
+            // the accessible name - it exists so the Delete shortcut is discoverable without a
+            // screen reader reading `aria-keyshortcuts` aloud.
+            title={closable ? `${item.label} (Delete to close)` : undefined}
             onClick={() => {
               onActivate(item.id);
             }}
@@ -180,28 +198,45 @@ export function Tabs(props: TabsProps): ReactNode {
           >
             <span className={cn('truncate', item.pinned !== true && 'italic')}>{item.label}</span>
 
-            {closable && onClose !== undefined ? (
-              // A sibling button, not a button wrapping the tab: a tab that were itself a
-              // `<button>` could not host another interactive control without nesting one
-              // button inside another, which is invalid HTML and unreachable by assistive
-              // technology. Hidden until the tab is hovered, focused or active, the same
-              // reveal-on-proximity rule the pane divider and sidebar rows already use.
-              <button
-                type="button"
-                aria-label={`Close ${item.label}`}
+            {/* `closable` already folds in "the caller accepts a close" - TS narrows `onClose` through the alias. */}
+            {closable ? (
+              /*
+                A pointer-only affordance, deliberately a span and deliberately outside the
+                accessibility tree: a tablist may own nothing but tabs and a tab may not contain
+                another interactive control, and even a `<button>` at `tabindex="-1"` stays a
+                natively focusable element assistive technology can land on. Keyboard and
+                screen-reader users close with Delete or Backspace on the tab itself, which
+                `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
+                a sighted keyboard user who has no screen reader to read that attribute out.
+                Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
+                rule the pane divider and sidebar rows use.
+
+                The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
+                from the accessibility tree for *every* consumer of that tree, which includes
+                voice-control users - "click Close Roadmap" no longer matches anything, and they
+                must reach the tab and press Delete like other keyboard-driven users. That is the
+                price of the tablist pattern's rule against interactive content inside a tab, and
+                it is paid deliberately.
+
+                No lint suppression is needed for a click handler with no key handler beside it:
+                `jsx-a11y` stops asking for one once an element is `aria-hidden`, which is the same
+                reasoning as the paragraphs above, reached independently.
+              */
+              <span
+                aria-hidden="true"
+                title={`Close ${item.label} (Delete)`}
                 onClick={(event) => {
                   event.stopPropagation();
                   onClose(item.id);
                 }}
                 className={cn(
-                  'shrink-0 rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                  'shrink-0 cursor-pointer rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                   active && 'opacity-100',
-                  focusRing,
                   inkWashStates,
                 )}
               >
                 <Icon icon={X} size="sm" />
-              </button>
+              </span>
             ) : null}
           </div>
         );

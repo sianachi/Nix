@@ -3,7 +3,7 @@ import { type LucideIcon } from 'lucide-react';
 
 import { cn } from '../lib/cn';
 import { Icon } from '../primitives/Icon';
-import { listboxActiveOption } from '../primitives/interaction';
+import { focusRingInset, listboxActiveOption } from '../primitives/interaction';
 import { Text } from '../primitives/Text';
 
 /**
@@ -14,14 +14,16 @@ import { Text } from '../primitives/Text';
  * move a highlight with the arrow keys, commit with Enter - and all three had been about to grow
  * their own copy of it.
  *
- * **Focus does not move into the list, and that is the whole reason this exists.** The obvious
+ * **Focus is never pulled into the list, and that is the whole reason this exists.** The obvious
  * implementation makes each option a `<button>` and lets Tab reach it, which puts a listbox's
  * options in the tab order, breaks type-ahead the moment focus leaves the field, and announces
  * every option as a button. The correct pattern keeps focus on the input and moves
  * `aria-activedescendant` instead, so a screen reader reads the highlighted option while the
  * person is still typing into the field they started in. That is fiddly enough - stable ids per
  * option, a controlled index, an `aria-controls` that has to resolve - that it is worth owning
- * once.
+ * once. The list element itself is still a tab stop of its own - a scrollable region must be
+ * reachable by keyboard, and its options deliberately are not - and it answers to the same key
+ * model, so landing on it directly loses nothing.
  *
  * **Escape is deliberately not handled here.** Which layer closes is the caller's to decide, and
  * the convention in `apps/web` is that the innermost open thing wins and calls `stopPropagation`.
@@ -244,8 +246,34 @@ export function Listbox(props: ListboxProps): ReactNode {
         element out of the accessibility tree and so undoes the very thing this comment is about.
         With no options the element has no children and no height, so there was nothing for it to
         hide either.
+
+        `tabIndex` when, and only when, there is something to scroll. Being honest about what it
+        buys, because the obvious reading of it is wrong: the keyboard route through this list is
+        the arrow keys *from the field*, which move the highlight and let the effect above scroll
+        it into view. It is not Tab into the list. Every caller dismisses the popup when the field
+        blurs, so tabbing out of the field closes the list before focus could land here - this stop
+        is, in practice, unreachable in the product.
+
+        It stays for two reasons. It is what keeps `scrollable-region-focusable` satisfied: the
+        wrapper the caller makes scrollable (via `className`) needs focusable content inside it,
+        and the options are deliberately not focusable because the highlight travels by
+        `aria-activedescendant`. And a caller that does not dismiss on blur gets a working focused
+        listbox for free - the same keys, `aria-activedescendant` already in place.
+
+        Conditional because an empty list is neither scrollable nor operable: without the guard, a
+        picker showing "no results" would put a nameable, focusable, do-nothing stop in the tab
+        order, which is a worse outcome than the rule it was placating.
       */}
-      <div id={listboxId} ref={listRef} role="listbox" aria-label={label}>
+      <div
+        id={listboxId}
+        ref={listRef}
+        role="listbox"
+        aria-label={label}
+        tabIndex={options.length === 0 ? undefined : 0}
+        aria-activedescendant={controller.activeOptionId}
+        onKeyDown={controller.onKeyDown}
+        className={focusRingInset}
+      >
         {runs.map((run) => {
           const headingId =
             run.group === undefined ? undefined : `${listboxId}-group-${String(run.from)}`;

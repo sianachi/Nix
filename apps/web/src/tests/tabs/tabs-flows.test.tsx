@@ -109,7 +109,10 @@ describe('closing tabs and panes', () => {
     await screen.findByRole('tab', { name: 'Bravo' });
     expect(screen.getAllByRole('article')).toHaveLength(2);
 
-    await user.click(screen.getByRole('button', { name: 'Close Bravo' }));
+    // The close affordance is deliberately not an interactive role of its own (a focusable
+    // control inside a role=tab is the nested-interactive axe violation); the pointer path is
+    // the titled span, the keyboard path is Delete on the tab itself.
+    await user.click(screen.getByTitle('Close Bravo (Delete)'));
 
     await waitFor(() => {
       expect(screen.getAllByRole('article')).toHaveLength(1);

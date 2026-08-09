@@ -24,11 +24,18 @@ export default mergeConfig(
     test: {
       name: 'storybook',
       setupFiles: ['./.storybook/vitest.setup.ts'],
+      // In a sandboxed or headless environment this suite has been observed to
+      // hang indefinitely before collecting a single test rather than fail.
+      // These bounds turn that hang into a bounded, reportable failure: a story
+      // gets 30s, a hook 60s, and the browser 60s to even answer the connection.
+      testTimeout: 30_000,
+      hookTimeout: 60_000,
       browser: {
         enabled: true,
         headless: true,
         provider: 'playwright',
         instances: [{ browser: 'chromium' }],
+        connectTimeout: 60_000,
       },
     },
   }),

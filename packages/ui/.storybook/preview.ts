@@ -1,6 +1,13 @@
 import { type Decorator, type Preview } from '@storybook/react-vite';
 import { createElement } from 'react';
 
+// The product typeface, self-hosted (no font CDN, ever) - the same weights
+// apps/web imports in its Tailwind entry, so stories render in the letterforms
+// the product ships.
+import '@fontsource/nunito-sans/400.css';
+import '@fontsource/nunito-sans/600.css';
+import '@fontsource/nunito-sans/700.css';
+
 import './tailwind.css';
 
 /**

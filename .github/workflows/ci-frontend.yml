@@ -1,5 +1,5 @@
 # Frontend CI (engineering plan section 9.2).
-#   Stage 1 static -> Stage 2 unit. Storybook + axe is stage 3.
+#   Stage 1 static -> Stage 2 unit -> Stage 3 storybook + axe.
 #
 # Split from the backend workflow so the two lanes can be developed in
 # parallel without contending for one file. backend/openapi is in the trigger
@@ -162,6 +162,42 @@ jobs:
         env:
           NIX_COLLAB_SKIP_DB_TESTS: '1'
         run: pnpm test
+
+  frontend-storybook:
+    name: frontend storybook
+    runs-on: ubuntu-latest
+    needs: frontend-static
+    # The suite is known to hang rather than fail in some headless environments
+    # (before collecting a single test), and the vitest config's own timeouts
+    # cannot bound a browser that never launches. This is the backstop that
+    # turns a wedged runner into a red job instead of a six-hour default.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm install fetches the playwright npm package but not the browser
+      # binary it drives; without this step the suite dies (or hangs) looking
+      # for a chromium it never downloaded. --with-deps also installs the
+      # system libraries headless chromium needs on a bare ubuntu runner.
+      - name: Install Playwright chromium
+        run: pnpm --filter @nix/ui exec playwright install --with-deps chromium
+
+      # Every story rendered in a real chromium, its play function executed,
+      # and axe run over the result on the ground the story declares.
+      # a11y.test: 'error' in .storybook/preview.ts makes any violation a
+      # failing test, so an inaccessible component cannot merge green.
+      - name: Storybook stories + axe
+        run: pnpm --filter @nix/ui test-storybook
 
   collab-integration:
     name: collab integration

@@ -264,6 +264,55 @@ describe('a listbox driven from a text field', () => {
     expect(items === undefined ? [] : within(items).getAllByRole('option')).toHaveLength(1);
   });
 
+  it('gives the populated list a tab stop, since its options deliberately are not focusable', async () => {
+    // What this buys, stated plainly: the caller's scroll container needs focusable content
+    // somewhere inside it, and the options are unfocusable by design because the highlight travels
+    // by `aria-activedescendant`. The route a person actually takes through the list is the arrow
+    // keys from the field - a caller that dismisses the popup on blur never lets focus land here
+    // at all. This Picker does not dismiss, so the stop is reachable and behaves.
+    const user = userEvent.setup();
+    render(<Picker />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.tab();
+
+    expect(screen.getByRole('listbox')).toHaveFocus();
+  });
+
+  it('keeps an empty list out of the tab order', async () => {
+    // The component deliberately stays mounted with nothing in it, so that `aria-controls` always
+    // resolves. Left unconditional, the tab stop would turn that promise into a nameable,
+    // focusable, do-nothing stop between the field and whatever comes after it - and there is
+    // nothing to scroll, which was the tab stop's only reason to exist.
+    const user = userEvent.setup();
+    render(<Picker options={[]} />);
+
+    const listbox = screen.getByRole('listbox');
+    expect(listbox).not.toHaveAttribute('tabindex');
+
+    await user.click(screen.getByRole('combobox'));
+    await user.tab();
+    expect(listbox).not.toHaveFocus();
+  });
+
+  it('answers to the same keys when the list itself holds the focus', async () => {
+    // The tab stop is honest, not decorative: someone who lands on the list can still move the
+    // highlight and commit, exactly as they could from the field.
+    const chosen = vi.fn();
+    const user = userEvent.setup();
+    render(<Picker onSelect={chosen} />);
+
+    const listbox = screen.getByRole('listbox');
+    listbox.focus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(highlighted()).toHaveTextContent('Apricot');
+    expect(listbox.getAttribute('aria-activedescendant')).toBe(highlighted()?.id);
+
+    await user.keyboard('{Enter}');
+    expect(chosen).toHaveBeenCalledWith(FRUIT[1], 1);
+  });
+
   it('does not hide the listbox element when it is empty', () => {
     // `hidden` is `display: none`, which removes the element from the accessibility tree - undoing
     // the `aria-controls` guarantee the empty element exists to provide.
