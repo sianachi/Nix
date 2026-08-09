@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CalendarDay } from '../../views/calendar-dates';
@@ -7,6 +8,7 @@ import { CalendarView } from '../../views/calendar-view';
 import { aContainer, views } from '../../views/container-fixture';
 import type { EffectiveSchema, Item, View } from '../../views/container-model';
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
 
 /**
  * The week grid's layout at a narrow width: a floor on every day column, one scroller for the
@@ -30,20 +32,13 @@ const SCHEMA: EffectiveSchema = {
 };
 
 function weekView(): View {
-  return {
+  return aView({
     id: 'schedule',
     name: 'Schedule',
     kind: 'calendar',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
     dateProperty: 'starts',
-    sortBy: null,
-    sortDescending: false,
     mode: 'week',
-    coverProperty: null,
-    endDateProperty: null,
-  };
+  });
 }
 
 function itemOf(id: string, title: string, properties: Record<string, unknown>): Item {
@@ -66,11 +61,14 @@ const STANDUP = itemOf('item-standup', 'Standup', {
   starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]',
 });
 
+/** A plain date and no time: an all-day item, drawn as a chip in the band above the hours. */
+const OFFSITE = itemOf('item-offsite', 'Offsite', { starts: '2026-03-16' });
+
 function renderWeek(): void {
   const view = weekView();
   renderAt(
     <CalendarView
-      container={aContainer({ schema: SCHEMA, views: views([view]), children: [STANDUP] })}
+      container={aContainer({ schema: SCHEMA, views: views([view]), children: [STANDUP, OFFSITE] })}
       view={view}
       onOpen={vi.fn()}
     />,
@@ -230,5 +228,146 @@ describe('day mode, which shares this same grid and scroller', () => {
     expect(column).toBeInstanceOf(HTMLElement);
     expect(column).toHaveClass('min-w-[7rem]', 'sm:min-w-[9rem]');
     expect(column?.closest('.overflow-auto')).toBeInstanceOf(HTMLElement);
+  });
+});
+
+describe('the hour slots as one roving tab stop', () => {
+  /**
+   * A week renders one create control per hour per day - 168 of them - and every one used to be
+   * its own tab stop, so getting past an empty week by keyboard was 168 presses. The roving
+   * tabindex (use-roving-grid.ts) keeps exactly one in the tab order and hands the rest to the
+   * arrow keys: Up and Down walk the hours, Left and Right walk the days.
+   */
+
+  function person() {
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  function slotButtons(): HTMLElement[] {
+    return screen.getAllByRole('button', { name: /^Add an item at \d\d:00 on / });
+  }
+
+  function slot(hour: string, day: string): HTMLElement {
+    return screen.getByRole('button', { name: `Add an item at ${hour} on ${day} March 2026` });
+  }
+
+  it('keeps exactly one of the 168 hour-slot controls in the tab order', () => {
+    renderWeek();
+
+    const buttons = slotButtons();
+    expect(buttons).toHaveLength(168);
+
+    const tabbable = buttons.filter((button) => button.tabIndex === 0);
+    expect(tabbable).toHaveLength(1);
+    expect(buttons.filter((button) => button.tabIndex === -1)).toHaveLength(167);
+  });
+
+  it('moves the focused slot down an hour and across a day with the arrow keys', async () => {
+    renderWeek();
+
+    slot('00:00', 'Monday 16').focus();
+
+    await person().keyboard('{ArrowDown}');
+    expect(slot('01:00', 'Monday 16')).toHaveFocus();
+
+    await person().keyboard('{ArrowRight}');
+    expect(slot('01:00', 'Tuesday 17')).toHaveFocus();
+
+    await person().keyboard('{ArrowUp}');
+    expect(slot('00:00', 'Tuesday 17')).toHaveFocus();
+
+    await person().keyboard('{ArrowLeft}');
+    expect(slot('00:00', 'Monday 16')).toHaveFocus();
+  });
+
+  it('moves along the row with Home and End, and to the grid corners with Ctrl held', async () => {
+    renderWeek();
+
+    slot('01:00', 'Tuesday 17').focus();
+
+    // The APG's grid convention: along the row, so the hour is kept and the day changes. This
+    // used to move the column - midnight and 23:00 in the same day - which is the opposite of
+    // what the key does in every other grid.
+    await person().keyboard('{End}');
+    expect(slot('01:00', 'Sunday 22')).toHaveFocus();
+
+    // Already at the last day: Right has nowhere to go and must not wrap, which would make the
+    // edge of the week unfindable by feel.
+    await person().keyboard('{ArrowRight}');
+    expect(slot('01:00', 'Sunday 22')).toHaveFocus();
+
+    await person().keyboard('{Home}');
+    expect(slot('01:00', 'Monday 16')).toHaveFocus();
+
+    await person().keyboard('{ArrowLeft}');
+    expect(slot('01:00', 'Monday 16')).toHaveFocus();
+
+    // Ctrl reaches the corners, which is where the two jumps the old mapping offered went - and
+    // further, since it moves both axes at once.
+    await person().keyboard('{Control>}{End}{/Control}');
+    expect(slot('23:00', 'Sunday 22')).toHaveFocus();
+
+    await person().keyboard('{Control>}{Home}{/Control}');
+    expect(slot('00:00', 'Monday 16')).toHaveFocus();
+  });
+
+  it('makes the slot the arrows land on the one tab stop, so leaving and returning resumes there', async () => {
+    renderWeek();
+
+    slot('00:00', 'Monday 16').focus();
+    await person().keyboard('{ArrowDown}{ArrowRight}');
+
+    const active = slot('01:00', 'Tuesday 17');
+    expect(active).toHaveFocus();
+    expect(active.tabIndex).toBe(0);
+    expect(slotButtons().filter((button) => button.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it('keeps the active slot focus-revealed exactly as before, never invisible', () => {
+    renderWeek();
+
+    // The reveal contract predates the roving and must survive it: `opacity-0` with focus and
+    // hover reveals, deliberately not `invisible`, because `visibility: hidden` removes the
+    // control from the tab order entirely - see the slot's own comment in calendar-hours.tsx.
+    const button = slot('00:00', 'Monday 16');
+    expect(button).toHaveClass(
+      'opacity-0',
+      'focus-visible:opacity-100',
+      'focus-within:opacity-100',
+    );
+    expect(button.className).not.toContain('invisible');
+  });
+});
+
+describe('the all-day band chips', () => {
+  it('declares the hit-area extension classes on each chip', () => {
+    renderWeek();
+
+    // A class contract and nothing more - jsdom performs no layout, so the 24px this is aimed at
+    // cannot be measured here and this test does not claim to. What it pins is the intent: the
+    // drawn chip is ~19px tall (text-xs at 1.4 line height plus py-0.5) and the before:
+    // pseudo-element extends the hit area one spacing step past each edge - the pane-divider
+    // technique - which is what takes it past WCAG 2.5.8's floor. The measurement belongs to a
+    // real-browser pass.
+    const chip = screen.getByRole('button', { name: 'Offsite' });
+    expect(chip).toHaveClass(
+      'relative',
+      'before:absolute',
+      'before:inset-x-0',
+      'before:-inset-y-1',
+    );
+    expect(chip).toHaveClass('py-0.5', 'text-xs');
+  });
+
+  it('declares a column gap wide enough for two chips to extend into without overlapping', () => {
+    renderWeek();
+
+    // The other half of the contract above, and the half that was missing: an extension of 3.4px
+    // below one chip and 3.4px above the next needs 6.8px of column gap between them, or the two
+    // hit areas overlap and the later sibling paints over the earlier one - the bottom of every
+    // chip opening the item below it. `gap-2` is exactly those 6.8px. Class contract again;
+    // jsdom measures nothing, so what is asserted is that the gap is declared at all.
+    const column = screen.getByLabelText('All day on Monday 16 March 2026');
+    expect(column).toHaveClass('flex', 'flex-col', 'gap-2');
   });
 });

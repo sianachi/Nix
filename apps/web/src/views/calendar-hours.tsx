@@ -5,6 +5,7 @@ import { dayLabel, dayText, weekLabel, type CalendarDay } from './calendar-dates
 import { readPropertyText, type Item } from './container-model';
 import { CreateItemControl } from './create-item-control';
 import { formatTime, minutesFor, readTimestampValue, writeTimestampValue } from './timestamps';
+import { useRovingGrid } from './use-roving-grid';
 
 /**
  * A day or a week, drawn against the hours.
@@ -130,6 +131,13 @@ interface Placed {
 export function HourGrid(props: HourGridProps): ReactNode {
   const { days, items, dateProperty, zone, today, onOpen, onCreate } = props;
 
+  // One tab stop for all 168 hour-slot create controls, with the arrow keys moving which slot it
+  // is: Up and Down walk the hours, Left and Right walk the days, Home and End jump to the first
+  // and last day at the same hour, and Ctrl with either to midnight on the first day and 23:00 on
+  // the last. See the hook's own doc for the APG mapping and for why the tabindex is managed from
+  // here rather than by each control.
+  const { containerRef, onKeyDown, onFocusCapture } = useRovingGrid(HOURS.length, days.length);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/*
@@ -198,7 +206,18 @@ export function HourGrid(props: HourGridProps): ReactNode {
             />
           </div>
 
-          <div className="flex">
+          {/* The roving container: keydown and focus are watched from here because the slots
+              inside come and go as their create fields open, while this element is the one stable
+              ancestor they all share. It is not itself interactive - the handlers only steer
+              which of the buttons inside is the tab stop - which is what the rule below cannot
+              see from the outside. */}
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Justification: the handlers implement a roving tabindex over the buttons inside; the element itself is never a target and gets no role, no tab stop and no name. */}
+          <div
+            ref={containerRef}
+            onKeyDown={onKeyDown}
+            onFocusCapture={onFocusCapture}
+            className="flex"
+          >
             <div className={HOUR_GUTTER}>
               {HOURS.map((hour) => (
                 <div
@@ -213,10 +232,11 @@ export function HourGrid(props: HourGridProps): ReactNode {
               ))}
             </div>
 
-            {days.map((day) => (
+            {days.map((day, dayIndex) => (
               <DayColumn
                 key={dayText(day)}
                 day={day}
+                dayIndex={dayIndex}
                 placed={placeOn(day, items, dateProperty, zone)}
                 dateProperty={dateProperty}
                 zone={zone}
@@ -287,6 +307,9 @@ function placeOn(
 
 function DayColumn(props: {
   readonly day: CalendarDay;
+
+  /** The column's position in the roving grid: which day Left and Right arrive at. */
+  readonly dayIndex: number;
   readonly placed: readonly Placed[];
   readonly dateProperty: string;
   readonly zone: string;
@@ -296,7 +319,7 @@ function DayColumn(props: {
     properties?: Record<string, unknown>,
   ) => Promise<string | null>;
 }): ReactNode {
-  const { day, placed, dateProperty, zone, onOpen, onCreate } = props;
+  const { day, dayIndex, placed, dateProperty, zone, onOpen, onCreate } = props;
 
   return (
     <div
@@ -307,6 +330,10 @@ function DayColumn(props: {
       {HOURS.map((hour) => (
         <div
           key={hour}
+          // The roving-grid markers: which cell this slot is, for the hook that keeps exactly one
+          // of the 168 create controls in the tab order. See use-roving-grid.ts.
+          data-roving-row={hour}
+          data-roving-column={dayIndex}
           className="group/slot border-b border-divider"
           style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it
         >
@@ -399,16 +426,40 @@ function AllDayBand(props: {
           <div
             key={wanted}
             aria-label={`All day on ${dayLabel(day)}`}
-            className={cn(DAY_COLUMN, 'group/allday border-l border-divider p-1')}
+            // `flex flex-col gap-2` rather than a plain block: the chips below extend their hit
+            // area 3.4px past each edge, so two stacked chips with no gap between them would
+            // overlap by 6.8px and the later sibling would paint over it - the bottom of every
+            // chip opening the item below it. WCAG 2.5.8's spacing exception is about area that
+            // belongs to nobody else, so borrowing it from the neighbour does not satisfy the
+            // floor. gap-2 is 6.8px, exactly the two 3.4px extensions, so they meet and never
+            // overlap. The create control below the chips extends 1.7px (`-inset-y-0.5`), well
+            // inside the same gap.
+            className={cn(
+              DAY_COLUMN,
+              // The "bordered group -> p-3" role names a *panel* - a bordered box standing on the
+              // page, like the board's column or the timeline's off-axis list. This is a cell in a
+              // band of seven, and its `border-l` is the rule between two columns rather than a
+              // frame around one. p-3 here would be 24px of padding inside a 112px column, most of
+              // the width of the chips it holds; this row of cells has always been p-1 and its
+              // neighbour, the hour gutter, pads to match.
+              'group/allday flex flex-col gap-2 border-l border-divider p-1', // spacing-role-exempt: a band cell, not a panel - see above
+            )}
           >
             {allDay.map((item) => (
+              /* `relative before:*`: the drawn chip is about 19px tall (`text-xs` at its 1.4 line
+                 height plus `py-0.5`), under WCAG 2.5.8's 24px floor, and making it taller would
+                 push the band's rows apart. The pseudo-element widens what a pointer has to hit
+                 without widening what the eye sees - the same technique, with the same reasoning,
+                 as pane-divider.tsx's grab band. `-inset-y-1` is one spacing step (3.4px) past
+                 each edge, which clears the floor with room for the density to tighten. The
+                 column's `gap-2` is what gives those extensions somewhere to go; see it above. */
               <button
                 key={item.id}
                 type="button"
                 onClick={() => {
                   onOpen(item.id);
                 }}
-                className="block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                className="relative block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
               >
                 {readPropertyText(item, 'title')}
               </button>

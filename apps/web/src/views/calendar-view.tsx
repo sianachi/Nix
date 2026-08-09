@@ -1,6 +1,6 @@
-import { Blueprint, Button, Field, Icon, Input, Text, cn, focusRing } from '@nix/ui';
+import { Blueprint, Button, Dialog, Field, Icon, Input, Text, cn, focusRing } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useId, useState, type DragEvent, type ReactNode } from 'react';
+import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import {
   readDateValue,
@@ -29,6 +29,7 @@ import {
   type CalendarMonth,
 } from './calendar-dates';
 import { HourGrid } from './calendar-hours';
+import { VIEW_GUTTER_BLEED } from './container-view';
 import { readerZone } from './timestamps';
 import type { ContainerData } from './use-container';
 import { drawable, resolveViewChrome, undrawable } from './view-chrome';
@@ -289,7 +290,6 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
 
   const card: CardContext = {
     onOpen,
-    rescheduling,
     setRescheduling,
     setDragged,
     moveTo,
@@ -297,6 +297,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     onCreate: container.create,
     dateProperty,
   };
+
+  // The item the reschedule dialog is open for, resolved from the id rather than stored as an
+  // item: the id survives the item's own data changing under it, and a stale copy would show a
+  // date the grid no longer agrees with.
+  const reschedulingItem =
+    rescheduling === null ? null : (items.find((item) => item.id === rescheduling) ?? null);
 
   // One clock reading for the whole grid rather than one per cell: the answer cannot change
   // halfway through a render, and forty-two of them would be forty-two allocations for one fact.
@@ -352,7 +358,11 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
                 setMode(grain);
               }}
               className={[
-                'rounded-sm px-2 py-1 text-xs capitalize',
+                // `relative before:*`: the drawn pill is about 22px tall (`text-xs` at its 1.4
+                // line height plus `py-1`), just under WCAG 2.5.8's 24px floor. The pseudo-element
+                // widens the hit area half a step past each edge without moving the row - the
+                // pane-divider technique, at the smallest extension that clears the floor.
+                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5',
                 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
                 mode === grain
                   ? 'bg-foreground/7 text-foreground'
@@ -416,20 +426,38 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       )}
 
       {mode === 'month' ? (
-        <Blueprint className="overflow-hidden">
-          {/* `role="region"` plus a tab stop, matching timeline-view.tsx's and calendar-hours.tsx's
-              own scrollable tracks: without one, this axis is reachable by keyboard only by tabbing
-              through every focusable control inside it, so somebody who wants to pan across without
-              triggering anything has no way to. `<Blueprint>` cannot carry these itself - it forwards
-              only `children`, `as` and `className` - so the scroll and the padding it used to own
-              both move to this plain wrapper instead. */}
-          <div
-            role="region"
-            aria-label={monthLabel(month)}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
-            tabIndex={0}
-            className={cn('overflow-x-auto p-3', focusRing)}
-          >
+        /*
+          The scroller sits *outside* the frame and bleeds the container's gutter
+          (`VIEW_GUTTER_BLEED`, owned by container-view.tsx so the negative margin and the padding
+          cannot become two different numbers), and the arithmetic is why. The table's floor is
+          728px (`MONTH_GRID_MIN_WIDTH`), and around it stand the frame's 2px of border, its 24px
+          of `p-3`, and - since ContainerView grew its gutter wrapper - 64px of it: about 90px of
+          chrome before the first date cell. With the scroller inside the frame, a container
+          between roughly 750 and 790px wide had a region narrower than the table's floor, so the
+          last column slid under the frame's right border - clipped against a hairline rather than
+          visibly scrollable. Bleeding the gutter into the scroller returns those 64px to the
+          scroll viewport, and because the frame now travels with the table, the last column ends
+          at the frame's own edge instead of under it. At rest nothing moves: the padding half of
+          the bleed recreates the gutter exactly, so the frame still opens where the header and the
+          switcher start.
+
+          `role="region"` plus a tab stop, matching timeline-view.tsx's and calendar-hours.tsx's
+          own scrollable tracks: without one, this axis is reachable by keyboard only by tabbing
+          through every focusable control inside it. `<Blueprint>` cannot carry any of this itself
+          - it forwards only `children`, `as` and `className` - so the scroll moves to this plain
+          wrapper. `min-w-max` on the frame is what makes its box span the true scroll-content
+          width, the same width-owner job the week grid's inner wrapper does; jsdom cannot verify
+          any of the layout above, so the classes here are asserted as a contract in
+          calendar-view.test.tsx.
+        */
+        <div
+          role="region"
+          aria-label={monthLabel(month)}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
+          tabIndex={0}
+          className={cn(VIEW_GUTTER_BLEED, 'overflow-x-auto', focusRing)}
+        >
+          <Blueprint className="min-w-max overflow-hidden p-3">
             <table className={cn('w-full table-fixed border-collapse', MONTH_GRID_MIN_WIDTH)}>
               <Text as="caption" variant="caption" className="sr-only">
                 {`${monthLabel(month)}, items placed on the day their date names`}
@@ -477,8 +505,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
                 ))}
               </tbody>
             </table>
-          </div>
-        </Blueprint>
+          </Blueprint>
+        </div>
       ) : (
         <Blueprint className="flex min-h-[520px] flex-col overflow-hidden p-0">
           <HourGrid
@@ -524,6 +552,25 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           </ul>
         )}
       </section>
+
+      {/* One dialog, rendered at the root, for whichever card asked. It used to be an inline form
+          swapped into the card's place, which inside a month cell meant a native date input asked
+          to draw itself in a `w-[6.5rem]` column - narrower than the ~120px the control needs, so
+          the date being edited was not on screen. Keyed by item so a different card's dialog
+          starts with its draft and errors fresh. */}
+      {reschedulingItem === null ? null : (
+        <RescheduleDialog
+          key={reschedulingItem.id}
+          item={reschedulingItem}
+          dateProperty={dateProperty}
+          onCancel={() => {
+            setRescheduling(null);
+          }}
+          onMove={(value) => {
+            moveTo(reschedulingItem.id, value);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -569,7 +616,6 @@ function buildWeeks(month: CalendarMonth): readonly (readonly (DayCellSpec | nul
 /** What every card needs, whether it sits in a day or in the unscheduled list. */
 interface CardContext {
   readonly onOpen: (itemId: string) => void;
-  readonly rescheduling: string | null;
   readonly setRescheduling: (itemId: string | null) => void;
   readonly setDragged: (itemId: string | null) => void;
   readonly moveTo: (itemId: string, value: string | null) => void;
@@ -664,21 +710,7 @@ interface ItemCardProps {
 
 function ItemCard(props: ItemCardProps): ReactNode {
   const { item } = props;
-  const { onOpen, rescheduling, setRescheduling, setDragged, moveTo, secondaryKey } = props.card;
-
-  if (rescheduling === item.id) {
-    return (
-      <RescheduleForm
-        item={item}
-        onCancel={() => {
-          setRescheduling(null);
-        }}
-        onMove={(value) => {
-          moveTo(item.id, value);
-        }}
-      />
-    );
-  }
+  const { onOpen, setRescheduling, setDragged, secondaryKey } = props.card;
 
   const secondary = secondaryKey === null ? '' : readPropertyText(item, secondaryKey);
 
@@ -697,9 +729,13 @@ function ItemCard(props: ItemCardProps): ReactNode {
       className="flex items-start gap-1 border border-divider bg-surface px-1"
     >
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
+            width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
+            floor. Half a step each side is the widest the hit area can grow without reaching the
+            reschedule control's own widened area beside it. */}
         <Button
           variant="ghost"
-          className="min-w-0 justify-start px-0 py-0.5 text-left text-sm"
+          className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
           onClick={() => {
             onOpen(item.id);
           }}
@@ -714,10 +750,15 @@ function ItemCard(props: ItemCardProps): ReactNode {
         )}
       </div>
 
+      {/* `before:-inset-x-1`: with `px-0` this is an 18px-wide target - the 16px glyph plus the
+          hairline borders - under the 24px floor, and giving the padding back would cost the day
+          cell width it does not have. One spacing step each side clears the floor invisibly, the
+          pane-divider technique again. */}
       <Button
         variant="ghost"
         aria-label={`Reschedule ${item.title || 'Untitled'}`}
-        className="px-0 py-0.5"
+        aria-haspopup="dialog"
+        className="relative px-0 py-0.5 before:absolute before:inset-y-0 before:-inset-x-1"
         onClick={() => {
           setRescheduling(item.id);
         }}
@@ -728,27 +769,36 @@ function ItemCard(props: ItemCardProps): ReactNode {
   );
 }
 
-interface RescheduleFormProps {
+interface RescheduleDialogProps {
   readonly item: Item;
+
+  /** The property the calendar places by, for reading the date the item has now. */
+  readonly dateProperty: string;
   readonly onCancel: () => void;
   readonly onMove: (value: string | null) => void;
 }
 
 /**
- * The keyboard road to the same write a drag performs.
+ * The keyboard road to the same write a drag performs, in a modal.
  *
- * The draft starts empty rather than pre-filled with the item's current date. Copying the stored
- * value into local state would be mirroring server data by hand for no gain: the date the item
- * already has is the cell the card is sitting in, which the reader can see, and a field asking for
- * a *new* date should not have to be emptied before it can be answered.
+ * A modal rather than a form swapped into the card's place, because the card's place is a
+ * `w-[6.5rem]` month column and a native date input needs roughly 120px to draw its value - the
+ * old inline form rendered a control that could not show the date being typed into it.
+ *
+ * The draft starts as the date the item has now, when it has one. The inline form started empty
+ * and said why: the current date was the cell the card sat in, visible right behind the field.
+ * A modal covers the grid, so the one fact the form used to lean on is now hidden by it - the
+ * value is the field's honest starting point, seeded once at mount (the dialog is keyed by item),
+ * not mirrored thereafter.
  *
  * What the form must not do is guess. A draft that is not a `yyyy-MM-dd` date is refused here, in
  * the field that can say so, rather than written and refused by Core.
  */
-function RescheduleForm(props: RescheduleFormProps): ReactNode {
-  const { item, onCancel, onMove } = props;
-  const [draft, setDraft] = useState('');
+function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
+  const { item, dateProperty, onCancel, onMove } = props;
+  const [draft, setDraft] = useState(() => readDateValue(item, dateProperty) ?? '');
   const [error, setError] = useState<string | null>(null);
+  const fieldRef = useRef<HTMLInputElement>(null);
 
   function submit(): void {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(draft)) {
@@ -760,48 +810,69 @@ function RescheduleForm(props: RescheduleFormProps): ReactNode {
   }
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-      className="flex flex-col gap-1 border border-divider p-1"
+    <Dialog
+      open
+      title={`Reschedule ${item.title || 'Untitled'}`}
+      onClose={onCancel}
+      // The dialog's whole purpose is one field, which is the case Dialog documents initialFocus
+      // for: landing on the element itself would make the first press a Tab nobody needed.
+      initialFocus={fieldRef}
     >
-      <Field label={`New date for ${item.title || 'Untitled'}`} error={error}>
-        {(control) => (
-          <Input
-            {...control}
-            type="date"
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setError(null);
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Justification: the handler adds no interaction of its own - the field and buttons inside stay the controls - it only stops an Escape press, already translated to the dialog's cancel, from bubbling on to outer layers (ADR-0029). */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        onKeyDown={(event) => {
+          // ADR-0029's layering rule: the innermost open layer owns Escape and stops it where it
+          // is handled. The platform translates this very keydown into the dialog's `cancel`
+          // event, which is what closes it - so propagation is stopped, keeping the press from
+          // also reaching a window-level listener like the sidebar drawer's, but the default is
+          // NOT prevented, because preventing it here would suppress the cancel event itself.
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+          }
+        }}
+        className="flex flex-col gap-3"
+      >
+        <Field label={`New date for ${item.title || 'Untitled'}`} error={error}>
+          {(control) => (
+            <Input
+              {...control}
+              ref={fieldRef}
+              type="date"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setError(null);
+              }}
+            />
+          )}
+        </Field>
+
+        <div className="flex flex-wrap items-center gap-1">
+          <Button type="submit" className="py-1 text-sm">
+            Move
+          </Button>
+
+          <Button
+            variant="secondary"
+            className="py-1 text-sm"
+            onClick={() => {
+              // Parity with dropping a card into the unscheduled list. A gesture the mouse has and
+              // the keyboard does not is a gesture half the people here cannot perform.
+              onMove(null);
             }}
-          />
-        )}
-      </Field>
+          >
+            Remove date
+          </Button>
 
-      <div className="flex flex-wrap items-center gap-1">
-        <Button type="submit" className="py-1 text-sm">
-          Move
-        </Button>
-
-        <Button
-          variant="secondary"
-          className="py-1 text-sm"
-          onClick={() => {
-            // Parity with dropping a card into the unscheduled list. A gesture the mouse has and
-            // the keyboard does not is a gesture half the people here cannot perform.
-            onMove(null);
-          }}
-        >
-          Remove date
-        </Button>
-
-        <Button variant="ghost" className="py-1 text-sm" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
+          <Button variant="ghost" className="py-1 text-sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

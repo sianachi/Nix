@@ -33,14 +33,15 @@ import { Blueprint, Card, Text, blueprintFrame, cn } from '@nix/ui';
  *     two different insets read as misaligned even when neither one is wrong on its own; only
  *     looking at them together shows it.
  *
- *     **This is true of the header and the document body, and only of those two.** A view's own
+ *     **This was true of the header and the document body only, until it wasn't.** A view's own
  *     content - the board, the gallery, the list, the calendar, the timeline - carries no
  *     horizontal padding of its own at all (`board-view.tsx`, `gallery-view.tsx` and the rest all
  *     open their root wrapper with no `px-*`), so switching the switcher's own inset from `px-4` to
- *     `px-8` widened its mismatch with *that* content from four steps to eight. Fixing it would mean
- *     deciding what a view's own edge gutter should be, which is a real gap this pass did not close
- *     - named here rather than either silently left for a screenshot to catch, or folded into a
- *     change this goal did not audit for.
+ *     `px-8` widened its mismatch with *that* content from four steps to eight. That gap - what a
+ *     view's own edge gutter should be - is now closed at `ContainerView` (`container-view.tsx`),
+ *     the one place every view's render output passes through: it wraps that output in `px-8`
+ *     rather than repeating the class in each of the five view files, which is what let the two
+ *     insets drift apart the first time.
  *
  * A reviewer comparing a new screen against this has something to hold it next to. A reviewer
  * comparing it against `SpacingSpecimen` only learns that `p-2` and `p-3` both exist.
@@ -124,6 +125,9 @@ function ChromeAlignmentDemo(): ReactElement {
           `<span>` that the surrounding prose refers to leaves a screen-reader user pointed at
           content they were never given. */}
       <div className="flex items-center gap-1 border-y border-divider px-8 py-1.5">
+        {/* text-primitive-exempt: the switcher's own classes, verbatim (`view-switcher.tsx`).
+            A specimen that redrew the thing it is quoting through `<Text>` would stop being
+            evidence about the real surface and start being evidence about the specimen. */}
         <span className="border border-divider px-2 py-1 text-xs">Document</span>
         <span className="border border-transparent px-2 py-1 text-xs text-muted">Board</span>
       </div>
@@ -165,9 +169,10 @@ export function RhythmSpecimen(): ReactElement {
           <Text variant="kicker">Chrome-to-content alignment</Text>
           <ChromeAlignmentDemo />
           <Text tone="muted" variant="bodySmall">
-            True of the header and the document body shown here. A view's own content - board,
-            gallery, list, calendar, timeline - has no horizontal padding of its own at all, which
-            this pass found and did not close; see the follow-up note above this component.
+            The header and the document body share this left edge directly. A view's own content -
+            board, gallery, list, calendar, timeline - still carries no horizontal padding of its
+            own; it shares the edge instead through the `px-8` wrapper in `ContainerView`, see the
+            note above this component.
           </Text>
         </div>
       </div>

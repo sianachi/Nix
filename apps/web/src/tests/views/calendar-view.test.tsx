@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../render-with-router';
+import { aView } from '../view-fixture';
+import { VIEW_GUTTER_BLEED } from '../../views/container-view';
 import { CalendarView } from '../../views/calendar-view';
 import type { EffectiveSchema, Item, View } from '../../views/container-model';
 import { aContainer, views } from '../../views/container-fixture';
@@ -35,20 +37,13 @@ const SCHEMA: EffectiveSchema = {
   inherit: true,
 };
 
-const VIEW: View = {
+const VIEW: View = aView({
   id: 'view-schedule',
   name: 'Schedule',
   kind: 'calendar',
   columns: ['title', 'status'],
-  groupBy: null,
-  groupOrder: [],
   dateProperty: 'due',
-  sortBy: null,
-  sortDescending: false,
-  mode: null,
-  coverProperty: null,
-  endDateProperty: null,
-};
+});
 
 function itemOf(id: string, title: string, properties: Record<string, unknown>): Item {
   return {
@@ -211,15 +206,65 @@ describe('the calendar view', () => {
     expect(screen.getByRole('heading', { name: 'March 2026' })).toBeVisible();
   });
 
+  it('opens rescheduling as a dialog that shows the date the item has now', async () => {
+    // A dialog rather than a form swapped into the card's place: the month cell is a `w-[6.5rem]`
+    // column, and a native date input needs roughly 120px to draw its value, so the inline form
+    // rendered a control that could not show the date being edited.
+    const person = user();
+    renderCalendar({ children: [KICKOFF] });
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Reschedule Kickoff' });
+    expect(within(dialog).getByLabelText('New date for Kickoff')).toHaveValue('2026-03-17');
+  });
+
   it('reschedules an item from the keyboard, writing the day the person named', async () => {
     const person = user();
     const { setProperties } = renderCalendar({ children: [KICKOFF] });
 
     await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
-    await person.type(screen.getByLabelText('New date for Kickoff'), '2026-03-20');
+
+    const field = screen.getByLabelText('New date for Kickoff');
+    await person.clear(field);
+    await person.type(field, '2026-03-20');
     await person.click(screen.getByRole('button', { name: 'Move' }));
 
     expect(setProperties).toHaveBeenCalledWith('item-kickoff', { due: '2026-03-20' });
+  });
+
+  it('closes the reschedule dialog when the platform reports Escape, and writes nothing', async () => {
+    const person = user();
+    const { setProperties } = renderCalendar({ children: [KICKOFF] });
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
+
+    // Escape reaches a modal <dialog> as a cancellable `cancel` event; jsdom does not translate
+    // the key itself, so the event is dispatched the way Dialog.test.tsx's own pressEscape does.
+    const dialog = screen.getByRole('dialog', { name: 'Reschedule Kickoff' });
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(setProperties).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Escape press inside the dialog instead of letting outer layers see it', async () => {
+    // ADR-0029's layering rule: the innermost open layer owns Escape. A window-level listener -
+    // the sidebar drawer's - must never receive the same press that closed this dialog, or one
+    // key would close two things at once.
+    const person = user();
+    renderCalendar({ children: [KICKOFF] });
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
+
+    const seenByWindow = vi.fn();
+    window.addEventListener('keydown', seenByWindow);
+    try {
+      fireEvent.keyDown(screen.getByLabelText('New date for Kickoff'), { key: 'Escape' });
+      expect(seenByWindow).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', seenByWindow);
+    }
   });
 
   it('takes a date off an item from the keyboard, so the mouse has no gesture the keyboard lacks', async () => {
@@ -237,6 +282,10 @@ describe('the calendar view', () => {
     const { setProperties } = renderCalendar({ children: [KICKOFF] });
 
     await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
+
+    // The field opens holding the item's current date, so the incomplete draft has to be made:
+    // emptied, the way somebody who cleared the value and pressed Move would leave it.
+    await person.clear(screen.getByLabelText('New date for Kickoff'));
     await person.click(screen.getByRole('button', { name: 'Move' }));
 
     expect(setProperties).not.toHaveBeenCalled();
@@ -432,6 +481,31 @@ describe('the calendar view', () => {
       expect(region).toHaveClass('overflow-x-auto');
       expect(region).toHaveAttribute('tabIndex', '0');
       expect(screen.getByRole('table').closest('.overflow-x-auto')).toBe(region);
+    });
+
+    it('bleeds the container gutter into the scroller so the last column never clips under the frame', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      // The arithmetic this contract stands for (jsdom does no layout, so it cannot be measured
+      // here): the table's floor is 728px, and the frame's border (2px), its p-3 (24px) and
+      // ContainerView's px-8 gutter (64px) stand around it - so with the scroller inside the
+      // frame, a container between ~750 and ~790px wide clipped the last column under the frame's
+      // right border before scrolling visibly engaged. `VIEW_GUTTER_BLEED` on the region hands the
+      // gutter's 64px to the scroll viewport while the padding keeps the resting position exactly
+      // where the header and switcher align; `min-w-max` on the frame makes it travel with the
+      // table so the last column ends at the frame's edge rather than under it.
+      //
+      // Asserted against the exported constants rather than against `-mx-8 px-8` spelled out
+      // again: the gutter's width is container-view.tsx's to decide, and a test that pinned the
+      // literal would be a third place encoding "8" and the first one to fail for the wrong
+      // reason when the gutter changes.
+      const region = screen.getByRole('region', { name: /march 2026/i });
+      expect(region).toHaveClass(...VIEW_GUTTER_BLEED.split(' '), 'overflow-x-auto');
+
+      const frame = screen.getByRole('table').closest('.border-divider');
+      expect(frame).toBeInstanceOf(HTMLElement);
+      expect(frame).toHaveClass('min-w-max');
+      expect(region.contains(frame)).toBe(true);
     });
   });
 });

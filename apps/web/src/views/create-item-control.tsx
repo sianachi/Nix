@@ -1,4 +1,4 @@
-import { Icon, Input } from '@nix/ui';
+import { Icon, Input, Text } from '@nix/ui';
 import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -119,6 +119,10 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
           setOpen(true);
         }}
         className={[
+          // relative + before: the drawn chip is ~22px tall (text-xs at py-1), under WCAG 2.5.8's
+          // 24px floor; the pseudo-element widens the hit target past it without changing what is
+          // drawn, the same technique as pane-divider.tsx and the calendar's all-day chips.
+          'relative before:absolute before:-inset-y-0.5 before:inset-x-0',
           'flex items-center gap-1 rounded-sm px-2 py-1 text-xs text-muted',
           'hover:bg-foreground/7 hover:text-foreground',
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
@@ -166,9 +170,9 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
       />
 
       {refusal === null ? null : (
-        <p role="alert" className="px-1 text-xs">
+        <Text variant="caption" as="p" role="alert" className="px-1">
           {refusal}
-        </p>
+        </Text>
       )}
     </form>
   );

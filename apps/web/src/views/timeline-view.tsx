@@ -207,7 +207,10 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
                 setMode(grain);
               }}
               className={cn(
-                'rounded-sm px-2 py-1 text-xs capitalize',
+                // `relative before:*`: the drawn pill is about 22px tall (`text-xs` at its 1.4
+                // line height plus `py-1`), just under WCAG 2.5.8's 24px floor - the same fix,
+                // for the same control, as the calendar's grain switcher.
+                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5',
                 focusRing,
                 scale === grain
                   ? 'bg-foreground/7 text-foreground'
@@ -768,8 +771,18 @@ function Bar({ placed, onOpen, continuesBefore, continuesAfter }: BarProps): Rea
       // A tint rather than a solid accent fill. The design grammar reserves the solid accent for
       // the primary button - one of them per screen - and a row of forty saturated bars would
       // drown it.
+      // `relative before:*`: h-6 is 20.4px at this density, under WCAG 2.5.8's 24px floor, and a
+      // taller bar would push the rows apart. The pseudo-element extends the hit area one spacing
+      // step past each edge without moving a pixel of what is drawn - the pane-divider technique.
+      //
+      // The extension is the row's own space, not the next row's, which is what stops one bar
+      // stealing the bottom of another's target: each bar sits in a `td` with `p-1`, so between
+      // two bars in successive rows there is 3.4px + a 1px border + 3.4px. Two 3.4px extensions
+      // meet in the middle of that and never overlap. A row that ever loses its cell padding has
+      // to shrink this to `-inset-y-0.5` in the same edit.
       className={cn(
-        'flex h-6 w-full items-center gap-1 rounded-sm px-2 text-left',
+        'relative flex h-6 w-full items-center gap-1 rounded-sm px-2 text-left',
+        'before:absolute before:inset-x-0 before:-inset-y-1',
         barStates,
         focusRing,
       )}
@@ -811,8 +824,11 @@ function Milestone({
       onClick={() => {
         onOpen(placed.item.id);
       }}
+      // The same hit-area extension as `Bar`, for the same 20.4px height, in the same `td p-1`
+      // row space - so no two of these overlap either.
       className={cn(
-        'flex h-6 items-center gap-1 rounded-sm bg-transparent px-1 text-left',
+        'relative flex h-6 items-center gap-1 rounded-sm bg-transparent px-1 text-left',
+        'before:absolute before:inset-x-0 before:-inset-y-1',
         'hover:bg-accent/18 active:bg-accent/25 transition-colors',
         focusRing,
       )}
@@ -960,10 +976,14 @@ function OffAxisEntry({
   return (
     <li className="flex flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
+        {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
+            width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
+            floor - the same widening as the calendar card's title, half a step each side so it
+            never reaches the reschedule toggle beside it. */}
         <Button
           variant="ghost"
           aria-label={announce(placed)}
-          className="min-w-0 justify-start px-0 py-0.5 text-left text-sm"
+          className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
           onClick={() => {
             aside.onOpen(item.id);
           }}
@@ -1055,8 +1075,12 @@ function RescheduleFields({
     aside.endKey === null ? null : resolveDateProperty(aside.schema, aside.endKey, 'End date');
 
   return (
+    // Each field's floor holds only from `sm` up. Unconditional, 14rem was wider than the room a
+    // 375px viewport leaves once the pane's gutters are taken out, so the fields forced the pane
+    // wide instead of stacking; at the base width they are `w-full` rows of the wrapping flex,
+    // one under the other, which is what a phone-width form is.
     <div className="flex flex-wrap items-start gap-3">
-      <div className="min-w-[14rem]">
+      <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem]">
         <PropertyInput
           item={item}
           property={start}
@@ -1069,13 +1093,15 @@ function RescheduleFields({
 
       {end === null ? (
         // Not an empty box and not a disabled field: this view names no end property at all, so
-        // there is nothing here to edit and saying why is the honest answer.
-        <Text variant="caption" tone="muted" className="max-w-[16rem]">
+        // there is nothing here to edit and saying why is the honest answer. The measure is capped
+        // only from `sm` up, like the fields beside it: at the base width the container is already
+        // narrower than the cap.
+        <Text variant="caption" tone="muted" className="max-w-full sm:max-w-[16rem]">
           This timeline names no end date property, so every item on it is a milestone. Choose one
           under Views to give these bars a length.
         </Text>
       ) : (
-        <div className="min-w-[14rem]">
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem]">
           <PropertyInput
             item={item}
             property={end}

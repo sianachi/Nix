@@ -5,6 +5,8 @@ import { useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../render-with-router';
+import { stubViewport } from '../stub-viewport';
+import { aView } from '../view-fixture';
 import { aContainer, views } from '../../views/container-fixture';
 import type { EffectiveSchema, Item, View } from '../../views/container-model';
 import { TimelineView } from '../../views/timeline-view';
@@ -37,21 +39,14 @@ const SCHEMA: EffectiveSchema = {
 };
 
 function viewOf(overrides: Partial<View> = {}): View {
-  return {
+  return aView({
     id: 'delivery',
     name: 'Delivery',
     kind: 'timeline',
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
     dateProperty: 'starts',
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
     endDateProperty: 'ends',
     ...overrides,
-  };
+  });
 }
 
 function itemOf(id: string, title: string, properties: Record<string, unknown>): Item {
@@ -556,5 +551,91 @@ describe('when the configuration has drifted', () => {
     render({ children: [ROLLOUT], views: views([view], { unrenderable: [view.id] }) }, view);
 
     expect(screen.getByText(/Core reports that "Delivery" can no longer be drawn/)).toBeVisible();
+  });
+});
+
+describe('the timeline at a phone width', () => {
+  /**
+   * The file's first narrow-viewport coverage, and an honest note on what it is: jsdom performs no
+   * layout, so nothing here can measure a 375px pane or watch a field stack. `stubViewport(false)`
+   * pins the suite's declared width to narrow - the component itself reads no media query, since
+   * every `sm:` variant is CSS - and the assertions check the class contract those variants spell
+   * out, the same style as calendar-view.test.tsx's own narrow-width block. The rendered claim
+   * belongs to a real-browser pass at 375px.
+   */
+
+  it('lets the reschedule fields stack at the base width instead of forcing the pane wide', async () => {
+    stubViewport(false);
+    const user = person();
+    render({ children: [ROLLOUT] });
+
+    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
+
+    for (const label of ['Starts', 'Ends']) {
+      const wrapper = screen.getByLabelText(label).closest('[class*="sm:min-w-"]');
+      expect(wrapper).toBeInstanceOf(HTMLElement);
+      // Full-width rows below `sm`, the 14rem floor only from `sm` up: unconditional, that floor
+      // was wider than the room a 375px viewport leaves once the pane's gutters are taken out.
+      expect(wrapper).toHaveClass('w-full', 'min-w-0', 'sm:w-auto', 'sm:min-w-[14rem]');
+    }
+  });
+
+  it('caps the no-end-property note only from sm up, where the cap is narrower than the screen', async () => {
+    stubViewport(false);
+    const user = person();
+    render({ children: [ROLLOUT] }, viewOf({ endDateProperty: null }));
+
+    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
+
+    expect(screen.getByText(/names no end date property/)).toHaveClass(
+      'max-w-full',
+      'sm:max-w-[16rem]',
+    );
+  });
+});
+
+describe('the touch targets on the track', () => {
+  it('declares the hit-area extension classes on a bar', () => {
+    render({ children: [ROLLOUT] });
+
+    // A class contract and nothing more. `h-6` is 20.4px at this density, under WCAG 2.5.8's
+    // floor, and the before: pseudo-element extends the hit area one spacing step past each edge
+    // without moving a drawn pixel - the pane-divider technique. The extension is the row's own
+    // space: each bar sits in a `td p-1`, so successive rows leave 3.4px + a border + 3.4px
+    // between them and two extensions meet without overlapping. jsdom performs no layout, so none
+    // of that is measured here - the classes are the claim, and the measurement belongs to a
+    // real-browser pass.
+    const bar = screen.getByRole('button', { name: /^Rollout,/ });
+    expect(bar).toHaveClass('h-6', 'relative', 'before:absolute', 'before:-inset-y-1');
+  });
+
+  it('declares the same extension on a milestone, which shares the bar height', () => {
+    render({ children: [LAUNCH] });
+
+    const milestone = screen.getByRole('button', { name: /^Launch,/ });
+    expect(milestone).toHaveClass('h-6', 'relative', 'before:absolute', 'before:-inset-y-1');
+  });
+
+  it('declares the extension classes on the scale switcher chips, which draw shorter than the floor', () => {
+    render({ children: [ROLLOUT] });
+
+    const nav = screen.getByRole('navigation', { name: 'Timeline scale' });
+    for (const grain of ['week', 'month', 'quarter']) {
+      expect(within(nav).getByRole('button', { name: grain })).toHaveClass(
+        'relative',
+        'before:absolute',
+        'before:-inset-y-0.5',
+      );
+    }
+  });
+
+  it('declares the horizontal extension on an off-axis title, whose width with px-0 is only its text', () => {
+    render({ children: [IDEA] });
+
+    expect(screen.getByRole('button', { name: 'Idea, no start date' })).toHaveClass(
+      'relative',
+      'before:absolute',
+      'before:-inset-x-0.5',
+    );
   });
 });
