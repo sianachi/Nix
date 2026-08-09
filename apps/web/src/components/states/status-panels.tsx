@@ -89,12 +89,11 @@ export function ErrorPanel({
  */
 export function PartialNotice({ pending }: { readonly pending: string }): ReactElement {
   return (
-    <div
-      role="status"
-      className="flex items-start gap-2 border border-divider p-3 font-body text-sm text-accent-text"
-    >
-      <Icon icon={TriangleAlert} className="size-4" />
-      <span>{pending}</span>
+    <div role="status" className="flex items-start gap-2 border border-divider p-3">
+      <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
+      <Text variant="note" as="span" tone="accent">
+        {pending}
+      </Text>
     </div>
   );
 }

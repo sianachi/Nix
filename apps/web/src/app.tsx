@@ -1,4 +1,5 @@
-import type { ReactElement } from 'react';
+import { Text } from '@nix/ui';
+import { Suspense, lazy, type ReactElement } from 'react';
 import { Route, Routes } from 'react-router';
 
 import { AuthProvider } from './auth/auth-provider';
@@ -6,9 +7,17 @@ import { AppErrorBoundary } from './components/error-boundary';
 import { AuthCallbackPage, SilentRenewPage } from './pages/auth-callback-page';
 import { EditorPage } from './pages/editor-page';
 import { NotFoundPage } from './pages/not-found-page';
-import { TokensPage } from './pages/tokens-page';
 import { AppShell } from './app/app-shell';
 import { RequireSession } from './app/require-session';
+
+// Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
+// reference material - every ramp step, every type scale, every rhythm demo - and nobody working
+// in the product opens them. The same treatment `editor-page.tsx` gives the canvas, for the same
+// reason.
+const TokensPage = lazy(async () => {
+  const module = await import('./pages/tokens-page');
+  return { default: module.TokensPage };
+});
 
 /**
  * The route tree and the crash barrier that wraps it.
@@ -56,7 +65,23 @@ export function App(): ReactElement {
                     has a route of its own. */}
                 <Route index element={<EditorPage />} />
 
-                <Route path="tokens" element={<TokensPage />} />
+                {/* The boundary is per-route rather than around the whole tree: a fallback over
+                    `Routes` would blank the shell while a chunk arrives. The wording matches the
+                    canvas's - what is loading, named, rather than a spinner claiming nothing. */}
+                <Route
+                  path="tokens"
+                  element={
+                    <Suspense
+                      fallback={
+                        <Text variant="note" as="div" tone="muted" className="p-8">
+                          Loading the token specimens…
+                        </Text>
+                      }
+                    >
+                      <TokensPage />
+                    </Suspense>
+                  }
+                />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Route>

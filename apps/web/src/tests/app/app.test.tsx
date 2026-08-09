@@ -11,17 +11,27 @@ beforeEach(() => {
   signedIn();
 });
 
+/**
+ * The specimen page is a lazy route - it is ~35 kB of design-lane reference nobody working in the
+ * product opens, so it is not in the entry chunk - which is why every assertion about it below is
+ * awaited. A synchronous `getBy` here would find the Suspense fallback, and a test that "passes"
+ * against a fallback would go on passing if the chunk never arrived.
+ */
 describe('the design token specimen page', () => {
-  it('renders the token page heading at the index route', () => {
+  it('renders the token page heading at the index route', async () => {
     renderAt(<App />, '/tokens');
 
     expect(
-      screen.getByRole('heading', { level: 1, name: /industry design tokens/i }),
+      await screen.findByRole('heading', { level: 1, name: /industry design tokens/i }),
     ).toBeVisible();
   });
 
-  it('renders the layout chrome around the page', () => {
+  it('renders the layout chrome around the page', async () => {
     renderAt(<App />, '/tokens');
+
+    // The chrome is the shell's, not the page's, so it is there before the chunk is - but waiting
+    // for the page first keeps the assertion about a settled screen rather than a loading one.
+    await screen.findByRole('heading', { level: 1, name: /industry design tokens/i });
 
     // A banner and a main landmark, and deliberately no contentinfo. The status strip that used to
     // sit at the foot said which tenant the session was pinned to and that isolation is enforced
@@ -41,36 +51,36 @@ describe('the design token specimen page', () => {
 });
 
 describe('state that lives in the URL', () => {
-  it('renders the state named by the search parameter, so a link is shareable', () => {
+  it('renders the state named by the search parameter, so a link is shareable', async () => {
     renderAt(<App />, '/tokens?state=empty');
 
-    expect(screen.getByRole('heading', { name: /no items here yet/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /no items here yet/i })).toBeVisible();
   });
 
-  it('names what it is waiting for rather than showing an anonymous spinner', () => {
+  it('names what it is waiting for rather than showing an anonymous spinner', async () => {
     renderAt(<App />, '/tokens?state=loading');
 
-    expect(screen.getByRole('heading', { name: /loading workspace items/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /loading workspace items/i })).toBeVisible();
   });
 
-  it('shows the data and says what is missing when the result is partial', () => {
+  it('shows the data and says what is missing when the result is partial', async () => {
     renderAt(<App />, '/tokens?state=partial');
 
-    expect(screen.getByText(/not yet indexed/i)).toBeVisible();
+    expect(await screen.findByText(/not yet indexed/i)).toBeVisible();
     expect(screen.getByText('Acquisition memo')).toBeVisible();
   });
 
-  it('falls back to the default view when the parameter is not a known state', () => {
+  it('falls back to the default view when the parameter is not a known state', async () => {
     renderAt(<App />, '/tokens?state=nonsense');
 
-    expect(screen.getByText('Acquisition memo')).toBeVisible();
+    expect(await screen.findByText('Acquisition memo')).toBeVisible();
   });
 
   it('recovers from the error state through its retry affordance', async () => {
     const user = userEvent.setup();
     renderAt(<App />, '/tokens?state=error');
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/could not load workspace items/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not load workspace items/i);
 
     await user.click(screen.getByRole('button', { name: /try again/i }));
 
@@ -78,10 +88,10 @@ describe('state that lives in the URL', () => {
     expect(screen.getByText('Acquisition memo')).toBeVisible();
   });
 
-  it('offers every state as a real link, not a button', () => {
+  it('offers every state as a real link, not a button', async () => {
     renderAt(<App />, '/tokens');
 
-    const switcher = screen.getByRole('navigation', { name: /state pattern preview/i });
+    const switcher = await screen.findByRole('navigation', { name: /state pattern preview/i });
     expect(screen.getAllByRole('link')).not.toHaveLength(0);
     expect(switcher).toBeInTheDocument();
   });

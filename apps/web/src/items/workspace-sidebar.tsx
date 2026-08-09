@@ -1,4 +1,4 @@
-import { Button, Icon, Text, disabledState, focusRing } from '@nix/ui';
+import { Button, Icon, Text, cn, disabledState, fieldLabel, focusRing } from '@nix/ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -162,14 +162,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     // here as well would be two owners for one dimension.
     <aside aria-label="Workspace" className="flex w-full flex-col overflow-hidden bg-surface">
       <div className="flex shrink-0 items-center gap-1 px-3 py-2">
-        <Text
-          variant="caption"
-          as="span"
-          tone="muted"
-          className="truncate uppercase tracking-wider"
-        >
-          Workspace
-        </Text>
+        {/* The published label look, composed onto a span: `<Text>`'s className is layout only,
+            and this was reaching through it for uppercase and tracking - which is the type axis the
+            variant is supposed to own. `fieldLabel` is that same treatment, stated once. */}
+        <span className={cn('truncate', fieldLabel)}>Workspace</span>
 
         <CreateMenu
           destinationName={destinationName}
@@ -181,9 +177,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       </div>
 
       {refusal === null ? null : (
-        <p role="alert" className="mx-2 mb-2 rounded-md bg-background px-3 py-2 text-xs">
+        <Text
+          variant="caption"
+          as="p"
+          role="alert"
+          className="mx-2 mb-2 rounded-md bg-background px-3 py-2"
+        >
           {refusal}
-        </p>
+        </Text>
       )}
 
       {/* `tabIndex={-1}`: not in the tab order on its own, but a legitimate script-focusable
@@ -355,13 +356,19 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   const { tree } = props;
 
   if (tree.status === 'loading') {
-    return <p className="px-3 py-2 text-sm text-muted">Loading the workspace…</p>;
+    return (
+      <Text variant="note" tone="muted" className="px-3 py-2">
+        Loading the workspace…
+      </Text>
+    );
   }
 
   if (tree.status === 'error') {
     return (
       <div role="alert" className="px-3 py-2">
-        <p className="mb-2 text-sm text-muted">{tree.error}</p>
+        <Text variant="note" tone="muted" className="mb-2">
+          {tree.error}
+        </Text>
         <Button
           variant="secondary"
           className="px-2 py-1 text-xs"
@@ -378,9 +385,9 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   const roots = tree.childrenOf(null);
   if (roots.length === 0) {
     return (
-      <p className="px-3 py-2 text-sm text-muted">
+      <Text variant="note" tone="muted" className="px-3 py-2">
         Nothing here yet. &ldquo;New&rdquo; creates the first item.
-      </p>
+      </Text>
     );
   }
 
@@ -773,13 +780,23 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       {expanded ? (
         <ul role="group">
           {tree.isLoadingChildren(item.id) && children.length === 0 ? (
-            <li className={`py-1 text-sm text-muted ${indentAt(CHILD_NOTICE_INDENT, depth)}`}>
+            <Text
+              variant="note"
+              as="li"
+              tone="muted"
+              className={`py-1 ${indentAt(CHILD_NOTICE_INDENT, depth)}`}
+            >
               Loading…
-            </li>
+            </Text>
           ) : children.length === 0 ? (
-            <li className={`py-1 text-sm text-muted ${indentAt(CHILD_NOTICE_INDENT, depth)}`}>
+            <Text
+              variant="note"
+              as="li"
+              tone="muted"
+              className={`py-1 ${indentAt(CHILD_NOTICE_INDENT, depth)}`}
+            >
               Empty
-            </li>
+            </Text>
           ) : (
             children.map((child) => (
               <TreeNode key={child.id} {...props} item={child} depth={depth + 1} />

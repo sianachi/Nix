@@ -1,4 +1,4 @@
-import { Icon, Segmented, focusRing } from '@nix/ui';
+import { Icon, Segmented, Text, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -109,15 +109,19 @@ function DetailsPane({
   const properties = container.schema?.properties ?? [];
 
   if (details.item === null) {
-    return <p className="text-sm text-muted">Loading this item&rsquo;s details…</p>;
+    return (
+      <Text variant="note" tone="muted">
+        Loading this item&rsquo;s details…
+      </Text>
+    );
   }
 
   if (!details.loading && properties.length === 0) {
     return (
-      <p className="text-sm text-muted">
+      <Text variant="note" tone="muted">
         Nothing carries properties here yet. Add one under Fields and it appears on every item
         inside this one.
-      </p>
+      </Text>
     );
   }
 

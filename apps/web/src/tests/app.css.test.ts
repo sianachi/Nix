@@ -51,9 +51,16 @@ const require = createRequire(import.meta.url);
 // What this test knows is "the library's rules are being compiled"; it does not
 // get to care whether a value is written inline or has since been moved onto a
 // token, because moving one there is exactly the change the design system is
-// supposed to be able to make. The tracking step is the worked example: it was
+// supposed to be able to make. The tracking step was the worked example: it was
 // `-0.015em` in Text.tsx and became `var(--tracking-tight)` when the scale
 // landed, and a test pinned to either spelling calls the other a regression.
+//
+// That canary has since been retired, which is the other half of the same
+// lesson. `tracking-tight` stopped being library-only when U11's adoption sweep
+// wrote it in two places in `apps/web` - once in the reason a wordmark keeps its
+// own tracking, once in the specimen that draws the whole tracking ladder - and
+// a canary the app also sings is not a canary. It is replaced below by the
+// display step, which `apps/web` reaches only through `<Text variant="h1">`.
 const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   // Table.tsx: the border model the hairline row rules depend on.
   ['the table border model', /border-collapse:\s*separate/],
@@ -62,8 +69,8 @@ const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   ['the control height', /height:\s*var\(--control-md\)/],
   // Button.tsx: the horizontal padding, off the spacing scale.
   ['the button padding', /padding-inline:\s*calc\(var\(--spacing\)\s*\*\s*3\.6\)/],
-  // Text.tsx: the body face's negative tracking, inline or through the scale.
-  ['the body tracking', /letter-spacing:\s*(-0?\.015em|var\(--tracking-tight\))/],
+  // Text.tsx: the top of the type scale, which only the h1 variant asks for.
+  ['the display step', /font-size:\s*(40px|var\(--text-3xl\))/],
 ];
 
 /**
@@ -89,7 +96,7 @@ const CANARY_UTILITIES = [
   'border-spacing-',
   'h-(--control-md)',
   'px-3.6',
-  'tracking-tight',
+  'text-3xl',
 ];
 
 let workDir: string;

@@ -1,3 +1,4 @@
+import { Text } from '@nix/ui';
 import { type ReactNode } from 'react';
 import { Outlet } from 'react-router';
 
@@ -31,7 +32,9 @@ export function RequireSession(): ReactNode {
     // someone whose session is about to be restored, which reads as being signed out.
     return (
       <main className="flex min-h-dvh items-center justify-center bg-background px-6">
-        <p className="text-sm text-muted">Restoring session…</p>
+        <Text variant="note" tone="muted">
+          Restoring session…
+        </Text>
       </main>
     );
   }

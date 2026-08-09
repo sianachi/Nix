@@ -1,5 +1,5 @@
 import { SHEET_LIMITS, type CellRef, cellKey } from '@nix/sheet';
-import { focusRing } from '@nix/ui';
+import { cn, fieldLabel, focusRing } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 /**
@@ -27,10 +27,7 @@ export function FormulaBar(props: FormulaBarProps): ReactNode {
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-1.5">
-      <output
-        aria-label="Active cell"
-        className="w-16 shrink-0 font-heading text-xs uppercase tracking-wider text-muted"
-      >
+      <output aria-label="Active cell" className={cn('w-16 shrink-0', fieldLabel)}>
         {cellKey(active)}
       </output>
 

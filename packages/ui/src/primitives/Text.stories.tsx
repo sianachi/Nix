@@ -30,6 +30,7 @@ const meta = {
         'h6',
         'body',
         'bodySmall',
+        'note',
         'caption',
         'kicker',
       ] satisfies TextVariant[],
@@ -43,7 +44,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const HEADING_VARIANTS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const;
-const PROSE_VARIANTS = ['body', 'bodySmall', 'caption', 'kicker'] as const;
+const PROSE_VARIANTS = ['body', 'bodySmall', 'note', 'caption', 'kicker'] as const;
 
 // ── The scale ─────────────────────────────────────────────────────────────
 
@@ -84,6 +85,11 @@ export const Heading5: Story = { args: { variant: 'h5' } };
 export const Heading6: Story = { args: { variant: 'h6', children: 'Section label' } };
 export const Body: Story = { args: { variant: 'body' } };
 export const BodySmall: Story = { args: { variant: 'bodySmall' } };
+
+/** The interface talking about itself: a field's hint, a validation line, a loading sentence. */
+export const Note: Story = {
+  args: { variant: 'note', children: 'Searchable once indexing finishes. Downloadable now.' },
+};
 export const Caption: Story = { args: { variant: 'caption', as: 'p' } };
 export const Kicker: Story = { args: { variant: 'kicker', as: 'p', children: 'Contract' } };
 
@@ -125,6 +131,9 @@ export const ToneAccent: Story = {
       </Text>
       <Text variant="bodySmall" tone="accent">
         bodySmall - accent-text
+      </Text>
+      <Text variant="note" tone="accent">
+        note - accent-text
       </Text>
       <Text variant="caption" tone="accent" as="p">
         caption - accent-text

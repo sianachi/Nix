@@ -1,4 +1,4 @@
-import { Blueprint, Button, Icon, Text, focusRing } from '@nix/ui';
+import { Blueprint, Button, Icon, Text, cn, fieldLabel, focusRing } from '@nix/ui';
 import { ArrowRight, Lock } from 'lucide-react';
 import { type ReactNode } from 'react';
 
@@ -77,6 +77,10 @@ export function LoginPage({
         >
           <section className="flex flex-col border-divider p-11 md:border-r">
             <Blueprint className="mb-6.5 inline-flex size-15.5 items-center justify-center">
+              {/* text-primitive-exempt: the wordmark. Two capitals at the h2 step, opened to
+                  `tracking-slight` because a pair of caps set at the heading's own `tracking-tight`
+                  reads as one glyph. `<Text variant="h2">` is the right size and the wrong
+                  tracking, and tracking is not a prop - see Text.tsx's note on why. */}
               <span className="font-heading text-2xl font-semibold tracking-slight">NX</span>
             </Blueprint>
 
@@ -90,10 +94,7 @@ export function LoginPage({
             </Text>
 
             <div className="mb-4">
-              <label
-                htmlFor="organisation"
-                className="mb-1.5 block text-xs uppercase tracking-wide text-muted"
-              >
+              <label htmlFor="organisation" className={cn('mb-1.5 block', fieldLabel)}>
                 Organisation
               </label>
               <div className="flex items-stretch border border-divider">
@@ -104,9 +105,14 @@ export function LoginPage({
                   value={organisation}
                   className={`min-w-0 flex-1 bg-transparent px-3 py-2 text-sm ${focusRing}`}
                 />
-                <span className="inline-flex items-center border-l border-divider bg-surface px-3 text-sm text-muted">
+                <Text
+                  variant="note"
+                  as="span"
+                  tone="muted"
+                  className="inline-flex items-center border-l border-divider bg-surface px-3"
+                >
                   .nix.app
-                </span>
+                </Text>
               </div>
             </div>
 
@@ -121,36 +127,41 @@ export function LoginPage({
             </Button>
 
             {error === null ? (
-              <p className="mt-3 text-xs text-muted">
+              <Text variant="caption" as="p" tone="muted" className="mt-3">
                 Redirects to {organisation}&rsquo;s IdP (OIDC). Tokens from unregistered issuers are
                 rejected.
-              </p>
+              </Text>
             ) : (
-              <p role="alert" className="mt-3 text-xs text-accent-text">
+              <Text variant="caption" as="p" tone="accent" role="alert" className="mt-3">
                 {error}
-              </p>
+              </Text>
             )}
 
-            <div className="mt-auto flex items-center gap-4 pt-7 text-xs text-muted">
+            <Text
+              variant="caption"
+              as="div"
+              tone="muted"
+              className="mt-auto flex items-center gap-4 pt-7"
+            >
               <span className="inline-flex items-center gap-1.5">
                 <Icon icon={Lock} size="sm" />
                 Single tenant &middot; RLS-isolated
               </span>
               <span className="ml-auto font-mono">v{version}</span>
-            </div>
+            </Text>
           </section>
 
           <aside className="flex flex-col bg-surface py-6.5">
-            <div className="border-b border-divider px-6.5 pb-3 text-xs uppercase tracking-wider text-muted">
+            <div className={cn('border-b border-divider px-6.5 pb-3', fieldLabel)}>
               Recent workspaces
             </div>
 
             {recentWorkspaces.length === 0 ? (
               // Honest empty state rather than invented rows: on a first visit there is nothing to
               // resume, and pretending otherwise is exactly the dishonesty the UI rules forbid.
-              <p className="px-6.5 py-4 text-xs text-muted">
+              <Text variant="caption" as="p" tone="muted" className="px-6.5 py-4">
                 None yet. Workspaces you open will be listed here for next time.
-              </p>
+              </Text>
             ) : (
               <ul className="flex flex-col">
                 {recentWorkspaces.map((workspace) => (
@@ -160,12 +171,19 @@ export function LoginPage({
                       onClick={onSignIn}
                       className={`flex w-full items-center gap-3 border-b border-divider px-6.5 py-3 text-left hover:bg-accent/10 ${focusRing}`}
                     >
+                      {/* text-primitive-exempt: a monogram, not a line of text - a fixed
+                          control-sized box whose type is part of the drawn chip. */}
                       <span className="inline-flex size-(--control-sm) items-center justify-center border border-divider font-heading text-xs">
                         {workspace.initials}
                       </span>
                       <span className="flex flex-col">
+                        {/* text-primitive-exempt: `bodySmall` at weight 500. Weight is not an axis
+                            `<Text>` offers - a variant fixes it - and this row's name is picked
+                            out from the timestamp under it by weight alone. */}
                         <span className="text-base font-medium">{workspace.name}</span>
-                        <span className="text-xs text-muted">{workspace.openedLabel}</span>
+                        <Text variant="caption" as="span" tone="muted">
+                          {workspace.openedLabel}
+                        </Text>
                       </span>
                     </button>
                   </li>
@@ -173,7 +191,12 @@ export function LoginPage({
               </ul>
             )}
 
-            <div className="mt-auto flex flex-col gap-1 px-6.5 pt-4 text-xs text-muted">
+            <Text
+              variant="caption"
+              as="div"
+              tone="muted"
+              className="mt-auto flex flex-col gap-1 px-6.5 pt-4"
+            >
               <span className="inline-flex items-center gap-1.5">
                 <span
                   aria-hidden="true"
@@ -186,7 +209,7 @@ export function LoginPage({
                 {serverReachable ? 'Server reachable' : 'Server unreachable'}
               </span>
               <span className="font-mono">{host}</span>
-            </div>
+            </Text>
           </aside>
         </div>
       </div>
@@ -210,6 +233,9 @@ function FauxTitleBar(): ReactNode {
         <span className="size-3 border border-muted" />
         <span className="size-3 border border-muted" />
       </span>
+      {/* text-primitive-exempt: the drawn title bar's own wordmark, inside an aria-hidden
+          picture of a window. `kicker` is this treatment one step down (2xs); at 2xs the four
+          letters stop reading as a title bar's title. */}
       <span className="mx-auto -translate-x-7.5 text-xs uppercase tracking-widest text-muted">
         Nix
       </span>

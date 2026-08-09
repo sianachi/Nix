@@ -10,7 +10,7 @@ import {
   isSheetError,
   rangeContains,
 } from '@nix/sheet';
-import { dragHandleLineStates, focusRingInset } from '@nix/ui';
+import { Text, cn, dragHandleLineStates, fieldLabel, focusRingInset } from '@nix/ui';
 import {
   Fragment,
   useEffect,
@@ -544,7 +544,10 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
               return (
                 <Fragment key={col}>
                   <div
-                    className="absolute top-0 flex h-8 items-center justify-center border-r border-divider font-heading text-xs uppercase tracking-wider text-muted"
+                    className={cn(
+                      'absolute top-0 flex h-8 items-center justify-center border-r border-divider',
+                      fieldLabel,
+                    )}
                     style={style}
                   >
                     {columnLetters(col)}
@@ -772,7 +775,12 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
       {/* Always mounted, so a screen reader announces the text the moment it
           appears rather than missing a region that arrived with content
           already in it. */}
-      <p aria-live="polite" className="shrink-0 border-t border-divider px-3 py-1 text-xs">
+      <Text
+        variant="caption"
+        as="p"
+        aria-live="polite"
+        className="shrink-0 border-t border-divider px-3 py-1"
+      >
         {(() => {
           const value = sheet.values.get(activeKey);
           if (value === undefined || !isSheetError(value)) {
@@ -780,7 +788,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
           }
           return `${activeKey}: ${value.error} — ${SHEET_ERROR_HELP[value.error]}`;
         })()}
-      </p>
+      </Text>
     </div>
   );
 }

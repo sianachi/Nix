@@ -4,6 +4,7 @@ import { ColorSpecimen } from './tokens/color-specimen';
 import { RhythmSpecimen } from './tokens/rhythm-specimen';
 import { ShapeSpecimen, SpacingSpecimen } from './tokens/scale-specimen';
 import { StateGallery } from './tokens/state-gallery';
+import { TypeAdoptionSpecimen } from './tokens/type-adoption-specimen';
 import { TypeSpecimen } from './tokens/type-specimen';
 
 import { Text } from '@nix/ui';
@@ -38,6 +39,7 @@ export function TokensPage(): ReactElement {
       </div>
 
       <TypeSpecimen />
+      <TypeAdoptionSpecimen />
       <ColorSpecimen />
       <SpacingSpecimen />
       <ShapeSpecimen />

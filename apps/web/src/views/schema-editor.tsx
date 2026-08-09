@@ -1,4 +1,4 @@
-import { Button, Field, Icon, Input, Select, focusRing } from '@nix/ui';
+import { Button, Field, Icon, Input, Select, Text, cn, fieldLabel, focusRing } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -109,15 +109,15 @@ export function SchemaEditor({
       saveLabel="Save fields"
     >
       <div className="flex flex-col gap-4">
-        <p className="text-base text-muted">
+        <Text variant="bodySmall" tone="muted">
           Everything inside this folder can carry these properties, and so can everything inside the
           folders below it.
-        </p>
+        </Text>
 
         {error === null ? null : (
-          <p role="alert" className="border border-foreground px-3 py-2 text-base">
+          <Text variant="bodySmall" role="alert" className="border border-foreground px-3 py-2">
             {error}
-          </p>
+          </Text>
         )}
 
         {draft.map((property, index) => (
@@ -228,17 +228,15 @@ export function SchemaEditor({
 
         {inheritedOnly.length === 0 ? null : (
           <div className="border-t border-divider pt-3">
-            <p className="mb-1 font-heading text-xs uppercase tracking-wider text-muted">
-              Inherited from above
-            </p>
+            <p className={cn('mb-1', fieldLabel)}>Inherited from above</p>
             {/* Shown but not editable. Somebody needs to see why a property they did not declare is
                 appearing on their notes; letting them edit it here would copy it onto this folder
                 and quietly sever it from the parent that actually owns it. */}
             <ul className="flex flex-col gap-1">
               {inheritedOnly.map((property) => (
-                <li key={property.key} className="text-base text-muted">
+                <Text key={property.key} variant="bodySmall" as="li" tone="muted">
                   {property.label} · {propertyTypeLabel(property.type)}
-                </li>
+                </Text>
               ))}
             </ul>
 

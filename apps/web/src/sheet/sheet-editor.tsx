@@ -1,4 +1,5 @@
 import { SHEET_CELLS_KEY } from '@nix/sheet';
+import { Text } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
@@ -109,16 +110,16 @@ export function SheetEditor({ itemId }: SheetEditorProps): ReactNode {
       </div>
 
       {refusal === null ? null : (
-        <p role="alert" className="shrink-0 bg-background px-8 py-1.5 text-xs">
+        <Text variant="caption" as="p" role="alert" className="shrink-0 bg-background px-8 py-1.5">
           {refusal}
-        </p>
+        </Text>
       )}
 
       {sheet.budget.exceeded ? (
-        <p role="alert" className="shrink-0 bg-background px-8 py-1.5 text-xs">
+        <Text variant="caption" as="p" role="alert" className="shrink-0 bg-background px-8 py-1.5">
           This sheet is too large to finish recalculating. Some cells show #LIMIT! until you remove
           formulas or ranges.
-        </p>
+        </Text>
       ) : null}
 
       <SheetGrid sheet={sheet} />

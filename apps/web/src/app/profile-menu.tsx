@@ -1,4 +1,4 @@
-import { Icon, focusRing } from '@nix/ui';
+import { Icon, Text, focusRing } from '@nix/ui';
 import { ChevronDown, LogOut, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -80,17 +80,21 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
           className="absolute right-0 z-20 mt-1 w-[240px] border border-divider bg-background shadow-md"
         >
           <div className="border-b border-divider px-3 py-2">
-            <p className="truncate text-base text-foreground">{name}</p>
+            <Text variant="bodySmall" className="truncate">
+              {name}
+            </Text>
             {/* Absent rather than blank: a machine identity has no address, and an empty line
                 where one should be reads as a bug. */}
             {principal.principal?.email === null ||
             principal.principal?.email === undefined ? null : (
-              <p className="truncate text-xs text-muted">{principal.principal.email}</p>
+              <Text variant="caption" as="p" tone="muted" className="truncate">
+                {principal.principal.email}
+              </Text>
             )}
             {principal.status === 'error' ? (
-              <p role="alert" className="mt-1 text-xs text-muted">
+              <Text variant="caption" as="p" tone="muted" role="alert" className="mt-1">
                 {principal.error}
-              </p>
+              </Text>
             ) : null}
           </div>
 

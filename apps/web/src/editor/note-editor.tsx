@@ -1,4 +1,5 @@
 import { nixExtensions } from '@nix/editor-schema';
+import { Text } from '@nix/ui';
 import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
@@ -495,9 +496,15 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         </div>
 
         {refusal === null ? null : (
-          <p role="alert" className="shrink-0 px-8 py-1.5 text-xs text-accent-text">
+          <Text
+            variant="caption"
+            as="p"
+            tone="accent"
+            role="alert"
+            className="shrink-0 px-8 py-1.5"
+          >
             {refusal}
-          </p>
+          </Text>
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">

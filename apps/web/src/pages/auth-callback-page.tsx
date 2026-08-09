@@ -1,3 +1,4 @@
+import { Text } from '@nix/ui';
 import { UserManager } from 'oidc-client-ts';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -72,11 +73,21 @@ export function AuthCallbackPage(): ReactNode {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background px-6">
       {failure === null ? (
-        <p className="text-sm text-muted">Completing sign-in…</p>
+        <Text variant="note" tone="muted">
+          Completing sign-in…
+        </Text>
       ) : (
         <div role="alert" className="max-w-md text-center">
+          {/* text-primitive-exempt: display caps. The heading family at the h3 step with no
+              heading weight and set in capitals - the sign-in screens' one display treatment,
+              shared with the login wordmark and the item title. `<Text variant="h3">` would
+              render this at weight 600 with tight tracking and no capitals, which is a different
+              thing on the page; see type-adoption-specimen.tsx for why the primitive does not
+              grow an uppercase display variant for three call sites. */}
           <p className="mb-2 font-heading text-xl uppercase">Sign-in failed</p>
-          <p className="text-sm text-muted">{failure}</p>
+          <Text variant="note" tone="muted">
+            {failure}
+          </Text>
         </div>
       )}
     </main>

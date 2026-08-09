@@ -1,4 +1,4 @@
-import { Button, Icon, focusRing } from '@nix/ui';
+import { Button, Icon, Text, focusRing } from '@nix/ui';
 import { PanelRightClose, Settings2 } from 'lucide-react';
 import {
   Suspense,
@@ -100,7 +100,7 @@ export function EditorPage(): ReactNode {
         tabIndex={-1}
         className="flex flex-1 items-center justify-center px-6 text-center"
       >
-        <p className="max-w-sm text-sm text-muted">
+        <Text variant="note" tone="muted" className="max-w-sm">
           {tree.status === 'loading'
             ? 'Loading the workspace…'
             : tree.childrenOf(null).length === 0
@@ -114,7 +114,7 @@ export function EditorPage(): ReactNode {
               : narrow
                 ? 'Open the workspace tree to pick a note.'
                 : 'Select a note from the tree, or create one.'}
-        </p>
+        </Text>
       </div>
     );
   }
@@ -227,11 +227,11 @@ function PaneContents({
 
         <div className={paneColumn}>
           {hiddenPanes > 0 ? (
-            <p className="shrink-0 px-8 pb-1 pt-1 text-xs text-muted">
+            <Text variant="caption" as="p" tone="muted" className="shrink-0 px-8 pb-1 pt-1">
               {hiddenPanes === 1
                 ? 'One more pane in this link opens on a wider screen.'
                 : `${String(hiddenPanes)} more panes in this link open on a wider screen.`}
-            </p>
+            </Text>
           ) : null}
 
           {item === null ? (
@@ -279,7 +279,7 @@ function NotFoundItem({ tree, pane, onClose }: NotFoundItemProps): ReactNode {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="max-w-sm text-sm text-muted">
+      <Text variant="note" tone="muted" className="max-w-sm">
         {waiting
           ? 'Finding this item…'
           : failed
@@ -287,7 +287,7 @@ function NotFoundItem({ tree, pane, onClose }: NotFoundItemProps): ReactNode {
             : reveal === 'forbidden'
               ? "You can't view this item."
               : 'We cannot find that item. It may have been deleted.'}
-      </p>
+      </Text>
 
       {/* Without these a bad link is a dead end: the pane shows a sentence and offers nothing,
           and in a single-pane arrangement there is no other control on the screen at all. A
@@ -455,9 +455,14 @@ function OpenItem({
             bodyKind === 'canvas' ? (
               <Suspense
                 fallback={
-                  <div className="flex flex-1 items-center justify-center text-sm text-muted">
+                  <Text
+                    variant="note"
+                    as="div"
+                    tone="muted"
+                    className="flex flex-1 items-center justify-center"
+                  >
                     Loading the canvas…
-                  </div>
+                  </Text>
                 }
               >
                 <CanvasEditor itemId={itemId} />

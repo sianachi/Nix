@@ -1,6 +1,7 @@
 import { useId, type ReactElement, type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
+import { Text, fieldLabel } from '../primitives/Text';
 
 /**
  * <Field> - a label, a control, and the two bits of text that belong to it.
@@ -59,10 +60,7 @@ export function Field(props: FieldProps): ReactNode {
           not a subtle label. A ramp step would have been the light ground's answer baked in -
           `--color-muted` is the same colour there and crosses the ramp on the dark one. The Text
           primitive settled this the same way for the same reason. */}
-      <label
-        htmlFor={controlId}
-        className="font-heading text-xs uppercase tracking-wider text-muted"
-      >
+      <label htmlFor={controlId} className={fieldLabel}>
         {label}
         {required ? (
           <span aria-hidden="true" className="ml-1 text-accent-text">
@@ -80,13 +78,13 @@ export function Field(props: FieldProps): ReactNode {
       {invalid ? (
         // role="alert" so a validation failure that appears after a submit is announced rather
         // than only drawn.
-        <p id={errorId} role="alert" className="text-sm text-foreground">
+        <Text variant="note" id={errorId} role="alert">
           {error}
-        </p>
+        </Text>
       ) : hint === undefined ? null : (
-        <p id={hintId} className="text-sm text-muted">
+        <Text variant="note" tone="muted" id={hintId}>
           {hint}
-        </p>
+        </Text>
       )}
     </div>
   );

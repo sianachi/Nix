@@ -12,6 +12,7 @@ const BODY_SIZED: TextVariant[] = [
   'h6',
   'body',
   'bodySmall',
+  'note',
   'caption',
   'kicker',
 ];
@@ -83,6 +84,44 @@ describe('Text', () => {
     const className = container.firstElementChild?.className ?? '';
     expect(className).toContain('mt-4');
     expect(className).toContain('text-md');
+  });
+
+  it('sets a note at the sheet step between body-small and caption', () => {
+    const { container } = render(<Text variant="note">Searchable once indexing finishes.</Text>);
+
+    expect(container.firstElementChild?.className).toContain('text-sm');
+  });
+
+  it('lets a validation line announce itself rather than needing a wrapper to do it', () => {
+    render(
+      <Text variant="note" role="alert">
+        Enter a date.
+      </Text>,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a date.');
+  });
+
+  it('lets a status line announce politely, which is the other announcement role text may take', () => {
+    // The role union is four names, not every role in ARIA: a paragraph that claims `button` or
+    // `listitem` is not text, and the type refuses it at the call site rather than at review.
+    render(
+      <Text variant="note" role="status">
+        Saved a moment ago.
+      </Text>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Saved a moment ago.');
+  });
+
+  it('carries the unelided string as a tooltip for text that truncates', () => {
+    render(
+      <Text as="span" title="Quarterly revenue model, final">
+        Quarterly revenue…
+      </Text>,
+    );
+
+    expect(screen.getByTitle('Quarterly revenue model, final')).toBeInTheDocument();
   });
 
   it('names a step of the token sheet type scale rather than a pixel size', () => {

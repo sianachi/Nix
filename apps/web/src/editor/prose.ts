@@ -1,5 +1,12 @@
 import { CALLOUT_TONES, type CalloutTone } from '@nix/editor-schema';
 
+import {
+  DOCUMENT_BODY_STEP,
+  DOCUMENT_HEADING_STEP,
+  DOCUMENT_SECONDARY_STEP,
+  TOGGLE_SUMMARY_STEP,
+} from './prose-type';
+
 /**
  * The document's typography, as class strings.
  *
@@ -50,7 +57,7 @@ const BLOCK_GAP = 'mt-4 first:mt-0';
 export const proseRoot = [
   // A measure. Text that runs the full width of a wide pane is measurably harder to read; 65ch is
   // Tailwind's prose measure and lands near the classic 45-75 character band.
-  'max-w-prose font-body text-md text-foreground',
+  `max-w-prose font-body ${DOCUMENT_BODY_STEP} text-foreground`,
 
   // The caret and the text selection. The selection fill is a fixed ramp step rather than a role
   // because a highlight is a physical light wash: dark ink on a pale accent reads on either
@@ -90,10 +97,11 @@ export const proseRoot = [
 
   // A toggle presenting as a heading matches the real heading of that rank, so a document does
   // not have two visual hierarchies. Size only - the weight and spacing come from the summary
-  // rule above, which already applies.
-  '[&_[data-toggle-level="1"]_summary]:font-heading [&_[data-toggle-level="1"]_summary]:text-2xl',
-  '[&_[data-toggle-level="2"]_summary]:font-heading [&_[data-toggle-level="2"]_summary]:text-xl',
-  '[&_[data-toggle-level="3"]_summary]:font-heading [&_[data-toggle-level="3"]_summary]:text-lg',
+  // rule above, which already applies - and the size comes from `prose-type.ts`, where it sits
+  // beside the real heading's own step rather than agreeing with it by hand.
+  `[&_[data-toggle-level="1"]_summary]:font-heading ${TOGGLE_SUMMARY_STEP[1]}`,
+  `[&_[data-toggle-level="2"]_summary]:font-heading ${TOGGLE_SUMMARY_STEP[2]}`,
+  `[&_[data-toggle-level="3"]_summary]:font-heading ${TOGGLE_SUMMARY_STEP[3]}`,
 
   // A column takes an equal share unless it states a width, which arrives as an inline
   // flex-grow from `note-editor.tsx` - a fraction cannot be a class. `min-w-0` is what lets a
@@ -137,7 +145,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
 
   // Code is set one step below body copy - a monospace face runs visually larger at the same size
   // - and scrolls rather than wraps, because a wrapped line of code is a misread line of code.
-  codeBlock: `${BLOCK_GAP} overflow-x-auto border border-divider bg-surface px-4 py-3 font-mono text-base text-foreground`,
+  codeBlock: `${BLOCK_GAP} overflow-x-auto border border-divider bg-surface px-4 py-3 font-mono ${DOCUMENT_SECONDARY_STEP} text-foreground`,
 
   horizontalRule: 'my-8 border-t border-divider',
 
@@ -147,7 +155,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
   // colgroup take effect; without it the browser re-measures from content and dragging a column
   // edge appears to do nothing. Borders live on the cells and rows and collapse into the table's
   // own frame, so the grid is drawn once rather than doubled at every seam.
-  table: `${BLOCK_GAP} w-full table-fixed border-collapse border border-divider text-base`,
+  table: `${BLOCK_GAP} w-full table-fixed border-collapse border border-divider ${DOCUMENT_SECONDARY_STEP}`,
   tableRow: 'border-b border-divider',
   tableHeader: 'border-r border-divider bg-surface px-3 py-2 text-left align-top font-semibold',
   tableCell: 'border-r border-divider px-3 py-2 align-top',
@@ -193,8 +201,8 @@ export const proseClasses: Readonly<Record<string, string>> = {
 
   // The two blocks computed from the document's own shape. Both are drawn by a node view that
   // walks the live document, so what is styled here is the frame it sits in.
-  tableOfContents: `${BLOCK_GAP} border-l-2 border-l-divider py-1 pl-4 text-base text-muted`,
-  breadcrumb: `${BLOCK_GAP} text-base text-muted`,
+  tableOfContents: `${BLOCK_GAP} border-l-2 border-l-divider py-1 pl-4 ${DOCUMENT_SECONDARY_STEP} text-muted`,
+  breadcrumb: `${BLOCK_GAP} ${DOCUMENT_SECONDARY_STEP} text-muted`,
 
   // Marks. Bold is 600 rather than 700: those are the weights the app actually loads, and asking
   // for one it does not have gets a synthesised smear instead of a face.
@@ -202,7 +210,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
   italic: 'italic',
   underline: 'underline underline-offset-2',
   strike: 'line-through',
-  code: 'border border-divider bg-surface px-1 py-0.5 font-mono text-base',
+  code: `border border-divider bg-surface px-1 py-0.5 font-mono ${DOCUMENT_SECONDARY_STEP}`,
 
   // Highlight is a fixed pale wash with dark ink on top, for the same reason the text selection
   // is: it stands for a marker pen, and a marker pen does not invert.
@@ -228,14 +236,14 @@ export const proseClasses: Readonly<Record<string, string>> = {
 /**
  * The three heading levels, each visibly a different rank.
  *
- * Size does the work - 28, 22 and 17 against 15px body copy - so the hierarchy survives a
- * screenshot, a print, and a reader who cannot distinguish the weights. The first level also
- * carries a hairline, which is the Industry grammar for the top of a section.
+ * Size does the work, and the sizes are `prose-type.ts`'s - see there for what they are and why a
+ * toggle's summary has to take the same three. The first level also carries a hairline, which is
+ * the Industry grammar for the top of a section.
  */
 const HEADING_CLASSES: Readonly<Record<1 | 2 | 3, string>> = {
-  1: 'mt-8 first:mt-0 border-b border-divider pb-2 font-heading text-2xl font-semibold text-foreground',
-  2: 'mt-6 first:mt-0 font-heading text-xl font-semibold text-foreground',
-  3: 'mt-6 first:mt-0 font-heading text-lg font-semibold text-foreground',
+  1: `mt-8 first:mt-0 border-b border-divider pb-2 font-heading ${DOCUMENT_HEADING_STEP[1]} font-semibold text-foreground`,
+  2: `mt-6 first:mt-0 font-heading ${DOCUMENT_HEADING_STEP[2]} font-semibold text-foreground`,
+  3: `mt-6 first:mt-0 font-heading ${DOCUMENT_HEADING_STEP[3]} font-semibold text-foreground`,
 };
 
 /**

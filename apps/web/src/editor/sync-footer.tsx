@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { Icon, cn } from '@nix/ui';
+import { Icon, Text, cn } from '@nix/ui';
 
 import type { SyncState } from './collab-sync';
 
@@ -133,9 +133,9 @@ export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode 
       </span>
       {/* The title restores whatever the truncation cuts in a narrow pane; assistive tech
           already receives the full string, so this is for the sighted hover only. */}
-      <span title={detail} className="min-w-0 truncate font-body text-muted">
+      <Text variant="caption" as="span" tone="muted" title={detail} className="min-w-0 truncate">
         {detail}
-      </span>
+      </Text>
     </footer>
   );
 }

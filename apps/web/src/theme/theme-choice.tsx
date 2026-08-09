@@ -32,6 +32,10 @@ export function ThemeChoice(): ReactNode {
     <fieldset className="border-t border-divider px-3 py-2">
       <legend className="sr-only">Appearance</legend>
 
+      {/* text-primitive-exempt: `fieldLabel` one step down. This names the group inside a 240px
+          account menu, where the published label step (`text-xs`) sits level with the option
+          labels under it and stops reading as their heading. Everything else about it - family,
+          caps, tracking, muted role - is the published treatment. */}
       <p
         aria-hidden="true"
         className="mb-1.5 font-heading text-2xs uppercase tracking-wider text-muted"

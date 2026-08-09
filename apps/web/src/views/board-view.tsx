@@ -137,15 +137,12 @@ export function BoardView(props: BoardViewProps): ReactNode {
   return (
     <div className="flex min-h-0 flex-col gap-3">
       {container.writeError === null ? null : (
-        <div
-          role="alert"
-          className="flex items-start gap-2 border border-divider p-3 font-body text-base text-accent-text"
-        >
-          <Icon icon={CircleAlert} size="sm" />
-          <span>
+        <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+          <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
+          <Text variant="bodySmall" as="span" tone="accent">
             {container.writeError} The card has returned to the column it was in; nothing was
             changed.
-          </span>
+          </Text>
         </div>
       )}
 

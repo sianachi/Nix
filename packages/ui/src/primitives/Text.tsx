@@ -29,14 +29,76 @@ import { cn } from '../lib/cn';
  * the step rather than to the role - which is what stops the sheet and this
  * file from drifting into two scales.
  *
- * Tracking is still written as a literal: the sheet carries no tracking scale,
- * and one value per variant is not a scale worth inventing.
+ * Tracking comes from the sheet's tracking scale (`--tracking-tight` ...
+ * `--tracking-widest`), which arrived after this component did: the earlier
+ * note here said the sheet carried no such scale and that one value per
+ * variant was not worth inventing one for. It exists now, five named steps
+ * pulled from the em values a dozen components had each written by hand, and
+ * the three variants that track (h1-h5 tight, h6 wider, kicker widest) name a
+ * step like every other axis. There is deliberately no `tracking` prop: a
+ * caller who wants a different step wants a different variant, and the one
+ * real exception in the product - the login wordmark, set at the h2 step but
+ * opened to `tracking-slight` because it is two capitals rather than a
+ * sentence - is a wordmark, not typography this primitive should learn.
  */
 
+/**
+ * `note` is the one variant added by the adoption sweep rather than by the
+ * original scale, and it is worth saying why, because a scale that grows a rung
+ * per call site stops being a scale.
+ *
+ * It is `--text-sm` (12px), the step between `bodySmall` (13px) and `caption`
+ * (11px). The sheet has always published it - name, size and its own paired
+ * line height - and it was the only published step no variant named, which is
+ * the whole reason it kept being written by hand. It is not a size somebody
+ * wanted; it is the size the interface already speaks in: `Field`'s hint and
+ * error lines set it, and so did roughly twenty places in `apps/web` saying the
+ * same thing about a control - a validation message, a "loading this" line, an
+ * empty-state sentence sitting where a value would be. That is one role with
+ * one step, said in twenty voices.
+ *
+ * Not `caption`, which is metadata *about* content (a figure's caption, a
+ * timestamp beside a row) and reads a step quieter. Not `bodySmall`, which is
+ * prose the reader is meant to read at length. A note is neither: it is the
+ * interface talking about itself.
+ */
 export type TextVariant =
-  'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'body' | 'bodySmall' | 'caption' | 'kicker';
+  'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'body' | 'bodySmall' | 'note' | 'caption' | 'kicker';
 
 export type TextTone = 'default' | 'muted' | 'accent';
+
+/**
+ * The roles a paragraph of text may take.
+ *
+ * Deliberately four names rather than React's `AriaRole`, which is every role in ARIA: this
+ * primitive renders text, and the roles text can honestly claim are the announcement ones plus the
+ * opt-out. `status` and `alert` are live regions - polite and assertive respectively - so a message
+ * that appears in place announces itself; `note` marks an aside that is commentary on its
+ * surroundings; `presentation` strips implicit semantics from a paragraph that is decoration.
+ *
+ * Anything outside this set is a sign the thing being built is not text: a `role="button"` on a
+ * paragraph is a button, and `role="listitem"` on one belongs to a list this component does not
+ * render. Widening the union is one line and one reviewer looking at it, which is the point.
+ */
+export type TextRole = 'alert' | 'status' | 'note' | 'presentation';
+
+/**
+ * The caps label that names a control, as a class string rather than a variant.
+ *
+ * It is not a variant because it is never a `<Text>`: the thing it dresses is a
+ * `<label>`, a `<legend>`, an `<output>` or a grid's column header - elements
+ * that carry `htmlFor`, or announce a group, or are the header cell. Wrapping
+ * any of them in a paragraph to reach the type would break the wiring that is
+ * the whole reason they exist. So the look is published the way `focusRing` and
+ * `blueprintFrame` are published: one string, composed onto whatever element
+ * the semantics demand.
+ *
+ * `text-xs` at `tracking-wider` is the sheet's own pairing for caps at this
+ * step (see the tracking scale's note: the smaller the caps, the more air they
+ * need back). The colour is part of the look and not a caller's choice - a
+ * label that competes with the value it names is the wrong way round.
+ */
+export const fieldLabel = 'font-heading text-xs uppercase tracking-wider text-muted';
 
 export type TextElement =
   | 'h1'
@@ -53,6 +115,11 @@ export type TextElement =
   // drop out of the component to mark one up would be marking it up wrongly.
   | 'dt'
   | 'dd'
+  // A list item, for the same reason and with one extra constraint: `<ul>` and `<ol>` accept only
+  // `<li>` children, so a list whose rows are one line of text each has nowhere to put a wrapper.
+  // The list element itself is layout and stays the caller's, as it must - this component renders
+  // one element, and a list is two.
+  | 'li'
   // A table's caption, for the same reason: it is the table's accessible name, so it has to be a
   // real <caption> child of the <table> and cannot be a styled div sitting above it.
   | 'caption';
@@ -77,6 +144,7 @@ const BODY_SIZED_VARIANTS = [
   'h6',
   'body',
   'bodySmall',
+  'note',
   'caption',
   'kicker',
 ] as const satisfies readonly TextVariant[];
@@ -99,6 +167,7 @@ const textVariants = cva('', {
       h6: `text-base ${heading} tracking-wider uppercase`,
       body: `text-md ${body}`,
       bodySmall: `text-base ${body}`,
+      note: `text-sm ${body}`,
       caption: `text-xs ${body}`,
       kicker: `text-2xs ${body} tracking-widest uppercase`,
     },
@@ -134,6 +203,7 @@ const DEFAULT_ELEMENT: Record<TextVariant, TextElement> = {
   h6: 'h6',
   body: 'p',
   bodySmall: 'p',
+  note: 'p',
   caption: 'figcaption',
   kicker: 'span',
 };
@@ -151,6 +221,29 @@ export interface TextProps {
   children?: ReactNode;
   /** Layout only - margin, width, grid placement. Never type or color. */
   className?: string;
+  /**
+   * The three accessibility attributes below, and no spread.
+   *
+   * This component used to take none, and the workaround was to wrap it: see
+   * `export-dialog.tsx`, which put `role="status"` on a surrounding `<div>`
+   * because the paragraph could not carry it. That was tolerable for one call
+   * site and wrong at twenty - a validation message announced by a wrapper
+   * around the message is a different tree from the message announcing itself,
+   * and the difference shows up in what a screen reader reads back.
+   *
+   * They are listed one by one rather than admitted as
+   * `HTMLAttributes<HTMLElement>` on purpose. An open spread would let `style`,
+   * `onClick` and a second `className` in through the back door, and every one
+   * of those is something this primitive exists to refuse: type and colour come
+   * from the variant, and text that handles clicks is a control that should be
+   * a control. If a fourth attribute is genuinely needed, adding it here is one
+   * line and one reviewer looking at it - which is the point.
+   */
+  role?: TextRole;
+  /** Native tooltip for text that truncates - the full string, unelided. */
+  title?: string;
+  /** For a note that appears in place: the live region is the text itself. */
+  'aria-live'?: 'off' | 'polite' | 'assertive';
 }
 
 export function Text({
@@ -160,10 +253,19 @@ export function Text({
   id,
   children,
   className,
+  role,
+  title,
+  'aria-live': ariaLive,
 }: TextProps): ReactNode {
   return createElement(
     as ?? DEFAULT_ELEMENT[variant],
-    { className: cn(textVariants({ variant, tone }), className), id },
+    {
+      className: cn(textVariants({ variant, tone }), className),
+      id,
+      role,
+      title,
+      'aria-live': ariaLive,
+    },
     children,
   );
 }

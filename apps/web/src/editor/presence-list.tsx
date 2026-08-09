@@ -1,3 +1,4 @@
+import { Text } from '@nix/ui';
 import { useSyncExternalStore, type ReactNode } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 
@@ -85,7 +86,11 @@ export function PresenceList({ awareness }: PresenceListProps): ReactNode {
           {initialsOf(peer.name)}
         </span>
       ))}
-      {overflow > 0 ? <span className="text-xs text-muted">+{overflow}</span> : null}
+      {overflow > 0 ? (
+        <Text variant="caption" as="span" tone="muted">
+          +{overflow}
+        </Text>
+      ) : null}
     </div>
   );
 }

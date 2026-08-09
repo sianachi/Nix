@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { TEXT_COLORS, TOGGLE_LEVELS, nixSchema } from '@nix/editor-schema';
 
 import { calloutClass, headingClass, proseClasses, proseRoot } from '../../editor/prose';
+import { DOCUMENT_HEADING_STEP, TOGGLE_SUMMARY_STEP } from '../../editor/prose-type';
 
 /**
  * The document's appearance, as class strings.
@@ -21,10 +22,19 @@ import { calloutClass, headingClass, proseClasses, proseRoot } from '../../edito
  * regex sweep is a better guard than any number of examples.
  */
 
-const source = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'editor', 'prose.ts'),
-  'utf8',
-);
+const editorDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'editor');
+
+/**
+ * Both files, read as one string.
+ *
+ * The type steps moved out to `prose-type.ts` when the toggle summaries and the real headings had
+ * to be made to agree in code rather than in a comment, so a sweep that read only `prose.ts` would
+ * now be sweeping the half of the pair with no sizes left in it - passing for the wrong reason.
+ */
+const source = [
+  readFileSync(join(editorDir, 'prose.ts'), 'utf8'),
+  readFileSync(join(editorDir, 'prose-type.ts'), 'utf8'),
+].join('\n');
 
 describe('coverage of the schema', () => {
   /**
@@ -122,6 +132,17 @@ describe('the values these strings are built from', () => {
     // Not merely the absence of literals: the strings have to reach for the scale, or the document
     // inherits whatever the browser felt like.
     expect(source).toMatch(/\btext-(2xs|xs|sm|base|md|lg|xl|2xl|3xl)\b/);
+  });
+
+  it('sizes a toggle summary at the heading rank it presents as', () => {
+    // Two tables spelled out separately, because a variant-prefixed class has to appear complete
+    // in the source for Tailwind to emit it at all - see prose-type.ts. This is what stops the
+    // duplication drifting into a document with two hierarchies.
+    for (const level of [1, 2, 3] as const) {
+      expect(TOGGLE_SUMMARY_STEP[level]).toContain(`:${DOCUMENT_HEADING_STEP[level]}`);
+      expect(proseRoot).toContain(TOGGLE_SUMMARY_STEP[level]);
+      expect(headingClass(level)).toContain(DOCUMENT_HEADING_STEP[level]);
+    }
   });
 
   it('keeps the document to a measure', () => {
