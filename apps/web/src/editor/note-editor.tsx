@@ -1,9 +1,12 @@
 import { nixExtensions } from '@nix/editor-schema';
-import { Text } from '@nix/ui';
+import { Icon, Text } from '@nix/ui';
 import { mergeAttributes } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/extension-bubble-menu';
+import { DragHandle } from '@tiptap/extension-drag-handle-react';
+import { NodeRange } from '@tiptap/extension-node-range';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import { GripVertical } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Plugin } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
@@ -321,6 +324,11 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         // service builds the same schema in Node and has no use for a gap cursor.
         Gapcursor,
         Dropcursor,
+        // Lets the drag handle select and move a whole block as a node range rather than a text
+        // span - without it, grabbing a block would drag whatever text selection happened to
+        // exist. The handle itself is the <DragHandle> component below, which registers its own
+        // plugin against this editor.
+        NodeRange,
         BubbleMenu.configure({ element: null }),
       ],
 
@@ -510,6 +518,32 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
           <SlashMenu editor={editor} />
           <ReferenceMenu editor={editor} />
+          {/*
+            The block handle: hover a block and a grip appears in the margin; dragging it moves
+            the block. The component registers the drag-handle plugin itself and portals this
+            content into an element the plugin owns - so its position in this JSX is not its
+            position in the DOM; the plugin appends it beside the editor and shows it only while
+            a block is hovered. It needs no coordination with the slash, reference or bubble
+            menus for a plainer reason than timing: they occupy different regions. The handle
+            lives in the gutter to the left of the block; the menus float at the caret or over
+            the selection, inline. Nothing overlaps.
+
+            Accessibility, on the true record. The handle is an HTML5 drag affordance, which is
+            pointer-only by nature. It adds no capability a keyboard user lacks - block order is
+            keyboard-reachable today the way any contenteditable's is, by selecting a block and
+            cutting and pasting it - so hiding the handle from assistive technology costs nothing
+            (no WCAG 2.1.1 regression) while announcing it would promise a control a screen
+            reader cannot operate. Concretely: the glyph carries aria-hidden (the Icon default
+            when unlabeled), and the wrapper the plugin positions is a role-less, name-less div,
+            so nothing here reaches the accessibility tree - which is the right outcome. A
+            first-class keyboard move-block command is owed, but deferred.
+          */}
+          <DragHandle
+            editor={editor}
+            className="flex cursor-grab items-center justify-center rounded-sm p-1 text-muted hover:bg-foreground/7 hover:text-foreground data-[dragging=true]:cursor-grabbing"
+          >
+            <Icon icon={GripVertical} size="sm" />
+          </DragHandle>
           <EditorContent editor={editor} className="h-full" />
         </div>
 

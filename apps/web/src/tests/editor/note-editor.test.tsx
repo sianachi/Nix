@@ -124,6 +124,51 @@ describe('a note nobody has typed into yet', () => {
   });
 });
 
+describe('the block drag handle', () => {
+  // What jsdom can express ends at "the handle is wired in": the drag-handle plugin appends its
+  // element into the editor's DOM when it registers, so the element's presence is the proof of
+  // registration. Actually dragging a block needs real layout and HTML5 drag events, neither of
+  // which jsdom implements - that behavior is exercised only in a real browser.
+
+  /** Renders the editor and returns the handle element from within this render's own tree. */
+  async function openWithHandle(): Promise<HTMLElement> {
+    const { container } = render(<NoteEditor itemId="00000000-0000-4000-8000-000000000001" />);
+
+    // `data-dragging` is set by the drag-handle plugin's own view setup, so finding it means the
+    // plugin registered against this editor - not merely that some div rendered. Scoped to the
+    // container so the assertion cannot be satisfied by anything outside this render.
+    await waitFor(() => {
+      expect(container.querySelector('[data-dragging]')).not.toBeNull();
+    });
+    const handle = container.querySelector<HTMLElement>('[data-dragging]');
+    if (handle === null) {
+      throw new Error('The drag-handle element never mounted.');
+    }
+    return handle;
+  }
+
+  it('mounts the handle element when the editor opens', async () => {
+    await openWithHandle();
+  });
+
+  it('renders the grip glyph inside the handle, out of the accessibility tree', async () => {
+    const handle = await openWithHandle();
+
+    // The load-bearing assertion: the grip is in the DOM but hidden from assistive technology,
+    // because a pointer-only affordance announced to a screen reader would be a control it
+    // cannot operate. The wrapper itself is a role-less, name-less div, so nothing here reaches
+    // the accessibility tree.
+    const glyph = handle.querySelector('svg');
+    expect(glyph).not.toBeNull();
+    expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+
+    // Plugin behavior, asserted more loosely: hidden at rest, shown on block hover; draggable,
+    // which is the whole point of the element existing.
+    expect(handle.style.visibility).toBe('hidden');
+    expect(handle.draggable).toBe(true);
+  });
+});
+
 describe('a change that would empty the document', () => {
   // ProseMirror cannot empty a document - `doc` is `block+`, so deleting everything leaves one
   // empty paragraph - but the Yjs layer underneath it can: the undo manager unwinds history
