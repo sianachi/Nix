@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { nixExtensions } from './extensions.js';
 
 /**
- * The `setTextColor` command, exercised where it lives.
+ * The `setTextColor` and `setTextBackground` commands, exercised where they live.
  *
  * Headless on purpose - `element: null` leaves the editor unmounted, so these run in the same
  * Node environment as the schema tests and prove the command needs no DOM: the collaboration
@@ -125,6 +125,82 @@ describe('the setTextColor command', () => {
     // a foreground - a mark carrying only defaults says nothing and must not linger.
     current.commands.setMark('textColor', { background: 'default' });
     current.commands.setTextColor('default');
+
+    expect(storedMarks(current)).toEqual([]);
+  });
+});
+
+describe('the setTextBackground command', () => {
+  it('stores a token name, never a colour value', () => {
+    const current = selectedText();
+
+    current.commands.setTextBackground('accent');
+
+    expect(storedMarks(current)).toEqual([
+      { type: 'textColor', attrs: { text: null, background: 'accent' } },
+    ]);
+  });
+
+  it('removes the mark entirely when default is chosen and nothing else remains on it', () => {
+    const current = selectedText();
+
+    current.commands.setTextBackground('muted');
+    current.commands.setTextBackground('default');
+
+    // The mirror of the foreground's rule: `background: 'default'` would pin "no wash" into the
+    // document as a stored decision, when the absence of the mark already says it.
+    expect(storedMarks(current)).toEqual([]);
+  });
+
+  it('keeps the text colour while clearing the background, so no orphan is dropped with it', () => {
+    const current = selectedText();
+
+    current.commands.setTextColor('accent');
+    current.commands.setTextBackground('muted');
+    current.commands.setTextBackground('default');
+
+    expect(storedMarks(current)).toEqual([
+      { type: 'textColor', attrs: { text: 'accent', background: null } },
+    ]);
+  });
+
+  it('keeps a text colour it has never heard of when clearing the background', () => {
+    const current = selectedText();
+
+    // The other direction of the case `setTextColor` already guards: an unknown value from a
+    // newer build survives in the CRDT and only its drawing falls back, so the clearing rule
+    // must not read it through the render-time normalisation and delete it.
+    current.commands.setMark('textColor', { text: 'chartreuse' });
+    current.commands.setTextBackground('muted');
+    current.commands.setTextBackground('default');
+
+    expect(storedMarks(current)).toEqual([
+      { type: 'textColor', attrs: { text: 'chartreuse', background: null } },
+    ]);
+  });
+
+  it('treats a stored default text colour as no text colour at all', () => {
+    const current = selectedText();
+
+    current.commands.setMark('textColor', { text: 'default' });
+    current.commands.setTextBackground('default');
+
+    expect(storedMarks(current)).toEqual([]);
+  });
+
+  it('sets the two axes independently, and neither clears the other', () => {
+    const current = selectedText();
+
+    current.commands.setTextColor('accent');
+    current.commands.setTextBackground('muted');
+
+    expect(storedMarks(current)).toEqual([
+      { type: 'textColor', attrs: { text: 'accent', background: 'muted' } },
+    ]);
+
+    // Clearing both, one at a time, in either order, ends where it started: with no mark.
+    current.commands.setTextColor('default');
+    current.commands.setTextBackground('default');
 
     expect(storedMarks(current)).toEqual([]);
   });

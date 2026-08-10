@@ -1,4 +1,4 @@
-import { Mark, mergeAttributes } from '@tiptap/core';
+import { Mark, mergeAttributes, type Command } from '@tiptap/core';
 
 /**
  * The colours text may be given.
@@ -39,6 +39,33 @@ function readColor(value: unknown): TextColor | null {
   return TEXT_COLORS.includes(value as TextColor) ? (value as TextColor) : DEFAULT_COLOR;
 }
 
+/**
+ * The two things a colour can be: the ink, or the wash behind it.
+ *
+ * Named because the two commands below are one piece of behaviour applied to two attributes,
+ * and a pair of hand-written near-copies is exactly how the two halves of a symmetry drift
+ * apart - one of them learning about the other's clearing rule and the other not.
+ */
+type ColorAxis = 'text' | 'background';
+
+/** The axis whose survival decides whether clearing this one leaves a mark behind. */
+const OTHER_AXIS: Readonly<Record<ColorAxis, ColorAxis>> = {
+  text: 'background',
+  background: 'text',
+};
+
+/**
+ * Whether an axis carries nothing.
+ *
+ * The raw stored value, deliberately not `readColor`: normalising here would count a newer
+ * build's unknown colour as `default` and destroy it along with the mark - exactly the silent
+ * rewrite the fallback-at-render rule above exists to prevent. A stored `'default'` is the one
+ * value that genuinely means "none", so it alone joins the absent cases.
+ */
+function axisAbsent(value: unknown): boolean {
+  return value === null || value === undefined || value === '' || value === DEFAULT_COLOR;
+}
+
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     textColor: {
@@ -48,10 +75,25 @@ declare module '@tiptap/core' {
        * `default` clears rather than sets: the token sheet's own foreground is what unmarked
        * text already renders in, so storing `text: 'default'` would pin today's meaning of
        * "ordinary text" into the document. Clearing keeps the mark only while it still says
-       * something - a background, until a control for one exists - and removes it outright
-       * otherwise, so toggling a colour on and off leaves the document exactly as it was.
+       * something - a background - and removes it outright otherwise, so toggling a colour on
+       * and off leaves the document exactly as it was.
        */
       setTextColor: (color: TextColor) => ReturnType;
+
+      /**
+       * Washes the selected text with a token name from `TEXT_COLORS`, behind the ink.
+       *
+       * The same closed palette and the same clearing rule as `setTextColor`, mirrored: a
+       * `default` highlight clears the background and keeps the mark only while a foreground
+       * survives on it. Neither command can orphan the other's attribute, and neither can
+       * leave a mark behind that says nothing.
+       *
+       * Not `setHighlight`, which the vendor's `Highlight` extension already owns in this same
+       * command namespace, and not `setBackgroundColor`, because the attribute it writes is
+       * `background` and a command that cannot be traced to its attribute by name is a command
+       * somebody will one day wire to the wrong one.
+       */
+      setTextBackground: (color: TextColor) => ReturnType;
     };
   }
 }
@@ -101,39 +143,42 @@ export const TextColorMark = Mark.create({
   },
 
   addCommands() {
-    return {
-      setTextColor:
-        (color) =>
-        ({ commands, editor }) => {
-          if (color !== DEFAULT_COLOR) {
-            // `setMark` merges with the attributes already on the mark, so a background set by
-            // some future control survives a change of foreground.
-            return commands.setMark(this.name, { text: color });
-          }
+    const name = this.name;
 
-          // `default` clears. The mark stays only while it still carries a background, and goes
-          // entirely otherwise, so no empty mark lingers in the document. The raw attribute, not
-          // `readColor`: normalising here would count a newer build's unknown background as
-          // `default` and destroy it with the mark - exactly the silent rewrite the fallback-at-
-          // render rule above exists to prevent. A stored `'default'` background is the one
-          // stored value that genuinely means "none", so it alone joins the absent cases.
-          //
-          // `editor.getAttributes` reads the editor's real state, not the chainable state this
-          // command is running against - harmless for the single-command chain the bubble menu
-          // sends, and for the undispatched `can()` probe it also serves, because neither has an
-          // earlier step to disagree with. Chaining this *after* something that changes the mark
-          // would read the state from before that change; use the transaction's own selection
-          // marks if that day comes.
-          const background: unknown = editor.getAttributes(this.name).background;
-          const backgroundAbsent =
-            background === null ||
-            background === undefined ||
-            background === '' ||
-            background === DEFAULT_COLOR;
-          return backgroundAbsent
-            ? commands.unsetMark(this.name)
-            : commands.setMark(this.name, { text: null });
-        },
+    /**
+     * One axis set, or cleared, without disturbing the other.
+     *
+     * Written once and bound twice, because the interesting half is the clearing rule and two
+     * copies of it is one copy that gets fixed.
+     */
+    const setAxis =
+      (axis: ColorAxis) =>
+      (color: TextColor): Command =>
+      ({ commands, editor }) => {
+        if (color !== DEFAULT_COLOR) {
+          // `setMark` merges with the attributes already on the mark, so the other axis
+          // survives a change to this one.
+          return commands.setMark(name, { [axis]: color });
+        }
+
+        // `default` clears. The mark stays only while the other axis still carries something,
+        // and goes entirely otherwise, so no empty mark lingers in the document.
+        //
+        // `editor.getAttributes` reads the editor's real state, not the chainable state this
+        // command is running against - harmless for the single-command chain the bubble menu
+        // sends, and for the undispatched `can()` probe it also serves, because neither has an
+        // earlier step to disagree with. Chaining this *after* something that changes the mark
+        // would read the state from before that change; use the transaction's own selection
+        // marks if that day comes.
+        const other: unknown = editor.getAttributes(name)[OTHER_AXIS[axis]];
+        return axisAbsent(other)
+          ? commands.unsetMark(name)
+          : commands.setMark(name, { [axis]: null });
+      };
+
+    return {
+      setTextColor: setAxis('text'),
+      setTextBackground: setAxis('background'),
     };
   },
 });

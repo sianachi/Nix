@@ -92,8 +92,45 @@ export const proseRoot = [
   // ADR adding a semantic ramp to the tokens, not a class string here.
   '[&_[data-text-color="accent"]]:text-accent-text',
   '[&_[data-text-color="muted"]]:text-muted',
-  '[&_[data-background-color="accent"]]:bg-accent-100',
-  '[&_[data-background-color="muted"]]:bg-surface',
+
+  // The wash, and the ink that has to come with it.
+  //
+  // **A highlight does not invert.** It stands for a marker pen, which is the same argument the
+  // text selection and the `highlight` mark below already make, and it is why both washes are
+  // fixed ramp steps rather than roles: a role-coloured wash would swap to a dark step on the
+  // dark ground and stop reading as a highlight at all. The consequence is that the wash brings
+  // its own foreground. Left to inherit, `text-foreground` over `bg-accent-200` is the dark
+  // ground's near-white ink on a near-white wash: 1.1:1, which is not low contrast but none.
+  //
+  // `accent-200` is the step the selection and the `highlight` mark already wash with, so the
+  // three ways a run of text can be lit in this product agree. `neutral-300` for the muted one
+  // rather than `neutral-200`: a grey wash has no hue to be found by, and `neutral-200` sits
+  // within 1.02:1 of the surface a document is written on, so it would be a highlight nobody
+  // could see on paper - where the blue one is found by its hue rather than by its lightness.
+  '[&_[data-background-color="accent"]]:bg-accent-200',
+  '[&_[data-background-color="muted"]]:bg-neutral-300',
+
+  // The ink over a wash, which is the foreground palette pinned to its paper values.
+  //
+  // A pale wash *is* a paper ground, whatever the page around it is doing, so the roles cannot
+  // be used here - `text-accent-text` resolves to accent-300 on ink, which is 1.2:1 over the
+  // accent wash. Naming the steps directly keeps the foreground choice visible over a highlight
+  // instead of silently ignored, which is what a control that offers both axes owes the person
+  // using them. The steps clear 4.5:1 over both washes (accent-800: 8.1 and 6.7; neutral-800:
+  // 8.2 and 6.8; neutral-900, the unset case: 11.6 and 9.6) and stay told apart by hue, the
+  // accent ink being a blue-slate against two neutrals.
+  //
+  // Specificity, not source order, decides these against the two foreground rules above: a
+  // second attribute selector puts each of them a step higher, and the unset case uses `:not`
+  // for the same reason. It is written as "neither named colour" rather than "no attribute" so
+  // that a `data-text-color` this build cannot read - which renders as the literal `default`,
+  // per the fallback-at-render rule - still gets ink it can be read with.
+  '[&_[data-background-color="accent"]:not([data-text-color="accent"]):not([data-text-color="muted"])]:text-neutral-900',
+  '[&_[data-background-color="accent"][data-text-color="accent"]]:text-accent-800',
+  '[&_[data-background-color="accent"][data-text-color="muted"]]:text-neutral-800',
+  '[&_[data-background-color="muted"]:not([data-text-color="accent"]):not([data-text-color="muted"])]:text-neutral-900',
+  '[&_[data-background-color="muted"][data-text-color="accent"]]:text-accent-800',
+  '[&_[data-background-color="muted"][data-text-color="muted"]]:text-neutral-800',
 
   // A toggle presenting as a heading matches the real heading of that rank, so a document does
   // not have two visual hierarchies. Size only - the weight and spacing come from the summary

@@ -1,17 +1,17 @@
 import { Icon } from '@nix/ui';
 import type { TextColor } from '@nix/editor-schema';
 import type { Editor } from '@tiptap/react';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { Baseline } from 'lucide-react';
+import type { MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Baseline, Highlighter, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
  * The selection bubble menu: a small toolbar that appears over selected text.
  *
- * Today it carries one group - the text colour - because colour is the one formatting decision
- * with no keyboard shortcut and no input rule; everything else the main toolbar offers is
- * reachable without leaving the keys. More groups earn their place here by the same argument,
- * one at a time.
+ * It carries the two colour axes - the ink and the wash behind it - because colour is the one
+ * formatting decision with no keyboard shortcut and no input rule; everything else the main
+ * toolbar offers is reachable without leaving the keys. More groups earn their place here by
+ * the same argument, one at a time.
  *
  * **The same shape as the slash menu, deliberately.** The document's selection is the source of
  * truth, read back out of the editor on every transaction - and on scroll and resize too,
@@ -19,8 +19,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * transaction: the editor scrolls inside its own overflow container. Focus stays in the editor
  * for pointer users (mousedown on the menu is swallowed before it can blur the text); keyboard
  * users Tab to it, because the menu sits after the editable region in the DOM. It costs one tab
- * stop, not three: `role="toolbar"` promises arrow-key navigation, so the focus roves between
- * the buttons rather than the Tab key walking them.
+ * stop, not six: `role="toolbar"` promises arrow-key navigation, so the focus roves between the
+ * buttons rather than the Tab key walking them - across both groups, because a toolbar is one
+ * widget however many groups it holds, and a second tab stop would be a second widget.
  *
  * The vendor's bubble-menu plugin was configured but never given an element - it draws nothing
  * without one - and wiring it up would have bought floating-ui positioning at the price of a
@@ -33,24 +34,109 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * `@nix/editor-schema` owns that rule.
  */
 
+/** The ink, or the wash behind it - the schema's two attributes, under the names it uses. */
+type ColorAxis = 'text' | 'background';
+
 interface ColorOption {
   readonly color: TextColor;
   /** The visible word. Colour alone cannot tell accent from muted - both are greys on a mono sheet. */
   readonly name: string;
   /** The accessible name, which contains the visible word so voice control can reach it. */
   readonly label: string;
-  /** The role the button renders in - the honest preview of what the choice does. */
+  /** What the choice renders as - the honest preview, applied to the word on the button. */
   readonly swatchClass: string;
 }
 
-const COLOR_OPTIONS: readonly ColorOption[] = [
-  { color: 'default', name: 'Default', label: 'Default colour', swatchClass: 'text-foreground' },
-  // The same role the applied mark renders with (`prose.ts`), so the button shows exactly what
-  // the text will become - accent-text rather than the base accent, because this is body-size
-  // text and the base ramp step does not carry body-size contrast.
-  { color: 'accent', name: 'Accent', label: 'Accent colour', swatchClass: 'text-accent-text' },
-  { color: 'muted', name: 'Muted', label: 'Muted colour', swatchClass: 'text-muted' },
+interface ColorGroup {
+  readonly axis: ColorAxis;
+  /** The group's accessible name, and the word the two icons are shorthand for. */
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly options: readonly ColorOption[];
+}
+
+/**
+ * The two groups, in the order they are walked.
+ *
+ * **Each button says which axis it sets, in its own accessible name.** A `role="group"` with a
+ * label is announced on entry and drawn as a gap, which is the right structure and not enough
+ * on its own: a screen-reader user arriving at one button by arrow key hears only that button,
+ * and voice control matches the accessible name and nothing around it. "Accent colour" and
+ * "Accent highlight" are reachable and unambiguous alone; "Accent" twice would not be. The
+ * visible word stays short and the icon carries the axis for sighted users - a baseline for
+ * ink, a marker pen for the wash.
+ */
+const COLOR_GROUPS: readonly ColorGroup[] = [
+  {
+    axis: 'text',
+    label: 'Text colour',
+    icon: Baseline,
+    options: [
+      {
+        color: 'default',
+        name: 'Default',
+        label: 'Default colour',
+        swatchClass: 'text-foreground',
+      },
+      // The same role the applied mark renders with (`prose.ts`), so the button shows exactly
+      // what the text will become - accent-text rather than the base accent, because this is
+      // body-size text and the base ramp step does not carry body-size contrast.
+      { color: 'accent', name: 'Accent', label: 'Accent colour', swatchClass: 'text-accent-text' },
+      { color: 'muted', name: 'Muted', label: 'Muted colour', swatchClass: 'text-muted' },
+    ],
+  },
+  {
+    axis: 'background',
+    label: 'Highlight',
+    icon: Highlighter,
+    options: [
+      { color: 'default', name: 'None', label: 'No highlight', swatchClass: 'text-foreground' },
+      // The wash and its ink together, exactly as `prose.ts` renders them - a preview that
+      // showed the wash without the ink it forces would be a preview of something else.
+      {
+        color: 'accent',
+        name: 'Accent',
+        label: 'Accent highlight',
+        swatchClass: 'bg-accent-200 text-neutral-900',
+      },
+      {
+        color: 'muted',
+        name: 'Muted',
+        label: 'Muted highlight',
+        swatchClass: 'bg-neutral-300 text-neutral-900',
+      },
+    ],
+  },
 ];
+
+/** Every option in one row, which is the order the roving focus walks it in. */
+const ROW: readonly { readonly group: ColorGroup; readonly option: ColorOption }[] =
+  COLOR_GROUPS.flatMap((group) => group.options.map((option) => ({ group, option })));
+
+/**
+ * Each option's place in that row.
+ *
+ * Keyed by the option object rather than by its colour, because the same three colours appear
+ * in both groups and a key that collided would give two buttons one tab stop between them.
+ */
+const ROW_INDEX: ReadonlyMap<ColorOption, number> = new Map(
+  ROW.map((entry, index) => [entry.option, index]),
+);
+
+/** Whether the command behind `axis` can run where the selection is. */
+function canSet(can: ReturnType<Editor['can']>, axis: ColorAxis, color: TextColor): boolean {
+  return axis === 'text' ? can.setTextColor(color) : can.setTextBackground(color);
+}
+
+/** Applies `color` on `axis`, keeping the focus in the text the selection is in. */
+function applyColor(editor: Editor, axis: ColorAxis, color: TextColor): void {
+  const chain = editor.chain().focus();
+  if (axis === 'text') {
+    chain.setTextColor(color).run();
+  } else {
+    chain.setTextBackground(color).run();
+  }
+}
 
 /**
  * The viewport room the menu needs above a selection: its own row plus the gap. A selection
@@ -80,6 +166,63 @@ function hasText(doc: ProseMirrorNode, from: number, to: number): boolean {
     if (node.isText && Math.min(to, pos + node.nodeSize) > Math.max(from, pos)) {
       found = true;
       return false;
+    }
+    return true;
+  });
+
+  return found;
+}
+
+/**
+ * Whether a stored axis says nothing.
+ *
+ * The same reading the schema's clearing rule uses (`marks.ts`): a missing value and a stored
+ * `'default'` both mean "no colour here", and `'default'` is also what an unknown colour from a
+ * newer build renders as. Read here rather than imported, because this is the question "is
+ * there anything to show as pressed", which is the menu's own, not the document's.
+ */
+function axisAbsent(value: unknown): boolean {
+  return value === null || value === undefined || value === '' || value === 'default';
+}
+
+/**
+ * Which axes carry a colour anywhere in the range.
+ *
+ * The positive test behind the two "no colour" buttons. `rangeHasMark` cannot answer it: the
+ * mark carries both axes, so a range holding only a highlight would say the foreground is
+ * coloured, and "Default colour" would go unpressed over text that is plainly default.
+ *
+ * One walk for both axes rather than one each, stopping as soon as both are answered - this
+ * runs on every transaction and every scroll frame the menu is open, over a range that may be
+ * the whole document.
+ */
+function axesInRange(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+  markType: MarkType | undefined,
+): Readonly<Record<ColorAxis, boolean>> {
+  const found = { text: false, background: false };
+
+  if (markType === undefined) {
+    return found;
+  }
+
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (found.text && found.background) {
+      return false;
+    }
+    // Overlapping the range, not merely visited - the same distinction `hasText` draws above.
+    if (!node.isText || Math.min(to, pos + node.nodeSize) <= Math.max(from, pos)) {
+      return true;
+    }
+    for (const mark of node.marks) {
+      if (mark.type !== markType) {
+        continue;
+      }
+      const attributes: Record<string, unknown> = mark.attrs;
+      found.text = found.text || !axisAbsent(attributes.text);
+      found.background = found.background || !axisAbsent(attributes.background);
     }
     return true;
   });
@@ -227,12 +370,12 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
   // block or inline code, and a button that would silently do nothing is worse than one that
   // says it cannot.
   //
-  // One `can()` for all three probes: each call builds a proxy over every registered command
-  // and each invocation re-evaluates that map, so three calls was about 700 closures a render
-  // (measured 66-136 microseconds). Sharing it is safe because `can()` captures one transaction
-  // and every probe through it runs undispatched.
+  // One `can()` for all six probes: each call builds a proxy over every registered command
+  // and each invocation re-evaluates that map, so a call per probe was about 700 closures a
+  // render for three of them (measured 66-136 microseconds). Sharing it is safe because `can()`
+  // captures one transaction and every probe through it runs undispatched.
   const can = editor.can();
-  const runnable = COLOR_OPTIONS.map((option) => can.setTextColor(option.color));
+  const runnable = ROW.map((entry) => canSet(can, entry.group.axis, entry.option.color));
 
   // The tab stop has to sit on a button that can actually be used.
   const firstRunnable = runnable.indexOf(true);
@@ -240,7 +383,7 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
 
   /** Moves the roving focus along by `step` buttons, passing over any that cannot run. */
   function rove(from: number, step: number): void {
-    const count = COLOR_OPTIONS.length;
+    const count = ROW.length;
     for (let i = 1; i <= count; i += 1) {
       const next = (((from + step * i) % count) + count) % count;
       if (runnable[next] === true) {
@@ -251,36 +394,37 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
     }
   }
 
-  // Whether *any* of the selection carries the mark - a different question from `isActive`'s
-  // "does all of it carry this colour". A selection spanning coloured and uncoloured text is
-  // neither default nor accent, and saying "Default colour, pressed" over it would be a lie.
-  // Mixed presses nothing.
-  const markType = editor.state.schema.marks.textColor;
-  const anyMark =
-    markType !== undefined && editor.state.doc.rangeHasMark(placement.from, placement.to, markType);
-
-  const activeColor = COLOR_OPTIONS.filter((option) => option.color !== 'default').find((option) =>
-    editor.isActive('textColor', { text: option.color }),
-  )?.color;
+  // Whether *any* of the selection carries a colour on each axis - a different question from
+  // `isActive`'s "does all of it carry this colour". A selection spanning coloured and
+  // uncoloured text is neither default nor accent, and saying "Default colour, pressed" over it
+  // would be a lie. Mixed presses nothing.
+  const coloured = axesInRange(
+    editor.state.doc,
+    placement.from,
+    placement.to,
+    editor.state.schema.marks.textColor,
+  );
 
   return (
     <>
       {/* Announced when the menu appears. It opens away from the focus, so without this a
           screen-reader user who has just selected text has no way to know the options exist. */}
       <p aria-live="polite" className="sr-only">
-        Text colour options available
+        Text colour and highlight options available
       </p>
 
       <div
         ref={container}
         role="toolbar"
-        aria-label="Text colour"
+        aria-label="Text colour and highlight"
         aria-orientation="horizontal"
         // Positioned against the selection in viewport coordinates, re-read on scroll and on
         // resize above, so it stays with its text rather than with the page.
         style={{ left: placement.left, top: placement.top }} // design-token-exempt: a selection's position is a runtime measurement, not a scale step.
         className={[
-          'fixed z-20 flex items-center gap-0.5 rounded-md bg-surface p-1 shadow-md',
+          // The wider gap is what separates the two groups: they are the same kind of thing on
+          // the same surface, so a rule between them would be a border used where air will do.
+          'fixed z-20 flex items-center gap-2 rounded-md bg-surface p-1 shadow-md',
           placement.below ? 'mt-2' : '-mt-2 -translate-y-full',
         ].join(' ')}
         // Swallowed before the browser can move focus: a pointer press on a menu button must
@@ -300,8 +444,10 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
             return;
           }
 
-          // The roving tab stop that `role="toolbar"` promises: the arrows walk the row, Home
-          // and End jump to its ends, and Tab stays one stop through the whole toolbar.
+          // The roving tab stop that `role="toolbar"` promises: the arrows walk the row - the
+          // whole row, straight through the group boundary, because the groups are a way of
+          // reading the toolbar and not a wall inside it - Home and End jump to its ends, and
+          // Tab stays one stop through all of it.
           if (event.key === 'ArrowRight') {
             event.preventDefault();
             rove(tabStop, 1);
@@ -310,48 +456,63 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
             rove(tabStop, -1);
           } else if (event.key === 'Home') {
             event.preventDefault();
-            rove(COLOR_OPTIONS.length - 1, 1);
+            rove(ROW.length - 1, 1);
           } else if (event.key === 'End') {
             event.preventDefault();
             rove(0, -1);
           }
         }}
       >
-        {COLOR_OPTIONS.map((option, index) => {
-          const active = option.color === 'default' ? !anyMark : activeColor === option.color;
-          const disabled = runnable[index] !== true;
+        {COLOR_GROUPS.map((group) => (
+          <div
+            key={group.axis}
+            role="group"
+            aria-label={group.label}
+            className="flex items-center gap-0.5"
+          >
+            {group.options.map((option) => {
+              const index = ROW_INDEX.get(option) ?? 0;
+              const active =
+                option.color === 'default'
+                  ? !coloured[group.axis]
+                  : editor.isActive('textColor', { [group.axis]: option.color });
+              const disabled = runnable[index] !== true;
 
-          return (
-            <button
-              key={option.color}
-              ref={(element) => {
-                buttons.current[index] = element;
-              }}
-              type="button"
-              aria-label={option.label}
-              title={option.label}
-              aria-pressed={active}
-              disabled={disabled}
-              tabIndex={index === tabStop ? 0 : -1}
-              onClick={() => {
-                editor.chain().focus().setTextColor(option.color).run();
-              }}
-              className={[
-                'flex h-7 items-center gap-1 rounded-sm px-1.5 text-xs',
-                'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
-                option.swatchClass,
-                disabled
-                  ? 'cursor-not-allowed opacity-40'
-                  : active
-                    ? 'bg-accent/18'
-                    : 'hover:bg-foreground/7',
-              ].join(' ')}
-            >
-              <Icon icon={Baseline} size="sm" />
-              {option.name}
-            </button>
-          );
-        })}
+              return (
+                <button
+                  key={option.color}
+                  ref={(element) => {
+                    buttons.current[index] = element;
+                  }}
+                  type="button"
+                  aria-label={option.label}
+                  title={option.label}
+                  aria-pressed={active}
+                  disabled={disabled}
+                  tabIndex={index === tabStop ? 0 : -1}
+                  onClick={() => {
+                    applyColor(editor, group.axis, option.color);
+                  }}
+                  className={[
+                    'flex h-7 items-center gap-1 rounded-sm px-1.5 text-xs',
+                    'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                    disabled
+                      ? 'cursor-not-allowed opacity-40'
+                      : active
+                        ? 'bg-accent/18'
+                        : 'hover:bg-foreground/7',
+                  ].join(' ')}
+                >
+                  <Icon icon={group.icon} size="sm" />
+                  {/* The preview sits on the word rather than on the button, so a wash can be
+                      shown as a wash without fighting the button's own pressed and hover
+                      grounds - and it is spelled the way `prose.ts` spells the real mark. */}
+                  <span className={`rounded-sm px-0.5 ${option.swatchClass}`}>{option.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </>
   );
