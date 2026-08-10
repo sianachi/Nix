@@ -562,3 +562,105 @@ describe('the day cell create control by keyboard', () => {
     ).toHaveFocus();
   });
 });
+
+/**
+ * Scheduling by dropping onto an hour, which is the gesture a week view exists for.
+ *
+ * These run against a `timestamp` property rather than the `date` the rest of the suite uses,
+ * because an hour is a thing only a moment can carry. Still ten hours west of UTC: a slot writes a
+ * wall clock in the reader's zone, so every assertion here is also an assertion that the offset was
+ * derived rather than assumed.
+ */
+describe('dropping an unscheduled item onto an hour', () => {
+  const TIMED_SCHEMA: EffectiveSchema = {
+    properties: [
+      { key: 'starts', label: 'Starts', type: 'timestamp', options: [], required: false },
+    ],
+    declared: [],
+    inherit: true,
+  };
+
+  const WEEK: View = aView({
+    id: 'view-week',
+    name: 'This week',
+    kind: 'calendar',
+    columns: ['title'],
+    dateProperty: 'starts',
+    mode: 'week',
+  });
+
+  const LOOSE = itemOf('item-loose', 'Loose end', {});
+
+  function renderWeek(children: readonly Item[]) {
+    const onOpen = vi.fn();
+    const data = aContainer({
+      schema: TIMED_SCHEMA,
+      views: views([WEEK]),
+      setProperties: vi.fn(() => Promise.resolve(null)),
+      reload: vi.fn(() => Promise.resolve()),
+      children: [...children],
+    });
+
+    renderAt(<CalendarView container={data} view={WEEK} onOpen={onOpen} />, '/');
+
+    return { setProperties: data.setProperties };
+  }
+
+  /**
+   * The slot itself carries no role and no name, and deliberately: 168 named empty cells would be
+   * 168 things a screen reader has to walk past to reach the grid's content. It is found through
+   * the create control it holds, then up to the element the roving grid already marks as a cell -
+   * an existing structural hook rather than ARIA invented for a test to query.
+   */
+  function slotAt(label: string): HTMLElement {
+    const control = screen.getByRole('button', { name: label });
+    const slot = control.closest('[data-roving-row]');
+
+    expect(slot).toBeInstanceOf(HTMLElement);
+    return slot as HTMLElement;
+  }
+
+  it('writes the hour the slot stands for, as a moment in the reader own zone', () => {
+    const { setProperties } = renderWeek([LOOSE]);
+
+    const dataTransfer = { effectAllowed: '', setData: vi.fn(), getData: vi.fn() };
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Loose end' }), { dataTransfer });
+    fireEvent.drop(slotAt('Add an item at 09:00 on Thursday 12 March 2026'), { dataTransfer });
+
+    expect(setProperties).toHaveBeenCalledWith('item-loose', {
+      starts: '2026-03-12T09:00:00-10:00[Pacific/Honolulu]',
+    });
+  });
+
+  it('leaves the unscheduled list alone when nothing is being dragged', () => {
+    const { setProperties } = renderWeek([LOOSE]);
+
+    fireEvent.drop(slotAt('Add an item at 09:00 on Thursday 12 March 2026'), {
+      dataTransfer: { effectAllowed: '', setData: vi.fn(), getData: vi.fn() },
+    });
+
+    expect(setProperties).not.toHaveBeenCalled();
+  });
+
+  it('counts an item that has a time as scheduled, not as unscheduled', () => {
+    renderWeek([
+      itemOf('item-standup', 'Standup', { starts: '2026-03-12T09:00:00-10:00[Pacific/Honolulu]' }),
+    ]);
+
+    // The heading counts what is left. A timestamp read only as a plain date would fail to parse
+    // and the item would be listed here as well as drawn on the grid - in two places at once,
+    // which is the state a drop used to leave it in.
+    expect(screen.getByRole('heading', { name: 'Unscheduled (0)' })).toBeVisible();
+  });
+
+  it('offers the keyboard a time of day, not only a date, when the calendar places by the hour', async () => {
+    renderWeek([LOOSE]);
+
+    await user().click(screen.getByRole('button', { name: 'Reschedule Loose end' }));
+
+    expect(screen.getByLabelText('New date and time for Loose end')).toHaveAttribute(
+      'type',
+      'datetime-local',
+    );
+  });
+});

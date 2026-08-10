@@ -209,6 +209,8 @@ describe('day mode, which shares this same grid and scroller', () => {
         today="2026-03-16"
         onOpen={vi.fn()}
         onCreate={vi.fn().mockResolvedValue(null)}
+        dragged={null}
+        onMove={vi.fn()}
       />,
       '/',
     );

@@ -1,5 +1,5 @@
 import { Text, cn, focusRing } from '@nix/ui';
-import type { ReactNode } from 'react';
+import { useState, type DragEvent, type ReactNode } from 'react';
 
 import { dayLabel, dayText, weekLabel, type CalendarDay } from './calendar-dates';
 import { readPropertyText, type Item } from './container-model';
@@ -113,6 +113,18 @@ export interface HourGridProps {
     title: string,
     properties?: Record<string, unknown>,
   ) => Promise<string | null>;
+
+  /**
+   * The item a pointer is currently dragging, or null.
+   *
+   * Read from the calendar rather than from `dataTransfer`, for the reason `board-view.tsx` gives:
+   * the payload a drag starts with is not readable during `dragover`, so a slot cannot decide
+   * whether to light up from the event alone.
+   */
+  readonly dragged: string | null;
+
+  /** Where a dropped item is written to. The value is a stored timestamp, or null to unschedule. */
+  readonly onMove: (itemId: string, value: string | null) => void;
 }
 
 interface Placed {
@@ -129,7 +141,7 @@ interface Placed {
 }
 
 export function HourGrid(props: HourGridProps): ReactNode {
-  const { days, items, dateProperty, zone, today, onOpen, onCreate } = props;
+  const { days, items, dateProperty, zone, today, onOpen, onCreate, dragged, onMove } = props;
 
   // One tab stop for all 168 hour-slot create controls, with the arrow keys moving which slot it
   // is: Up and Down walk the hours, Left and Right walk the days, Home and End jump to the first
@@ -242,6 +254,8 @@ export function HourGrid(props: HourGridProps): ReactNode {
                 zone={zone}
                 onOpen={onOpen}
                 onCreate={onCreate}
+                dragged={dragged}
+                onMove={onMove}
               />
             ))}
           </div>
@@ -318,8 +332,10 @@ function DayColumn(props: {
     title: string,
     properties?: Record<string, unknown>,
   ) => Promise<string | null>;
+  readonly dragged: string | null;
+  readonly onMove: (itemId: string, value: string | null) => void;
 }): ReactNode {
-  const { day, dayIndex, placed, dateProperty, zone, onOpen, onCreate } = props;
+  const { day, dayIndex, placed, dateProperty, zone, onOpen, onCreate, dragged, onMove } = props;
 
   return (
     <div
@@ -328,29 +344,17 @@ function DayColumn(props: {
       style={{ height: `${String(HOURS.length * ROW_HEIGHT)}px` }} // design-token-exempt: twenty-four hours of grid, computed from the row height rather than restated by hand
     >
       {HOURS.map((hour) => (
-        <div
+        <HourSlot
           key={hour}
-          // The roving-grid markers: which cell this slot is, for the hook that keeps exactly one
-          // of the 168 create controls in the tab order. See use-roving-grid.ts.
-          data-roving-row={hour}
-          data-roving-column={dayIndex}
-          className="group/slot border-b border-divider"
-          style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it
-        >
-          {/* One per hour, revealed on hover and on focus. Always in the tree, because a way to add
-              something that exists only for a pointer is not a way everybody has.
-              `opacity-0`/`pointer-events-none`, not `invisible`: `visibility: hidden` takes an
-              element out of the tab order entirely, so `focus-visible:visible` could never fire -
-              nothing could tab to the control in order to un-hide it. See the same pattern, with
-              the same reasoning, on workspace-sidebar.tsx's row-hover controls. */}
-          <CreateItemControl
-            compact
-            label={`Add an item at ${String(hour).padStart(2, '0')}:00 on ${dayLabel(day)}`}
-            properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
-            onCreate={onCreate}
-            className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
-          />
-        </div>
+          day={day}
+          dayIndex={dayIndex}
+          hour={hour}
+          dateProperty={dateProperty}
+          zone={zone}
+          onCreate={onCreate}
+          dragged={dragged}
+          onMove={onMove}
+        />
       ))}
 
       {placed.map((entry) => (
@@ -367,6 +371,83 @@ function DayColumn(props: {
           <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * One hour of one day: the thing an item is created in, and the thing an item is dropped into.
+ *
+ * Its own component because each of the 168 slots owns a `hovered` flag, and a flag held in the
+ * column would re-render all twenty-four rows of it on every `dragover` the pointer crosses.
+ *
+ * **The drop writes a time; the keyboard needs to be able to write one too.** That is why
+ * `RescheduleDialog` takes a `datetime-local` for a timestamp property rather than a bare date -
+ * the same argument ADR-0009 made against a drop zone that existed only for a pointer, applied to
+ * the hour rather than to the day.
+ */
+function HourSlot(props: {
+  readonly day: CalendarDay;
+  readonly dayIndex: number;
+  readonly hour: number;
+  readonly dateProperty: string;
+  readonly zone: string;
+  readonly onCreate: (
+    title: string,
+    properties?: Record<string, unknown>,
+  ) => Promise<string | null>;
+  readonly dragged: string | null;
+  readonly onMove: (itemId: string, value: string | null) => void;
+}): ReactNode {
+  const { day, dayIndex, hour, dateProperty, zone, onCreate, dragged, onMove } = props;
+  const [over, setOver] = useState(false);
+
+  const at = `${String(hour).padStart(2, '0')}:00`;
+
+  return (
+    <div
+      // The roving-grid markers: which cell this slot is, for the hook that keeps exactly one
+      // of the 168 create controls in the tab order. See use-roving-grid.ts.
+      data-roving-row={hour}
+      data-roving-column={dayIndex}
+      onDragOver={(event: DragEvent<HTMLDivElement>) => {
+        // Without this the browser refuses the drop outright, so it runs whether or not this
+        // calendar started the drag - the highlight below is what is conditional.
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => {
+        setOver(false);
+      }}
+      onDrop={(event: DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        setOver(false);
+        if (dragged !== null) {
+          // The hour is the whole point of dropping here rather than on a day: a drop writes the
+          // moment the slot stands for, in the reader's zone, through the same function the slot's
+          // create control writes.
+          onMove(dragged, writeSlot(day, hour, zone));
+        }
+      }}
+      className={cn(
+        'group/slot border-b border-divider',
+        over && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
+      )}
+      style={{ height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: the same hour height as the labels beside it
+    >
+      {/* One per hour, revealed on hover and on focus. Always in the tree, because a way to add
+          something that exists only for a pointer is not a way everybody has.
+          `opacity-0`/`pointer-events-none`, not `invisible`: `visibility: hidden` takes an
+          element out of the tab order entirely, so `focus-visible:visible` could never fire -
+          nothing could tab to the control in order to un-hide it. See the same pattern, with
+          the same reasoning, on workspace-sidebar.tsx's row-hover controls. */}
+      <CreateItemControl
+        compact
+        label={`Add an item at ${at} on ${dayLabel(day)}`}
+        properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
+        onCreate={onCreate}
+        className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
+      />
     </div>
   );
 }

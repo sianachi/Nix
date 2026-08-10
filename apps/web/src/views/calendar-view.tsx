@@ -30,7 +30,7 @@ import {
 } from './calendar-dates';
 import { HourGrid } from './calendar-hours';
 import { VIEW_GUTTER_BLEED } from './container-view';
-import { readerZone } from './timestamps';
+import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from './timestamps';
 import type { ContainerData } from './use-container';
 import { drawable, resolveViewChrome, undrawable } from './view-chrome';
 import { useViewState } from './view-state';
@@ -249,11 +249,22 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   const dateProperty: string = chrome.drawable;
   const items = chrome.items;
 
+  // Read before the buckets are filled, because which day a timestamp falls on is a question about
+  // the reader, not about the value.
+  const zone = readerZone();
+
+  // Whether this calendar places by a moment or by a day, which decides what the reschedule dialog
+  // has to be able to type. A container with no schema cannot be asked, and a bare date is the
+  // safer assumption: it is what the month grid and every existing stored value already use.
+  const placesByTime =
+    container.schema?.properties.find((property) => property.key === dateProperty)?.type ===
+    'timestamp';
+
   const byDate = new Map<string, Item[]>();
   const unscheduled: Item[] = [];
 
   for (const item of items) {
-    const value = readDateValue(item, dateProperty);
+    const value = readDayValue(item, dateProperty, zone);
 
     if (value === null) {
       // Never dropped. An item with no date is an item somebody has not scheduled yet, and a
@@ -311,7 +322,6 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // The view's own grain, overridable by the address the way the view itself is - a link saying
   // "look at this week" should open on a week.
   const mode = readMode(urlMode ?? view.mode);
-  const zone = readerZone();
 
   /** One step of whatever is on screen: a month, a week, or a day. */
   function step(delta: number): void {
@@ -517,6 +527,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             today={todayText}
             onOpen={onOpen}
             onCreate={container.create}
+            dragged={dragged}
+            onMove={moveTo}
           />
         </Blueprint>
       )}
@@ -563,6 +575,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           key={reschedulingItem.id}
           item={reschedulingItem}
           dateProperty={dateProperty}
+          placesByTime={placesByTime}
+          zone={zone}
           onCancel={() => {
             setRescheduling(null);
           }}
@@ -573,6 +587,28 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       )}
     </div>
   );
+}
+
+/**
+ * The day an item sits on for this reader, whichever shape its date property carries.
+ *
+ * A `date` is already a day. A `timestamp` is a moment, and which day that falls on depends on who
+ * is looking, so it is converted to the reader's zone first - exactly as the hour grid does when it
+ * decides which column an item belongs in.
+ *
+ * **Reading only the plain-date shape here is what used to send every timestamped item to
+ * "unscheduled".** That was invisible while nothing could write a time from the interface; the
+ * moment an hour slot accepted a drop it became visible immediately, as a card that appeared in the
+ * slot it was dropped on and stayed in the unscheduled list underneath.
+ */
+function readDayValue(item: Item, key: string, zone: string): string | null {
+  const plain = readDateValue(item, key);
+  if (plain !== null) {
+    return plain;
+  }
+
+  const moment = readTimestampValue(item.properties, key);
+  return moment === null ? null : dayFor(moment, zone);
 }
 
 /** One day of the grid: its number, and the `yyyy-MM-dd` text an item has to match to land on it. */
@@ -769,11 +805,39 @@ function ItemCard(props: ItemCardProps): ReactNode {
   );
 }
 
+/**
+ * What the reschedule field starts with: the value the item already has, in the shape the control
+ * takes.
+ *
+ * A `datetime-local` input refuses anything that is not a bare wall clock, so a stored moment is
+ * converted into the reader's zone and stripped of its offset first - the same reading the grid
+ * places it by, so the field agrees with the row the card is sitting on.
+ */
+function readDraft(item: Item, key: string, placesByTime: boolean, zone: string): string {
+  if (!placesByTime) {
+    return readDateValue(item, key) ?? '';
+  }
+
+  const moment = readTimestampValue(item.properties, key);
+  return moment === null ? '' : moment.at.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
+}
+
 interface RescheduleDialogProps {
   readonly item: Item;
 
   /** The property the calendar places by, for reading the date the item has now. */
   readonly dateProperty: string;
+
+  /**
+   * Whether the property holds a moment rather than a day.
+   *
+   * When it does, this dialog takes an hour as well - because an hour slot accepts a drop, and a
+   * capability the pointer has and the keyboard does not is the thing ADR-0009 removed.
+   */
+  readonly placesByTime: boolean;
+
+  /** The reader's zone, which a typed wall-clock time means what it says in. */
+  readonly zone: string;
   readonly onCancel: () => void;
   readonly onMove: (value: string | null) => void;
 }
@@ -795,12 +859,30 @@ interface RescheduleDialogProps {
  * the field that can say so, rather than written and refused by Core.
  */
 function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
-  const { item, dateProperty, onCancel, onMove } = props;
-  const [draft, setDraft] = useState(() => readDateValue(item, dateProperty) ?? '');
+  const { item, dateProperty, placesByTime, zone, onCancel, onMove } = props;
+  const [draft, setDraft] = useState(() => readDraft(item, dateProperty, placesByTime, zone));
   const [error, setError] = useState<string | null>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
 
   function submit(): void {
+    if (placesByTime) {
+      // What `datetime-local` produces, and what the hour slots write: a wall clock, which the
+      // reader's zone turns into a moment. Seconds are optional in the control's own output.
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(draft)) {
+        setError('Enter a date and a time of day.');
+        return;
+      }
+
+      const stored = writeTimestampValue(draft, zone);
+      if (stored === null) {
+        setError('That is not a time this calendar can place.');
+        return;
+      }
+
+      onMove(stored);
+      return;
+    }
+
     if (!/^\d{4}-\d{2}-\d{2}$/.test(draft)) {
       setError('Enter a date as year, month and day.');
       return;
@@ -836,12 +918,15 @@ function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
         }}
         className="flex flex-col gap-3"
       >
-        <Field label={`New date for ${item.title || 'Untitled'}`} error={error}>
+        <Field
+          label={`${placesByTime ? 'New date and time' : 'New date'} for ${item.title || 'Untitled'}`}
+          error={error}
+        >
           {(control) => (
             <Input
               {...control}
               ref={fieldRef}
-              type="date"
+              type={placesByTime ? 'datetime-local' : 'date'}
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value);
