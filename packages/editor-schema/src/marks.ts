@@ -39,6 +39,23 @@ function readColor(value: unknown): TextColor | null {
   return TEXT_COLORS.includes(value as TextColor) ? (value as TextColor) : DEFAULT_COLOR;
 }
 
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    textColor: {
+      /**
+       * Colours the selected text with a token name from `TEXT_COLORS`.
+       *
+       * `default` clears rather than sets: the token sheet's own foreground is what unmarked
+       * text already renders in, so storing `text: 'default'` would pin today's meaning of
+       * "ordinary text" into the document. Clearing keeps the mark only while it still says
+       * something - a background, until a control for one exists - and removes it outright
+       * otherwise, so toggling a colour on and off leaves the document exactly as it was.
+       */
+      setTextColor: (color: TextColor) => ReturnType;
+    };
+  }
+}
+
 /**
  * Colour, foreground and background together in one mark.
  *
@@ -81,6 +98,43 @@ export const TextColorMark = Mark.create({
 
   renderHTML({ HTMLAttributes }) {
     return ['span', mergeAttributes(HTMLAttributes), 0];
+  },
+
+  addCommands() {
+    return {
+      setTextColor:
+        (color) =>
+        ({ commands, editor }) => {
+          if (color !== DEFAULT_COLOR) {
+            // `setMark` merges with the attributes already on the mark, so a background set by
+            // some future control survives a change of foreground.
+            return commands.setMark(this.name, { text: color });
+          }
+
+          // `default` clears. The mark stays only while it still carries a background, and goes
+          // entirely otherwise, so no empty mark lingers in the document. The raw attribute, not
+          // `readColor`: normalising here would count a newer build's unknown background as
+          // `default` and destroy it with the mark - exactly the silent rewrite the fallback-at-
+          // render rule above exists to prevent. A stored `'default'` background is the one
+          // stored value that genuinely means "none", so it alone joins the absent cases.
+          //
+          // `editor.getAttributes` reads the editor's real state, not the chainable state this
+          // command is running against - harmless for the single-command chain the bubble menu
+          // sends, and for the undispatched `can()` probe it also serves, because neither has an
+          // earlier step to disagree with. Chaining this *after* something that changes the mark
+          // would read the state from before that change; use the transaction's own selection
+          // marks if that day comes.
+          const background: unknown = editor.getAttributes(this.name).background;
+          const backgroundAbsent =
+            background === null ||
+            background === undefined ||
+            background === '' ||
+            background === DEFAULT_COLOR;
+          return backgroundAbsent
+            ? commands.unsetMark(this.name)
+            : commands.setMark(this.name, { text: null });
+        },
+    };
   },
 });
 

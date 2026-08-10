@@ -21,7 +21,6 @@
     "@nix/sheet": "workspace:*",
     "@nix/ui": "workspace:*",
     "@tiptap/core": "^3.29.0",
-    "@tiptap/extension-bubble-menu": "^3.29.0",
     "@tiptap/extension-collaboration": "^3.29.2",
     "@tiptap/extension-drag-handle": "^3.29.2",
     "@tiptap/extension-drag-handle-react": "^3.29.2",

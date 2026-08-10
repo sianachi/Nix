@@ -1,7 +1,6 @@
 import { nixExtensions } from '@nix/editor-schema';
 import { Icon, Text } from '@nix/ui';
 import { mergeAttributes } from '@tiptap/core';
-import { BubbleMenu } from '@tiptap/extension-bubble-menu';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { NodeRange } from '@tiptap/extension-node-range';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
@@ -15,6 +14,7 @@ import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
 import { useSessionStore } from '../auth/session-store';
+import { BubbleMenu } from './bubble-menu';
 import { EditorToolbar } from './toolbar';
 import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
@@ -277,7 +277,6 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         // exist. The handle itself is the <DragHandle> component below, which registers its own
         // plugin against this editor.
         NodeRange,
-        BubbleMenu.configure({ element: null }),
       ],
 
       // No `content`: the Yjs document is the source of truth, and seeding content here would
@@ -493,6 +492,8 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
             <Icon icon={GripVertical} size="sm" />
           </DragHandle>
           <EditorContent editor={editor} className="h-full" />
+          {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
+          <BubbleMenu editor={editor} />
         </div>
 
         <SyncFooter state={syncState} />
