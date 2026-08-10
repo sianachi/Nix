@@ -3,14 +3,16 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PaneGroup } from '../../panes/pane-group';
+import { paneElementId } from '../../panes/pane-params';
 import type { PaneState } from '../../panes/pane-state';
 
 /**
- * The arrangement on screen, and the handle between the panes.
+ * The arrangement on screen, and how the group wires the handles between the panes.
  *
- * The divider is the piece worth rendering rather than unit-testing: what matters about it is that
- * it is announced as a separator with a value, and that every gesture a pointer can make has a key
- * that makes it too. Neither of those is visible from the outside of a pure function.
+ * The handle itself - its keys, its drag arithmetic, its announced value - is `@nix/ui`'s
+ * `PaneDivider`, tested in that package. What is worth testing here is what only the group can
+ * get wrong: how many handles there are, what each is named, and that a handle's commit lands on
+ * the right pair of shares in the group's own list.
  */
 
 const panes: PaneState[] = [
@@ -28,7 +30,10 @@ function renderGroup(overrides: Partial<Parameters<typeof PaneGroup>[0]> = {}) {
       sizes={null}
       onSizes={onSizes}
       describePane={(pane) => (pane.index === 0 ? 'Spec' : 'Notes')}
-      renderPane={(pane) => <p>Pane {pane.index}</p>}
+      // The id the real page puts on each pane's `<article>` (`editor-page.tsx`), carried here
+      // because a handle's `aria-controls` points at it: a harness that rendered a bare paragraph
+      // would leave every reference in this file dangling and nothing would say so.
+      renderPane={(pane) => <p id={paneElementId(pane.index)}>Pane {pane.index}</p>}
       {...overrides}
     />,
   );
@@ -63,277 +68,123 @@ describe('the pane group', () => {
 
     expect(screen.queryByRole('separator')).not.toBeInTheDocument();
   });
-});
 
-describe('the handle', () => {
-  it('says which two panes it moves, rather than only that it is a separator', () => {
+  it('names each handle after the two panes it moves', () => {
     renderGroup();
 
     expect(screen.getByRole('separator', { name: 'Resize Spec and Notes' })).toBeInTheDocument();
   });
 
-  it('reports its position as a value a screen reader can announce', () => {
-    renderGroup();
-    const handle = screen.getByRole('separator');
-
-    expect(handle).toHaveAttribute('aria-valuenow', '50');
-    expect(handle).toHaveAttribute('aria-valuemin', '15');
-    expect(handle).toHaveAttribute('aria-valuemax', '85');
-  });
-
-  it('is announced as vertical between panes that sit side by side', () => {
+  it('turns the handle to match the way the panes are arranged', () => {
     // The divider's own axis, not the arrangement's: two panes side by side are separated by a
-    // vertical line, and that is also the axis the left and right arrows move it along.
+    // vertical line. The split-to-orientation mapping is the group's job, so it is pinned here.
     renderGroup();
-
     expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical');
-  });
 
-  it('is announced as horizontal between panes that sit one above the other', () => {
+    cleanup();
     renderGroup({ split: 'horizontal' });
-
     expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal');
   });
 
-  it('takes focus, so it can be reached without a pointer', async () => {
-    const user = userEvent.setup();
+  it('points each handle at a pane that is actually on the page', () => {
+    // An `aria-controls` naming an id nothing carries is reported as a broken relationship, which
+    // is a worse answer than having said nothing at all - so the reference is followed rather
+    // than compared to a string this test also computes.
+    renderGroup({
+      panes: [...panes, { index: 2, itemId: '00000000-0000-4000-8000-000000000003' }],
+      describePane: (pane) => `pane ${String(pane.index + 1)}`,
+    });
+
+    const handles = screen.getAllByRole('separator');
+    expect(handles).toHaveLength(2);
+
+    for (const [offset, handle] of handles.entries()) {
+      const controls = handle.getAttribute('aria-controls') ?? '';
+      expect(controls).not.toBe('');
+
+      // The pane *before* the handle: the announced share is a share of that one.
+      expect(document.getElementById(controls)).toHaveTextContent(`Pane ${String(offset)}`);
+    }
+  });
+
+  it('gives an evenly divided group even shares for the handle to report', () => {
     renderGroup();
 
-    await user.tab();
-
-    expect(screen.getByRole('separator')).toHaveFocus();
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '50');
   });
 });
 
-describe('moving the handle by keyboard', () => {
-  async function press(keys: string, overrides = {}) {
-    // Explicit, because two of these tests press twice: the automatic cleanup runs between tests,
-    // not between renders inside one, and a second group would leave two handles on screen.
-    cleanup();
+describe('committing a resize into the group', () => {
+  it("lands a handle's commit on the whole ratio, not only the pair it moved", async () => {
     const user = userEvent.setup();
-    const { onSizes } = renderGroup(overrides);
+    const { onSizes } = renderGroup();
 
     screen.getByRole('separator').focus();
-    await user.keyboard(keys);
-
-    return onSizes;
-  }
-
-  it('moves a step at a time with the arrow keys', async () => {
-    // Every gesture a drag offers has a key, which is the whole point: a layout control that only
-    // a pointer can operate is a layout control for only some people.
-    const onSizes = await press('{ArrowRight}');
+    await user.keyboard('{ArrowRight}');
 
     expect(onSizes).toHaveBeenCalledWith([51, 49]);
   });
 
-  it('moves the other way too', async () => {
-    const onSizes = await press('{ArrowLeft}');
-
-    expect(onSizes).toHaveBeenCalledWith([49, 51]);
-  });
-
-  it('moves further with Shift held', async () => {
-    const onSizes = await press('{Shift>}{ArrowRight}{/Shift}');
-
-    expect(onSizes).toHaveBeenCalledWith([60, 40]);
-  });
-
-  it('goes to the bounds with Home and End', async () => {
-    expect(await press('{Home}')).toHaveBeenCalledWith([15, 85]);
-    expect(await press('{End}')).toHaveBeenCalledWith([85, 15]);
-  });
-
-  it('will not squeeze a pane past the minimum', async () => {
-    // The bound is what keeps a pane from being dragged narrower than its own header controls,
-    // which is a state nothing in the interface offers a way out of except dragging back.
-    const onSizes = await press('{Shift>}{ArrowRight}{/Shift}', { sizes: [82, 18] });
-
-    expect(onSizes).toHaveBeenCalledWith([85, 15]);
-  });
-
-  it('toggles back to even, and back out again', async () => {
-    expect(await press('{Enter}', { sizes: [80, 20] })).toHaveBeenCalledWith([50, 50]);
-    // From even, the same key goes the other way rather than doing nothing - a control that does
-    // nothing when pressed reads as broken.
-    expect(await press('{Enter}')).toHaveBeenCalledWith([85, 15]);
-  });
-
-  it('undoes an even split back to where it was, not to a bound', async () => {
-    // The same key has to reverse itself, and reversing to a bound nobody chose is not a reversal.
+  it('moves the right pair when the middle handle of three is used', async () => {
+    // The one mistake only the group can make: the divider drawn before pane n trades between
+    // shares n-1 and n, and an off-by-one here resizes a pane nobody touched.
     const user = userEvent.setup();
-    cleanup();
-    const onSizes = vi.fn();
-    render(
-      <PaneGroup
-        panes={panes}
-        split="vertical"
-        sizes={[70, 30]}
-        onSizes={onSizes}
-        describePane={() => 'a pane'}
-        renderPane={(pane) => <p>Pane {pane.index}</p>}
-      />,
-    );
+    const { onSizes } = renderGroup({
+      panes: [...panes, { index: 2, itemId: '00000000-0000-4000-8000-000000000003' }],
+      sizes: [20, 40, 40],
+      describePane: (pane) => `pane ${String(pane.index + 1)}`,
+    });
 
-    const handle = screen.getByRole('separator');
-    handle.focus();
-    await user.keyboard('{Enter}');
-    expect(onSizes).toHaveBeenLastCalledWith([50, 50]);
+    screen.getByRole('separator', { name: 'Resize pane 2 and pane 3' }).focus();
+    await user.keyboard('{ArrowRight}');
 
-    // The group is controlled by its caller, so the second press is made against the evened state
-    // the caller would have re-rendered with.
-    cleanup();
-    render(
-      <PaneGroup
-        panes={panes}
-        split="vertical"
-        sizes={[50, 50]}
-        onSizes={onSizes}
-        describePane={() => 'a pane'}
-        renderPane={(pane) => <p>Pane {pane.index}</p>}
-      />,
-    );
-    screen.getByRole('separator').focus();
-    await user.keyboard('{Enter}');
-
-    // Without a remembered value there is nothing to go back to, so it falls to a bound - which
-    // is why the remembering lives in the divider and survives between presses.
-    expect(onSizes).toHaveBeenLastCalledWith([85, 15]);
-  });
-
-  it('uses the up and down arrows when the panes are stacked', async () => {
-    const onSizes = await press('{ArrowDown}', { split: 'horizontal' });
-
-    expect(onSizes).toHaveBeenCalledWith([51, 49]);
-  });
-
-  it('leaves keys it does not claim to the browser', async () => {
-    const onSizes = await press('{PageDown}');
-
-    expect(onSizes).not.toHaveBeenCalled();
+    expect(onSizes).toHaveBeenCalledWith([20, 40.8, 39.2]);
   });
 });
 
-describe('dragging the handle', () => {
+describe('previewing a resize through the group', () => {
   /**
-   * A drag, with the geometry stubbed.
-   *
-   * jsdom lays nothing out, so `getBoundingClientRect` is all zeros and `setPointerCapture` does
-   * not exist. Both are stubbed rather than skipped, because what is worth checking here is not
-   * the browser's pointer capture - it is the arithmetic that turns a pointer position into a
-   * share, and the listener lifecycle that would otherwise leave a drag running after the button
-   * came up. A real drag in a real browser is still owed.
+   * The drag path, with the geometry stubbed: jsdom lays nothing out, so the rects the divider
+   * measures are supplied here. What is worth checking at this level is not the arithmetic - that
+   * is `@nix/ui`'s - but that the group turns a preview into a write on the *right two* custom
+   * properties, without a React render. That is the whole reason the property exists: a
+   * `setState` per pointer event would re-render every open editor sixty times a second.
    */
-  function dragSetup(sizes: readonly number[] | null = null) {
-    const onSizes = vi.fn();
-    cleanup();
+  it('writes only the dragged pair of shares straight to the group, leaving the third alone', () => {
+    const { onSizes } = renderGroup({
+      panes: [...panes, { index: 2, itemId: '00000000-0000-4000-8000-000000000003' }],
+      sizes: [20, 40, 40],
+      describePane: (pane) => `pane ${String(pane.index + 1)}`,
+    });
 
-    render(
-      <PaneGroup
-        panes={panes}
-        split="vertical"
-        sizes={sizes}
-        onSizes={onSizes}
-        describePane={() => 'a pane'}
-        renderPane={(pane) => <p>Pane {pane.index}</p>}
-      />,
-    );
-
-    const handle = screen.getByRole('separator');
+    const handle = screen.getByRole('separator', { name: 'Resize pane 2 and pane 3' });
     handle.setPointerCapture = vi.fn();
 
-    // The pair spans 0-1000; the handle sits between them. A pointer at x tracks to x/10 percent.
+    const group = handle.parentElement;
+    expect(group).toBeInstanceOf(HTMLElement);
+    const before = group?.style.getPropertyValue('--pane-share-0');
+
+    // The pair either side of this handle spans 0-1000; a pointer at 700 is 70% of the way
+    // across it, so the pair's 80 is split 56/24.
     const first = handle.previousElementSibling as HTMLElement;
     const second = handle.nextElementSibling as HTMLElement;
     first.getBoundingClientRect = () => ({ left: 0, top: 0, right: 500, bottom: 800 }) as DOMRect;
     second.getBoundingClientRect = () =>
       ({ left: 500, top: 0, right: 1000, bottom: 800 }) as DOMRect;
 
-    return { handle, onSizes };
-  }
-
-  function pointer(type: string, clientX: number): PointerEvent {
-    return new PointerEvent(type, { clientX, clientY: 400, button: 0, bubbles: true });
-  }
-
-  it('does not commit while the pointer is still down', () => {
-    // Every move would otherwise be a URL write, so a single drag would fill the history with a
-    // hundred entries and Back would walk through them one pixel at a time.
-    const { handle, onSizes } = dragSetup();
-
-    handle.dispatchEvent(pointer('pointerdown', 500));
-    handle.dispatchEvent(pointer('pointermove', 700));
-
-    expect(onSizes).not.toHaveBeenCalled();
-  });
-
-  it('commits once, on release, at the position the pointer settled', () => {
-    const { handle, onSizes } = dragSetup();
-
-    handle.dispatchEvent(pointer('pointerdown', 500));
-    handle.dispatchEvent(pointer('pointermove', 700));
-    handle.dispatchEvent(pointer('pointerup', 700));
-
-    expect(onSizes).toHaveBeenCalledTimes(1);
-    expect(onSizes).toHaveBeenCalledWith([70, 30]);
-  });
-
-  it('stops tracking once the button is up', () => {
-    // The failure this guards is a handle that keeps following the pointer around the screen
-    // after the drag ended, which looks like the page has stopped responding to the mouse.
-    const { handle, onSizes } = dragSetup();
-
-    handle.dispatchEvent(pointer('pointerdown', 500));
-    handle.dispatchEvent(pointer('pointerup', 700));
-    onSizes.mockClear();
-
-    handle.dispatchEvent(pointer('pointermove', 200));
-
-    expect(onSizes).not.toHaveBeenCalled();
-  });
-
-  it('stops tracking when the gesture is cancelled rather than finished', () => {
-    const { handle, onSizes } = dragSetup();
-
-    handle.dispatchEvent(pointer('pointerdown', 500));
-    handle.dispatchEvent(new PointerEvent('pointercancel', { clientX: 700, bubbles: true }));
-    onSizes.mockClear();
-
-    handle.dispatchEvent(pointer('pointermove', 200));
-
-    expect(onSizes).not.toHaveBeenCalled();
-  });
-
-  it('puts the layout back when the gesture is taken away', () => {
-    // A cancelled drag is not a finished one. Committing wherever the pointer happened to be
-    // would let an incoming call or a back-swipe resize somebody's screen for them - and the
-    // cancel event carries stale coordinates in some engines, so it can be a wild value.
-    const { handle, onSizes } = dragSetup([70, 30]);
-
-    handle.dispatchEvent(pointer('pointerdown', 700));
-    handle.dispatchEvent(pointer('pointermove', 200));
-    handle.dispatchEvent(new PointerEvent('pointercancel', { clientX: 0, bubbles: true }));
-
-    expect(onSizes).not.toHaveBeenCalled();
-  });
-
-  it('will not drag a pane past the minimum share', () => {
-    const { handle, onSizes } = dragSetup();
-
-    handle.dispatchEvent(pointer('pointerdown', 500));
-    handle.dispatchEvent(pointer('pointerup', 20));
-
-    expect(onSizes).toHaveBeenCalledWith([15, 85]);
-  });
-
-  it('ignores a secondary button, so a context menu does not start a drag', () => {
-    const { handle, onSizes } = dragSetup();
-
     handle.dispatchEvent(
-      new PointerEvent('pointerdown', { clientX: 500, button: 2, bubbles: true }),
+      new PointerEvent('pointerdown', { clientX: 500, clientY: 400, button: 0, bubbles: true }),
     );
-    handle.dispatchEvent(pointer('pointerup', 700));
+    handle.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 700, clientY: 400, button: 0, bubbles: true }),
+    );
 
+    expect(group?.style.getPropertyValue('--pane-share-1')).toBe('56');
+    expect(group?.style.getPropertyValue('--pane-share-2')).toBe('24');
+
+    // The pane nobody touched keeps the share it had, and nothing settled: a preview is not a
+    // commit, so the address is not written until the pointer comes up.
+    expect(group?.style.getPropertyValue('--pane-share-0')).toBe(before);
     expect(onSizes).not.toHaveBeenCalled();
   });
 });

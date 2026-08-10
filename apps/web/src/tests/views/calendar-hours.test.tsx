@@ -371,3 +371,59 @@ describe('the all-day band chips', () => {
     expect(column).toHaveClass('flex', 'flex-col', 'gap-2');
   });
 });
+
+describe('the all-day create control by keyboard', () => {
+  // The same reveal contract as the hour slots': `opacity-0` with focus and hover reveals,
+  // deliberately not `invisible`, because `visibility: hidden` would take the control out of the
+  // tab order and the focus reveal could never fire - see the band's own comment in
+  // calendar-hours.tsx.
+  //
+  // **What the class assertion cannot show.** jsdom applies no stylesheet, so
+  // `toHaveClass('focus-visible:opacity-100')` proves a string is on the element and nothing
+  // more - a mistyped variant, or one Tailwind never generated, passes it just the same. That the
+  // control actually becomes visible on focus is on the owed real-browser/Storybook list. What is
+  // proven here is the half that matters most for the keyboard: it is a real tab stop, and
+  // operating it needs no pointer.
+
+  it('carries the reveal contract without reaching for visibility hidden', () => {
+    renderWeek();
+
+    const control = screen.getByRole('button', {
+      name: 'Add an all-day item on Monday 16 March 2026',
+    });
+    expect(control).toHaveClass(
+      'opacity-0',
+      'pointer-events-none',
+      'focus-visible:opacity-100',
+      'focus-visible:pointer-events-auto',
+    );
+    expect(control.className).not.toContain('invisible');
+  });
+
+  it('is reachable by tabbing rather than existing only for a pointer', async () => {
+    renderWeek();
+
+    // Tabbed to from the chip above it in the same band cell, rather than focused by hand:
+    // `.focus()` succeeds on elements Tab can never reach, so it cannot tell a keyboard-reachable
+    // control from an unreachable one - which is the entire claim being made here.
+    const person = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    screen.getByRole('button', { name: 'Offsite' }).focus();
+    await person.tab();
+
+    expect(
+      screen.getByRole('button', { name: 'Add an all-day item on Monday 16 March 2026' }),
+    ).toHaveFocus();
+  });
+
+  it('opens its naming field with the keyboard alone', async () => {
+    renderWeek();
+
+    const person = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    screen.getByRole('button', { name: 'Add an all-day item on Monday 16 March 2026' }).focus();
+    await person.keyboard('{Enter}');
+
+    expect(
+      screen.getByRole('textbox', { name: 'Add an all-day item on Monday 16 March 2026' }),
+    ).toHaveFocus();
+  });
+});

@@ -585,7 +585,11 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                   >
                     <span
                       aria-hidden="true"
-                      className={`pointer-events-none absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 ${dragHandleLineStates}`}
+                      // `w-px`, the one hairline weight every drag handle in the product draws -
+                      // this used to be `w-0.5`, which read as a heavier rule than the pane
+                      // divider's beside it for no reason anybody chose. See
+                      // `dragHandleLineStates`.
+                      className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 ${dragHandleLineStates}`}
                     />
                   </div>
                   {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions */}

@@ -78,6 +78,19 @@ describe('column resize handle', () => {
     expect(handle).toHaveAccessibleDescription(/arrow keys resize/i);
   });
 
+  it('draws the one hairline weight every drag handle in the product shares', () => {
+    // `w-px`, not `w-0.5`, which this used to be: two drag handles of different weights on one
+    // screen read as two different kinds of object, and the pane divider beside it draws a
+    // hairline. The states come from `dragHandleLineStates`; the weight is the part that constant
+    // cannot carry, because the axis differs per handle - so it is pinned here instead.
+    renderGrid(new Y.Doc());
+
+    const line = handleFor('A').querySelector('[aria-hidden="true"]');
+    expect(line).toBeInstanceOf(HTMLElement);
+    expect(line).toHaveClass('w-px');
+    expect(line?.className).not.toContain('w-0.5');
+  });
+
   it("puts only the active column's handle in the tab order", () => {
     renderGrid(new Y.Doc());
     expect(handleFor('A')).toHaveAttribute('tabindex', '0');

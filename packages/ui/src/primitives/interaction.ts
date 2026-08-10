@@ -46,6 +46,12 @@ export const disabledState = 'disabled:cursor-not-allowed disabled:opacity-45';
  * drag state steps deeper, the same direction a pressed fill moves. The drag
  * state hangs off a data attribute rather than `:active` because a live drag
  * routes the pointer through a capture overlay, which `:active` cannot see.
+ *
+ * The line itself is a **hairline** - `w-px` or `h-px`, never heavier. The
+ * weight is not in this constant, because which axis it applies to differs per
+ * handle, but it is part of the same grammar: two handles of different weights
+ * on one screen read as two different kinds of object. `<PaneDivider>` and the
+ * sheet grid's column handle both draw `w-px`.
  */
 export const dragHandleLineStates =
   'group-hover:bg-accent group-focus-visible:bg-accent group-data-[dragging]:bg-accent-pressed';

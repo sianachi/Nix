@@ -509,3 +509,56 @@ describe('the calendar view', () => {
     });
   });
 });
+
+describe('the day cell create control by keyboard', () => {
+  // The control is hidden until hover with `opacity-0`/`pointer-events-none`, deliberately not
+  // `invisible`: `visibility: hidden` removes an element from the tab order entirely, so a focus
+  // reveal could never fire - nothing could tab to the control in order to un-hide it. See the
+  // cell's own comment in calendar-view.tsx.
+  //
+  // **What the class assertion cannot show.** jsdom applies no stylesheet, so
+  // `toHaveClass('focus-visible:opacity-100')` proves a string is present on the element and
+  // nothing more - a mistyped variant, or one Tailwind never generated, passes it just the same.
+  // That the control actually becomes visible on focus is on the owed real-browser/Storybook
+  // list. What *is* proven here is the half that matters most for the keyboard: the control is a
+  // real tab stop and operating it needs no pointer.
+
+  it('carries the reveal contract without reaching for visibility hidden', () => {
+    renderCalendar({ children: [KICKOFF] });
+
+    const control = screen.getByRole('button', { name: 'Add an item on Tuesday 17 March 2026' });
+    expect(control).toHaveClass(
+      'opacity-0',
+      'pointer-events-none',
+      'focus-visible:opacity-100',
+      'focus-visible:pointer-events-auto',
+    );
+    expect(control.className).not.toContain('invisible');
+  });
+
+  it('is reachable by tabbing rather than existing only for a pointer', async () => {
+    renderCalendar({ children: [KICKOFF] });
+
+    // Tabbed to from the item inside the same cell, rather than focused by hand: `.focus()`
+    // succeeds on elements Tab can never reach, so it cannot tell a keyboard-reachable control
+    // from an unreachable one - which is the entire claim being made here.
+    screen.getByRole('button', { name: 'Kickoff' }).focus();
+    await user().tab();
+    await user().tab();
+
+    expect(
+      screen.getByRole('button', { name: 'Add an item on Tuesday 17 March 2026' }),
+    ).toHaveFocus();
+  });
+
+  it('opens its naming field with the keyboard alone', async () => {
+    renderCalendar({ children: [KICKOFF] });
+
+    screen.getByRole('button', { name: 'Add an item on Tuesday 17 March 2026' }).focus();
+    await user().keyboard('{Enter}');
+
+    expect(
+      screen.getByRole('textbox', { name: 'Add an item on Tuesday 17 March 2026' }),
+    ).toHaveFocus();
+  });
+});

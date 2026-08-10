@@ -121,7 +121,7 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
         className={[
           // relative + before: the drawn chip is ~22px tall (text-xs at py-1), under WCAG 2.5.8's
           // 24px floor; the pseudo-element widens the hit target past it without changing what is
-          // drawn, the same technique as pane-divider.tsx and the calendar's all-day chips.
+          // drawn, the same technique as @nix/ui's PaneDivider and the calendar's all-day chips.
           'relative before:absolute before:-inset-y-0.5 before:inset-x-0',
           'flex items-center gap-1 rounded-sm px-2 py-1 text-xs text-muted',
           'hover:bg-foreground/7 hover:text-foreground',

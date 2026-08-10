@@ -28,6 +28,7 @@ import { announce } from '../app/announcer';
 import { PaneGroup } from '../panes/pane-group';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
+import { usePaneCycling } from '../panes/use-pane-cycling';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useTabOrientationStore } from '../tabs/tab-orientation-store';
 import { DocumentTabStrip } from '../tabs/document-tab-strip';
@@ -69,6 +70,10 @@ export function EditorPage(): ReactNode {
   const narrow = useNarrowViewport();
 
   const paneCount = panes.length;
+
+  // F6 and Shift F6 cycle focus between the pane regions - see the hook for why it is claimed
+  // only while there is more than one pane to cycle.
+  usePaneCycling(paneCount);
 
   const close = useCallback(
     (index: number, title: string): void => {

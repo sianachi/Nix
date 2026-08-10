@@ -450,7 +450,7 @@ function AllDayBand(props: {
                  height plus `py-0.5`), under WCAG 2.5.8's 24px floor, and making it taller would
                  push the band's rows apart. The pseudo-element widens what a pointer has to hit
                  without widening what the eye sees - the same technique, with the same reasoning,
-                 as pane-divider.tsx's grab band. `-inset-y-1` is one spacing step (3.4px) past
+                 as @nix/ui's PaneDivider grab band. `-inset-y-1` is one spacing step (3.4px) past
                  each edge, which clears the floor with room for the density to tighten. The
                  column's `gap-2` is what gives those extensions somewhere to go; see it above. */
               <button

@@ -1,10 +1,10 @@
+import { PaneDivider } from '@nix/ui';
 import { Fragment, useCallback, useRef, type ReactNode } from 'react';
 
 import { paneClip } from '../app/layout';
-import { PaneDivider } from './pane-divider';
 import { PaneProvider } from './pane-context';
 import type { PaneState } from './pane-state';
-import type { SplitOrientation } from './pane-params';
+import { paneElementId, type SplitOrientation } from './pane-params';
 
 /**
  * The custom property one pane's share is read from.
@@ -20,6 +20,13 @@ function shareProperty(index: number): string {
 
 export interface PaneGroupProps {
   readonly panes: readonly PaneState[];
+
+  /**
+   * How the panes are arranged, which maps onto each handle's *own* axis rather than the
+   * arrangement's: a `vertical` split puts the panes side by side and the divider between them is
+   * a vertical line. `<PaneDivider>` takes that axis, so the mapping happens here and nowhere
+   * else.
+   */
   readonly split: SplitOrientation;
 
   /** One share per pane, or null to divide the space evenly. */
@@ -99,8 +106,12 @@ export function PaneGroup({
               orientation={split}
               before={shares[index - 1] ?? 50}
               after={shares[index] ?? 50}
-              label={`Resize ${describePane(panes[index - 1] ?? pane)} and ${describePane(pane)}`}
-              firstName={describePane(panes[index - 1] ?? pane)}
+              beforeName={describePane(panes[index - 1] ?? pane)}
+              afterName={describePane(pane)}
+              // The region the handle's value is about, by the id the pane already carries
+              // (`pane-params.ts`) - the same one `focusPane` addresses, so nothing new is minted.
+              // The pane *before* the handle is the one the announced share is a share of.
+              controls={paneElementId((panes[index - 1] ?? pane).index)}
               onPreview={(before, after) => {
                 preview(index - 1, before, after);
               }}
