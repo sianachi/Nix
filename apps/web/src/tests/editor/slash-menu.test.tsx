@@ -1,4 +1,4 @@
-import { nixExtensions } from '@nix/editor-schema';
+import { TOGGLE_LEVELS, nixExtensions } from '@nix/editor-schema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,12 +29,27 @@ describe('the slash menu', () => {
         'blockquote',
         'code-block',
         'callout',
+        'toggle',
+        'toggle-heading-1',
+        'toggle-heading-2',
+        'toggle-heading-3',
         'divider',
         'table',
         'image',
         'link-item',
       ]),
     );
+  });
+
+  it('tells the toggle headings apart by their hints, as the plain headings are', () => {
+    // Three entries reading "A folding section titled like a heading" would be three rows a
+    // person has to pick between on the level number alone.
+    const hints = SLASH_COMMANDS.filter((command) => command.id.startsWith('toggle-heading-')).map(
+      (command) => command.hint,
+    );
+
+    expect(hints).toHaveLength(TOGGLE_LEVELS.length);
+    expect(new Set(hints).size).toBe(TOGGLE_LEVELS.length);
   });
 
   it('shows everything when nothing has been typed', () => {
@@ -55,6 +70,20 @@ describe('the slash menu', () => {
 
     expect(filterSlashCommands('todo').map((command) => command.id)).toContain('task-list');
     expect(filterSlashCommands('admonition').map((command) => command.id)).toContain('callout');
+
+    // A person who wants a collapsible section may know it as any of these; "details" is the
+    // word the schema uses, kept findable for whoever greps the storage format.
+    for (const query of ['collapse', 'fold', 'details', 'disclosure']) {
+      expect(filterSlashCommands(query).map((command) => command.id)).toContain('toggle');
+    }
+
+    // "toggle" finds the whole family, plain and headed alike.
+    expect(filterSlashCommands('toggle').map((command) => command.id)).toEqual([
+      'toggle',
+      'toggle-heading-1',
+      'toggle-heading-2',
+      'toggle-heading-3',
+    ]);
 
     // The words somebody who wants a wiki link reaches for, "backlink" included: the panel that
     // surfaces them is the reason many people go looking for the command.
@@ -239,6 +268,49 @@ describe('the slash menu over a real document', () => {
     await openWith('https://example');
 
     expect(screen.queryByRole('listbox', { name: 'Insert a block' })).not.toBeInTheDocument();
+  });
+
+  it('creates a toggle with a summary and a body, no HTML pasted', async () => {
+    const editor = await openWith('/toggle');
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+
+    // The first match for "toggle" is the plain toggle.
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    // `setDetails` has to build the pair itself - `wrapIn` cannot, which is why the command
+    // exists - and the trigger text must be gone.
+    const details = editor.state.doc.firstChild;
+    expect(details?.type.name).toBe('details');
+    expect(details?.child(0).type.name).toBe('detailsSummary');
+    expect(details?.child(1).type.name).toBe('detailsContent');
+    expect(details?.attrs.toggleLevel).toBeNull();
+    expect(editor.getText()).not.toContain('/');
+  });
+
+  it('leaves the caret in the summary, so what is typed next names the section', async () => {
+    const editor = await openWith('/toggle');
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    act(() => {
+      editor.commands.insertContent('Quarterly plan');
+    });
+
+    expect(editor.state.doc.firstChild?.child(0).textContent).toBe('Quarterly plan');
+  });
+
+  // Every level the schema offers, not the middle one taken as a proxy for the other two: the
+  // entries are generated from `TOGGLE_LEVELS`, and a generator is exactly the thing that can
+  // be right for one input and wrong for the rest.
+  it.each(TOGGLE_LEVELS)('creates a toggle heading at the level asked for, %i', async (level) => {
+    const editor = await openWith(`/toggle heading ${String(level)}`);
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    const details = editor.state.doc.firstChild;
+    expect(details?.type.name).toBe('details');
+    expect(details?.attrs.toggleLevel).toBe(level);
   });
 
   it('yields to the reference picker when the slash is inside an open link query', async () => {

@@ -15,6 +15,7 @@ export type {} from '@tiptap/extension-blockquote';
 export type {} from '@tiptap/extension-bold';
 export type {} from '@tiptap/extension-code';
 export type {} from '@tiptap/extension-code-block';
+export type {} from '@tiptap/extension-details';
 export type {} from '@tiptap/extension-hard-break';
 export type {} from '@tiptap/extension-heading';
 export type {} from '@tiptap/extension-highlight';

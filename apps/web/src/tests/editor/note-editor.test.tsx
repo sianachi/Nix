@@ -302,3 +302,50 @@ describe('a change that would empty the document', () => {
     });
   });
 });
+
+describe('a toggle in the real editor', () => {
+  /**
+   * `toggle-button.test.tsx` proves the two renderers behave; this proves this component is
+   * the one that installs them. Without it, `note-editor.tsx` could drop either from its
+   * extension list and every keyboard test there would still pass against a harness that
+   * wires them by hand.
+   *
+   * The toggle arrives through the shared document rather than through the interface,
+   * because that is the one seam this test has into the editor the component builds for
+   * itself - and it is the same seam the collaboration service writes through in production.
+   */
+  it('draws the disclosure button and the heading semantics this app configures', async () => {
+    const doc = await open();
+    const fragment = doc.getXmlFragment('default');
+
+    doc.transact(() => {
+      const summary = new Y.XmlElement('detailsSummary');
+      summary.insert(0, [new Y.XmlText('Plan')]);
+
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Hidden body')]);
+      const content = new Y.XmlElement('detailsContent');
+      content.insert(0, [paragraph]);
+
+      const details = new Y.XmlElement('details');
+      details.setAttribute('toggleLevel', '2');
+      details.insert(0, [summary, content]);
+
+      fragment.insert(0, [details]);
+    });
+
+    // The disclosure control, named after its section with the state in `aria-expanded` -
+    // `renderToggleButton`'s contract, reached only because this component passes it in.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Plan' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+    });
+
+    // And the summary's heading semantics, which come from the node view rather than from
+    // any class: a toggle heading that is only a type step is a hierarchy no screen reader
+    // can hear.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Plan');
+  });
+});

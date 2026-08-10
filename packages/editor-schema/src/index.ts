@@ -15,6 +15,7 @@ export {
   DetailsContent,
   DetailsSummary,
   TOGGLE_LEVELS,
+  readToggleLevel,
   type ToggleLevel,
 } from './details.js';
 export { CommentMark, TEXT_COLORS, TextColorMark, type TextColor } from './marks.js';

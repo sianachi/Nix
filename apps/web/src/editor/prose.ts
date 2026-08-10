@@ -169,16 +169,15 @@ export const proseClasses: Readonly<Record<string, string>> = {
   // structurally unreadable, in stored prose somebody cannot un-author.
   columnBlock: `${BLOCK_GAP} flex flex-col gap-4 md:flex-row md:gap-6`,
 
-  // A collapsible section. The content is hidden by the absence of `is-open` rather than by a
-  // stored attribute - the open state is per-session on purpose, see `toggle.ts` - so the rule
-  // is written against the class the extension toggles.
-  // A collapsible section.
+  // A collapsible section. The open state is per-session on purpose - the reasoning lives in
+  // `packages/editor-schema/src/details.ts` - so nothing here reads a stored attribute.
   //
-  // The summary is a bare `<summary>` - the extension gives it no node view and no `data-type`
-  // - so it is reached by tag. The content is hidden by `DetailsContent`'s own node view,
-  // which sets the `hidden` attribute that Tailwind's preflight already turns into
-  // `display: none`; there is nothing for this file to do about folding, and an earlier
-  // attempt to select on `.is-open` here matched at the wrong depth and did nothing at all.
+  // The summary is a `<summary>` rendered by `toggleSummaryView` in `toggle-button.ts` (a node
+  // view, so a toggle heading's summary can carry heading semantics) and is reached by tag.
+  // The content is hidden by `DetailsContent`'s own node view, which sets the `hidden`
+  // attribute that Tailwind's preflight already turns into `display: none`; there is nothing
+  // for this file to do about folding, and an earlier attempt to select on `.is-open` here
+  // matched at the wrong depth and did nothing at all.
   //
   // `list-none` because a `<summary>` still gets `display: list-item` from the user-agent
   // stylesheet, which would draw the browser's own disclosure triangle beside ours.
@@ -186,7 +185,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
     BLOCK_GAP,
     'border-l-2 border-l-divider pl-4',
     '[&_summary]:list-none [&_summary]:font-medium',
-    // The disclosure button, drawn by `renderToggleButton` in `note-editor.tsx` as a Lucide
+    // The disclosure button, drawn by `renderToggleButton` in `toggle-button.ts` as a Lucide
     // chevron. Focus is not left to the browser: a control inside a contenteditable region is
     // exactly where a default outline is least likely to be visible.
     '[&>button]:mr-2 [&>button]:align-middle [&>button]:text-muted [&>button]:transition-transform',

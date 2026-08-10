@@ -24,6 +24,7 @@ import { ReferenceMenu } from './reference-menu';
 import { ReferenceResolutionProvider } from './reference-resolution';
 import { ReferenceView } from './reference-view';
 import { SlashMenu } from './slash-menu';
+import { renderToggleButton, toggleSummaryView } from './toggle-button';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -82,39 +83,6 @@ interface RenderArgs {
   readonly HTMLAttributes: Record<string, unknown>;
 }
 
-/** What the details extension hands its toggle-button renderer. */
-interface ToggleButtonArgs {
-  readonly element: HTMLButtonElement;
-  readonly isOpen: boolean;
-  readonly node: { readonly firstChild: { readonly textContent: string | null } | null };
-}
-
-/**
- * The disclosure chevron, as an element rather than a React node.
- *
- * `renderToggleButton` is handed a raw DOM element by the extension, outside React's tree, so
- * `<Icon>` cannot be used here. The geometry is Lucide's `chevron-right` at the stroke width
- * the icon component uses, so it matches every other chevron in the product; taking the path
- * data rather than the component is what that constraint costs.
- */
-function chevron(): SVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '1.5');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'size-4');
-
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', 'm9 18 6-6-6-6');
-  svg.append(path);
-
-  return svg;
-}
-
 const styledExtensions = nixExtensions.map((extension) => {
   if (extension.name === 'heading') {
     return extension.extend({
@@ -147,44 +115,24 @@ const styledExtensions = nixExtensions.map((extension) => {
       HTMLAttributes: { class: proseClasses.details },
 
       /**
-       * The disclosure control.
-       *
-       * Configured here rather than in `@nix/editor-schema` for the same reason every class is:
-       * the collaboration service builds the same node list in Node and has no icon library,
-       * no DOM and no business knowing what a chevron looks like.
-       *
-       * Three things the vendor default gets wrong for this product. It draws no icon at all,
-       * leaving the slot to be filled by a text glyph - which is what the icon rule exists to
-       * prevent, and which would not match the Lucide chevrons used everywhere else in the
-       * editor. It sets only `aria-label`, swapping the button's *name* between "Expand" and
-       * "Collapse", so a screen reader hears a button that renames itself rather than a
-       * disclosure that reports its state. And it names no section, so a document with six
-       * toggles announces six identical buttons.
+       * The disclosure control - see `toggle-button.ts` for what it fixes and how a keyboard
+       * reaches it. Configured here rather than in `@nix/editor-schema` for the same reason
+       * every class is: the collaboration service builds the same node list in Node and has
+       * no icon library, no DOM and no business knowing what a chevron looks like.
        */
-      renderToggleButton: ({ element, isOpen, node }: ToggleButtonArgs) => {
-        element.setAttribute('aria-expanded', String(isOpen));
+      renderToggleButton,
+    });
+  }
 
-        // A control inside a contenteditable region is part of the editable content, and
-        // browsers do not reliably let Tab reach one. That matters more here than it looks: a
-        // toggle starts closed and its body carries `hidden`, so a button nobody can focus
-        // means content nobody can read without a pointer. Marking the button as its own
-        // non-editable island is what restores the native button behaviour - focus, and Enter
-        // or Space firing the click the extension already listens for.
-        //
-        // Set on every render rather than once; they are idempotent, and the extension calls
-        // this again on each toggle.
-        element.setAttribute('contenteditable', 'false');
-        element.setAttribute('tabindex', '0');
-
-        // The summary's own text, so the button says which section it opens. Falls back to a
-        // generic word rather than an empty name, which would be announced as "button".
-        const summary = node.firstChild?.textContent?.trim();
-        element.setAttribute(
-          'aria-label',
-          `${isOpen ? 'Collapse' : 'Expand'} ${summary !== undefined && summary.length > 0 ? summary : 'section'}`,
-        );
-
-        element.replaceChildren(chevron());
+  if (extension.name === 'detailsSummary') {
+    return extension.extend({
+      /**
+       * A summary that is honestly a heading when its toggle is one - see `toggle-button.ts`.
+       * A node view rather than `renderHTML`, because the level lives on the parent details
+       * node, which `renderHTML` cannot see.
+       */
+      addNodeView() {
+        return toggleSummaryView;
       },
     });
   }

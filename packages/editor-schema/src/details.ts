@@ -10,7 +10,15 @@ export const TOGGLE_LEVELS = [1, 2, 3] as const;
 
 export type ToggleLevel = (typeof TOGGLE_LEVELS)[number];
 
-function readLevel(value: unknown): ToggleLevel | null {
+/**
+ * The `toggleLevel` the schema will accept, or null for a plain toggle.
+ *
+ * Exported because the web editor needs the same reading to decide whether a summary is a
+ * heading, and a second copy of it is a second answer waiting to disagree. `Number` rather
+ * than a type check on purpose: the value arrives as a string from `parseHTML` and from the
+ * CRDT, where every attribute is text, and as a number from a command that just set it.
+ */
+export function readToggleLevel(value: unknown): ToggleLevel | null {
   const level = Number(value);
   return TOGGLE_LEVELS.includes(level as ToggleLevel) ? (level as ToggleLevel) : null;
 }
@@ -46,9 +54,10 @@ export const Details = BaseDetails.extend({
       ...this.parent?.(),
       toggleLevel: {
         default: null,
-        parseHTML: (element: HTMLElement) => readLevel(element.getAttribute('data-toggle-level')),
+        parseHTML: (element: HTMLElement) =>
+          readToggleLevel(element.getAttribute('data-toggle-level')),
         renderHTML: (attributes: Record<string, unknown>) => {
-          const level = readLevel(attributes.toggleLevel);
+          const level = readToggleLevel(attributes.toggleLevel);
           return level === null ? {} : { 'data-toggle-level': String(level) };
         },
       },

@@ -1,7 +1,9 @@
+import { TOGGLE_LEVELS, type ToggleLevel } from '@nix/editor-schema';
 import { Listbox, useListbox } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import {
+  ChevronRight,
   Code,
   Heading1,
   Heading2,
@@ -9,6 +11,7 @@ import {
   Image as ImageIcon,
   Link,
   List,
+  ListCollapse,
   ListOrdered,
   ListTodo,
   Minus,
@@ -41,6 +44,28 @@ export interface SlashCommand {
   readonly keywords: readonly string[];
   readonly run: (editor: Editor) => void;
 }
+
+/**
+ * The words people reach for when they want a collapsible section, shared by the whole toggle
+ * family so "collapse" finds the headed ones too. "details" is the word the schema uses, kept
+ * findable for whoever greps the storage format.
+ */
+const TOGGLE_KEYWORDS = [
+  'toggle',
+  'details',
+  'collapse',
+  'collapsible',
+  'expand',
+  'fold',
+  'disclosure',
+] as const;
+
+/** One hint per toggle-heading level, mirroring the plain headings' own hints. */
+const TOGGLE_HEADING_HINTS: Readonly<Record<ToggleLevel, string>> = {
+  1: 'A folding section title',
+  2: 'A folding subsection title',
+  3: 'A folding minor heading',
+};
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
@@ -123,6 +148,29 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     keywords: ['callout', 'note', 'admonition', 'warning', 'tip'],
     run: (editor) => editor.chain().focus().wrapIn('callout').run(),
   },
+  // The toggles insert through `setDetails`, never `wrapIn`: `details` needs a summary child
+  // and a content child, and `wrapIn` can only fold the block into a single parent - it fails
+  // silently against this schema. `setDetails` builds the pair and moves the caret into the
+  // summary, so what somebody types next names the section.
+  {
+    id: 'toggle',
+    label: 'Toggle',
+    hint: 'A section that folds away',
+    icon: ChevronRight,
+    keywords: TOGGLE_KEYWORDS,
+    run: (editor) => editor.chain().focus().setDetails().run(),
+  },
+  // One entry per level, mirroring the plain headings above: the levels are the schema's
+  // `TOGGLE_LEVELS`, so a level added there appears here without anyone remembering to count.
+  ...TOGGLE_LEVELS.map((level): SlashCommand => ({
+    id: `toggle-heading-${String(level)}`,
+    label: `Toggle heading ${String(level)}`,
+    hint: TOGGLE_HEADING_HINTS[level],
+    icon: ListCollapse,
+    keywords: [...TOGGLE_KEYWORDS, 'heading', `h${String(level)}`],
+    run: (editor) =>
+      editor.chain().focus().setDetails().updateAttributes('details', { toggleLevel: level }).run(),
+  })),
   {
     id: 'divider',
     label: 'Divider',
