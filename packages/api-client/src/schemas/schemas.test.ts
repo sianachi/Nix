@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { cursorPageSchema, itemSchema, noContentSchema, problemDetailsSchema } from './index.js';
+import {
+  cursorPageSchema,
+  itemSchema,
+  noContentSchema,
+  problemDetailsSchema,
+  workspaceGraphSchema,
+} from './index.js';
 
 describe('the problem details schema', () => {
   it('accepts a document from Core and keeps its stable code', () => {
@@ -158,6 +164,74 @@ describe('the timestamps an item carries', () => {
       properties: {},
       createdAt: 'last Tuesday',
       updatedAt: 'last Tuesday',
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe('the workspace graph schema', () => {
+  const workspaceId = '00000000-0000-4000-8000-0000000000a0';
+  const first = '00000000-0000-4000-8000-0000000000a1';
+  const second = '00000000-0000-4000-8000-0000000000a2';
+
+  it('accepts a graph whose nodes carry a parent, a kind and a name', () => {
+    const parsed = workspaceGraphSchema.safeParse({
+      workspaceId,
+      nodes: [
+        { id: first, parentId: null, type: 'note', title: 'Programme' },
+        { id: second, parentId: first, type: 'canvas', title: 'Ledger review' },
+      ],
+      links: [{ sourceId: second, targetId: first }],
+      nodeLimit: 2000,
+      linkLimit: 4000,
+      nodesTruncated: false,
+      linksTruncated: false,
+    });
+
+    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues)).toBe(true);
+  });
+
+  it('accepts a node that has never been named rather than inventing one', () => {
+    const parsed = workspaceGraphSchema.safeParse({
+      workspaceId,
+      nodes: [{ id: first, parentId: null, type: 'note', title: null }],
+      links: [],
+      nodeLimit: 2000,
+      linkLimit: 4000,
+      nodesTruncated: false,
+      linksTruncated: false,
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.nodes[0]?.title).toBeNull();
+  });
+
+  it('accepts a kind this build has never heard of', () => {
+    // Item kinds are added as a feature, not as a migration. A closed set here would break every
+    // client the day one landed.
+    const parsed = workspaceGraphSchema.safeParse({
+      workspaceId,
+      nodes: [{ id: first, parentId: null, type: 'hologram', title: 'New' }],
+      links: [],
+      nodeLimit: 2000,
+      linkLimit: 4000,
+      nodesTruncated: false,
+      linksTruncated: false,
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('refuses a graph that does not say whether it was truncated', () => {
+    // A truncated graph looks like a graph. Without the flags a view cannot be honest about it, so
+    // a response missing them is not a response this client will hand on.
+    const parsed = workspaceGraphSchema.safeParse({
+      workspaceId,
+      nodes: [],
+      links: [],
+      nodeLimit: 2000,
+      linkLimit: 4000,
     });
 
     expect(parsed.success).toBe(false);

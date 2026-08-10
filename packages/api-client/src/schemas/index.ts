@@ -24,6 +24,14 @@ export {
   type KnownItemType,
 } from './item.js';
 export { canvasLibrarySchema, type CanvasLibrary } from './canvas-library.js';
+export {
+  graphLinkSchema,
+  graphNodeSchema,
+  workspaceGraphSchema,
+  type GraphLink,
+  type GraphNode,
+  type WorkspaceGraph,
+} from './workspace-graph.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

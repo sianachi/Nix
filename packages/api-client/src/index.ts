@@ -75,8 +75,19 @@ export {
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
+  graphNodeSchema,
+  graphLinkSchema,
+  workspaceGraphSchema,
 } from './schemas/index.js';
-export type { CursorPage, Item, KnownItemType, ProblemDetails } from './schemas/index.js';
+export type {
+  CursorPage,
+  GraphLink,
+  GraphNode,
+  Item,
+  KnownItemType,
+  ProblemDetails,
+  WorkspaceGraph,
+} from './schemas/index.js';
 
 /**
  * Contract types, named one at a time, so a boundary schema living outside this package can tie
@@ -107,3 +118,4 @@ export type {
  */
 export * as items from './resources/items.js';
 export * as canvasLibrary from './resources/canvas-library.js';
+export * as workspaceGraph from './resources/workspace-graph.js';

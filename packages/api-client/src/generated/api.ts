@@ -468,6 +468,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/graph': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A workspace as nodes and reference edges
+     * @description Returns everything needed to draw one workspace as a graph: a node per item, carrying its identifier, parent, body kind and title, and a link per reference edge between two of those nodes. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results - an item that is not visible is absent from the nodes, absent from every link, and absent from the counts. A link is returned only when both of its ends are nodes in the same response, so nothing points outside the payload; a node's parentId is likewise null when the parent is not itself in it. The response is bounded at 2,000 nodes and 4,000 links, applied in that order. When a ceiling is reached the matching 'nodesTruncated' or 'linksTruncated' flag is true and the graph shown is a real part of the workspace rather than all of it - which a drawing cannot convey on its own, so a client must say so. Nodes enter in the workspace's own sibling order, so a truncated read keeps the top of the tree. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.
+     */
+    get: operations['GetWorkspaceGraph'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -538,6 +558,20 @@ export interface components {
       properties: components['schemas']['PropertyDefinitionResponse'][];
       declared: components['schemas']['PropertyDefinitionResponse'][];
       inherit: boolean;
+    };
+    GraphLinkResponse: {
+      /** Format: uuid */
+      sourceId: string;
+      /** Format: uuid */
+      targetId: string;
+    };
+    GraphNodeResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      parentId: null | string;
+      type: string;
+      title: null | string;
     };
     HealthCheckResponse: {
       name: string;
@@ -702,6 +736,18 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+    };
+    WorkspaceGraphResponse: {
+      /** Format: uuid */
+      workspaceId: string;
+      nodes: components['schemas']['GraphNodeResponse'][];
+      links: components['schemas']['GraphLinkResponse'][];
+      /** Format: int32 */
+      nodeLimit: number | string;
+      /** Format: int32 */
+      linkLimit: number | string;
+      nodesTruncated: boolean;
+      linksTruncated: boolean;
     };
     WorkspaceResponse: {
       /** Format: uuid */
@@ -1781,6 +1827,37 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['BacklinksResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetWorkspaceGraph: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceGraphResponse'];
         };
       };
       /** @description Not Found */

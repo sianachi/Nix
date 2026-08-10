@@ -1506,6 +1506,49 @@
           }
         }
       }
+    },
+    "/api/v1/workspaces/{workspaceId}/graph": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "A workspace as nodes and reference edges",
+        "description": "Returns everything needed to draw one workspace as a graph: a node per item, carrying its identifier, parent, body kind and title, and a link per reference edge between two of those nodes. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results - an item that is not visible is absent from the nodes, absent from every link, and absent from the counts. A link is returned only when both of its ends are nodes in the same response, so nothing points outside the payload; a node's parentId is likewise null when the parent is not itself in it. The response is bounded at 2,000 nodes and 4,000 links, applied in that order. When a ceiling is reached the matching 'nodesTruncated' or 'linksTruncated' flag is true and the graph shown is a real part of the workspace rather than all of it - which a drawing cannot convey on its own, so a client must say so. Nodes enter in the workspace's own sibling order, so a truncated read keeps the top of the tree. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.",
+        "operationId": "GetWorkspaceGraph",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceGraphResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1794,6 +1837,54 @@
           },
           "inherit": {
             "type": "boolean"
+          }
+        }
+      },
+      "GraphLinkResponse": {
+        "required": [
+          "sourceId",
+          "targetId"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GraphNodeResponse": {
+        "required": [
+          "id",
+          "parentId",
+          "type",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2487,6 +2578,58 @@
           }
         }
       },
+      "WorkspaceGraphResponse": {
+        "required": [
+          "workspaceId",
+          "nodes",
+          "links",
+          "nodeLimit",
+          "linkLimit",
+          "nodesTruncated",
+          "linksTruncated"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeResponse"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphLinkResponse"
+            }
+          },
+          "nodeLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "linkLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "nodesTruncated": {
+            "type": "boolean"
+          },
+          "linksTruncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "WorkspaceResponse": {
         "required": [
           "id",
@@ -2555,6 +2698,9 @@
     },
     {
       "name": "Search"
+    },
+    {
+      "name": "Graph"
     }
   ]
 }
