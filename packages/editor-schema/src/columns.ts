@@ -4,18 +4,27 @@ import { Node, mergeAttributes } from '@tiptap/core';
  * How many columns one row may hold.
  *
  * Not a schema constraint - the content expression stays permissive, see below - but the
- * ceiling the editor's insert command is to enforce when it is built. Past four, a column on a
- * laptop is narrower than the measure that makes prose readable at all.
+ * ceiling the editor's commands enforce. Past four, a column on a laptop is narrower than the
+ * measure that makes prose readable at all.
  *
- * **Nothing enforces it yet.** There are no column commands in this build; this is the number
- * they will read, exported so there is one of it rather than two.
+ * `column-commands.ts` is what reads it: `insertColumnBlock` clamps to it and `addColumnToRow`
+ * refuses past it. Exported so there is one of the number rather than two.
  */
 export const MAX_COLUMNS = 4;
 
 /** A column with no stated width takes an equal share of what is left. */
 const EQUAL_SHARE = null;
 
-function readWidth(value: unknown): number | null {
+/**
+ * A column's stated width, or `null` for an equal share of what is left.
+ *
+ * **One reading of the attribute, exported so there is one.** Three places have to agree on what
+ * a width is - this node's `parseHTML`, the commands and the repair in `column-commands.ts`, and
+ * the editor's own renderer, which turns it into a `flex-grow`. Three copies of the predicate is
+ * three chances for a value one of them accepts and another discards, which shows up as a column
+ * that renders at a width the document does not hold.
+ */
+export function readWidth(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return EQUAL_SHARE;
   }
@@ -54,11 +63,12 @@ export const ColumnBlock = Node.create({
    * The same posture `callout.ts` takes on an unknown tone, stated the other way round: a
    * row with one column is readable; a document that will not open is not.
    *
-   * **The repair half is not built.** The intent is an `appendTransaction` in the editor that
-   * unwraps a one-column row back into flow, where the fix is cheap and nobody loses work.
-   * Until the goal that adds column commands lands, a merge that leaves a single column leaves
-   * it - readable, editable, and slightly odd. That is the cost of taking the safe side of
-   * this trade early, and it is deliberately the smaller wrong.
+   * **The repair is `columnRepairPlugin` in `column-commands.ts`**, the `appendTransaction`
+   * this comment once described as unbuilt: it unwraps a one-column row back into flow, where
+   * the fix is cheap and nobody loses work. It runs on a local change only - the reasoning is
+   * written there - so a merge that leaves a single column leaves it until somebody next types:
+   * readable, editable, and slightly odd in the meantime. That is the cost of taking the safe
+   * side of this trade, and it is deliberately the smaller wrong.
    */
   content: 'column+',
 
@@ -86,7 +96,7 @@ export const ColumnBlock = Node.create({
  * `block*` rather than `block+` for the same merge reason `columnBlock` takes `column+`:
  * two people emptying a column at once must not produce a document that refuses to open. The
  * matching repair - re-filling an empty column with a paragraph so there is somewhere to put
- * the caret - belongs to the same unbuilt `appendTransaction` described above.
+ * the caret - is the `refill` arm of the same `appendTransaction` described above.
  *
  * **Width lives here, per column, and never as an array on the row.** An array is one
  * attribute, so two people dragging two different dividers would both write it and one

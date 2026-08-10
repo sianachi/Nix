@@ -3,6 +3,7 @@ import type { Editor } from '@tiptap/react';
 import {
   Bold,
   Code,
+  Columns2,
   Columns3,
   Heading1,
   Heading2,
@@ -55,6 +56,8 @@ interface Control {
   readonly active?: boolean;
   /** Whether the command can run at all here. */
   readonly enabled?: boolean;
+  /** The keys that do the same thing, shown in the tooltip. A control nobody can find is a control nobody uses. */
+  readonly shortcut?: string;
 }
 
 export interface ToolbarProps {
@@ -87,6 +90,7 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
   }
 
   const inTable = editor.isActive('table');
+  const inColumns = editor.isActive('columnBlock');
 
   const blocks: readonly Control[] = [
     {
@@ -254,6 +258,39 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
     { id: 'redo', label: 'Redo', icon: Redo2, run: onRedo },
   ];
 
+  /**
+   * What a person can do to a row of columns once it exists.
+   *
+   * **Without this group the row is a trap.** The slash menu inserts two columns and the handles
+   * resize them; nothing else in the interface could add a third, take one away, or get back to
+   * ordinary flow - the only exit was deleting content until the normaliser unwrapped the row.
+   * The keyboard shortcuts are the same commands, and they are in the tooltips because a
+   * shortcut nobody is told about is not a shortcut.
+   *
+   * Shown at every width, unlike the resize handles: below the medium breakpoint the row stacks
+   * and there is nothing to drag, so this is the only way a narrow screen has to operate it.
+   */
+  const columns: readonly Control[] = [
+    {
+      id: 'addColumnToRow',
+      label: 'Add column',
+      icon: Columns3,
+      shortcut: 'Mod+Alt+Enter',
+      run: () => void editor.chain().focus().addColumnToRow().run(),
+      enabled: editor.can().addColumnToRow(),
+    },
+    {
+      id: 'removeColumnFromRow',
+      label: 'Remove column',
+      icon: Columns2,
+      shortcut: 'Mod+Alt+Backspace',
+      // Removing the last column unwraps the row back into ordinary flow, which is also how
+      // somebody leaves columns behind: it is the exit, not just a deletion.
+      run: () => void editor.chain().focus().removeColumnFromRow().run(),
+      enabled: editor.can().removeColumnFromRow(),
+    },
+  ];
+
   const table: readonly Control[] = [
     {
       id: 'addColumn',
@@ -309,6 +346,13 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
       <Separator />
       <Group controls={history} label="History" />
 
+      {inColumns ? (
+        <>
+          <Separator />
+          <Group controls={columns} label="Columns" />
+        </>
+      ) : null}
+
       {inTable ? (
         <>
           <Separator />
@@ -342,7 +386,9 @@ function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
     <button
       type="button"
       aria-label={control.label}
-      title={control.label}
+      title={
+        control.shortcut === undefined ? control.label : `${control.label} (${control.shortcut})`
+      }
       // Only where the control has an on and an off. An insert is an action, not a state, and
       // aria-pressed="false" on one would tell a screen reader it is a toggle that is currently
       // off - which is a different and untrue thing.

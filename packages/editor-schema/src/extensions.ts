@@ -19,6 +19,7 @@ import { Text } from '@tiptap/extension-text';
 import { Underline } from '@tiptap/extension-underline';
 
 import { Callout } from './callout.js';
+import { ColumnEditing } from './column-commands.js';
 import { Column, ColumnBlock } from './columns.js';
 import { CommentMark, TextColorMark } from './marks.js';
 import { Reference } from './references.js';
@@ -102,3 +103,18 @@ export const nixExtensions: Extensions = [
   TextColorMark,
   CommentMark,
 ];
+
+/**
+ * The extension list an *editor* builds from: the schema, plus the behaviour that keeps a
+ * column structure one the product can draw.
+ *
+ * **Why the pairing has a name.** `nixExtensions` is schema only, and `ColumnEditing` is not
+ * optional to it in an editor: without it the slash menu offers a row of columns whose commands
+ * are not registered, which fails by doing nothing at all. Naming the pair is what stops each
+ * caller assembling it - and forgetting it - by hand.
+ *
+ * The collaboration service keeps building `nixExtensions`: it parses documents and repairs
+ * nothing (see `columnRepairPlugin` for why the repair is a client's job today), so the schema
+ * alone is what it needs.
+ */
+export const nixEditingExtensions: Extensions = [...nixExtensions, ColumnEditing];

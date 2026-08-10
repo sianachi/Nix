@@ -110,6 +110,21 @@ export const proseRoot = [
 ].join(' ');
 
 /**
+ * The gutter between two columns, and the negative margin a resize handle needs to sit *in* it
+ * rather than beside it.
+ *
+ * **The two are one decision and have to move together.** A flex gap applies between every pair
+ * of children, so inserting a handle between two columns buys a second gap: 24 + 8 + 24 where
+ * there was 24. The handle gives back the 32 it added, which is `-mx-4`. Change the gap without
+ * changing the inset and a row with handles has a wider gutter than one without; they are stated
+ * here, next to each other, because `column-controls.ts` is where the handle is drawn and there
+ * is nothing there to notice the arithmetic broke.
+ */
+const COLUMN_GAP_STACKED = 'gap-4';
+const COLUMN_GAP_ROW = 'md:gap-6';
+export const COLUMN_HANDLE_INSET = '-mx-4';
+
+/**
  * One class string per schema node and mark, keyed by the name TipTap knows it as.
  *
  * `heading` and `callout` are absent on purpose: their appearance depends on an attribute (the
@@ -167,7 +182,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
   // roughly six characters a line. Every other block in this file degrades to narrow but
   // readable; without this one, side-by-side content is the first thing that becomes
   // structurally unreadable, in stored prose somebody cannot un-author.
-  columnBlock: `${BLOCK_GAP} flex flex-col gap-4 md:flex-row md:gap-6`,
+  columnBlock: `${BLOCK_GAP} flex flex-col ${COLUMN_GAP_STACKED} md:flex-row ${COLUMN_GAP_ROW}`,
 
   // A collapsible section. The open state is per-session on purpose - the reasoning lives in
   // `packages/editor-schema/src/details.ts` - so nothing here reads a stored attribute.

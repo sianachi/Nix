@@ -18,7 +18,12 @@ import type { Editor } from '@tiptap/react';
  */
 
 function editorStub(
-  overrides: { active?: readonly string[]; inTable?: boolean; destroyed?: boolean } = {},
+  overrides: {
+    active?: readonly string[];
+    inTable?: boolean;
+    inColumns?: boolean;
+    destroyed?: boolean;
+  } = {},
 ): {
   editor: Editor;
   ran: string[];
@@ -48,10 +53,21 @@ function editorStub(
     isDestroyed: overrides.destroyed ?? false,
     chain: () => chain,
     can: () =>
-      new Proxy({}, { get: () => () => overrides.inTable ?? false }) as Record<string, unknown>,
+      new Proxy(
+        {},
+        {
+          get: (_target, property: string) => () =>
+            property.endsWith('ColumnToRow') || property.endsWith('ColumnFromRow')
+              ? (overrides.inColumns ?? false)
+              : (overrides.inTable ?? false),
+        },
+      ) as Record<string, unknown>,
     isActive: (name: string, attrs?: Record<string, unknown>) => {
       if (name === 'table') {
         return overrides.inTable ?? false;
+      }
+      if (name === 'columnBlock') {
+        return overrides.inColumns ?? false;
       }
       return active.has(attrs === undefined ? name : `${name}-${String(attrs.level)}`);
     },
@@ -228,5 +244,43 @@ describe('an editor that has been torn down', () => {
     }).not.toThrow();
 
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+  });
+});
+
+describe('the columns group', () => {
+  it('stays out of the way outside a row of columns', () => {
+    renderToolbar();
+
+    expect(screen.queryByRole('group', { name: 'Columns' })).not.toBeInTheDocument();
+  });
+
+  it('offers the two operations a row needs once one exists', () => {
+    // Without them the row is a trap: the slash menu inserts two columns and the handles resize
+    // them, and nothing else could add a third, take one away, or get back to ordinary flow.
+    renderToolbar({ inColumns: true });
+
+    const group = screen.getByRole('group', { name: 'Columns' });
+    expect(within(group).getByRole('button', { name: 'Add column' })).toBeEnabled();
+    expect(within(group).getByRole('button', { name: 'Remove column' })).toBeEnabled();
+  });
+
+  it('runs the column commands and not the table’s', () => {
+    // `addColumnAfter` belongs to the table extension. A column button calling it would be the
+    // same namespace collision from the other side.
+    const { ran } = renderToolbar({ inColumns: true });
+
+    screen.getByRole('button', { name: 'Add column' }).click();
+    screen.getByRole('button', { name: 'Remove column' }).click();
+
+    expect(ran).toEqual(['addColumnToRow', 'removeColumnFromRow']);
+  });
+
+  it('tells people the keys, since a shortcut nobody is told about is not one', () => {
+    renderToolbar({ inColumns: true });
+
+    expect(screen.getByRole('button', { name: 'Add column' })).toHaveAttribute(
+      'title',
+      'Add column (Mod+Alt+Enter)',
+    );
   });
 });

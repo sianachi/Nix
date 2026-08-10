@@ -5,6 +5,7 @@ import type { Editor } from '@tiptap/react';
 import {
   ChevronRight,
   Code,
+  Columns2,
   Heading1,
   Heading2,
   Heading3,
@@ -184,9 +185,24 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     label: 'Table',
     hint: 'Three columns, with a header row',
     icon: TableIcon,
-    keywords: ['table', 'grid', 'rows', 'columns'],
+    // Deliberately not "columns". A table has columns, but so does the block *named* Columns,
+    // and a flat filter has no way to prefer the exact label - so typing the one word that names
+    // a command found the other command first and Enter inserted a table. "grid" and "rows"
+    // still find this, and the hint says "Three columns, with a header row".
+    keywords: ['table', 'grid', 'rows'],
     run: (editor) =>
       editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+  },
+  {
+    id: 'columns',
+    label: 'Columns',
+    hint: 'Two columns, side by side',
+    icon: Columns2,
+    keywords: ['columns', 'column', 'side', 'split', 'layout'],
+    // Two, because two is what somebody who types "/columns" means and because a row can be
+    // widened afterwards - `addColumnToRow`, on the toolbar and on Mod+Alt+Enter, goes up to the
+    // four the schema documents - and there is no undo for a menu that guessed three.
+    run: (editor) => editor.chain().focus().insertColumnBlock({ columns: 2 }).run(),
   },
   {
     id: 'image',

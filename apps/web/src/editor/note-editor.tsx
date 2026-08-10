@@ -1,4 +1,4 @@
-import { nixExtensions } from '@nix/editor-schema';
+import { nixEditingExtensions, readWidth } from '@nix/editor-schema';
 import { Icon, Text } from '@nix/ui';
 import { mergeAttributes } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
@@ -7,12 +7,13 @@ import { Dropcursor, Gapcursor } from '@tiptap/extensions';
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Plugin } from '@tiptap/pm/state';
+import type { Plugin, Transaction } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
-import { redo, undo, yCursorPlugin, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
+import { redo, undo, yCursorPlugin, ySyncPluginKey, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { useAuth } from '../auth/auth-provider';
+import { ColumnControls } from './column-controls';
 import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
 import { EditorToolbar } from './toolbar';
@@ -83,7 +84,14 @@ interface RenderArgs {
   readonly HTMLAttributes: Record<string, unknown>;
 }
 
-const styledExtensions = nixExtensions.map((extension) => {
+/**
+ * `nixEditingExtensions`, not `nixExtensions`: the schema *and* the column editing behaviour it
+ * needs to stay in a shape the product can draw (ADR-0032). Mapping over the pairing rather than
+ * bolting `ColumnEditing` on afterwards is what makes the pairing load-bearing here and not only
+ * in the tests - and it costs nothing, because an extension with no `proseClasses` entry falls
+ * through the last branch of this map untouched.
+ */
+const styledExtensions = nixEditingExtensions.map((extension) => {
   if (extension.name === 'heading') {
     return extension.extend({
       renderHTML({ node, HTMLAttributes }: RenderArgs) {
@@ -154,6 +162,22 @@ const styledExtensions = nixExtensions.map((extension) => {
     });
   }
 
+  if (extension.name === 'columnEditing') {
+    return extension.configure({
+      /**
+       * How the repair tells a colleague's change from this client's own.
+       *
+       * The schema package defaults to matching y-prosemirror's meta *by its key string*,
+       * because it must not depend on the CRDT binding - and that default fails silently if the
+       * string ever changes: every remote change would read as local, every open client would
+       * repair the same merge, and an empty column would collect one inserted paragraph per
+       * client. This file owns the dependency, so it hands over the key itself and the coupling
+       * becomes a reference a rename cannot survive quietly.
+       */
+      isRemote: (transaction: Transaction) => transaction.getMeta(ySyncPluginKey) !== undefined,
+    });
+  }
+
   if (extension.name === 'column') {
     return extension.extend({
       renderHTML({ node, HTMLAttributes }: RenderArgs) {
@@ -165,11 +189,12 @@ const styledExtensions = nixExtensions.map((extension) => {
         // Written here rather than in `@nix/editor-schema` for the same reason every other
         // class is: the collaboration service builds the same node list in Node to check that
         // an update still parses, and it has no business knowing how wide a column looks.
-        const width = Number(node.attrs.width);
-        const style =
-          Number.isFinite(width) && width > 0
-            ? { style: `flex-grow: ${String(width)}` } // design-token-exempt: a column's share of its row is a runtime fraction, not a scale step - the same case as the sheet grid's column offsets.
-            : {};
+        // Read through the schema's own `readWidth`, which is the point of that function being
+        // exported. A local `Number(...)` here was not the same predicate: it *coerces*, so a
+        // document whose JSON carries a string width rendered at that width while every command
+        // and every divider read it as an equal share - a 3:1 split whose handle announced 50%.
+        const width = readWidth(node.attrs.width);
+        const style = width === null ? {} : { style: `flex-grow: ${String(width)}` }; // design-token-exempt: a column's share of its row is a runtime fraction, not a scale step - the same case as the sheet grid's column offsets.
 
         return ['div', mergeAttributes(HTMLAttributes, { 'data-column': '' }, style), 0];
       },
@@ -277,6 +302,11 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         // exist. The handle itself is the <DragHandle> component below, which registers its own
         // plugin against this editor.
         NodeRange,
+
+        // What columns need from a browser: the names a screen reader hears, the resize
+        // handles, the drop targeting, and the keys that give every gesture a keyboard. The
+        // commands and the repair came in through `styledExtensions` above.
+        ColumnControls,
       ],
 
       // No `content`: the Yjs document is the source of truth, and seeding content here would

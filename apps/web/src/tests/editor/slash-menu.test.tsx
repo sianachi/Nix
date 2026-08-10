@@ -1,4 +1,4 @@
-import { TOGGLE_LEVELS, nixExtensions } from '@nix/editor-schema';
+import { TOGGLE_LEVELS, nixEditingExtensions } from '@nix/editor-schema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +35,7 @@ describe('the slash menu', () => {
         'toggle-heading-3',
         'divider',
         'table',
+        'columns',
         'image',
         'link-item',
       ]),
@@ -84,6 +85,16 @@ describe('the slash menu', () => {
       'toggle-heading-2',
       'toggle-heading-3',
     ]);
+
+    // Side-by-side content: the words are "columns", "split" and "side", and none of them is
+    // the schema's own node name.
+    for (const query of ['columns', 'split', 'side', 'layout']) {
+      expect(filterSlashCommands(query).map((command) => command.id)).toContain('columns');
+    }
+
+    // And the exact name of a command finds that command first, so Enter inserts what was typed.
+    expect(filterSlashCommands('columns')[0]?.id).toBe('columns');
+    expect(filterSlashCommands('table')[0]?.id).toBe('table');
 
     // The words somebody who wants a wiki link reaches for, "backlink" included: the panel that
     // surfaces them is the reason many people go looking for the command.
@@ -163,7 +174,10 @@ let captured: Editor | null = null;
 
 function Harness(): ReactNode {
   const editor = useEditor({
-    extensions: [...nixExtensions],
+    // `nixEditingExtensions` rather than the schema alone: the columns entry runs a command the
+    // editing extension owns, and a harness without it would assert the menu offers something
+    // that silently does nothing. The pairing has a name so no caller has to remember it.
+    extensions: [...nixEditingExtensions],
     onCreate: ({ editor: created }) => {
       captured = created;
     },
@@ -251,6 +265,23 @@ describe('the slash menu over a real document', () => {
     // opens that picker rather than owning a picker of its own.
     expect(editor.getText()).toContain('[[');
     expect(editor.getText()).not.toContain('/link');
+  });
+
+  it('inserts a row of two columns from the columns command', async () => {
+    const editor = await openWith('/columns');
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+
+    // Enter on the first option. Typing the exact name of a command has to insert that command:
+    // "columns" used to find Table first, because Table listed the word among its keywords, so
+    // the default highlight was the wrong block entirely.
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    // Two, because two is what somebody typing "/columns" means; widening a row is a separate
+    // command, and there is no undo for a menu that guessed three.
+    const row = editor.state.doc.firstChild;
+    expect(row?.type.name).toBe('columnBlock');
+    expect(row?.childCount).toBe(2);
+    expect(editor.getText()).not.toContain('/columns');
   });
 
   it('closes on Escape and leaves the typed slash where it was', async () => {

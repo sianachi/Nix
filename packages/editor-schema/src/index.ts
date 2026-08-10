@@ -9,7 +9,28 @@
 
 export type {} from './augmentations.js';
 export { CALLOUT_TONES, Callout, type CalloutTone } from './callout.js';
-export { Column, ColumnBlock, MAX_COLUMNS } from './columns.js';
+export { Column, ColumnBlock, MAX_COLUMNS, readWidth } from './columns.js';
+/**
+ * Columns, in the two tiers a consumer may bind to.
+ *
+ * The extension is the surface: every column operation is a command on it, so a caller says what
+ * it wants and this package decides how. The geometry helpers below it are pure arithmetic over a
+ * row, exported because the editor's resize handles need to *report* a width before committing
+ * one and there is no transaction to read it from yet.
+ *
+ * **The `*Tr` transforms are deliberately not here.** They are what the commands are one-line
+ * adapters over, and they stay internal - a consumer that bound to a transform instead of a
+ * command would make both surfaces real, and then the adapters have to keep two contracts
+ * rather than one. The package's own tests import them by relative path, which is the seam
+ * working as intended.
+ */
+export { ColumnEditing } from './column-commands.js';
+export {
+  MIN_COLUMN_PAIR_SHARE,
+  columnGrowFactors,
+  columnPairShare,
+  resizedColumnWidths,
+} from './column-commands.js';
 export {
   Details,
   DetailsContent,
@@ -20,7 +41,7 @@ export {
 } from './details.js';
 export { CommentMark, TEXT_COLORS, TextColorMark, type TextColor } from './marks.js';
 export { REFERENCE_KINDS, Reference, type ReferenceKind } from './references.js';
-export { nixExtensions } from './extensions.js';
+export { nixEditingExtensions, nixExtensions } from './extensions.js';
 export {
   SCHEMA_VERSION,
   countNodes,
