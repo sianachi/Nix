@@ -14,6 +14,7 @@ import { builtInCommands } from '../search/commands';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from './layout';
+import { NavRail } from './nav-rail';
 import { ProfileMenu } from './profile-menu';
 import { SidebarDivider } from './sidebar-divider';
 import { SidebarDrawer } from './sidebar-drawer';
@@ -342,133 +343,163 @@ export function AppShell(): ReactNode {
         Skip to content
       </a>
 
-      <header className="flex shrink-0 items-center gap-3 px-4 py-2">
-        {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
-            with the thing it controls cannot bring it back. */}
-        <button
-          ref={sidebarToggleRef}
-          type="button"
-          aria-label={sidebar.visible ? 'Hide the workspace tree' : 'Show the workspace tree'}
-          aria-expanded={sidebar.visible}
-          onClick={sidebar.toggle}
-          className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
-        >
-          <Icon icon={sidebar.visible ? PanelLeftClose : PanelLeftOpen} size="sm" />
-        </button>
+      {/* The rail, then everything else. This row exists so the rail can run the full height of
+          the window at the very left edge - outboard of the workspace tree, alongside the header
+          rather than under it - which is the whole point of a rail: the destinations that are not
+          a document stay put while the tree scrolls, resizes, or slides away.
 
-        <Link
-          to="/"
-          aria-label="Nix home"
-          className={`inline-flex size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
-        >
-          NX
-        </Link>
+          It sits *after* the skip link in the document, not before, because the skip link must
+          stay the first focusable thing on the page; and *outside* the pane row below, so the
+          drawer's scrim - which is `absolute inset-0` of that row - does not cover it. That is the
+          same call the header already makes for its own controls: the way out of the drawer must
+          not be the thing the drawer covers.
 
-        <button
-          type="button"
-          onClick={() => {
-            setSearchOpen(true);
+          `min-h-0` so this row can shrink inside the `h-dvh` column, which is what gives the pane
+          row underneath a definite height to scroll against. */}
+      <div className="flex min-h-0 flex-1">
+        <NavRail
+          onNavigate={() => {
+            // A phone has no room to leave the tree open over the destination it was just asked
+            // to leave for. Focus is left on the rail link that was activated rather than moved
+            // into the pane: unlike a row in the tree, the link stays on screen, becomes the
+            // current destination, and is a reasonable place to be standing. Left alone on a wide
+            // screen, where the tree shares the screen rather than covering it.
+            if (narrow && sidebar.visible) {
+              sidebar.toggle();
+            }
           }}
-          className={`ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 ${focusRing}`}
-        >
-          <Icon icon={Search} size="sm" />
-          Search
-          {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can
-              discover is a shortcut nobody uses. */}
-          <kbd className="font-mono text-2xs text-muted">Ctrl K</kbd>
-        </button>
+        />
 
-        <ProfileMenu principal={principal} />
-      </header>
-
-      {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
-          rather than to the viewport. That keeps the overlay below the header, over the pane
-          content only: a phone has no room to share the tree beside a document, but the header's
-          own toggle button is what closes the drawer, and covering it would take away the way
-          back. */}
-      <div className={`relative flex flex-1 ${paneClip}`}>
-        {/* Unmounted rather than hidden. A tree that is merely off-screen keeps its rows in the
-            tab order and in the accessibility tree, so a keyboard would still walk through a
-            sidebar nobody can see. The same is true of the drawer below the breakpoint: closed
-            means absent, not merely out of view. */}
-        {!sidebar.visible ? null : narrow ? (
-          <SidebarDrawer onClose={closeDrawer}>
-            <WorkspaceSidebar
-              tree={tree}
-              selectedId={selectedId}
-              onSelect={closeDrawerAfter(openPreview)}
-              onOpenBeside={closeDrawerAfter(openBeside)}
-              onOpenPinned={closeDrawerAfter(openPinned)}
-              canOpenBeside={canOpenBeside}
-              besideRefusal={besideRefusal}
-              onDeleteItem={(item) => {
-                void requestDelete(item);
-              }}
-              treeRegionRef={treeRegionRef}
-            />
-          </SidebarDrawer>
-        ) : (
-          <>
-            <div
-              ref={sidebarRef}
-              style={{ width: `${String(sidebar.width)}px` }} // design-token-exempt: the tree's width is a runtime value somebody dragged, not a step on any scale - the same case as a pane's share.
-              className="flex shrink-0 overflow-hidden"
+        <div className={`flex flex-1 flex-col ${paneClip}`}>
+          <header className="flex shrink-0 items-center gap-3 px-4 py-2">
+            {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
+                with the thing it controls cannot bring it back. */}
+            <button
+              ref={sidebarToggleRef}
+              type="button"
+              aria-label={sidebar.visible ? 'Hide the workspace tree' : 'Show the workspace tree'}
+              aria-expanded={sidebar.visible}
+              onClick={sidebar.toggle}
+              className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
             >
-              <WorkspaceSidebar
-                tree={tree}
-                selectedId={selectedId}
-                onSelect={openPreview}
-                onOpenBeside={openBeside}
-                onOpenPinned={openPinned}
-                canOpenBeside={canOpenBeside}
-                besideRefusal={besideRefusal}
-                onDeleteItem={(item) => {
-                  void requestDelete(item);
-                }}
-                treeRegionRef={treeRegionRef}
-              />
-            </div>
+              <Icon icon={sidebar.visible ? PanelLeftClose : PanelLeftOpen} size="sm" />
+            </button>
 
-            {/* Unmounted with the tree, and on a narrow screen unmounted regardless of it: a
-                handle that resizes something not sharing the screen with anything - hidden here,
-                or overlaid there - would be a focusable control that visibly does nothing. */}
-            <SidebarDivider
-              width={sidebar.width}
-              onPreview={(width) => {
-                sidebarRef.current?.style.setProperty('width', `${String(width)}px`);
+            <Link
+              to="/"
+              aria-label="Nix home"
+              className={`inline-flex size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
+            >
+              NX
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchOpen(true);
               }}
-              onCommit={sidebar.resize}
-            />
-          </>
-        )}
+              className={`ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 ${focusRing}`}
+            >
+              <Icon icon={Search} size="sm" />
+              Search
+              {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can
+                  discover is a shortcut nobody uses. */}
+              <kbd className="font-mono text-2xs text-muted">Ctrl K</kbd>
+            </button>
 
-        {/* The shell owns the main landmark so every screen has exactly one, and a screen that
-            renders panels side by side does not have to nest them inside another.
+            <ProfileMenu principal={principal} />
+          </header>
 
-            `inert` while the drawer is open: the native (React 19) way of making this region
-            genuinely unreachable to pointer and assistive technology without a hand-rolled focus
-            trap standing in for it - see `sidebar-drawer.tsx`'s own comment on why that trade was
-            made. Scoped to the drawer being open rather than to `narrow` alone, since a narrow
-            window with the drawer closed has nothing covering this region at all.
+          {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
+              rather than to the viewport. That keeps the overlay below the header, over the pane
+              content only: a phone has no room to share the tree beside a document, but the header's
+              own toggle button is what closes the drawer, and covering it would take away the way
+              back. */}
+          <div className={`relative flex flex-1 ${paneClip}`}>
+            {/* Unmounted rather than hidden. A tree that is merely off-screen keeps its rows in the
+                tab order and in the accessibility tree, so a keyboard would still walk through a
+                sidebar nobody can see. The same is true of the drawer below the breakpoint: closed
+                means absent, not merely out of view. */}
+            {!sidebar.visible ? null : narrow ? (
+              <SidebarDrawer onClose={closeDrawer}>
+                <WorkspaceSidebar
+                  tree={tree}
+                  selectedId={selectedId}
+                  onSelect={closeDrawerAfter(openPreview)}
+                  onOpenBeside={closeDrawerAfter(openBeside)}
+                  onOpenPinned={closeDrawerAfter(openPinned)}
+                  canOpenBeside={canOpenBeside}
+                  besideRefusal={besideRefusal}
+                  onDeleteItem={(item) => {
+                    void requestDelete(item);
+                  }}
+                  treeRegionRef={treeRegionRef}
+                />
+              </SidebarDrawer>
+            ) : (
+              <>
+                <div
+                  ref={sidebarRef}
+                  style={{ width: `${String(sidebar.width)}px` }} // design-token-exempt: the tree's width is a runtime value somebody dragged, not a step on any scale - the same case as a pane's share.
+                  className="flex shrink-0 overflow-hidden"
+                >
+                  <WorkspaceSidebar
+                    tree={tree}
+                    selectedId={selectedId}
+                    onSelect={openPreview}
+                    onOpenBeside={openBeside}
+                    onOpenPinned={openPinned}
+                    canOpenBeside={canOpenBeside}
+                    besideRefusal={besideRefusal}
+                    onDeleteItem={(item) => {
+                      void requestDelete(item);
+                    }}
+                    treeRegionRef={treeRegionRef}
+                  />
+                </div>
 
-            `isolate` unconditionally, not only while the drawer is open: it creates a stacking
-            context for everything a pane renders, so nothing in here - `sheet-grid.tsx`'s own
-            `z-20`/`z-30`/`z-40` layers, or its drag overlay - can ever resolve into the *root*
-            stacking context and paint over the header's own popovers. This is a different fix
-            from the drawer's: the drawer sits *beside* `<main>`, not inside it, so `isolate` here
-            does nothing for the drawer's own stacking - that was corrected separately, by giving
-            the drawer numbers low enough to lose to the header outright (see the skip link's
-            comment above for the full ladder). `isolation: isolate` does not change the containing
-            block for `position: fixed`, so a fixed drag overlay still covers the viewport
-            geometrically - this only stops it from painting above chrome that lives outside
-            `<main>`. */}
-        <main
-          id="main"
-          inert={narrow && sidebar.visible}
-          className={`isolate flex flex-1 ${paneClip}`}
-        >
-          <Outlet context={{ tree, selectedId }} />
-        </main>
+                {/* Unmounted with the tree, and on a narrow screen unmounted regardless of it: a
+                    handle that resizes something not sharing the screen with anything - hidden here,
+                    or overlaid there - would be a focusable control that visibly does nothing. */}
+                <SidebarDivider
+                  width={sidebar.width}
+                  onPreview={(width) => {
+                    sidebarRef.current?.style.setProperty('width', `${String(width)}px`);
+                  }}
+                  onCommit={sidebar.resize}
+                />
+              </>
+            )}
+
+            {/* The shell owns the main landmark so every screen has exactly one, and a screen that
+                renders panels side by side does not have to nest them inside another.
+
+                `inert` while the drawer is open: the native (React 19) way of making this region
+                genuinely unreachable to pointer and assistive technology without a hand-rolled focus
+                trap standing in for it - see `sidebar-drawer.tsx`'s own comment on why that trade was
+                made. Scoped to the drawer being open rather than to `narrow` alone, since a narrow
+                window with the drawer closed has nothing covering this region at all.
+
+                `isolate` unconditionally, not only while the drawer is open: it creates a stacking
+                context for everything a pane renders, so nothing in here - `sheet-grid.tsx`'s own
+                `z-20`/`z-30`/`z-40` layers, or its drag overlay - can ever resolve into the *root*
+                stacking context and paint over the header's own popovers. This is a different fix
+                from the drawer's: the drawer sits *beside* `<main>`, not inside it, so `isolate` here
+                does nothing for the drawer's own stacking - that was corrected separately, by giving
+                the drawer numbers low enough to lose to the header outright (see the skip link's
+                comment above for the full ladder). `isolation: isolate` does not change the containing
+                block for `position: fixed`, so a fixed drag overlay still covers the viewport
+                geometrically - this only stops it from painting above chrome that lives outside
+                `<main>`. */}
+            <main
+              id="main"
+              inert={narrow && sidebar.visible}
+              className={`isolate flex flex-1 ${paneClip}`}
+            >
+              <Outlet context={{ tree, selectedId }} />
+            </main>
+          </div>
+        </div>
       </div>
 
       <CommandPalette

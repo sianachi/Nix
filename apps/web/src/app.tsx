@@ -5,7 +5,10 @@ import { Route, Routes } from 'react-router';
 import { AuthProvider } from './auth/auth-provider';
 import { AppErrorBoundary } from './components/error-boundary';
 import { AuthCallbackPage, SilentRenewPage } from './pages/auth-callback-page';
+import { BookmarksPage } from './pages/bookmarks-page';
+import { CalendarPage } from './pages/calendar-page';
 import { EditorPage } from './pages/editor-page';
+import { GraphPage } from './pages/graph-page';
 import { NotFoundPage } from './pages/not-found-page';
 import { AppShell } from './app/app-shell';
 import { RequireSession } from './app/require-session';
@@ -64,6 +67,16 @@ export function App(): ReactElement {
                     than a destination, and search opens over whatever is on screen, so neither
                     has a route of its own. */}
                 <Route index element={<EditorPage />} />
+
+                {/* The rail's three destinations. These *are* places, unlike a board or a
+                    search: each is a way of looking at the whole workspace rather than at one
+                    container, so none of them has an item to hang off and each needs an address
+                    of its own. Not lazy-loaded, unlike the token specimens: the placeholders are
+                    a few lines each, and a Suspense boundary around nothing is a fallback that
+                    can only ever flash. */}
+                <Route path="calendar" element={<CalendarPage />} />
+                <Route path="graph" element={<GraphPage />} />
+                <Route path="bookmarks" element={<BookmarksPage />} />
 
                 {/* The boundary is per-route rather than around the whole tree: a fallback over
                     `Routes` would blank the shell while a chunk arrives. The wording matches the
