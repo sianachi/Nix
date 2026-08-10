@@ -51,3 +51,8 @@ deploy/.zitadel/
 .idea/
 *.log
 .pnpm-store/
+
+# A git worktree checked out inside the repository, which is a second copy of the
+# tree rather than content: committing it would commit the checkout. `nix-lanes/`
+# sits outside the repository and needs no entry; this one does.
+/feature/
