@@ -5,9 +5,9 @@ import { useState, type ReactNode } from 'react';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
 import type { ItemProperties } from '../properties/use-item-properties';
-import type { ContainerData } from '../views/use-container';
-import { SchemaEditor } from '../views/schema-editor';
-import { ViewEditor } from '../views/view-editor';
+import type { ContainerData } from '../views/core/use-container';
+import { SchemaEditor } from '../views/core/schema-editor';
+import { ViewEditor } from '../views/core/view-editor';
 
 /**
  * One panel, four panes: what this item *is*, what its children may carry, how they are shown, and

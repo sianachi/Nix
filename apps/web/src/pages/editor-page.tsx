@@ -16,7 +16,7 @@ import type { ShellContext } from '../app/app-shell';
 import { paneClip, paneColumn, paneScroller } from '../app/layout';
 import { useNarrowViewport } from '../app/use-narrow-viewport';
 import { NoteEditor } from '../editor/note-editor';
-import { SheetEditor } from '../sheet/sheet-editor';
+import { SheetEditor } from '../views/sheet/sheet-editor';
 
 // Loaded at the moment somebody opens a canvas, not before: Excalidraw and its styles are
 // the single largest thing the editor can pull in, and a workspace of notes never needs it.
@@ -34,14 +34,14 @@ import { useTabOrientationStore } from '../tabs/tab-orientation-store';
 import { DocumentTabStrip } from '../tabs/document-tab-strip';
 import { useTabStore } from '../tabs/tab-store';
 import { useOpenItem } from '../tabs/use-open-item';
-import { ContainerView } from '../views/container-view';
-import { DOCUMENT_VIEW, type View } from '../views/container-model';
-import { useContainer } from '../views/use-container';
+import { ContainerView } from '../views/core/container-view';
+import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
+import { useContainer } from '../views/core/use-container';
 import { ItemPanel } from './item-panel';
 import { browserStorage } from '../theme/theme-store';
 import { readPanelOpen, storePanelOpen } from './panel-state';
-import { useViewState } from '../views/view-state';
-import { ViewSwitcher } from '../views/view-switcher';
+import { useViewState } from '../views/core/view-state';
+import { ViewSwitcher } from '../views/core/view-switcher';
 
 /**
  * One item, open.

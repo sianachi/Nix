@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 
 import { usePaneIndex } from '../panes/pane-context';
 import { paneParam } from '../panes/pane-params';
-import { clearViewState } from '../views/view-state';
+import { clearViewState } from '../views/core/view-state';
 
 /**
  * Which item is open, held in the URL.

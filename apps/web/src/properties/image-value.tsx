@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import { readPropertyText } from '../views/container-model';
+import { readPropertyText } from '../views/core/container-model';
 
 import type { PropertyInputProps } from './property-input';
 

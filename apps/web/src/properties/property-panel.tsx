@@ -2,7 +2,7 @@ import { Text } from '@nix/ui';
 import { useId, useState, type ReactNode } from 'react';
 
 import { EmptyPanel, LoadingPanel } from '../components/states/status-panels';
-import type { Item, PropertyDefinition, PropertyValue } from '../views/container-model';
+import type { Item, PropertyDefinition, PropertyValue } from '../views/core/container-model';
 import { PropertyInput } from './property-input';
 
 /**

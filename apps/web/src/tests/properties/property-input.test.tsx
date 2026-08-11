@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Item, PropertyDefinition } from '../../views/container-model';
+import type { Item, PropertyDefinition } from '../../views/core/container-model';
 import { PropertyInput } from '../../properties/property-input';
 
 /**

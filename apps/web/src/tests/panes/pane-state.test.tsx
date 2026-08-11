@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { stubViewport } from '../stub-viewport';
-import { clearViewState, parseFilters, parseViewState } from '../../views/view-state';
+import { clearViewState, parseFilters, parseViewState } from '../../views/core/view-state';
 import { closePaneParams, parsePanes, usePanes } from '../../panes/pane-state';
 import {
   PANE_LIMIT,

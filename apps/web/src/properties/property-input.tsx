@@ -10,7 +10,7 @@ import {
 } from '@nix/ui';
 import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
-import { readTimestampValue, readerZone, writeTimestampValue } from '../views/timestamps';
+import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 
 import { ImageValue } from './image-value';
 
@@ -23,7 +23,7 @@ import {
   type Item,
   type PropertyDefinition,
   type PropertyValue,
-} from '../views/container-model';
+} from '../views/core/container-model';
 
 /**
  * One control for one property, chosen from what the schema says the property is.

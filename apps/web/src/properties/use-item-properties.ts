@@ -6,7 +6,7 @@ import {
   ItemSchema,
   type EffectiveSchema,
   type Item,
-} from '../views/container-model';
+} from '../views/core/container-model';
 
 /**
  * One item's schema and the means to write its properties.

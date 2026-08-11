@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { clearViewState } from '../../views/view-state';
+import { clearViewState } from '../../views/core/view-state';
 import { parseSelectedItem, selectedItemSearch } from '../../routing/selected-item';
 
 describe('the selected item parameter', () => {

@@ -1,4 +1,4 @@
-import type { View } from '../views/container-model';
+import type { View } from '../views/core/container-model';
 
 /**
  * A view, with only the fields a test cares about spelled out.

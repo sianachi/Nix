@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../render-with-router';
-import type { Item, PropertyDefinition } from '../../views/container-model';
+import type { Item, PropertyDefinition } from '../../views/core/container-model';
 import { PropertyPanel } from '../../properties/property-panel';
 
 /**
