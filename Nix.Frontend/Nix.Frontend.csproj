@@ -43,7 +43,7 @@
        it they all flatten to the project root, where the many identically named
        index.ts files become indistinguishable. -->
   <ItemGroup>
-    <None Include="../apps/*/src/**/*" LinkBase="apps" />
+    <None Include="../apps/*/src/**/**/**" LinkBase="apps" />
     <None Include="../packages/*/src/**/*" LinkBase="packages" />
   </ItemGroup>
 
