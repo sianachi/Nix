@@ -19,7 +19,7 @@ import { ColumnControls, columnDropTarget } from '../../editor/column-controls';
 
 const announced: string[] = [];
 
-vi.mock('../../app/announcer', () => ({
+vi.mock('../../a11y/announcer', () => ({
   announce: (message: string) => {
     announced.push(message);
   },

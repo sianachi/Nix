@@ -10,8 +10,8 @@ import { CalendarPage } from './pages/calendar-page';
 import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { NotFoundPage } from './pages/not-found-page';
-import { AppShell } from './app/app-shell';
-import { RequireSession } from './app/require-session';
+import { AppShell } from './shell/app-shell';
+import { RequireSession } from './shell/require-session';
 
 // Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
 // reference material - every ramp step, every type scale, every rhythm demo - and nobody working

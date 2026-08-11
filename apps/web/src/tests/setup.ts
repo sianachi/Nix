@@ -5,7 +5,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { stubCoreApi } from './api-stub';
 import { stubViewport } from './stub-viewport';
-import { resetAnnouncements } from '../app/announcer';
+import { resetAnnouncements } from '../a11y/announcer';
 import { resetSession } from './render-with-router';
 
 /**

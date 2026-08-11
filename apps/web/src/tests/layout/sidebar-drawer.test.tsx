@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SidebarDrawer } from '../../app/sidebar-drawer';
+import { SidebarDrawer } from '../../layout/sidebar-drawer';
 
 /**
  * The workspace tree's off-canvas drawer, in isolation from the shell that mounts and unmounts it.

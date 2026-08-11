@@ -5,7 +5,7 @@ import { Link, Outlet } from 'react-router';
 
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
-import { announce, useAnnouncement } from './announcer';
+import { announce, useAnnouncement } from '../a11y/announcer';
 import type { ShellContext } from './shell-context';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
@@ -14,13 +14,13 @@ import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
-import { paneClip } from './layout';
+import { paneClip } from '../layout/regions';
 import { NavRail } from './nav-rail';
 import { ProfileMenu } from './profile-menu';
-import { SidebarDivider } from './sidebar-divider';
-import { SidebarDrawer } from './sidebar-drawer';
-import { useNarrowViewport } from './use-narrow-viewport';
-import { useSidebar } from './use-sidebar';
+import { SidebarDivider } from '../layout/sidebar-divider';
+import { SidebarDrawer } from '../layout/sidebar-drawer';
+import { useNarrowViewport } from '../layout/viewport';
+import { useSidebar } from '../layout/use-sidebar';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -46,7 +46,7 @@ import { useSidebar } from './use-sidebar';
  * `overflow-y-auto` makes it a scroll container on *both* axes - per CSS Overflow 3, one axis
  * leaving `visible` takes the other with it - so what actually keeps the horizontal axis quiet is
  * that every wide view brings its own `overflow-x-auto` and `min-w-0` lets the pane shrink to fit
- * around it. See `paneScroller` in `./layout`.
+ * around it. See `paneScroller` in `../layout/regions`.
  *
  * This was previously unimplemented rather than mis-tuned, and it failed in two directions at once.
  * The root was `min-h-dvh`, so `flex-1` never had a definite height and no descendant's

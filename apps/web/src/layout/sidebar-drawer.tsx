@@ -77,7 +77,7 @@ export function SidebarDrawer({ onClose, children }: SidebarDrawerProps): ReactN
       />
 
       {/* design-token-exempt: a drawer's width is a dimension picked by looking at a composition,
-          the same category `layout.ts` puts the sidebar's own flex width in - not a step on any
+          the same category `layout/regions.ts` puts the sidebar's own flex width in - not a step on any
           scale. Capped at 85vw so a narrow phone always shows a sliver of the scrim behind it,
           which is the visual cue that this is an overlay and not the page.
 

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../../app';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
-import { STORAGE_KEY, readPanelOpen, storePanelOpen } from '../../pages/panel-state';
+import { STORAGE_KEY, readPanelOpen, storePanelOpen } from '../../panel/panel-state';
 
 /**
  * The settings panel.

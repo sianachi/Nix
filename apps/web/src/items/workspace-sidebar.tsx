@@ -21,7 +21,7 @@ import {
   type RefObject,
 } from 'react';
 
-import { announce } from '../app/announcer';
+import { announce } from '../a11y/announcer';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 

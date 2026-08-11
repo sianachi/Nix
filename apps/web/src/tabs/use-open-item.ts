@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
-import { announce } from '../app/announcer';
+import { announce } from '../a11y/announcer';
 import { usePaneIndex } from '../panes/pane-context';
 import { focusPane } from '../panes/pane-params';
 import { usePanes, type BesideRefusal } from '../panes/pane-state';

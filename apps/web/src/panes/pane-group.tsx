@@ -1,7 +1,7 @@
 import { PaneDivider } from '@nix/ui';
 import { Fragment, useCallback, useRef, type ReactNode } from 'react';
 
-import { paneClip } from '../app/layout';
+import { paneClip } from '../layout/regions';
 import { PaneProvider } from './pane-context';
 import type { PaneState } from './pane-state';
 import { paneElementId, type SplitOrientation } from './pane-params';

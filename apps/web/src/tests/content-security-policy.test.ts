@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { OIDC_ORIGIN_TOKEN, substituteOidcOrigin } from '../../../vite.config';
+import { OIDC_ORIGIN_TOKEN, substituteOidcOrigin } from '../../vite.config';
 
 // The application's content security policy is written twice - as a meta tag in index.html, so it
 // holds on the Vite dev server and any static preview, and as a header in deploy/Caddyfile, so it
@@ -18,7 +18,7 @@ import { OIDC_ORIGIN_TOKEN, substituteOidcOrigin } from '../../../vite.config';
 // broken, and each is named so removing it fails here with the feature it would break, rather than
 // in a browser weeks later.
 
-const appDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const appDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const repoRoot = join(appDir, '..', '..');
 
 const indexHtml = readFileSync(join(appDir, 'index.html'), 'utf8');

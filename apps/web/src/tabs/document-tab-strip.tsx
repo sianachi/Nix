@@ -2,7 +2,7 @@ import { Icon, Tabs, cn, focusRing, inkWashStates, type TabItem } from '@nix/ui'
 import { PanelLeft, PanelTop } from 'lucide-react';
 import { type ReactNode } from 'react';
 
-import type { ShellContext } from '../app/shell-context';
+import type { ShellContext } from '../shell/shell-context';
 import { useSelectedItem } from '../routing/selected-item';
 import { useTabOrientationStore } from './tab-orientation-store';
 import { useTabStore } from './tab-store';

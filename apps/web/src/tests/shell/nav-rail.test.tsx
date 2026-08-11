@@ -187,7 +187,7 @@ describe('the navigation rail', () => {
 
 /**
  * jsdom lays nothing out, so what a narrow viewport means here is the code path
- * `use-narrow-viewport.ts` takes when its window query does not match - the same technique, and
+ * `viewport.ts`'s `useNarrowViewport` takes when its window query does not match - the same technique, and
  * the same helper, `sidebar.test.tsx` uses for the drawer.
  */
 describe('the navigation rail on a narrow screen', () => {

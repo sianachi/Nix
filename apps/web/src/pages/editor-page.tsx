@@ -12,9 +12,9 @@ import {
 } from 'react';
 import { useOutletContext } from 'react-router';
 
-import type { ShellContext } from '../app/shell-context';
-import { paneClip, paneColumn, paneScroller } from '../app/layout';
-import { useNarrowViewport } from '../app/use-narrow-viewport';
+import type { ShellContext } from '../shell/shell-context';
+import { paneClip, paneColumn, paneScroller } from '../layout/regions';
+import { useNarrowViewport } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
@@ -24,7 +24,7 @@ const CanvasEditor = lazy(async () => {
   const module = await import('../editor/canvas-editor');
   return { default: module.CanvasEditor };
 });
-import { announce } from '../app/announcer';
+import { announce } from '../a11y/announcer';
 import { PaneGroup } from '../panes/pane-group';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
@@ -37,9 +37,9 @@ import { useOpenItem } from '../tabs/use-open-item';
 import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
-import { ItemPanel } from './item-panel';
+import { ItemPanel } from '../panel/item-panel';
 import { browserStorage } from '../lib/browser-storage';
-import { readPanelOpen, storePanelOpen } from './panel-state';
+import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
 import { ViewSwitcher } from '../views/core/view-switcher';
 

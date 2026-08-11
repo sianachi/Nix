@@ -17,7 +17,7 @@ import {
   storeWidth,
   STORAGE_KEY,
   WIDTH_STORAGE_KEY,
-} from '../../app/use-sidebar';
+} from '../../layout/use-sidebar';
 
 /**
  * Collapsing the workspace tree.
@@ -56,7 +56,7 @@ const NOTE = item({ id: '3a3a3a3a-3333-4333-8333-3a3a3a3a3a3a', title: 'Roadmap'
 
 /**
  * jsdom does not lay a page out, so there is no real viewport width to narrow. What can be
- * exercised is the code path `use-narrow-viewport.ts` takes when the window query it asks does not
+ * exercised is the code path `viewport.ts`'s `useNarrowViewport` takes when the window query it asks does not
  * match - the same technique `pane-state.test.tsx` uses for its own, wider breakpoint, and both
  * share `stubViewport`. The suite's own default (`tests/setup.ts`) answers wide for anything, which
  * is why every test above this line renders the desktop arrangement without asking.

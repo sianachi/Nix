@@ -1,11 +1,20 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /**
+ * How the layout asks about the window.
+ *
+ * Both questions in this file are about the *window* rather than about any one box: whether the
+ * shell has room to hold the workspace tree beside its content, and - in `pane-state.ts` - whether
+ * it has room for a second pane. Neither is a container query, because neither is a question a
+ * container can answer.
+ */
+
+/**
  * Whether the window currently matches a media query.
  *
  * The one `useSyncExternalStore`+`matchMedia` construction the shell needs, pulled out of
- * `use-narrow-viewport.ts` and `pane-state.ts`'s `useRoomForAnotherPane` once both turned out to be
- * the same hook differing only in the query string. `useSyncExternalStore` rather than an effect
+ * `useNarrowViewport` below and `pane-state.ts`'s `useRoomForAnotherPane` once both turned out to
+ * be the same hook differing only in the query string. `useSyncExternalStore` rather than an effect
  * that sets state: a media query is exactly the external store the hook exists for, and it closes
  * the gap an effect leaves - a window resized between render and subscription is not missed -
  * while staying off the render-cascade path an effect-plus-`setState` would put it on.
@@ -76,4 +85,28 @@ export function useMediaQuery(query: string): boolean {
     () => mediaQueryList(query)?.matches ?? true,
     () => true,
   );
+}
+
+/**
+ * Whether the window is narrower than Tailwind's own `sm` breakpoint (640px) - the cutoff this
+ * codebase already reaches for whenever a layout changes shape on a phone (`gallery-view.tsx`'s
+ * `sm:grid-cols-2`, `timeline-view.tsx`'s `sm:min-w-[12rem]`). There are no custom breakpoint
+ * tokens in `packages/design-tokens`, so this uses the number Tailwind's own utility classes
+ * already use rather than inventing a second one.
+ *
+ * **A window query, not a container query.** What is being decided is whether the *shell* has room
+ * to hold the workspace tree beside its content, which is a question about the window - the same
+ * reasoning `pane-state.ts`'s `useRoomForAnotherPane` gives for its own, larger breakpoint. Both
+ * are one-liners over the shared `useMediaQuery` above.
+ *
+ * **Phrased as "is it wide enough", not "is it narrow".** The test setup stubs `matchMedia` to
+ * answer `matches: true` for any query by default, so an ordinary render exercises the desktop
+ * arrangement unless a test deliberately asks about a narrow one. Asking `(max-width: ...)` instead
+ * would read as narrow under that same default and flip every existing test that never mentions a
+ * viewport onto the drawer path.
+ */
+const WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR = '(min-width: 640px)';
+
+export function useNarrowViewport(): boolean {
+  return !useMediaQuery(WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR);
 }

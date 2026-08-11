@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { paneScroller } from '../app/layout';
+import { paneScroller } from '../layout/regions';
 import { EmptyPanel } from '../components/states/status-panels';
 
 /**

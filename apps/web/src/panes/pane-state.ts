@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
-import { announce } from '../app/announcer';
-import { useMediaQuery } from '../app/use-media-query';
+import { announce } from '../a11y/announcer';
+import { useMediaQuery } from '../layout/viewport';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
 import { clearViewState } from '../views/core/view-state';
 import {

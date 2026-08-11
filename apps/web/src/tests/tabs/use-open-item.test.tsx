@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { MemoryRouter, useSearchParams } from 'react-router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { resetAnnouncements, useAnnouncement } from '../../app/announcer';
+import { resetAnnouncements, useAnnouncement } from '../../a11y/announcer';
 import { useTabStore } from '../../tabs/tab-store';
 import { useOpenItem } from '../../tabs/use-open-item';
 
