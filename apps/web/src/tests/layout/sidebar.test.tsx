@@ -8,9 +8,11 @@ import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
 import { paneElementId } from '../../panes/pane-params';
 import {
-  DEFAULT_WIDTH,
-  MAXIMUM_WIDTH,
-  MINIMUM_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAXIMUM_WIDTH,
+  SIDEBAR_MINIMUM_WIDTH,
+} from '../../layout/regions';
+import {
   readCollapsed,
   readWidth,
   storeCollapsed,
@@ -138,9 +140,9 @@ describe('resizing the workspace tree', () => {
     renderAt(<App />);
 
     const handle = await screen.findByRole('separator', { name: /resize the workspace tree/i });
-    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH));
-    expect(handle).toHaveAttribute('aria-valuemin', String(MINIMUM_WIDTH));
-    expect(handle).toHaveAttribute('aria-valuemax', String(MAXIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_DEFAULT_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuemin', String(SIDEBAR_MINIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuemax', String(SIDEBAR_MAXIMUM_WIDTH));
   });
 
   it('widens from the keyboard and remembers the choice', async () => {
@@ -154,9 +156,9 @@ describe('resizing the workspace tree', () => {
 
     // A drag has to survive a reload for the same reason collapsing does: somebody who moved the
     // edge has decided how much room the tree gets.
-    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH + 8));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_DEFAULT_WIDTH + 8));
     await waitFor(() => {
-      expect(stored.get(WIDTH_STORAGE_KEY)).toBe(String(DEFAULT_WIDTH + 8));
+      expect(stored.get(WIDTH_STORAGE_KEY)).toBe(String(SIDEBAR_DEFAULT_WIDTH + 8));
     });
   });
 
@@ -169,10 +171,10 @@ describe('resizing the workspace tree', () => {
     handle.focus();
 
     await user.keyboard('{Home}');
-    expect(handle).toHaveAttribute('aria-valuenow', String(MINIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_MINIMUM_WIDTH));
 
     await user.keyboard('{End}');
-    expect(handle).toHaveAttribute('aria-valuenow', String(MAXIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_MAXIMUM_WIDTH));
   });
 
   it('returns to the default width on Enter, and back again on the next press', async () => {
@@ -187,10 +189,10 @@ describe('resizing the workspace tree', () => {
     // The one position a drag cannot aim at, so it has a key - and the same key undoes it,
     // because a reset that cannot be unreset is a trap.
     await user.keyboard('{Enter}');
-    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_DEFAULT_WIDTH));
 
     await user.keyboard('{Enter}');
-    expect(handle).toHaveAttribute('aria-valuenow', String(MAXIMUM_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuenow', String(SIDEBAR_MAXIMUM_WIDTH));
   });
 
   it('goes with the tree when the tree is hidden', async () => {
@@ -221,25 +223,25 @@ describe('remembering the width', () => {
   }
 
   it('defaults when nothing has been chosen, or the stored value is not a number', () => {
-    expect(readWidth(undefined)).toBe(DEFAULT_WIDTH);
+    expect(readWidth(undefined)).toBe(SIDEBAR_DEFAULT_WIDTH);
 
     stored.set(WIDTH_STORAGE_KEY, 'wide');
-    expect(readWidth(mapStorage())).toBe(DEFAULT_WIDTH);
+    expect(readWidth(mapStorage())).toBe(SIDEBAR_DEFAULT_WIDTH);
   });
 
   it('clamps a stored width to the bounds, since storage is writable by anything', () => {
     stored.set(WIDTH_STORAGE_KEY, '10000');
-    expect(readWidth(mapStorage())).toBe(MAXIMUM_WIDTH);
+    expect(readWidth(mapStorage())).toBe(SIDEBAR_MAXIMUM_WIDTH);
 
     stored.set(WIDTH_STORAGE_KEY, '1');
-    expect(readWidth(mapStorage())).toBe(MINIMUM_WIDTH);
+    expect(readWidth(mapStorage())).toBe(SIDEBAR_MINIMUM_WIDTH);
   });
 
   it('stores the default as absence rather than as a second spelling', () => {
     storeWidth(mapStorage(), 300);
     expect(stored.get(WIDTH_STORAGE_KEY)).toBe('300');
 
-    storeWidth(mapStorage(), DEFAULT_WIDTH);
+    storeWidth(mapStorage(), SIDEBAR_DEFAULT_WIDTH);
     expect(stored.has(WIDTH_STORAGE_KEY)).toBe(false);
   });
 
@@ -256,7 +258,7 @@ describe('remembering the width', () => {
       },
     } as unknown as Storage;
 
-    expect(readWidth(refusing)).toBe(DEFAULT_WIDTH);
+    expect(readWidth(refusing)).toBe(SIDEBAR_DEFAULT_WIDTH);
     expect(() => {
       storeWidth(refusing, 300);
     }).not.toThrow();

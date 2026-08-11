@@ -2,6 +2,7 @@ import { Icon, Segmented, Text, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
+import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
 import type { ItemProperties } from '../properties/use-item-properties';
@@ -54,7 +55,7 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
     // for the same reason.
     <aside
       aria-label="Item settings"
-      className="flex w-[340px] shrink-0 flex-col overflow-hidden bg-surface"
+      className={`flex ${settingsPanelWidth} shrink-0 flex-col overflow-hidden bg-surface`}
     >
       <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <Segmented

@@ -1,7 +1,8 @@
 import { focusRing } from '@nix/ui';
 import { useRef, type ReactNode } from 'react';
 
-import { clampWidth, DEFAULT_WIDTH, MAXIMUM_WIDTH, MINIMUM_WIDTH } from './use-sidebar';
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAXIMUM_WIDTH, SIDEBAR_MINIMUM_WIDTH } from './regions';
+import { clampWidth } from './use-sidebar';
 
 /** How far one arrow press moves the edge, and one with Shift held. Pixels, like the value. */
 const STEP = 8;
@@ -60,20 +61,20 @@ export function SidebarDivider({ width, onPreview, onCommit }: SidebarDividerPro
 
     if (event.key === 'Home') {
       event.preventDefault();
-      onCommit(MINIMUM_WIDTH);
+      onCommit(SIDEBAR_MINIMUM_WIDTH);
       return;
     }
 
     if (event.key === 'End') {
       event.preventDefault();
-      onCommit(MAXIMUM_WIDTH);
+      onCommit(SIDEBAR_MAXIMUM_WIDTH);
       return;
     }
 
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
 
-      if (width === DEFAULT_WIDTH) {
+      if (width === SIDEBAR_DEFAULT_WIDTH) {
         const restored = beforeDefaultRef.current;
         if (restored !== null) {
           beforeDefaultRef.current = null;
@@ -83,7 +84,7 @@ export function SidebarDivider({ width, onPreview, onCommit }: SidebarDividerPro
       }
 
       beforeDefaultRef.current = width;
-      onCommit(DEFAULT_WIDTH);
+      onCommit(SIDEBAR_DEFAULT_WIDTH);
     }
   }
 
@@ -157,8 +158,8 @@ export function SidebarDivider({ width, onPreview, onCommit }: SidebarDividerPro
       aria-valuenow={width}
       // A bare number is announced with no units and no subject.
       aria-valuetext={`Workspace tree ${String(width)} pixels wide`}
-      aria-valuemin={MINIMUM_WIDTH}
-      aria-valuemax={MAXIMUM_WIDTH}
+      aria-valuemin={SIDEBAR_MINIMUM_WIDTH}
+      aria-valuemax={SIDEBAR_MAXIMUM_WIDTH}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       className={[

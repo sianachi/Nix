@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { announce } from '../a11y/announcer';
-import { useMediaQuery } from '../layout/viewport';
+import { useRoomForAnotherPane } from '../layout/viewport';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
 import { clearViewState } from '../views/core/view-state';
 import {
@@ -190,33 +190,6 @@ export interface PaneControl extends PaneArrangement {
 
   /** Writes the ratio. Replaces rather than pushes: a resize is not a navigation. */
   readonly setSizes: (sizes: readonly number[]) => void;
-}
-
-/**
- * The narrowest window this shell will lay two panes out in.
- *
- * Not a guess. The tree takes a fixed 264px and the settings panel up to 340px, and neither
- * narrows yet - so on a 768px window a second pane is already sharing about 460px with the first.
- * Below that the honest thing is to refuse the split rather than draw two columns of six-character
- * prose, which is what a phone would otherwise get the day somebody pastes a two-pane link into a
- * message - and ADR-0026's whole premise is that these links get pasted.
- *
- * A window query rather than a container query on purpose: what is being decided is whether the
- * *shell* can hold another region, which is a question about the window. Narrowing the tree and
- * the panel is the responsive goal's work, and this number moves when that lands.
- */
-const NARROWEST_FOR_TWO_PANES = 768;
-
-/**
- * Whether the window is currently wide enough for more than one pane.
- *
- * A one-liner over the shared `useMediaQuery` - see that hook's own comment for why it is
- * `useSyncExternalStore` rather than an effect that sets state, and for the server/no-`matchMedia`
- * default: there is no window to measure, so the arrangement the address asks for is rendered
- * whole rather than pre-emptively narrowed to something the client may not want.
- */
-function useRoomForAnotherPane(): boolean {
-  return useMediaQuery(`(min-width: ${String(NARROWEST_FOR_TWO_PANES)}px)`);
 }
 
 export function usePanes(): PaneControl {

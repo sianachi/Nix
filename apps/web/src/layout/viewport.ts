@@ -1,5 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
+import { NARROWEST_FOR_TWO_PANES, WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR } from './regions';
+
 /**
  * How the layout asks about the window.
  *
@@ -105,8 +107,22 @@ export function useMediaQuery(query: string): boolean {
  * would read as narrow under that same default and flip every existing test that never mentions a
  * viewport onto the drawer path.
  */
-const WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR = '(min-width: 640px)';
-
 export function useNarrowViewport(): boolean {
   return !useMediaQuery(WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR);
+}
+
+/**
+ * Whether the window is currently wide enough for more than one pane.
+ *
+ * A one-liner over the shared `useMediaQuery` - see that hook's own comment for why it is
+ * `useSyncExternalStore` rather than an effect that sets state, and for the server/no-`matchMedia`
+ * default: there is no window to measure, so the arrangement the address asks for is rendered
+ * whole rather than pre-emptively narrowed to something the client may not want.
+ *
+ * It sits here rather than in `pane-state.ts`, where it was written, because it is the same
+ * question `useNarrowViewport` asks one breakpoint lower: has the shell room for another region.
+ * Both thresholds are declared together in `regions.ts` so the pair can be read as a pair.
+ */
+export function useRoomForAnotherPane(): boolean {
+  return useMediaQuery(`(min-width: ${String(NARROWEST_FOR_TWO_PANES)}px)`);
 }

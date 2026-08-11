@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { browserStorage } from '../lib/browser-storage';
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAXIMUM_WIDTH, SIDEBAR_MINIMUM_WIDTH } from './regions';
 
 /**
  * Whether the workspace tree is on screen.
@@ -31,21 +32,9 @@ const COLLAPSED = 'collapsed';
 
 export const WIDTH_STORAGE_KEY = 'nix.sidebar.width';
 
-/**
- * The width the tree starts at, and the range a drag may take it through.
- *
- * The floor is not a taste number: the tree indents 12px per level and bounds itself at nine
- * levels (`ROW_INDENT`), so below about 200px a nested title is down to a few characters and the
- * hover controls start covering them. The ceiling stops a stray drag from leaving the panes
- * narrower than the tree that navigates them.
- */
-export const DEFAULT_WIDTH = 264;
-export const MINIMUM_WIDTH = 200;
-export const MAXIMUM_WIDTH = 480;
-
 /** Whole pixels within the bounds - the one shape a width is allowed to have anywhere. */
 export function clampWidth(width: number): number {
-  return Math.min(MAXIMUM_WIDTH, Math.max(MINIMUM_WIDTH, Math.round(width)));
+  return Math.min(SIDEBAR_MAXIMUM_WIDTH, Math.max(SIDEBAR_MINIMUM_WIDTH, Math.round(width)));
 }
 
 /** Reads the stored state, defaulting to open. */
@@ -79,16 +68,16 @@ export function readWidth(storage: Storage | undefined): number {
   try {
     const raw = storage?.getItem(WIDTH_STORAGE_KEY);
     const parsed = raw === null || raw === undefined ? Number.NaN : Number(raw);
-    return Number.isFinite(parsed) ? clampWidth(parsed) : DEFAULT_WIDTH;
+    return Number.isFinite(parsed) ? clampWidth(parsed) : SIDEBAR_DEFAULT_WIDTH;
   } catch {
-    return DEFAULT_WIDTH;
+    return SIDEBAR_DEFAULT_WIDTH;
   }
 }
 
 /** Stores a width, tolerating a browser that refuses storage. */
 export function storeWidth(storage: Storage | undefined, width: number): void {
   try {
-    if (width === DEFAULT_WIDTH) {
+    if (width === SIDEBAR_DEFAULT_WIDTH) {
       // The default is spelled as absence, for the same reason `collapsed` is: writing it out
       // would leave a later reader unable to tell "never chosen" from "chose the default".
       storage?.removeItem(WIDTH_STORAGE_KEY);
