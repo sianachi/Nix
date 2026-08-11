@@ -8,7 +8,7 @@ import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
 
 /**
- * The navigation rail: the destinations that are not a document.
+ * The navigation rail: the four ways into the workspace, Notes among them.
  *
  * Driven through the whole application rather than the component in isolation, because half of
  * what the rail promises is only true in a router - which link the URL makes current, and what
@@ -30,14 +30,20 @@ function rail(): HTMLElement {
 }
 
 describe('the navigation rail', () => {
-  it('offers three named destinations, so an icon is never the only thing a link says', async () => {
+  it('offers four named destinations, so an icon is never the only thing a link says', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
     const links = within(rail()).getAllByRole('link');
-    expect(links.map((link) => link.textContent)).toEqual(['Calendar', 'Graph', 'Bookmarks']);
+    expect(links.map((link) => link.textContent)).toEqual([
+      'Notes',
+      'Calendar',
+      'Graph',
+      'Bookmarks',
+    ]);
+    expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute('href', '/');
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
       'href',
       '/calendar',
@@ -51,16 +57,18 @@ describe('the navigation rail', () => {
 
     await screen.findByRole('heading', { name: 'Calendar' });
 
+    const notes = within(rail()).getByRole('link', { name: 'Notes' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
 
-    // Only the entry point is in the tab order; the other two are reachable by arrow key alone.
+    // Only the entry point is in the tab order; the other three are reachable by arrow key alone.
+    expect(notes).toHaveAttribute('tabindex', '-1');
     expect(calendar).toHaveAttribute('tabindex', '0');
     expect(graph).toHaveAttribute('tabindex', '-1');
     expect(bookmarks).toHaveAttribute('tabindex', '-1');
 
-    // Tab reaches the skip link, then the rail, then leaves it - three destinations, one stop.
+    // Tab reaches the skip link, then the rail, then leaves it - four destinations, one stop.
     await user.tab();
     await user.tab();
     expect(calendar).toHaveFocus();
@@ -76,30 +84,34 @@ describe('the navigation rail', () => {
 
     await screen.findByRole('heading', { name: 'Calendar' });
 
+    const notes = within(rail()).getByRole('link', { name: 'Notes' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
 
     calendar.focus();
 
+    await user.keyboard('{ArrowUp}');
+    expect(notes).toHaveFocus();
+
+    // Nothing wraps: the ends of the rail are meant to be findable by feel.
+    await user.keyboard('{ArrowUp}');
+    expect(notes).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(calendar).toHaveFocus();
+
     await user.keyboard('{ArrowDown}');
     expect(graph).toHaveFocus();
 
-    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{End}');
     expect(bookmarks).toHaveFocus();
 
-    // Nothing wraps: the ends of the rail are meant to be findable by feel.
     await user.keyboard('{ArrowDown}');
     expect(bookmarks).toHaveFocus();
 
     await user.keyboard('{Home}');
-    expect(calendar).toHaveFocus();
-
-    await user.keyboard('{ArrowUp}');
-    expect(calendar).toHaveFocus();
-
-    await user.keyboard('{End}');
-    expect(bookmarks).toHaveFocus();
+    expect(notes).toHaveFocus();
   });
 
   it('leaves the tab stop where focus last was, so tabbing out and back returns there', async () => {
@@ -135,14 +147,18 @@ describe('the navigation rail', () => {
     );
   });
 
-  it('claims no current destination while a document is open, because none of them is where you are', async () => {
+  it('marks Notes as current while a document is open, because that is what it now is', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    for (const link of within(rail()).getAllByRole('link')) {
-      expect(link).not.toHaveAttribute('aria-current');
+    expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    for (const label of ['Calendar', 'Graph', 'Bookmarks']) {
+      expect(within(rail()).getByRole('link', { name: label })).not.toHaveAttribute('aria-current');
     }
   });
 
@@ -181,7 +197,7 @@ describe('the navigation rail on a narrow screen', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
-    expect(within(rail()).getAllByRole('link')).toHaveLength(3);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(4);
   });
 
   it('dismisses the tree drawer on the way to a destination, rather than leaving it over the top', async () => {

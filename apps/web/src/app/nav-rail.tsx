@@ -1,16 +1,17 @@
 import { Icon, focusRing } from '@nix/ui';
-import { Bookmark, CalendarDays, Network, type LucideIcon } from 'lucide-react';
+import { Bookmark, CalendarDays, Network, NotebookText, type LucideIcon } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 
 /**
- * The navigation rail: the handful of destinations that are not a document.
+ * The navigation rail: the handful of ways to look at the whole workspace at once.
  *
- * A workspace tree answers "which note", and it is the whole of the shell's left side today. It
- * cannot answer "show me the calendar", because a calendar is not an item in the tree - it is
- * another way of looking at all of them. The rail is where those views live: a strip of icons
- * outboard of the tree, so it stays put while the tree scrolls, resizes, or - on a phone - slides
- * away entirely.
+ * A workspace tree answers "which note", one at a time. Calendar, Graph and Bookmarks each answer
+ * a different question about every note together - which is why none of them is an item in the
+ * tree, and why they need a destination of their own rather than a row inside it. Notes sits beside
+ * them as the tree's own destination, so the rail names a complete set of ways into the workspace
+ * rather than three extras bolted beside an unlabelled default. The strip itself sits outboard of
+ * the tree, so it stays put while the tree scrolls, resizes, or - on a phone - slides away entirely.
  *
  * ## Why this lives in the app and not in `packages/ui`
  *
@@ -62,11 +63,19 @@ interface RailDestination {
 /**
  * The destinations, in the order they appear.
  *
+ * **Notes is first, and it is the only one of the four that is not a different kind of view.**
+ * Calendar, Graph and Bookmarks each collapse the whole workspace into one picture drawn a
+ * different way; Notes is the tree itself - the one destination that is not really "elsewhere",
+ * only home. Placing it first, rather than leaving `/` reachable only through the logo, is what
+ * makes the rail read as a complete set of destinations instead of three extra ones bolted beside
+ * an unlabelled default.
+ *
  * `Network` rather than `Workflow` for the graph: a workflow glyph is a flowchart - boxes in a
  * sequence, with a direction - and the link graph has neither. `Network`'s undirected nodes and
  * edges are what the view actually shows.
  */
 const DESTINATIONS: readonly RailDestination[] = [
+  { to: '/', label: 'Notes', icon: NotebookText },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/graph', label: 'Graph', icon: Network },
   { to: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
