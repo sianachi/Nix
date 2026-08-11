@@ -128,11 +128,16 @@ export function NavRail({ onNavigate }: NavRailProps): ReactNode {
   }
 
   return (
-    // `bg-surface` rather than a divider: the rail and the tree are two regions, and a surface
-    // change says so without drawing a line between them (CLAUDE.md's borders-are-the-last-resort
-    // rule). Named, because a shell with a rail and a workspace tree has more than one way to move
-    // around and "navigation, navigation" is not a landmark list anybody can use.
-    <nav aria-label="Destinations" className="flex shrink-0 bg-surface">
+    // `bg-surface`, the same ground the tree sits on: the rail stretches the full height of the
+    // shell, past the header above the tree as well as beside the tree itself, and one surface for
+    // that whole strip is what keeps it reading as one region rather than two stacked patches.
+    // Because that surface is the one the tree already sits on, the two would have no boundary at
+    // all where they meet - CLAUDE.md's own case for `border-divider`, reached for "only where two
+    // regions of the same colour genuinely meet". The border runs the rail's full height rather
+    // than only alongside the tree, so it stays one continuous line rather than a border that
+    // starts partway down. Named, because a shell with a rail and a workspace tree has more than
+    // one way to move around and "navigation, navigation" is not a landmark list anybody can use.
+    <nav aria-label="Destinations" className="flex shrink-0 border-r border-divider bg-surface">
       <ul className="flex list-none flex-col items-center gap-1 px-1 py-2">
         {DESTINATIONS.map((destination, index) => {
           const current = index === currentIndex;
