@@ -28,6 +28,8 @@ on:
       - 'scripts/check-spacing-roles.test.sh'
       - 'scripts/check-text-primitive.sh'
       - 'scripts/check-text-primitive.test.sh'
+      - 'scripts/check-frontend-layering.sh'
+      - 'scripts/check-frontend-layering.test.sh'
       - '.github/workflows/ci-frontend.yml'
   pull_request:
     paths:
@@ -47,6 +49,8 @@ on:
       - 'scripts/check-spacing-roles.test.sh'
       - 'scripts/check-text-primitive.sh'
       - 'scripts/check-text-primitive.test.sh'
+      - 'scripts/check-frontend-layering.sh'
+      - 'scripts/check-frontend-layering.test.sh'
       - '.github/workflows/ci-frontend.yml'
 
 concurrency:
@@ -148,6 +152,15 @@ jobs:
 
       - name: Text-primitive guard (text elements take their type from <Text>)
         run: ./scripts/check-text-primitive.sh
+
+      # Catches what no taste guard can: a direction. layout/, a11y/ and lib/ are leaves, and the
+      # shell is the composition above the features - the shape that replaced app/, which was both
+      # at once and generated a real import cycle.
+      - name: Frontend layering guard self-test
+        run: ./scripts/check-frontend-layering.test.sh
+
+      - name: Frontend layering guard (the leaves are leaves; the shell is not imported for a value)
+        run: ./scripts/check-frontend-layering.sh
 
   frontend-unit:
     name: frontend unit
