@@ -4,7 +4,7 @@ import { useId, useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
 import { PropertyInput } from '../../properties/property-input';
-import { dayFromText, dayLabel, dayText, type CalendarDay } from '../calendar/calendar-dates';
+import { dayFromText, dayLabel, dayText, type CalendarDay } from '../core/calendar-dates';
 import {
   readPropertyText,
   type ContainerViews,

@@ -1,7 +1,7 @@
 import { Text, cn, focusRing } from '@nix/ui';
 import { useState, type DragEvent, type ReactNode } from 'react';
 
-import { dayLabel, dayText, weekLabel, type CalendarDay } from './calendar-dates';
+import { dayLabel, dayText, weekLabel, type CalendarDay } from '../core/calendar-dates';
 import { readPropertyText, type Item } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import {
@@ -10,7 +10,7 @@ import {
   readTimestampValue,
   writeTimestampValue,
 } from '../core/timestamps';
-import { useRovingGrid } from '../core/use-roving-grid';
+import { useRovingGrid } from './use-roving-grid';
 
 /**
  * A day or a week, drawn against the hours.

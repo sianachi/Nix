@@ -2,10 +2,10 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { CalendarDay } from '../../../views/calendar/calendar-dates';
+import type { CalendarDay } from '../../../views/core/calendar-dates';
 import { HourGrid } from '../../../views/calendar/calendar-hours';
 import { CalendarView } from '../../../views/calendar/calendar-view';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';

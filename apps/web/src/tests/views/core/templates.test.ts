@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { aContainer, views as viewsOf } from '../../../views/core/container-fixture';
+import { aContainer, views as viewsOf } from '../../container-fixture';
 import type { PropertyDefinition, View } from '../../../views/core/container-model';
 import {
   TEMPLATES,

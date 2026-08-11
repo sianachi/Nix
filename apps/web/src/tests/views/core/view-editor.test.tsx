@@ -7,7 +7,7 @@ import type {
   PropertyDefinition,
   View,
 } from '../../../views/core/container-model';
-import { aContainer, views as offered } from '../../../views/core/container-fixture';
+import { aContainer, views as offered } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
 import { ViewEditor } from '../../../views/core/view-editor';
 import { aView } from '../../view-fixture';

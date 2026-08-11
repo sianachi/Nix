@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
-import { aContainer } from '../../../views/core/container-fixture';
+import { aContainer } from '../../container-fixture';
 import type { Item } from '../../../views/core/container-model';
 import type { ContainerData } from '../../../views/core/use-container';
 import {

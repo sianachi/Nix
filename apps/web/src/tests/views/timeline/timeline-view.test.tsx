@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderAt } from '../../render-with-router';
 import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { TimelineView } from '../../../views/timeline/timeline-view';
 import type { ContainerData } from '../../../views/core/use-container';

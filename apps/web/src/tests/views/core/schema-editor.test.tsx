@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { EffectiveSchema, PropertyDefinition } from '../../../views/core/container-model';
-import { aContainer } from '../../../views/core/container-fixture';
+import { aContainer } from '../../container-fixture';
 import { SchemaEditor } from '../../../views/core/schema-editor';
 import type { ContainerData, SchemaDraft } from '../../../views/core/use-container';
 

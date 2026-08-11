@@ -116,7 +116,7 @@ export default defineConfig({
     // machine. The numbers below are from exactly that.
     //
     // The worst case used to be 'counts February 2028 as a leap February' in
-    // src/views/calendar-view.test.tsx. Worst figure on record for it: 4849ms,
+    // src/tests/views/calendar/calendar-view.test.tsx. Worst figure on record for it: 4849ms,
     // 97% of the 5000 default, idle. Re-measured on the same machine it came
     // back at 4041ms, 81% - and that spread between two idle runs of the same
     // test is itself the argument, because a CI runner is never the better of

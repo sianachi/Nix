@@ -1,6 +1,6 @@
-import type { ContainerViews, View } from './container-model';
-import { DOCUMENT_VIEW } from './container-model';
-import type { ContainerData } from './use-container';
+import type { ContainerViews, View } from '../views/core/container-model';
+import { DOCUMENT_VIEW } from '../views/core/container-model';
+import type { ContainerData } from '../views/core/use-container';
 
 /**
  * A container, for a test that cares about one thing in it.

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type {
   EffectiveSchema,
   Item,

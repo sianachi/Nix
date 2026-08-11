@@ -27,9 +27,9 @@ import {
   weekdayIndex,
   type CalendarDay,
   type CalendarMonth,
-} from './calendar-dates';
+} from '../core/calendar-dates';
 import { HourGrid } from './calendar-hours';
-import { VIEW_GUTTER_BLEED } from '../core/container-view';
+import { VIEW_GUTTER_BLEED } from '../core/view-gutter';
 import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from '../core/timestamps';
 import type { ContainerData } from '../core/use-container';
 import { drawable, resolveViewChrome, undrawable } from '../core/view-chrome';
@@ -438,7 +438,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       {mode === 'month' ? (
         /*
           The scroller sits *outside* the frame and bleeds the container's gutter
-          (`VIEW_GUTTER_BLEED`, owned by container-view.tsx so the negative margin and the padding
+          (`VIEW_GUTTER_BLEED`, owned by view-gutter.ts so the negative margin and the padding
           cannot become two different numbers), and the arithmetic is why. The table's floor is
           728px (`MONTH_GRID_MIN_WIDTH`), and around it stand the frame's 2px of border, its 24px
           of `p-3`, and - since ContainerView grew its gutter wrapper - 64px of it: about 90px of

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarView } from '../../../views/calendar/calendar-view';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';

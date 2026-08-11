@@ -14,7 +14,7 @@ import {
   weekdayIndex,
   type CalendarDay,
   type CalendarMonth,
-} from '../calendar/calendar-dates';
+} from '../core/calendar-dates';
 import { readDateValue, type Item } from '../core/container-model';
 import { dayFor, readTimestampValue } from '../core/timestamps';
 

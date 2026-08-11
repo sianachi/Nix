@@ -26,7 +26,7 @@ import { Link, useLocation } from 'react-router';
  *
  * ## Keyboard: one tab stop, arrows inside
  *
- * The APG's roving tabindex, the same convention `views/core/use-roving-grid.ts` implements for the
+ * The APG's roving tabindex, the same convention `views/calendar/use-roving-grid.ts` implements for the
  * hour grid, and for the same reason: a set of like controls should cost one Tab press to pass,
  * not one per control. Three items make that a small win today and a correct habit regardless -
  * the rail is where destinations accumulate.

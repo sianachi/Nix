@@ -13,7 +13,7 @@ import {
   weekOf,
   weekdayIndex,
   withinRange,
-} from '../../../views/calendar/calendar-dates';
+} from '../../../views/core/calendar-dates';
 
 /**
  * The arithmetic a calendar is built from.

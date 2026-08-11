@@ -13,7 +13,7 @@ import type {
   View,
 } from '../../../views/core/container-model';
 import { ListView } from '../../../views/list/list-view';
-import { aContainer } from '../../../views/core/container-fixture';
+import { aContainer } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
 
 /**

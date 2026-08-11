@@ -12,7 +12,7 @@ import type {
   PropertyDefinition,
   View,
 } from '../../../views/core/container-model';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
 
 /**

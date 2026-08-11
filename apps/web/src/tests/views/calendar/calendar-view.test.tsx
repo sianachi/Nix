@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
-import { VIEW_GUTTER_BLEED } from '../../../views/core/container-view';
+import { VIEW_GUTTER_BLEED } from '../../../views/core/view-gutter';
 import { CalendarView } from '../../../views/calendar/calendar-view';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
-import { aContainer, views } from '../../../views/core/container-fixture';
+import { aContainer, views } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
 
 /**
@@ -496,7 +496,7 @@ describe('the calendar view', () => {
       // table so the last column ends at the frame's edge rather than under it.
       //
       // Asserted against the exported constants rather than against `-mx-8 px-8` spelled out
-      // again: the gutter's width is container-view.tsx's to decide, and a test that pinned the
+      // again: the gutter's width is view-gutter.ts's to decide, and a test that pinned the
       // literal would be a third place encoding "8" and the first one to fail for the wrong
       // reason when the gutter changes.
       const region = screen.getByRole('region', { name: /march 2026/i });
