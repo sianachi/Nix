@@ -100,29 +100,3 @@ export function storePreference(storage: Storage | undefined, preference: ThemeP
     // Nothing to do and nothing worth failing over.
   }
 }
-
-/**
- * The storage the application actually has, if it has one.
- *
- * **The DOM types declare `localStorage` as always present, and that is not true.** It throws on
- * an opaque origin, it is absent when this code is evaluated outside a browser, and a test
- * environment can leave an object there with no methods on it. So the return type is honest where
- * the platform's is not, and every caller is made to handle its absence.
- *
- * Checked by feature rather than by existence for the same reason: an object that exists and
- * cannot `getItem` is exactly as useful as no object, and only one of those two is what the type
- * would have you check for.
- */
-export function browserStorage(): Storage | undefined {
-  try {
-    const candidate: unknown = globalThis.localStorage;
-
-    return typeof (candidate as Storage | undefined)?.getItem === 'function'
-      ? (candidate as Storage)
-      : undefined;
-  } catch {
-    // An opaque origin, or a policy that blocks storage outright. Both throw on access rather
-    // than returning nothing, which is why this is a try and not a check.
-    return undefined;
-  }
-}

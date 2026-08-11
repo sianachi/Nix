@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import { browserStorage } from '../theme/theme-store';
+import { browserStorage } from '../lib/browser-storage';
 
 /**
  * Whether the workspace tree is on screen.

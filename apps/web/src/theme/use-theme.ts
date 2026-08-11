@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { browserStorage } from '../lib/browser-storage';
 import {
   applyGround,
-  browserStorage,
   readStoredPreference,
   resolveGround,
   storePreference,

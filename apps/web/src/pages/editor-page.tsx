@@ -38,7 +38,7 @@ import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
 import { ItemPanel } from './item-panel';
-import { browserStorage } from '../theme/theme-store';
+import { browserStorage } from '../lib/browser-storage';
 import { readPanelOpen, storePanelOpen } from './panel-state';
 import { useViewState } from '../views/core/view-state';
 import { ViewSwitcher } from '../views/core/view-switcher';
