@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { useOutletContext } from 'react-router';
 
-import type { ShellContext } from '../app/app-shell';
+import type { ShellContext } from '../app/shell-context';
 import { paneClip, paneColumn, paneScroller } from '../app/layout';
 import { useNarrowViewport } from '../app/use-narrow-viewport';
 import { NoteEditor } from '../editor/note-editor';

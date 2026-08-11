@@ -6,6 +6,7 @@ import { Link, Outlet } from 'react-router';
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import { announce, useAnnouncement } from './announcer';
+import type { ShellContext } from './shell-context';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
@@ -496,7 +497,12 @@ export function AppShell(): ReactNode {
               inert={narrow && sidebar.visible}
               className={`isolate flex flex-1 ${paneClip}`}
             >
-              <Outlet context={{ tree, selectedId }} />
+              {/* `satisfies` rather than a bare object: the screens below read this back through
+                  `useOutletContext<ShellContext>()`, which is an unchecked assertion on their
+                  side. Naming the type here is what makes the two halves one contract, so
+                  dropping a field fails this file rather than surfacing as `undefined` in a
+                  screen that trusted the annotation. */}
+              <Outlet context={{ tree, selectedId } satisfies ShellContext} />
             </main>
           </div>
         </div>
@@ -566,10 +572,4 @@ export function AppShell(): ReactNode {
       )}
     </div>
   );
-}
-
-/** What the shell hands to whatever screen is open. */
-export interface ShellContext {
-  readonly tree: ReturnType<typeof useWorkspaceTree>;
-  readonly selectedId: string | null;
 }
