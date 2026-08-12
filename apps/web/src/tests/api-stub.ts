@@ -59,8 +59,18 @@ export interface StubOptions {
   /** Makes every backlinks read fail. */
   readonly backlinksFail?: boolean;
 
-  /** Makes the workspace graph read fail. */
+  /**
+   * Makes the workspace graph read fail with `404 workspaces.not_found` - the refusal Core gives
+   * for a workspace the caller may not see.
+   */
   readonly graphFails?: boolean;
+
+  /**
+   * Makes the graph route answer a bodyless 404, the way a server running a build older than the
+   * endpoint does. Distinct from `graphFails` on purpose: the two are the same status and mean
+   * completely different things, and telling them apart is the view's job.
+   */
+  readonly graphRouteMissing?: boolean;
 
   /**
    * The reference edges the graph read reports, stated rather than derived: this stub knows
@@ -135,6 +145,7 @@ export function stubCoreApi(options: StubOptions = {}): void {
     backlinksFail = false,
     backlinks = {},
     graphFails = false,
+    graphRouteMissing = false,
     graphLinks = [],
     graphTruncated = {},
     views = {},
@@ -303,6 +314,10 @@ export function stubCoreApi(options: StubOptions = {}): void {
       // Search, reference resolution and backlinks all read the same seeded items, so a test that
       // stubs a workspace gets a working palette and a working picker without saying anything more.
       if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/graph$/.test(url)) {
+        if (graphRouteMissing) {
+          return Promise.resolve(new Response(null, { status: 404 }));
+        }
+
         if (graphFails) {
           return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
         }

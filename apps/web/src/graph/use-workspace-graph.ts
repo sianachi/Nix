@@ -32,6 +32,41 @@ function readWorkspaceId(): string {
 
 const WORKSPACE_ID = readWorkspaceId();
 
+/**
+ * Why a failed read failed, in words a reader can act on.
+ *
+ * **Keyed on the problem's `code`, not on the status alone, and that distinction is not
+ * theoretical.** Core answers `404 workspaces.not_found` for a workspace the caller may not see -
+ * deliberately, so a response cannot confirm one exists. But a request that reaches a server with
+ * no such route *also* answers 404, with no body at all, and the first version of this hook
+ * reported that as "This workspace could not be found." It sent a real debugging session looking
+ * for a permission bug that was never there: the server was simply running a build older than the
+ * endpoint.
+ *
+ * So a 404 carrying the code is the refusal it claims to be, and a 404 without one is this build
+ * asking a server that does not offer the endpoint - which is a deployment fact, and worth saying
+ * out loud rather than dressing up as an authorization result.
+ */
+async function refusal(response: Response): Promise<string> {
+  const code: unknown = await response
+    .json()
+    .then((body: unknown) =>
+      typeof body === 'object' && body !== null && 'code' in body ? body.code : null,
+    )
+    // A body that is absent or is not JSON at all - which is exactly what a routing 404 sends.
+    .catch(() => null);
+
+  if (code === 'workspaces.not_found') {
+    return 'This workspace could not be found.';
+  }
+
+  if (response.status === 404) {
+    return 'This version of the application asked for a graph the server does not offer. The server may be running an older build.';
+  }
+
+  return 'The graph could not be loaded.';
+}
+
 export type GraphStatus = 'loading' | 'ready' | 'error';
 
 export interface WorkspaceGraphState {
@@ -64,15 +99,8 @@ export function useWorkspaceGraph(): WorkspaceGraphState {
       });
 
       if (!response.ok) {
-        // 404 is what Core answers for a workspace the caller may not see, deliberately, so that
-        // the response cannot be used to confirm one exists. Saying "not found" back to the reader
-        // is therefore the honest sentence in both cases, and the only one we are entitled to.
         setStatus('error');
-        setError(
-          response.status === 404
-            ? 'This workspace could not be found.'
-            : 'The graph could not be loaded.',
-        );
+        setError(await refusal(response));
         return;
       }
 

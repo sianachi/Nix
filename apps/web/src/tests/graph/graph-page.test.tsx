@@ -213,6 +213,33 @@ describe('what the graph admits to', () => {
     expect(screen.queryByRole('tree', { name: /workspace graph/i })).not.toBeInTheDocument();
   });
 
+  /**
+   * A regression for a real debugging session. Core answers `404 workspaces.not_found` for a
+   * workspace the caller may not see, and a server with no such route answers a bodyless 404 -
+   * same status, completely different fact. Reporting the second as the first sent somebody
+   * hunting a permission bug that did not exist while the server was simply running an older
+   * build.
+   */
+  it('tells a missing route apart from a refused workspace, since both are 404', async () => {
+    stubCoreApi({ items: [ROOT], graphRouteMissing: true });
+    renderAt(<App />, '/graph');
+
+    const alert = await screen.findByRole('alert');
+
+    expect(within(alert).getByText(/older build/i)).toBeInTheDocument();
+    expect(within(alert).queryByText(/workspace could not be found/i)).not.toBeInTheDocument();
+  });
+
+  it('says a workspace the caller may not see could not be found', async () => {
+    stubCoreApi({ items: [ROOT], graphFails: true });
+    renderAt(<App />, '/graph');
+
+    const alert = await screen.findByRole('alert');
+
+    expect(within(alert).getByText(/workspace could not be found/i)).toBeInTheDocument();
+    expect(within(alert).queryByText(/older build/i)).not.toBeInTheDocument();
+  });
+
   it('says a workspace with nothing in it is empty, not broken', async () => {
     stubCoreApi({ items: [] });
     renderAt(<App />, '/graph');
