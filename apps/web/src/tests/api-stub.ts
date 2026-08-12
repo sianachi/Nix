@@ -59,6 +59,23 @@ export interface StubOptions {
   /** Makes every backlinks read fail. */
   readonly backlinksFail?: boolean;
 
+  /** Makes the workspace graph read fail. */
+  readonly graphFails?: boolean;
+
+  /**
+   * The reference edges the graph read reports, stated rather than derived: this stub knows
+   * nothing about document contents, and the real edges are extracted from them by the
+   * collaboration service. Same reasoning as `backlinks` above.
+   */
+  readonly graphLinks?: readonly { readonly sourceId: string; readonly targetId: string }[];
+
+  /**
+   * Makes the graph read claim it hit a ceiling, so a test can assert the view says so. The
+   * payload is not actually truncated - what is under test is whether the flag reaches the reader,
+   * not whether the server can count.
+   */
+  readonly graphTruncated?: { readonly nodes?: boolean; readonly links?: boolean };
+
   /**
    * Which items link to which, keyed by the target.
    *
@@ -117,6 +134,9 @@ export function stubCoreApi(options: StubOptions = {}): void {
     searchFails = false,
     backlinksFail = false,
     backlinks = {},
+    graphFails = false,
+    graphLinks = [],
+    graphTruncated = {},
     views = {},
     createRefusal,
     removeFails = false,
@@ -282,6 +302,29 @@ export function stubCoreApi(options: StubOptions = {}): void {
 
       // Search, reference resolution and backlinks all read the same seeded items, so a test that
       // stubs a workspace gets a working palette and a working picker without saying anything more.
+      if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/graph$/.test(url)) {
+        if (graphFails) {
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        }
+
+        return Promise.resolve(
+          json({
+            workspaceId: STUB_WORKSPACE_ID,
+            nodes: known.map((entry) => ({
+              id: entry.id,
+              parentId: entry.parentId,
+              type: entry.type,
+              title: entry.title.length === 0 ? null : entry.title,
+            })),
+            links: graphLinks,
+            nodeLimit: 2000,
+            linkLimit: 4000,
+            nodesTruncated: graphTruncated.nodes ?? false,
+            linksTruncated: graphTruncated.links ?? false,
+          }),
+        );
+      }
+
       // Ordered before the tree route below because a backlinks url contains "/items" too.
       const backlinksFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/backlinks/.exec(url);
       if (backlinksFor !== null) {

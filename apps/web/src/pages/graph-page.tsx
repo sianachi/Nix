@@ -1,19 +1,113 @@
-import type { ReactElement } from 'react';
+import { Button, Text } from '@nix/ui';
+import type { ReactElement, ReactNode } from 'react';
 
+import {
+  EmptyPanel,
+  ErrorPanel,
+  LoadingPanel,
+  PartialNotice,
+} from '../components/states/status-panels';
+import { GraphView } from '../graph/graph-view';
+import { useWorkspaceGraph } from '../graph/use-workspace-graph';
 import { paneScroller } from '../layout/regions';
-import { EmptyPanel } from '../components/states/status-panels';
+import { useSelectedItem } from '../routing/selected-item';
+import { useOpenItem } from '../tabs/use-open-item';
 
 /**
- * The graph destination, routed and named and nothing else yet. See `calendar-page.tsx` for why a
- * placeholder says so out loud rather than drawing an empty canvas.
+ * The graph destination: the workspace as items and the references between them.
+ *
+ * **The truncation notice is the part that is not decoration.** Core bounds the response at 2,000
+ * nodes and 4,000 links and reports whether it hit either ceiling. A truncated list looks short and
+ * announces itself; a truncated graph looks like a graph. A reader shown 2,000 of 3,000 items would
+ * conclude two clusters are unconnected, which is a wrong answer rather than a missing one - so
+ * whenever a flag is set this page says so above the drawing, and says which ceiling was hit.
+ *
+ * Opening a node goes through the same `useOpenItem` the tree and the command palette use, so a
+ * node opened from here lands in the pane a reader expects and joins the tab strip like anything
+ * else. The graph does not own a second idea of what is open.
  */
-export function GraphPage(): ReactElement {
+/**
+ * The destination's frame: its heading, and whatever state it is in.
+ *
+ * The heading is outside the state fork on purpose. It is the answer to "where am I", which is
+ * true while the graph is loading, true when it failed, and true when the workspace is empty - and
+ * a destination that only names itself once it has data leaves a reader on an untitled page in
+ * exactly the moments they most need to know where they landed.
+ */
+function GraphFrame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className={`${paneScroller} p-4`}>
-      <EmptyPanel
-        title="Graph"
-        detail="Not built yet. This destination is routed and reachable; the link graph itself arrives in a later goal."
-      />
+    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
+      <Text variant="h2" as="h1">
+        Graph
+      </Text>
+      {children}
     </div>
+  );
+}
+
+export function GraphPage(): ReactElement {
+  const { status, graph, error, reload } = useWorkspaceGraph();
+  const { openPreview } = useOpenItem();
+  const { selectedId } = useSelectedItem();
+
+  if (status === 'loading') {
+    return (
+      <GraphFrame>
+        <LoadingPanel label="the workspace graph" />
+      </GraphFrame>
+    );
+  }
+
+  if (status === 'error' || graph === null) {
+    return (
+      <GraphFrame>
+        <ErrorPanel
+          title="The graph could not be loaded"
+          detail={error ?? 'Something went wrong reading this workspace.'}
+          action={
+            <Button
+              onClick={() => {
+                void reload();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      </GraphFrame>
+    );
+  }
+
+  if (graph.nodes.length === 0) {
+    return (
+      <GraphFrame>
+        <EmptyPanel
+          title="Nothing to graph yet"
+          detail="This workspace has no items you can read. Create a note, and it will appear here with anything it links to."
+        />
+      </GraphFrame>
+    );
+  }
+
+  return (
+    <GraphFrame>
+      {graph.nodesTruncated && (
+        <PartialNotice
+          pending={`Showing the first ${String(graph.nodeLimit)} items in this workspace. Some items, and any references to them, are not drawn.`}
+        />
+      )}
+      {graph.linksTruncated && (
+        <PartialNotice
+          pending={`Showing the first ${String(graph.linkLimit)} references. Some connections between the items below are not drawn.`}
+        />
+      )}
+
+      <GraphView
+        nodes={graph.nodes}
+        links={graph.links}
+        onOpen={openPreview}
+        selectedId={selectedId}
+      />
+    </GraphFrame>
   );
 }
