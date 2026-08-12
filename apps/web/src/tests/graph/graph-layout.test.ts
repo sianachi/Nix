@@ -1,7 +1,14 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
 import { describe, expect, it } from 'vitest';
 
-import { layoutGraph, nodeTitle, NODE_RADIUS, type PositionedNode } from '../../graph/graph-layout';
+import {
+  applyOffsets,
+  buildEdges,
+  layoutGraph,
+  nodeTitle,
+  NODE_RADIUS,
+  type PositionedNode,
+} from '../../graph/graph-layout';
 
 /**
  * The layout is arithmetic over a payload, so it is tested as arithmetic - no DOM, no render.
@@ -304,5 +311,66 @@ describe('naming a node', () => {
 
   it('treats a stored empty title the same as an absent one', () => {
     expect(nodeTitle({ title: '' })).toBe('Untitled');
+  });
+});
+
+/**
+ * Nudges.
+ *
+ * Held apart from the layout rather than written into it, so "put it back" is dropping a map entry
+ * rather than laying the graph out again - and so a refetch cannot leave a stale hand-placed
+ * coordinate behind.
+ */
+describe('moving a node by hand', () => {
+  it('leaves the arrangement alone when nothing has been moved', () => {
+    const layout = layoutGraph([aNode('root', null), aNode('a', 'root')], []);
+
+    expect(applyOffsets(layout.nodes, new Map())).toBe(layout.nodes);
+  });
+
+  it('moves only the node that was nudged', () => {
+    const layout = layoutGraph([aNode('root', null), aNode('a', 'root')], []);
+    const moved = applyOffsets(layout.nodes, new Map([['a', { dx: 40, dy: -25 }]]));
+
+    const before = find(layout.nodes, 'a');
+    const after = find(moved, 'a');
+
+    expect(after.x).toBe(before.x + 40);
+    expect(after.y).toBe(before.y - 25);
+    expect(find(moved, 'root')).toEqual(find(layout.nodes, 'root'));
+  });
+
+  it('does not disturb the underlying layout, so the nudge can be undone', () => {
+    const layout = layoutGraph([aNode('root', null), aNode('a', 'root')], []);
+    const before = { ...find(layout.nodes, 'a') };
+
+    applyOffsets(layout.nodes, new Map([['a', { dx: 100, dy: 100 }]]));
+
+    expect(find(layout.nodes, 'a')).toEqual(before);
+  });
+
+  it('redraws the edges from where a moved node now is', () => {
+    const layout = layoutGraph([aNode('root', null), aNode('a', 'root')], []);
+    const moved = applyOffsets(layout.nodes, new Map([['a', { dx: 90, dy: 90 }]]));
+    const redrawn = buildEdges(moved, []);
+
+    expect(redrawn.parentEdges[0]?.path).not.toBe(layout.parentEdges[0]?.path);
+
+    // Still landing on the disc it points at, wherever that disc has been dragged to.
+    const gap = distance(endOf(redrawn.parentEdges[0]?.path ?? ''), find(moved, 'a'));
+    expect(gap).toBeGreaterThan(NODE_RADIUS);
+  });
+
+  it('redraws a reference edge from where its moved end now is', () => {
+    const nodes = [aNode('root', null), aNode('a', 'root'), aNode('b', 'root')];
+    const links = [aLink('a', 'b')];
+    const layout = layoutGraph(nodes, links);
+    const moved = applyOffsets(layout.nodes, new Map([['b', { dx: 70, dy: 20 }]]));
+    const redrawn = buildEdges(moved, links);
+
+    expect(redrawn.referenceEdges[0]?.path).not.toBe(layout.referenceEdges[0]?.path);
+    expect(
+      distance(endOf(redrawn.referenceEdges[0]?.path ?? ''), find(moved, 'b')),
+    ).toBeGreaterThan(NODE_RADIUS);
   });
 });

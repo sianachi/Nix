@@ -120,6 +120,30 @@ function describe(node: PositionedNode, references: readonly string[]): string {
   return `${kind}, ${references.length === 1 ? 'references' : `${String(references.length)} references:`} ${references.join(', ')}`;
 }
 
+/**
+ * Pointer capture, where the platform has it.
+ *
+ * Present in every browser this application targets and absent in jsdom, so the feature test is
+ * about the test environment rather than about the web. It is still the right shape: capture is an
+ * optimisation for a drag - it keeps the events coming when the pointer outruns a small target -
+ * and losing it should cost a little precision, never the whole gesture.
+ */
+function capturePointer(element: SVGGElement, pointerId: number): void {
+  if (typeof element.setPointerCapture === 'function') {
+    element.setPointerCapture(pointerId);
+  }
+}
+
+function releasePointer(element: SVGGElement, pointerId: number): void {
+  if (
+    typeof element.hasPointerCapture === 'function' &&
+    typeof element.releasePointerCapture === 'function' &&
+    element.hasPointerCapture(pointerId)
+  ) {
+    element.releasePointerCapture(pointerId);
+  }
+}
+
 /** A drag in progress: which node, where the pointer went down, and how far it has come. */
 interface Drag {
   readonly id: string;
@@ -222,7 +246,12 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
       return;
     }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Capture keeps the moves coming when the pointer outruns the disc, which it will - a small
+    // target dragged quickly is left behind within a frame. Guarded because it is not universal:
+    // jsdom has no pointer capture at all, and an unguarded call there throws before the drag is
+    // even recorded, which takes the whole interaction with it rather than only the capture.
+    capturePointer(event.currentTarget, event.pointerId);
+
     dragRef.current = {
       id: node.id,
       startX: event.clientX,
@@ -260,9 +289,7 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
     const drag = dragRef.current;
     dragRef.current = null;
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    releasePointer(event.currentTarget, event.pointerId);
 
     // A release that never travelled is a click, and a click opens the note. A release that did is
     // the end of a drag, and opening the item somebody just finished arranging would be a surprise.
@@ -435,7 +462,12 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
                 {/* A generous, invisible target under the disc. Seven pixels is a small thing to
                     hit with a mouse and smaller with a trackpad, and the alternative - a bigger
                     disc - would change the drawing to serve the pointer. */}
-                <circle cx={node.x} cy={node.y} r={NODE_RADIUS * 2.5} className="fill-transparent" />
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={NODE_RADIUS * 2.5}
+                  className="fill-transparent"
+                />
                 <circle
                   cx={node.x}
                   cy={node.y}

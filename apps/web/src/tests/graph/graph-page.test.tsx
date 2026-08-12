@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -457,5 +457,124 @@ describe('showing which way an edge points', () => {
     for (const id of referenced) {
       expect(defined).toContain(id);
     }
+  });
+});
+
+/**
+ * Clicking and dragging the discs themselves.
+ *
+ * Driven with pointer events rather than `userEvent.click`, because that is what the view listens
+ * for - and because the distinction under test is entirely about how far the pointer travelled
+ * between press and release, which a synthesised click has no way to express.
+ *
+ * jsdom implements no pointer capture at all. The handlers feature-test for it, so these tests
+ * exercise the no-capture path as a side effect - which is worth knowing when reading a failure
+ * here, and is how the missing guard was found in the first place.
+ */
+describe('handling a node with the pointer', () => {
+  function discFor(container: HTMLElement, index: number): SVGGElement {
+    const groups = [...container.querySelectorAll('svg > g.group')];
+    const group = groups[index];
+    if (group === undefined) {
+      throw new Error(`no node group at ${String(index)}`);
+    }
+    return group as SVGGElement;
+  }
+
+  function press(target: Element, x: number, y: number): void {
+    fireEvent.pointerDown(target, { button: 0, pointerId: 1, clientX: x, clientY: y });
+  }
+
+  it('opens the note when a disc is clicked', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const tree = screen.getByRole('tree', { name: /workspace graph/i });
+    const before = within(tree).getAllByRole('treeitem')[0];
+    expect(before).toHaveAttribute('aria-selected', 'false');
+
+    const disc = discFor(container, 0);
+    press(disc, 100, 100);
+    fireEvent.pointerUp(disc, { pointerId: 1, clientX: 100, clientY: 100 });
+
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole('tree', { name: /workspace graph/i })).getAllByRole('treeitem')[0],
+      ).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  /**
+   * The reason a threshold exists at all. A drag ends with a pointer release over the node it
+   * started on, so without one, arranging the graph would open a note every time.
+   */
+  it('does not open the note when the disc was dragged instead of clicked', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    press(disc, 100, 100);
+    fireEvent.pointerMove(disc, { pointerId: 1, clientX: 160, clientY: 140 });
+    fireEvent.pointerUp(disc, { pointerId: 1, clientX: 160, clientY: 140 });
+
+    const tree = screen.getByRole('tree', { name: /workspace graph/i });
+    expect(within(tree).getAllByRole('treeitem')[0]).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('moves the node the pointer dragged', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    const circle = disc.querySelector('circle');
+    const startX = circle?.getAttribute('cx');
+
+    press(disc, 100, 100);
+    fireEvent.pointerMove(disc, { pointerId: 1, clientX: 180, clientY: 100 });
+
+    await waitFor(() => {
+      expect(discFor(container, 0).querySelector('circle')?.getAttribute('cx')).not.toBe(startX);
+    });
+  });
+
+  it('offers a way to put a nudged graph back, and only once there is something to put back', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    expect(screen.queryByRole('button', { name: /tidy up/i })).not.toBeInTheDocument();
+
+    const disc = discFor(container, 0);
+    const startX = disc.querySelector('circle')?.getAttribute('cx');
+    press(disc, 100, 100);
+    fireEvent.pointerMove(disc, { pointerId: 1, clientX: 180, clientY: 100 });
+    fireEvent.pointerUp(disc, { pointerId: 1, clientX: 180, clientY: 100 });
+
+    const tidy = await screen.findByRole('button', { name: /tidy up/i });
+    fireEvent.click(tidy);
+
+    await waitFor(() => {
+      expect(discFor(container, 0).querySelector('circle')?.getAttribute('cx')).toBe(startX);
+    });
+  });
+
+  it('ignores a secondary-button press, which belongs to the browser', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    fireEvent.pointerDown(disc, { button: 2, pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(disc, { pointerId: 1, clientX: 100, clientY: 100 });
+
+    const tree = screen.getByRole('tree', { name: /workspace graph/i });
+    expect(within(tree).getAllByRole('treeitem')[0]).toHaveAttribute('aria-selected', 'false');
   });
 });
