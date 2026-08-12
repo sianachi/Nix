@@ -411,3 +411,51 @@ describe('when a node writes its name', () => {
     });
   });
 });
+
+/**
+ * Arrowheads.
+ *
+ * Reads the drawing, for the same reason the label tests do: direction is a fact about the SVG and
+ * there is nowhere else to look for it. The marker geometry is not asserted - that is a picture,
+ * and jsdom paints nothing - but whether every edge actually references a head is structural, and
+ * an edge that quietly lost its `marker-end` would otherwise look exactly like one that has it.
+ */
+describe('showing which way an edge points', () => {
+  it('puts a head on every containment edge and every reference edge', async () => {
+    stubCoreApi({
+      items: [ROOT, CHILD, OTHER],
+      graphLinks: [{ sourceId: ROOT.id, targetId: OTHER.id }],
+    });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const paths = [...container.querySelectorAll('svg g path')];
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.every((path) => path.getAttribute('marker-end') !== null)).toBe(true);
+  });
+
+  it('defines the heads it points at, so no edge references a marker that is not there', async () => {
+    stubCoreApi({
+      items: [ROOT, CHILD, OTHER],
+      graphLinks: [{ sourceId: ROOT.id, targetId: OTHER.id }],
+    });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const referenced = new Set(
+      [...container.querySelectorAll('svg g path')].map((path) =>
+        (path.getAttribute('marker-end') ?? '').replace(/^url\(#|\)$/g, ''),
+      ),
+    );
+    const defined = new Set(
+      [...container.querySelectorAll('svg defs marker')].map((marker) => marker.id),
+    );
+
+    expect(referenced.size).toBeGreaterThan(0);
+    for (const id of referenced) {
+      expect(defined).toContain(id);
+    }
+  });
+});

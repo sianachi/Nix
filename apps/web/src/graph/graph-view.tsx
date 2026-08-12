@@ -208,10 +208,49 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
           viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
           className="max-w-none"
         >
+          {/* Two heads rather than one, because a marker cannot inherit the colour of the path
+              that references it: `context-stroke` would do it, but support is uneven enough that a
+              containment head would be the wrong colour on some browsers and right on others.
+              Each head carries its own token fill instead, so the pair always matches its lines.
+
+              `orient="auto"` turns the head to the path's own direction at its end, which is what
+              makes one definition serve both a straight spoke and a bowed arc. The paths already
+              stop short of the disc they point at (see graph-layout.ts), so the head lands in
+              clear space rather than under the node. */}
+          <defs>
+            <marker
+              id="graph-arrow-containment"
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={6}
+              markerHeight={6}
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-divider" />
+            </marker>
+            <marker
+              id="graph-arrow-reference"
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={6}
+              markerHeight={6}
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-accent-text" />
+            </marker>
+          </defs>
+
           {/* Containment first, so reference arcs sit over the structure rather than under it. */}
           <g fill="none" stroke="currentColor" className="text-divider">
             {layout.parentEdges.map((edge) => (
-              <path key={`${edge.parentId}-${edge.childId}`} d={edge.path} strokeWidth={1} />
+              <path
+                key={`${edge.parentId}-${edge.childId}`}
+                d={edge.path}
+                strokeWidth={1}
+                markerEnd="url(#graph-arrow-containment)"
+              />
             ))}
           </g>
 
@@ -221,6 +260,7 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
                 key={`${edge.sourceId}-${edge.targetId}-${String(index)}`}
                 d={edge.path}
                 strokeWidth={1.5}
+                markerEnd="url(#graph-arrow-reference)"
               />
             ))}
           </g>
