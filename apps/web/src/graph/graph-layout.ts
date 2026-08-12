@@ -347,6 +347,33 @@ export function layoutGraph(nodes: readonly GraphNode[], links: readonly GraphLi
     depth: point.entry.depth,
   }));
 
+  const { parentEdges, referenceEdges } = buildEdges(placed, links);
+
+  return {
+    nodes: placed,
+    parentEdges,
+    referenceEdges,
+    width: maxX - minX + PADDING * 2,
+    height: maxY - minY + PADDING * 2,
+  };
+}
+
+/**
+ * The edges between a set of already-placed nodes.
+ *
+ * Separate from {@link layoutGraph} because a node can be dragged, and an edge whose end has moved
+ * has to be drawn again from where that end now is. Rebuilding only the paths - never the placement
+ * - is what keeps a drag from rearranging the rest of the workspace under the reader's hand.
+ *
+ * Both lists are built only from nodes that were actually placed. The contract promises a link's
+ * two ends are present, so the lookups should never miss - but a renderer that trusts that and is
+ * wrong draws a path to `undefined`, which SVG renders as a line to the origin: a visible edge that
+ * means nothing.
+ */
+export function buildEdges(
+  placed: readonly PositionedNode[],
+  links: readonly GraphLink[],
+): { readonly parentEdges: readonly ParentEdge[]; readonly referenceEdges: readonly ReferenceEdge[] } {
   const byId = new Map(placed.map((node) => [node.id, node]));
 
   const parentEdges: ParentEdge[] = [];
@@ -378,13 +405,35 @@ export function layoutGraph(nodes: readonly GraphNode[], links: readonly GraphLi
     });
   }
 
-  return {
-    nodes: placed,
-    parentEdges,
-    referenceEdges,
-    width: maxX - minX + PADDING * 2,
-    height: maxY - minY + PADDING * 2,
-  };
+  return { parentEdges, referenceEdges };
+}
+
+/** How far a node has been dragged from where the layout put it. */
+export interface Offset {
+  readonly dx: number;
+  readonly dy: number;
+}
+
+/**
+ * The nodes as the reader has arranged them.
+ *
+ * Nudges are held apart from the layout rather than written into it, which is what makes them
+ * cheap to undo and impossible to corrupt: the computed arrangement is still there underneath, so
+ * "put it back" is dropping a map entry rather than laying the whole graph out again. It also means
+ * a refetch that changes the workspace cannot leave a stale hand-placed coordinate behind.
+ */
+export function applyOffsets(
+  nodes: readonly PositionedNode[],
+  offsets: ReadonlyMap<string, Offset>,
+): readonly PositionedNode[] {
+  if (offsets.size === 0) {
+    return nodes;
+  }
+
+  return nodes.map((node) => {
+    const offset = offsets.get(node.id);
+    return offset === undefined ? node : { ...node, x: node.x + offset.dx, y: node.y + offset.dy };
+  });
 }
 
 /**

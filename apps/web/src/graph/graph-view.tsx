@@ -1,9 +1,25 @@
 import { Button, Icon, Text, focusRing } from '@nix/ui';
 import { FileText, Minus, Plus, Scan } from 'lucide-react';
-import { useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactElement,
+} from 'react';
 
 import { indentAt, ROW_INDENT } from '../items/workspace-sidebar';
-import { layoutGraph, nodeTitle, NODE_RADIUS, type PositionedNode } from './graph-layout';
+import {
+  applyOffsets,
+  buildEdges,
+  layoutGraph,
+  nodeTitle,
+  NODE_RADIUS,
+  type Offset,
+  type PositionedNode,
+} from './graph-layout';
 import { atZoom, zoomIn, zoomOut, ZOOM_DEFAULT, type Zoom } from './graph-zoom';
 import type { GraphLink, GraphNode } from '@nix/api-client';
 
@@ -21,9 +37,11 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
  * clutter; to a screen reader it is the only form of the graph that can be read at all. Hiding it
  * visually costs sighted readers nothing and removing it would cost everyone else the whole view.
  *
- * Keyboard focus still lands in it, and the drawing answers: the focused node reveals its label
- * exactly as a hovered one does, so a sighted keyboard user can see where they are even though the
- * control they are focused on is not painted.
+ * **The discs are clickable and draggable; they are not focusable.** Pointer affordances inside an
+ * `aria-hidden` subtree are fine - a mouse reaches them and assistive technology is not told they
+ * exist, which is honest, because the same actions are on the real buttons in the tree. A
+ * `tabIndex` here would not be: a focusable control inside `aria-hidden` is a tab stop that
+ * announces nothing, which is worse than either having it or not.
  */
 
 /**
@@ -39,6 +57,16 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
  * cosmetic change. Focus is React state because it changes on a key press rather than continuously.
  */
 const LABEL_REVEAL = 'opacity-0 transition-opacity group-hover:opacity-100';
+
+/**
+ * How far a pointer may travel between press and release and still count as a click.
+ *
+ * Without a threshold every drag would also open the note it just moved, because a drag ends with a
+ * pointer release over the thing it started on. Measured in screen pixels rather than graph units
+ * so it means the same thing at every zoom level - it is a statement about the reader's hand, not
+ * about the drawing.
+ */
+const CLICK_SLOP = 4;
 
 export interface GraphViewProps {
   readonly nodes: readonly GraphNode[];
@@ -92,26 +120,63 @@ function describe(node: PositionedNode, references: readonly string[]): string {
   return `${kind}, ${references.length === 1 ? 'references' : `${String(references.length)} references:`} ${references.join(', ')}`;
 }
 
+/** A drag in progress: which node, where the pointer went down, and how far it has come. */
+interface Drag {
+  readonly id: string;
+  readonly startX: number;
+  readonly startY: number;
+  readonly from: Offset;
+  moved: boolean;
+}
+
 export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps): ReactElement {
-  // Profiled cost is not the reason - the reason is that `layout` is the input to `outgoing` and to
-  // every row below, and laying 2,000 nodes out on an unrelated re-render (a zoom step, a hover)
-  // would redo the whole walk to produce an identical result. Both memos key on the payload.
+  // Profiled cost is not the reason - the reason is that `layout` is the input to everything below,
+  // and laying 2,000 nodes out again on an unrelated re-render (a zoom step, a drag, a hover) would
+  // redo the whole walk to produce an identical arrangement. It keys on the payload alone.
   const layout = useMemo(() => layoutGraph(nodes, links), [nodes, links]);
-  const outgoing = useMemo(() => outgoingByNode(layout.nodes, links), [layout.nodes, links]);
 
   const [zoom, setZoom] = useState<Zoom>(ZOOM_DEFAULT);
+  const [offsets, setOffsets] = useState<ReadonlyMap<string, Offset>>(new Map());
+  const dragRef = useRef<Drag | null>(null);
 
-  // Which row is the tree's single tab stop, and which node the drawing should label. Null until
-  // somebody has put focus here, so the entry point is the open item by default.
+  // Where the nodes actually are once the reader has nudged any of them, and the edges redrawn to
+  // follow. Both key on `offsets`, so a graph nobody has touched pays nothing for the feature.
+  const positioned = useMemo(() => applyOffsets(layout.nodes, offsets), [layout.nodes, offsets]);
+  const edges = useMemo(
+    () => (offsets.size === 0 ? layout : buildEdges(positioned, links)),
+    [offsets.size, layout, positioned, links],
+  );
+
+  const outgoing = useMemo(() => outgoingByNode(positioned, links), [positioned, links]);
+
+  /**
+   * Whether the entrance has run.
+   *
+   * The nodes are rendered at the centre for one frame and then transition out to their rings,
+   * which is the explosion the layout describes made visible. A flag flipped in an effect rather
+   * than a CSS keyframe because the only `.css` files this project has are the Tailwind entry and
+   * the token sheet - a keyframe would be a third.
+   */
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setSettled(true);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // Which row is the tree's single tab stop, and which node the drawing should label.
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const selectedIndex = layout.nodes.findIndex((node) => node.id === selectedId);
+  const selectedIndex = positioned.findIndex((node) => node.id === selectedId);
   const entryIndex = focusedIndex ?? Math.max(selectedIndex, 0);
-  const focusedId = focusedIndex === null ? null : (layout.nodes[focusedIndex]?.id ?? null);
+  const focusedId = focusedIndex === null ? null : (positioned[focusedIndex]?.id ?? null);
 
   const moveTo = (index: number): void => {
-    const bounded = Math.min(Math.max(index, 0), layout.nodes.length - 1);
+    const bounded = Math.min(Math.max(index, 0), positioned.length - 1);
     setFocusedIndex(bounded);
     rowRefs.current[bounded]?.focus();
   };
@@ -132,11 +197,11 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
         break;
       case 'End':
         event.preventDefault();
-        moveTo(layout.nodes.length - 1);
+        moveTo(positioned.length - 1);
         break;
 
       // The two shortcuts every zoomable surface has. Claimed here rather than on the window: a
-      // global key handler would steal `+` from anybody typing in a document elsewhere on the page.
+      // global handler would steal `+` from anybody typing in a document elsewhere on the page.
       case '+':
       case '=':
         event.preventDefault();
@@ -151,7 +216,63 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
     }
   };
 
+  const onNodePointerDown = (event: PointerEvent<SVGGElement>, node: PositionedNode): void => {
+    // Only the primary button starts a drag; a right-click is the browser's business.
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      id: node.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      from: offsets.get(node.id) ?? { dx: 0, dy: 0 },
+      moved: false,
+    };
+  };
+
+  const onNodePointerMove = (event: PointerEvent<SVGGElement>): void => {
+    const drag = dragRef.current;
+    if (drag === null) {
+      return;
+    }
+
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+
+    if (!drag.moved && Math.hypot(dx, dy) < CLICK_SLOP) {
+      return;
+    }
+    drag.moved = true;
+
+    // Screen pixels into graph units. The viewBox is fixed and only the painted size changes with
+    // zoom (see graph-zoom.ts), so one screen pixel is exactly `1 / zoom` graph units - without
+    // this division a node would run away from the pointer at 300% and lag it at 25%.
+    setOffsets((current) => {
+      const next = new Map(current);
+      next.set(drag.id, { dx: drag.from.dx + dx / zoom, dy: drag.from.dy + dy / zoom });
+      return next;
+    });
+  };
+
+  const onNodePointerUp = (event: PointerEvent<SVGGElement>, node: PositionedNode): void => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    // A release that never travelled is a click, and a click opens the note. A release that did is
+    // the end of a drag, and opening the item somebody just finished arranging would be a surprise.
+    if (drag !== null && !drag.moved && drag.id === node.id) {
+      onOpen(node.id);
+    }
+  };
+
   const scaled = atZoom(layout, zoom);
+  const nudged = offsets.size > 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -194,11 +315,25 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
         >
           <Icon icon={Scan} size="sm" />
         </Button>
+
+        {/* Offered only once there is something to undo, and named for what it does rather than
+            for the gesture that caused it - somebody who nudged one node an hour ago should not
+            have to remember they did to understand this button. */}
+        {nudged && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setOffsets(new Map());
+            }}
+          >
+            Tidy up
+          </Button>
+        )}
       </div>
 
-      {/* Scrolls on both axes, which is the one place in the app a pane's own horizontal scroller is
-          not the answer: zooming in makes the drawing bigger than the pane in both directions by
-          design, so this is the view bringing its own, exactly as layout/regions.ts describes. */}
+      {/* Scrolls on both axes, which is the one place a pane's own horizontal scroller is not the
+          answer: zooming in makes the drawing bigger than the pane in both directions by design, so
+          this is the view bringing its own, exactly as layout/regions.ts describes. */}
       <div className="max-h-[70vh] overflow-auto">
         <svg
           aria-hidden={true}
@@ -206,17 +341,16 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
           width={scaled.width}
           height={scaled.height}
           viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
-          className="max-w-none"
+          className="max-w-none touch-none"
         >
-          {/* Two heads rather than one, because a marker cannot inherit the colour of the path
-              that references it: `context-stroke` would do it, but support is uneven enough that a
+          {/* Two heads rather than one, because a marker cannot inherit the colour of the path that
+              references it: `context-stroke` would do it, but support is uneven enough that a
               containment head would be the wrong colour on some browsers and right on others.
-              Each head carries its own token fill instead, so the pair always matches its lines.
 
               `orient="auto"` turns the head to the path's own direction at its end, which is what
               makes one definition serve both a straight spoke and a bowed arc. The paths already
-              stop short of the disc they point at (see graph-layout.ts), so the head lands in
-              clear space rather than under the node. */}
+              stop short of the disc they point at (see graph-layout.ts), so the head lands in clear
+              space rather than under the node. */}
           <defs>
             <marker
               id="graph-arrow-containment"
@@ -242,44 +376,78 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
             </marker>
           </defs>
 
-          {/* Containment first, so reference arcs sit over the structure rather than under it. */}
-          <g fill="none" stroke="currentColor" className="text-divider">
-            {layout.parentEdges.map((edge) => (
-              <path
-                key={`${edge.parentId}-${edge.childId}`}
-                d={edge.path}
-                strokeWidth={1}
-                markerEnd="url(#graph-arrow-containment)"
-              />
-            ))}
+          {/* The edges fade in behind the nodes rather than flying with them: a line whose two ends
+              are both moving reads as noise, and there is nothing to follow until the discs land. */}
+          <g
+            className={`transition-opacity duration-500 motion-reduce:transition-none ${settled ? 'opacity-100' : 'opacity-0'}`}
+          >
+            {/* Containment first, so reference arcs sit over the structure rather than under it. */}
+            <g fill="none" stroke="currentColor" className="text-divider">
+              {edges.parentEdges.map((edge) => (
+                <path
+                  key={`${edge.parentId}-${edge.childId}`}
+                  d={edge.path}
+                  strokeWidth={1}
+                  markerEnd="url(#graph-arrow-containment)"
+                />
+              ))}
+            </g>
+
+            <g fill="none" stroke="currentColor" className="text-accent-text">
+              {edges.referenceEdges.map((edge, index) => (
+                <path
+                  key={`${edge.sourceId}-${edge.targetId}-${String(index)}`}
+                  d={edge.path}
+                  strokeWidth={1.5}
+                  markerEnd="url(#graph-arrow-reference)"
+                />
+              ))}
+            </g>
           </g>
 
-          <g fill="none" stroke="currentColor" className="text-accent-text">
-            {layout.referenceEdges.map((edge, index) => (
-              <path
-                key={`${edge.sourceId}-${edge.targetId}-${String(index)}`}
-                d={edge.path}
-                strokeWidth={1.5}
-                markerEnd="url(#graph-arrow-reference)"
-              />
-            ))}
-          </g>
-
-          {layout.nodes.map((node) => {
+          {positioned.map((node) => {
             // Open or keyboard-focused nodes keep their label permanently; everything else waits to
-            // be hovered. Written as a class swap rather than a conditional render so the text node
-            // stays mounted and the transition has something to animate.
+            // be hovered. A class swap rather than a conditional render, so the text node stays
+            // mounted and the transition has something to animate.
             const named = node.id === selectedId || node.id === focusedId;
 
+            // Before the first frame every node sits at the middle; afterwards it sits where the
+            // layout put it, and the transition between the two is the explosion. `motion-reduce`
+            // drops the movement for anybody who has asked their system for less of it - they get
+            // the final arrangement immediately, which is the same picture without the journey.
+            const home = settled
+              ? undefined
+              : `translate(${String(layout.width / 2 - node.x)} ${String(layout.height / 2 - node.y)}) scale(0.4)`;
+
             return (
-              <g key={node.id} className="group">
+              <g
+                key={node.id}
+                className="group cursor-pointer transition-transform duration-500 ease-out motion-reduce:transition-none"
+                transform={home}
+                onPointerDown={(event) => {
+                  onNodePointerDown(event, node);
+                }}
+                onPointerMove={onNodePointerMove}
+                onPointerUp={(event) => {
+                  onNodePointerUp(event, node);
+                }}
+              >
+                {/* A generous, invisible target under the disc. Seven pixels is a small thing to
+                    hit with a mouse and smaller with a trackpad, and the alternative - a bigger
+                    disc - would change the drawing to serve the pointer. */}
+                <circle cx={node.x} cy={node.y} r={NODE_RADIUS * 2.5} className="fill-transparent" />
                 <circle
                   cx={node.x}
                   cy={node.y}
                   r={NODE_RADIUS}
-                  className={
+                  // `transform-box: fill-box` makes `origin-center` mean this circle's own centre.
+                  // Without it an SVG element's transform origin is resolved against the viewBox,
+                  // so every disc would grow towards the middle of the drawing instead of in place
+                  // - and the alternative, a computed `transform-origin` per node, is an inline
+                  // style with two raw lengths in it.
+                  className={`origin-center [transform-box:fill-box] transition-transform group-hover:scale-125 motion-reduce:transition-none ${
                     node.id === selectedId ? 'fill-accent-fill' : 'fill-surface stroke-divider'
-                  }
+                  }`}
                 />
                 <text
                   x={node.x + NODE_RADIUS * 2}
@@ -298,7 +466,7 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
           the workspace under a picture of it, but to a screen reader it is the only readable form
           of the graph. */}
       <ul className="sr-only" role="tree" aria-label="Workspace graph">
-        {layout.nodes.map((node, index) => {
+        {positioned.map((node, index) => {
           const references = outgoing.get(node.id) ?? [];
 
           return (
