@@ -373,7 +373,10 @@ export function layoutGraph(nodes: readonly GraphNode[], links: readonly GraphLi
 export function buildEdges(
   placed: readonly PositionedNode[],
   links: readonly GraphLink[],
-): { readonly parentEdges: readonly ParentEdge[]; readonly referenceEdges: readonly ReferenceEdge[] } {
+): {
+  readonly parentEdges: readonly ParentEdge[];
+  readonly referenceEdges: readonly ReferenceEdge[];
+} {
   const byId = new Map(placed.map((node) => [node.id, node]));
 
   const parentEdges: ParentEdge[] = [];
