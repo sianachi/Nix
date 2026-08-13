@@ -1,4 +1,4 @@
-import { Blueprint, Button, Dialog, Field, Icon, Input, Text, cn, focusRing } from '@nix/ui';
+import { Blueprint, Button, Dialog, Field, Icon, Input, Text, cn } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -12,23 +12,20 @@ import {
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import {
-  WEEKDAY_ABBREVIATIONS,
-  WEEKDAY_NAMES,
   addDays,
   dayLabel,
   dayText,
   daysInMonth,
-  monthEntry,
   monthLabel,
   monthPrefix,
   shiftMonth,
   weekLabel,
   weekOf,
-  weekdayIndex,
   type CalendarDay,
   type CalendarMonth,
 } from '../core/calendar-dates';
 import { HourGrid } from './calendar-hours';
+import { MonthGrid, type DayCellSpec } from './month-grid';
 import { VIEW_GUTTER_BLEED } from '../core/view-gutter';
 import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from '../core/timestamps';
 import type { ContainerData } from '../core/use-container';
@@ -92,46 +89,6 @@ function readMode(value: string | null): 'month' | 'week' | 'day' {
 const NO_DATE_PROPERTY =
   'A calendar places items by a date property, and this view does not name one. Nothing has been ' +
   'lost - every item is still here, and a list or board view will show them.';
-
-/**
- * One day column's floor width, on the month grid's header cells.
- *
- * `table-fixed` takes its column widths from the header row alone and never re-derives them from a
- * later row's content, so a real `<table>` has no equivalent of a flexbox blowup risk the week grid
- * needed `contain: inline-size` against - but with no width stated anywhere, `w-full` still divides
- * evenly with no floor, which on a phone is around 53px a column: too narrow for `DayCell`'s own
- * content, which is not a bare number but a full `ItemCard` per item.
- *
- * 6.5rem (104px) is sized off what that card draws, not guessed. `ItemCard`'s outer box is a
- * `border` (1px a side) plus `px-1` (3.4px a side, `--spacing`) around a `gap-1` (3.4px) row of two
- * things: the title button, and a reschedule icon button beside it whose icon alone is 16px. That
- * fixed overhead - border, padding, gap, icon - comes to about 28px before a single letter of the
- * title is drawn, and `DayCell`'s own `p-1` around the whole cell adds another 7px. What is left,
- * roughly 66px at `text-sm`, is enough for nine or ten characters of a truncated title next to the
- * reschedule control rather than an ellipsis immediately after it.
- *
- * `MONTH_GRID_MIN_WIDTH` below is this number times seven, stated on the table as well as the
- * columns - belt and braces, not two halves of one mechanism. A fixed-layout table already widens
- * itself to the sum of its header row's column widths (CSS 2.1 §17.5.2.1), so `MONTH_DAY_COLUMN`
- * alone already floors the table; `MONTH_GRID_MIN_WIDTH` restates the same floor on the table so the
- * total reads at its own point of use rather than requiring seven header cells to be added up by
- * hand. Either alone reproduces the identical rendered width - both are asserted below so a change
- * to one without the other is still caught, not because both are load-bearing.
- */
-const MONTH_DAY_COLUMN = 'w-[6.5rem]';
-
-/**
- * The month table's own floor, restated from `MONTH_DAY_COLUMN` - see that constant's comment for
- * why this is documentation of the same floor rather than a second mechanism. `width` and
- * `min-width` both apply to the same box, and the used width is whichever is larger - so at a
- * desktop width `w-full` (100% of the scrolling region's padded content box) wins and the columns
- * divide it evenly above the floor, exactly as before this fix; at a narrow viewport the floor wins
- * instead, the table becomes wider than that region, and its `overflow-x-auto` scrolls the whole
- * table, header and body together, the ordinary way a wide table scrolls. There is no separate
- * vertical scroll region here the way the week grid's hour body has, so there is nothing for a
- * sticky header or gutter to fight with.
- */
-const MONTH_GRID_MIN_WIDTH = 'min-w-[45.5rem]';
 
 /**
  * Why this calendar cannot be drawn, or null when it can.
@@ -436,87 +393,27 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       )}
 
       {mode === 'month' ? (
-        /*
-          The scroller sits *outside* the frame and bleeds the container's gutter
-          (`VIEW_GUTTER_BLEED`, owned by view-gutter.ts so the negative margin and the padding
-          cannot become two different numbers), and the arithmetic is why. The table's floor is
-          728px (`MONTH_GRID_MIN_WIDTH`), and around it stand the frame's 2px of border, its 24px
-          of `p-3`, and - since ContainerView grew its gutter wrapper - 64px of it: about 90px of
-          chrome before the first date cell. With the scroller inside the frame, a container
-          between roughly 750 and 790px wide had a region narrower than the table's floor, so the
-          last column slid under the frame's right border - clipped against a hairline rather than
-          visibly scrollable. Bleeding the gutter into the scroller returns those 64px to the
-          scroll viewport, and because the frame now travels with the table, the last column ends
-          at the frame's own edge instead of under it. At rest nothing moves: the padding half of
-          the bleed recreates the gutter exactly, so the frame still opens where the header and the
-          switcher start.
-
-          `role="region"` plus a tab stop, matching timeline-view.tsx's and calendar-hours.tsx's
-          own scrollable tracks: without one, this axis is reachable by keyboard only by tabbing
-          through every focusable control inside it. `<Blueprint>` cannot carry any of this itself
-          - it forwards only `children`, `as` and `className` - so the scroll moves to this plain
-          wrapper. `min-w-max` on the frame is what makes its box span the true scroll-content
-          width, the same width-owner job the week grid's inner wrapper does; jsdom cannot verify
-          any of the layout above, so the classes here are asserted as a contract in
-          calendar-view.test.tsx.
-        */
-        <div
-          role="region"
-          aria-label={monthLabel(month)}
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
-          tabIndex={0}
-          className={cn(VIEW_GUTTER_BLEED, 'overflow-x-auto', focusRing)}
-        >
-          <Blueprint className="min-w-max overflow-hidden p-3">
-            <table className={cn('w-full table-fixed border-collapse', MONTH_GRID_MIN_WIDTH)}>
-              <Text as="caption" variant="caption" className="sr-only">
-                {`${monthLabel(month)}, items placed on the day their date names`}
-              </Text>
-
-              <thead>
-                <tr>
-                  {WEEKDAY_NAMES.map((name, index) => (
-                    <th
-                      key={name}
-                      scope="col"
-                      aria-label={name}
-                      className={cn('border border-divider p-1 text-left', MONTH_DAY_COLUMN)}
-                    >
-                      <Text variant="kicker" as="span" tone="muted">
-                        {monthEntry(WEEKDAY_ABBREVIATIONS, index)}
-                      </Text>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {buildWeeks(month).map((week, weekIndex) => (
-                  <tr key={`${prefix}week-${String(weekIndex)}`}>
-                    {week.map((cell, dayIndex) =>
-                      cell === null ? (
-                        <td
-                          key={`${prefix}blank-${String(weekIndex)}-${String(dayIndex)}`}
-                          className="h-24 border border-divider bg-surface align-top"
-                        />
-                      ) : (
-                        <DayCell
-                          key={cell.date}
-                          cell={cell}
-                          name={`${monthEntry(WEEKDAY_NAMES, dayIndex)} ${String(cell.day)} ${monthLabel(month)}`}
-                          isToday={cell.date === todayText}
-                          items={byDate.get(cell.date) ?? []}
-                          dragged={dragged}
-                          card={card}
-                        />
-                      ),
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Blueprint>
-        </div>
+        <MonthGrid
+          month={month}
+          todayText={todayText}
+          prefix={prefix}
+          // The container's gutter is bled into the scroller so those pixels belong to the scroll
+          // viewport rather than to the chrome around it - `VIEW_GUTTER_BLEED` owns the negative
+          // margin and the padding together, so the two cannot become different numbers. The
+          // collated calendar has no gutter to bleed, which is why this is the caller's to pass.
+          regionClassName={VIEW_GUTTER_BLEED}
+          renderDay={(cell, name, isToday) => (
+            <DayCell
+              key={cell.date}
+              cell={cell}
+              name={name}
+              isToday={isToday}
+              items={byDate.get(cell.date) ?? []}
+              dragged={dragged}
+              card={card}
+            />
+          )}
+        />
       ) : (
         <Blueprint className="flex min-h-[520px] flex-col overflow-hidden p-0">
           <HourGrid
@@ -609,44 +506,6 @@ function readDayValue(item: Item, key: string, zone: string): string | null {
 
   const moment = readTimestampValue(item.properties, key);
   return moment === null ? null : dayFor(moment, zone);
-}
-
-/** One day of the grid: its number, and the `yyyy-MM-dd` text an item has to match to land on it. */
-interface DayCellSpec {
-  readonly day: number;
-  readonly date: string;
-}
-
-/**
- * The grid, as weeks of days with nulls for the slots either end that belong to another month.
- *
- * Built from the month's own arithmetic - length from the leap rule, first weekday from Sakamoto's
- * - so every cell carries the date text it stands for and no cell exists that this view cannot
- * name. Nothing here reads a clock or a zone.
- */
-function buildWeeks(month: CalendarMonth): readonly (readonly (DayCellSpec | null)[])[] {
-  const cells: (DayCellSpec | null)[] = [];
-  const lead = weekdayIndex(month.year, month.month, 1);
-
-  for (let index = 0; index < lead; index += 1) {
-    cells.push(null);
-  }
-
-  const length = daysInMonth(month);
-  for (let day = 1; day <= length; day += 1) {
-    cells.push({ day, date: dayText({ ...month, day: day }) });
-  }
-
-  while (cells.length % 7 !== 0) {
-    cells.push(null);
-  }
-
-  const weeks: (DayCellSpec | null)[][] = [];
-  for (let index = 0; index < cells.length; index += 7) {
-    weeks.push(cells.slice(index, index + 7));
-  }
-
-  return weeks;
 }
 
 /** What every card needs, whether it sits in a day or in the unscheduled list. */
