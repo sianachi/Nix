@@ -1,7 +1,7 @@
 import type { CalendarEntry } from '@nix/api-client';
 import { Blueprint, Button, Segmented, Text, focusRing } from '@nix/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import { HourGrid } from '../views/calendar/calendar-hours';
 import { MonthGrid } from '../views/calendar/month-grid';
@@ -17,6 +17,7 @@ import {
 } from '../views/core/calendar-dates';
 import { readerZone } from '../views/core/timestamps';
 import { bucketByDay, containersById, COLLATED_DATE_KEY, toGridItems } from './collated-entries';
+import { valueForDay, valueForHour } from './reschedule';
 import type { CalendarGrain } from './calendar-window';
 
 /**
@@ -55,6 +56,15 @@ export interface CollatedCalendarProps {
 
   /** Opens an item. Wired to the same `useOpenItem` the tree and the palette use. */
   readonly onOpen: (itemId: string) => void;
+
+  /**
+   * Writes an entry's own date property.
+   *
+   * The one write this view can make. Creating has no answer here - entries arrive from containers
+   * that place by differently named properties - but moving one does, because the entry carries the
+   * key its own container placed it by.
+   */
+  readonly onReschedule: (entry: CalendarEntry, value: string) => void;
 }
 
 const GRAINS = [
@@ -64,7 +74,7 @@ const GRAINS = [
 ] as const satisfies readonly { value: CalendarGrain; label: string }[];
 
 export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
-  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen } = props;
+  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen, onReschedule } = props;
 
   // Keyed on the payload, so stepping the grain does not rebucket entries that have not changed.
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
@@ -75,6 +85,30 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
   // through a render, and forty-two of them would be forty-two allocations for one fact.
   const todayText = dayText(today);
   const zone = readerZone();
+
+  // Which entry is in the air. Held by id rather than by value, so a refetch mid-drag cannot leave
+  // this holding a copy of a row the server has since changed.
+  const [dragged, setDragged] = useState<string | null>(null);
+
+  // Which day the pointer is over, so exactly one cell can show it will take the drop. A boolean
+  // per cell would mean forty-two pieces of state for one fact.
+  const [over, setOver] = useState<string | null>(null);
+  const draggedEntry = entries.find((entry) => entry.itemId === dragged) ?? null;
+
+  const dropOn = (day: string): void => {
+    if (draggedEntry === null) {
+      return;
+    }
+
+    const value = valueForDay(draggedEntry, day, zone);
+    setDragged(null);
+
+    // A drop whose value cannot be expressed is refused rather than written as something else - the
+    // same condition the page counts as unplaceable.
+    if (value !== null && value !== draggedEntry.value) {
+      onReschedule(draggedEntry, value);
+    }
+  };
 
   const step = (delta: number): void => {
     if (grain === 'month') {
@@ -152,7 +186,25 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
               key={cell.date}
               aria-label={name}
               aria-current={isToday ? 'date' : undefined}
-              className="h-24 border border-divider align-top"
+              onDragOver={(event) => {
+                // Without this the browser refuses the drop outright, so it runs whether or not this
+                // calendar started the drag; the highlight below is what is conditional.
+                event.preventDefault();
+                setOver(cell.date);
+              }}
+              onDragLeave={() => {
+                setOver((current) => (current === cell.date ? null : current));
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                setOver(null);
+                dropOn(cell.date);
+              }}
+              className={`h-24 border border-divider align-top ${
+                over === cell.date && dragged !== null
+                  ? 'outline-2 -outline-offset-2 outline-accent'
+                  : ''
+              }`}
             >
               <div className="flex h-full flex-col gap-0.5 p-1">
                 <Text variant="caption" as="span" tone={isToday ? 'accent' : 'muted'}>
@@ -163,6 +215,13 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
                   <button
                     key={item.id}
                     type="button"
+                    draggable
+                    onDragStart={() => {
+                      setDragged(item.id);
+                    }}
+                    onDragEnd={() => {
+                      setDragged(null);
+                    }}
                     onClick={() => {
                       onOpen(item.id);
                     }}
@@ -190,9 +249,29 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             zone={zone}
             today={todayText}
             onOpen={onOpen}
-            // No create and no move: this view cannot know which container a new item would belong
-            // to, and a write would have to guess which property it meant.
-            dragged={null}
+            // No create - this view cannot know which container a new item would belong to - but
+            // moving is fully determined, because the entry carries its own property key.
+            dragged={dragged}
+            onMove={(itemId, value) => {
+              const entry = entries.find((candidate) => candidate.itemId === itemId);
+              setDragged(null);
+              if (entry === undefined || value === null) {
+                return;
+              }
+
+              // The grid hands back a slot written in its own terms; this rewrites it against the
+              // entry, so an all-day item dropped on an hour stays all-day rather than becoming a
+              // moment its property cannot hold.
+              const day = value.slice(0, 10);
+              const hour = Number(value.slice(11, 13));
+              const written = Number.isNaN(hour)
+                ? valueForDay(entry, day, zone)
+                : valueForHour(entry, day, hour, zone);
+
+              if (written !== null && written !== entry.value) {
+                onReschedule(entry, written);
+              }
+            }}
           />
         </Blueprint>
       )}

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -354,5 +354,99 @@ describe('filtering the calendar by note', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
 
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Dragging an entry to another day.
+ *
+ * The assertions are on what was *written*, not on where the chip landed. A drag that redraws
+ * correctly and sends the wrong value is the failure that matters here - the grid would look right
+ * until the next reload, and the reader would have lost a time they never agreed to lose.
+ */
+describe('rescheduling by dragging', () => {
+  function chipFor(name: RegExp): HTMLElement {
+    return screen.getByRole('button', { name });
+  }
+
+  function cellFor(container: HTMLElement, day: string): HTMLElement {
+    const cell = [...container.querySelectorAll('td[aria-label]')].find((candidate) =>
+      candidate.getAttribute('aria-label')?.includes(day),
+    );
+    if (cell === undefined) {
+      throw new Error(`no cell for ${day}`);
+    }
+    return cell as HTMLElement;
+  }
+
+  it('writes the entry own date property, not some property of the calendar', async () => {
+    const writes = stubCoreApi({ calendarEntries: ENTRIES });
+    const { container } = renderAt(<App />, '/calendar');
+
+    await screen.findByRole('tree', { name: /workspace graph/i }).catch(() => null);
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await screen.findByRole('button', { name: /Filing deadline/i });
+
+    const chip = chipFor(/Filing deadline/i);
+    fireEvent.dragStart(chip);
+    fireEvent.drop(cellFor(container, '19 March 2026'));
+
+    await waitFor(() => {
+      expect(writes.properties).toHaveLength(1);
+    });
+
+    // `due` is the key its own container placed it by. A collated calendar that wrote one property
+    // for everything would silently move an item onto a field its container does not read.
+    expect(writes.properties[0]?.properties).toEqual({ due: '2026-03-19' });
+  });
+
+  it('keeps a moment at its time when it moves day', async () => {
+    const writes = stubCoreApi({ calendarEntries: ENTRIES });
+    const { container } = renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await screen.findByRole('button', { name: /Standup/i });
+
+    fireEvent.dragStart(chipFor(/Standup/i));
+    fireEvent.drop(cellFor(container, '19 March 2026'));
+
+    await waitFor(() => {
+      expect(writes.properties).toHaveLength(1);
+    });
+
+    const starts: unknown = writes.properties[0]?.properties.starts;
+    const written = typeof starts === 'string' ? starts : '';
+    expect(written).toContain('2026-03-19');
+
+    // The time survived. Writing a bare day here would discard it, which is data the reader never
+    // asked to lose.
+    expect(written).toMatch(/T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('writes nothing when an entry is dropped back where it already was', async () => {
+    const writes = stubCoreApi({ calendarEntries: ENTRIES });
+    const { container } = renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await screen.findByRole('button', { name: /Filing deadline/i });
+
+    fireEvent.dragStart(chipFor(/Filing deadline/i));
+    fireEvent.drop(cellFor(container, '12 March 2026'));
+
+    // A no-op drag is a no-op write. Sending the same value would bump the item's modified stamp
+    // and, in a collaborative document, look like somebody had changed something.
+    expect(writes.properties).toHaveLength(0);
+  });
+
+  it('writes nothing when a cell is dropped on with nothing in the air', async () => {
+    const writes = stubCoreApi({ calendarEntries: ENTRIES });
+    const { container } = renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await screen.findByRole('button', { name: /Filing deadline/i });
+
+    fireEvent.drop(cellFor(container, '19 March 2026'));
+
+    expect(writes.properties).toHaveLength(0);
   });
 });

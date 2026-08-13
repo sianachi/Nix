@@ -78,7 +78,10 @@ export function CalendarPage(): ReactElement {
   const anchor = anchorOf(params.get('on'), today);
   const window = windowFor(grain, anchor);
 
-  const { status, calendar, error, reload } = useWorkspaceCalendar(window.from, window.to);
+  const { status, calendar, error, reload, reschedule } = useWorkspaceCalendar(
+    window.from,
+    window.to,
+  );
 
   // Both replace rather than push: moving through a calendar is not a navigation, and a reader who
   // stepped through six weeks should not have to press Back six times to leave.
@@ -189,6 +192,9 @@ export function CalendarPage(): ReactElement {
         }}
         today={today}
         onOpen={openPreview}
+        onReschedule={(entry, value) => {
+          void reschedule(entry.itemId, entry.dateProperty, value);
+        }}
       />
     </CalendarFrame>
   );

@@ -74,6 +74,17 @@ export interface WorkspaceCalendarState {
   readonly calendar: WorkspaceCalendar | null;
   readonly error: string | null;
   readonly reload: () => Promise<void>;
+
+  /**
+   * Writes an entry's own date property, then re-reads.
+   *
+   * Takes the property key rather than looking it up, because the caller is holding the entry and
+   * this hook is not - and the key is the whole reason a collated calendar can write at all.
+   *
+   * Answers whether it stuck. A refusal is the caller's to undo: this hook does not hold the
+   * optimistic copy and cannot put it back.
+   */
+  readonly reschedule: (itemId: string, dateProperty: string, value: string) => Promise<boolean>;
 }
 
 /**
@@ -126,6 +137,36 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     }
   }, [getAccessToken, from, to]);
 
+  const reschedule = useCallback(
+    async (itemId: string, dateProperty: string, value: string): Promise<boolean> => {
+      try {
+        const token = await getAccessToken();
+        const response = await fetch(`/api/v1/items/${itemId}/properties`, {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
+          },
+          // Only the one property. A PATCH carrying the whole bag would overwrite whatever another
+          // reader changed between this view's last read and this drop.
+          body: JSON.stringify({ properties: { [dateProperty]: value } }),
+        });
+
+        if (!response.ok) {
+          return false;
+        }
+
+        // Re-read rather than patching the entry in place. The window may now hold a different set
+        // - a drag can move something out of the month on screen - and only the server knows.
+        await load();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [getAccessToken, load],
+  );
+
   // Deferred a microtask, the same way `use-current-principal.ts` defers its own first read.
   // `load` sets state on its first line, and doing that synchronously inside an effect body is the
   // cascading-render pattern `react-hooks/set-state-in-effect` exists to stop.
@@ -135,5 +176,5 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     });
   }, [load]);
 
-  return { status, calendar, error, reload: load };
+  return { status, calendar, error, reload: load, reschedule };
 }

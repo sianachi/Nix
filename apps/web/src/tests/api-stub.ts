@@ -178,7 +178,13 @@ export function item(overrides: Partial<StubItem> & { id: string; title: string 
 }
 
 /** Installs the stub. `vi.unstubAllGlobals` in the global teardown removes it. */
-export function stubCoreApi(options: StubOptions = {}): void {
+/** What a test can read back about what the application wrote. */
+export interface StubWrites {
+  /** Every property PATCH, in the order it was sent. */
+  readonly properties: readonly { itemId: string; properties: Record<string, unknown> }[];
+}
+
+export function stubCoreApi(options: StubOptions = {}): StubWrites {
   const {
     isTenantAdministrator = false,
     displayName = 'Test Person',
@@ -216,6 +222,10 @@ export function stubCoreApi(options: StubOptions = {}): void {
   // bookmarking test means to.
   let kept = [...bookmarks];
 
+  // Every property PATCH the application made, in order, for tests about what a write actually
+  // sent rather than about what the view drew afterwards.
+  const propertyWrites: { itemId: string; properties: Record<string, unknown> }[] = [];
+
   /** The four fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
     id: string;
@@ -246,6 +256,20 @@ export function stubCoreApi(options: StubOptions = {}): void {
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const method = (init?.method ?? 'GET').toUpperCase();
+
+      // Rescheduling from the collated calendar. The stub records what was written so a test can
+      // assert the *value*, which is the whole risk in a drag: the day is easy and the time is not.
+      const propertyWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/properties$/.exec(url);
+      if (propertyWrite !== null && method === 'PATCH') {
+        const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        const written =
+          typeof body === 'object' && body !== null && 'properties' in body
+            ? (body.properties as Record<string, unknown>)
+            : {};
+
+        propertyWrites.push({ itemId: propertyWrite[1] ?? '', properties: written });
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
 
       // Ordered before the /me route below, which would otherwise swallow it.
       if (url.includes('/api/v1/me/bookmarks')) {
@@ -517,6 +541,8 @@ export function stubCoreApi(options: StubOptions = {}): void {
       return Promise.resolve(json({}, 404));
     }),
   );
+
+  return { properties: propertyWrites };
 }
 
 function json(body: unknown, status = 200): Response {
