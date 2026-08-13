@@ -3,91 +3,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { parseCustomProperties, splitByGround, themeCss } from './theme-sheet.js';
+
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), '..');
-const themeCss = readFileSync(join(packageDir, 'src', 'theme.css'), 'utf8');
 
 /**
  * The sheet split into the ground it applies to.
  *
  * The dark ground redeclares the semantic roles, so a parser that swept the whole file would
  * report the dark value for every role and quietly assert nothing about the light one. Splitting on
- * the media query is what keeps each ground's assertions about that ground.
+ * the media query is what keeps each ground's assertions about that ground. The parser itself lives
+ * in `theme-sheet.ts` so `print.test.ts` reads the sheet the same way rather than growing a second
+ * copy of a subtle split.
  */
-/**
- * The span of the block whose opening brace follows `from`, braces balanced.
- *
- * Returned as a half-open range so a caller can either keep it or cut it out.
- */
-function blockAt(css: string, from: number): { start: number; end: number } {
-  let index = css.indexOf('{', from);
-  const start = index;
-  let depth = 0;
-
-  while (index < css.length) {
-    if (css[index] === '{') depth += 1;
-    if (css[index] === '}') {
-      depth -= 1;
-      if (depth === 0) break;
-    }
-    index += 1;
-  }
-
-  return { start, end: index + 1 };
-}
-
-/**
- * Splits the sheet into what each ground declares.
- *
- * **Both dark blocks are cut out of the light ground, not just the media query.** The sheet states
- * the dark ground twice - once for the system preference and once for an explicit choice - and the
- * second one is a plain `:root` rule that a naive read counts as light. Since it comes last, its
- * declarations win the map, and a light-ground assertion silently reads a dark value.
- *
- * That was live for as long as both grounds happened to override the same properties: a test
- * comparing two roles would compare their dark values and pass, meaning nothing. It surfaced when
- * the two grounds started declaring shadows of different *shapes* rather than different colours.
- */
-function splitByGround(css: string): { light: string; dark: string } {
-  // Strip comments first so commented-out declarations never count.
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  const mediaStart = withoutComments.indexOf('@media (prefers-color-scheme: dark)');
-  const attributeStart = withoutComments.search(/:root\[data-theme=['"]dark['"]\]/);
-
-  let light = withoutComments;
-  let dark = '';
-
-  // Cut from the back so the earlier offset stays valid.
-  for (const start of [mediaStart, attributeStart].sort((a, b) => b - a)) {
-    if (start === -1) {
-      continue;
-    }
-
-    const block = blockAt(light, start);
-    if (start === mediaStart) {
-      dark = light.slice(block.start, block.end);
-    }
-
-    light = light.slice(0, start) + light.slice(block.end);
-  }
-
-  return { light, dark };
-}
-
-/** Every custom property declared in one ground, by name (without the leading dashes). */
-function parseCustomProperties(css: string): Map<string, string> {
-  const declarations = new Map<string, string>();
-  const pattern = /--([\w-]+)\s*:\s*([^;]+);/g;
-  for (const match of css.matchAll(pattern)) {
-    const name = match[1];
-    const value = match[2];
-    if (name !== undefined && value !== undefined) {
-      declarations.set(name, value.trim());
-    }
-  }
-  return declarations;
-}
-
 const grounds = splitByGround(themeCss);
 const properties = parseCustomProperties(grounds.light);
 const darkProperties = parseCustomProperties(grounds.dark);

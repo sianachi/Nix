@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "prepare": "pnpm --filter @nix/editor-schema --filter @nix/api-client --filter @nix/sheet --filter @nix/export build",
+    "prepare": "pnpm --filter @nix/editor-schema --filter @nix/api-client --filter @nix/sheet --filter @nix/export --filter @nix/design-tokens build",
     "bootstrap": "pnpm run prepare",
     "lint": "pnpm -r --if-present lint && pnpm run lint:format",
     "lint:format": "prettier --check .",
