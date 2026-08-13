@@ -9,7 +9,12 @@ import {
   type ViewsSnapshot,
 } from '@nix/export';
 
-import { noteStrategy, sheetStrategy, strategyFor } from '../documents/body-kinds.ts';
+import {
+  canvasStrategy,
+  noteStrategy,
+  sheetStrategy,
+  strategyFor,
+} from '../documents/body-kinds.ts';
 import { findDocByItem } from '../db/documents.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
 import { loadDocument } from '../documents/service.ts';
@@ -276,6 +281,13 @@ export async function* streamBundles(input: {
  * **Deliberately not `openDocument`.** That creates the row on first use, which is right for an
  * editor arriving to type and wrong for an export: a read must not write, and a note nobody has
  * opened has no body rather than an empty one.
+ *
+ * **Every body kind gets its own branch, and a missing one is a silent data loss rather than a
+ * degraded render.** A canvas fell through to the prose branch until 2026-08-13: its ProseMirror
+ * fragment is empty, so `materialize` returned null, so the bundle carried `body: null` - the same
+ * answer as a note nobody had opened. The scene was absent from the archive that calls itself
+ * lossless, with nothing anywhere saying so. That is why the dispatch below is exhaustive over the
+ * strategies rather than "sheet, or else prose".
  */
 async function readBody(
   sql: ScopedQuery,
@@ -295,10 +307,19 @@ async function readBody(
     // dispatches on. A sheet read as prose would export an empty fragment
     // and quietly lose the grid.
     const strategy = strategyFor(item.type);
+
     if (strategy.kind === sheetStrategy.kind) {
       return { schemaVersion: doc.schema_version, sheet: sheetStrategy.materialize(state).json };
     }
 
+    if (strategy.kind === canvasStrategy.kind) {
+      // `materialize` returns `{ elements }` for an empty scene as readily as a full one, so
+      // unlike prose there is no null to check: a canvas that exists has a body, even an empty one.
+      return { schemaVersion: doc.schema_version, canvas: canvasStrategy.materialize(state).json };
+    }
+
+    // Prose is the fallback for every kind this build has not heard of, which is `strategyFor`'s
+    // own rule (ADR-0009) rather than a second one invented here.
     const materialized = noteStrategy.materialize(state);
     if (materialized.json === null) {
       return null;

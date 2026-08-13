@@ -178,7 +178,16 @@ export interface ItemBundle {
   readonly body: ItemBody | null;
 }
 
-export type ItemBody = ProseBody | SheetBody;
+/**
+ * An item's own content, in whichever shape its body kind stores it.
+ *
+ * **One arm per body kind, and a missing arm is a hole in the format's central claim.** A body kind
+ * with no arm here reads as `body: null` - indistinguishable from an item nobody has ever opened -
+ * so the archive would say "this item has no content" about an item full of it. That is exactly the
+ * silent gap ADR-0017 refuses, which is why a new body kind owes an arm here in the same commit
+ * that legalises it.
+ */
+export type ItemBody = ProseBody | SheetBody | CanvasBody;
 
 export interface ProseBody {
   /** The schema version this body was validated against when it was written. */
@@ -195,6 +204,25 @@ export interface SheetBody {
 
   /** The cell grid as { body: 'sheet', cells, meta }, stored verbatim. */
   readonly sheet: unknown;
+}
+
+/**
+ * A canvas item's body: the scene, element by element.
+ *
+ * Stored as `{ elements }` keyed by element id, which is the client's reconciliation contract
+ * rather than a shape invented here - the same JSON `canvasStrategy.materialize` writes to the
+ * snapshot. A lossy exporter has nothing to draw a scene with and says so with `body-not-rendered`;
+ * `.nix` carries it verbatim, because carrying it is what makes `.nix` lossless.
+ */
+export interface CanvasBody {
+  /**
+   * The base schema version. A scene holds no ProseMirror nodes, so nothing in it can require a
+   * newer build, and the field is here for uniformity with the other arms rather than to be read.
+   */
+  readonly schemaVersion: number;
+
+  /** The scene as { elements: { [id]: element } }, stored verbatim. */
+  readonly canvas: unknown;
 }
 
 /**

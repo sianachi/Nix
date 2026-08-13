@@ -60,6 +60,7 @@ export {
   itemEntryName,
   type ArchiveItemEntry,
   type ArchiveManifest,
+  type CanvasBody,
   type ItemBody,
   type ProseBody,
   type SheetBody,
