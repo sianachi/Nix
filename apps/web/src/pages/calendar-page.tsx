@@ -4,7 +4,14 @@ import { useSearchParams } from 'react-router';
 
 import { anchorOf, anchorText, grainOf, windowFor } from '../calendar/calendar-window';
 import { CollatedCalendar } from '../calendar/collated-calendar';
-import { unplaceableEntryCount } from '../calendar/collated-entries';
+import {
+  filterByNotes,
+  noteOptions,
+  notesParam,
+  parseNotes,
+  unplaceableEntryCount,
+} from '../calendar/collated-entries';
+import { NoteFilter } from '../calendar/note-filter';
 import { useWorkspaceCalendar } from '../calendar/use-workspace-calendar';
 import {
   EmptyPanel,
@@ -75,13 +82,22 @@ export function CalendarPage(): ReactElement {
 
   // Both replace rather than push: moving through a calendar is not a navigation, and a reader who
   // stepped through six weeks should not have to press Back six times to leave.
-  const write = (next: { grain?: string; on?: string }): void => {
+  const write = (next: { grain?: string; on?: string; notes?: string }): void => {
     const updated = new URLSearchParams(params);
     if (next.grain !== undefined) {
       updated.set('grain', next.grain);
     }
     if (next.on !== undefined) {
       updated.set('on', next.on);
+    }
+    if (next.notes !== undefined) {
+      // Removed rather than set empty, so "every note" is spelled as absence. Two spellings of one
+      // state would leave a later reader unable to tell "never filtered" from "filtered to all".
+      if (next.notes.length === 0) {
+        updated.delete('notes');
+      } else {
+        updated.set('notes', next.notes);
+      }
     }
     setParams(updated, { replace: true });
   };
@@ -115,6 +131,9 @@ export function CalendarPage(): ReactElement {
   }
 
   const unplaceableEntries = unplaceableEntryCount(calendar);
+  const notes = parseNotes(params.get('notes'));
+  const options = noteOptions(calendar.entries);
+  const shown = filterByNotes(calendar.entries, notes);
 
   // Nothing scheduled anywhere *and* nothing misconfigured. A workspace with only a misconfigured
   // container is not empty - it has a calendar nobody finished setting up, and saying "nothing to
@@ -150,8 +169,16 @@ export function CalendarPage(): ReactElement {
         />
       )}
 
+      <NoteFilter
+        options={options}
+        selected={notes}
+        onChange={(next) => {
+          write({ notes: notesParam(next) });
+        }}
+      />
+
       <CollatedCalendar
-        calendar={calendar}
+        entries={shown}
         grain={grain}
         onGrain={(next) => {
           write({ grain: next });

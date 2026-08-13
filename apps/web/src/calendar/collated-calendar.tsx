@@ -1,4 +1,4 @@
-import type { WorkspaceCalendar } from '@nix/api-client';
+import type { CalendarEntry } from '@nix/api-client';
 import { Blueprint, Button, Segmented, Text, focusRing } from '@nix/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
@@ -34,7 +34,13 @@ import type { CalendarGrain } from './calendar-window';
  */
 
 export interface CollatedCalendarProps {
-  readonly calendar: WorkspaceCalendar;
+  /**
+   * The entries to draw.
+   *
+   * The entries rather than the whole response, because the page filters them before they get here
+   * and a view that took the response would have to be told twice which of its entries were live.
+   */
+  readonly entries: readonly CalendarEntry[];
 
   /** Which grain to draw. Owned by the page, because the URL carries it. */
   readonly grain: CalendarGrain;
@@ -58,12 +64,12 @@ const GRAINS = [
 ] as const satisfies readonly { value: CalendarGrain; label: string }[];
 
 export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
-  const { calendar, grain, onGrain, anchor, onAnchor, today, onOpen } = props;
+  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen } = props;
 
   // Keyed on the payload, so stepping the grain does not rebucket entries that have not changed.
-  const byDay = useMemo(() => bucketByDay(calendar.entries), [calendar.entries]);
-  const items = useMemo(() => toGridItems(calendar.entries), [calendar.entries]);
-  const containers = useMemo(() => containersById(calendar.entries), [calendar.entries]);
+  const byDay = useMemo(() => bucketByDay(entries), [entries]);
+  const items = useMemo(() => toGridItems(entries), [entries]);
+  const containers = useMemo(() => containersById(entries), [entries]);
 
   // One clock reading for the whole grid rather than one per cell: the answer cannot change halfway
   // through a render, and forty-two of them would be forty-two allocations for one fact.

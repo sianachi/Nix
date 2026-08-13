@@ -252,3 +252,107 @@ describe('what the calendar admits to', () => {
     expect(await screen.findByText(/Roadmap.*names no date property/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * Filtering by note.
+ *
+ * The calendar is workspace-wide by default and the filter narrows it, so nothing checked means
+ * every note - said out loud, because an empty selection and a selection showing nothing look the
+ * same on a grid and only one of them is what happened.
+ */
+describe('filtering the calendar by note', () => {
+  it('offers the notes that actually placed something, not every note in the workspace', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByRole('checkbox', { name: 'Deadlines' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Sessions' })).toBeInTheDocument();
+  });
+
+  it('shows every note until one is chosen', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByText(/showing every note/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+  });
+
+  it('narrows to the notes that are checked', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Deadlines' }));
+
+    expect(await screen.findByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Standup/i })).not.toBeInTheDocument();
+  });
+
+  it('overlays several notes at once, which is the point of checkboxes', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Deadlines' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Sessions' }));
+
+    expect(await screen.findByText(/showing 2 of 2 notes/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+  });
+
+  it('takes its selection from the address, so a filtered calendar is a link', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, `/calendar?notes=${CONTAINER_TWO}`);
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Filing deadline/i })).not.toBeInTheDocument();
+  });
+
+  it('goes back to everything', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, `/calendar?notes=${CONTAINER_TWO}`);
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await userEvent.click(await screen.findByRole('button', { name: /show all/i }));
+
+    expect(await screen.findByText(/showing every note/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+  });
+
+  /**
+   * A stale link, or a note that placed nothing in this window. It matches no entry, which is the
+   * honest answer - but it must not be mistaken for "show nothing", and the calendar must still
+   * draw the notes that are selected alongside it.
+   */
+  it('keeps an unknown note in the selection rather than silently rewriting the link', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, `/calendar?notes=${CONTAINER_TWO},99999999-9999-4999-8999-999999999999`);
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(screen.getByText(/showing 2 of 2 notes/i)).toBeInTheDocument();
+  });
+
+  it('offers no filter when nothing placed anything', async () => {
+    stubCoreApi({
+      calendarEntries: [],
+      calendarUnplaceable: [
+        { containerId: CONTAINER_ONE, containerTitle: 'Roadmap', reason: 'no_date_property' },
+      ],
+    });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+});

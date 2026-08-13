@@ -122,3 +122,62 @@ export function containersById(entries: readonly CalendarEntry[]): ReadonlyMap<s
 export function unplaceableEntryCount(calendar: WorkspaceCalendar): number {
   return calendar.entries.filter((entry) => !/^\d{4}-\d{2}-\d{2}/.test(entry.value)).length;
 }
+
+/**
+ * The notes the address is filtering to.
+ *
+ * **Empty means everything, not nothing.** The calendar is workspace-wide by default and the filter
+ * narrows it, so an absent parameter and an empty one both mean "no narrowing" - the alternative
+ * would make a shared link with a stale parameter render a blank calendar that looks like a quiet
+ * workspace.
+ *
+ * Identifiers this build does not recognise are kept rather than dropped. They match nothing, which
+ * is the honest result of asking for a note that is not in this window, and dropping them would
+ * silently rewrite somebody's link.
+ */
+export function parseNotes(raw: string | null): ReadonlySet<string> {
+  if (raw === null || raw.length === 0) {
+    return new Set();
+  }
+
+  return new Set(raw.split(',').filter((id) => id.length > 0));
+}
+
+/** How the selection is written into the address, in a stable order so a link does not churn. */
+export function notesParam(notes: ReadonlySet<string>): string {
+  return [...notes].sort((left, right) => left.localeCompare(right)).join(',');
+}
+
+/**
+ * The entries a selection admits.
+ *
+ * Filtered here rather than at the server, because the window's entries are already in hand and
+ * bounded - a refetch per checkbox would be a round trip to remove rows this build is holding.
+ */
+export function filterByNotes(
+  entries: readonly CalendarEntry[],
+  notes: ReadonlySet<string>,
+): readonly CalendarEntry[] {
+  return notes.size === 0 ? entries : entries.filter((entry) => notes.has(entry.containerId));
+}
+
+/**
+ * The notes that could be filtered to, drawn from the entries themselves.
+ *
+ * **Offered from the payload rather than from the workspace tree.** A picker listing every note in
+ * the workspace would be mostly notes with nothing on this calendar, and choosing one would appear
+ * to do nothing. These are exactly the notes that placed something in the window.
+ */
+export function noteOptions(
+  entries: readonly CalendarEntry[],
+): readonly { readonly id: string; readonly title: string }[] {
+  const byId = new Map<string, string>();
+
+  for (const entry of entries) {
+    byId.set(entry.containerId, entry.containerTitle ?? 'Untitled');
+  }
+
+  return [...byId]
+    .map(([id, title]) => ({ id, title }))
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
