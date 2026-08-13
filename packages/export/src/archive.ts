@@ -132,13 +132,18 @@ function encodeJson(value: unknown): Uint8Array {
 }
 
 /**
- * A file name for an exported item.
+ * A file name for an exported item, in the given format.
  *
  * Punctuation a file system argues about is replaced rather than stripped, so two items whose
  * titles differ only in it do not collapse to the same name. An item titled only in punctuation
  * falls back to a fixed name instead of producing a dotfile or an empty one.
+ *
+ * The extension carries no dot - it comes from a converter's `extension`, which does not carry one
+ * either - and a leading dot is stripped rather than trusted, because a convention that is
+ * documented and unenforced is one that produces `report..pdf` the first time somebody follows the
+ * shape of the argument instead of the sentence describing it.
  */
-export function archiveFileName(title: string): string {
+export function exportFileName(title: string, extension: string): string {
   const slug = title
     .normalize('NFKD')
     .replaceAll(/[^\p{Letter}\p{Number}]+/gu, '-')
@@ -146,5 +151,15 @@ export function archiveFileName(title: string): string {
     .slice(0, 60)
     .toLowerCase();
 
-  return `${slug === '' ? 'export' : slug}.nix`;
+  return `${slug === '' ? 'export' : slug}.${extension.replace(/^\.+/, '')}`;
+}
+
+/**
+ * The `.nix` case, which is what ADR-0017's writer names.
+ *
+ * Kept beside {@link exportFileName} rather than folded into it because `.nix` is the one format
+ * whose extension is a property of this package rather than a caller's choice.
+ */
+export function archiveFileName(title: string): string {
+  return exportFileName(title, 'nix');
 }

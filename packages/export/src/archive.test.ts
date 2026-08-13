@@ -2,7 +2,7 @@ import { FIXTURE_DOCUMENT, SCHEMA_VERSION } from '@nix/editor-schema';
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
-import { archiveFileName, writeArchive } from './archive.js';
+import { archiveFileName, exportFileName, writeArchive } from './archive.js';
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_FORMAT_VERSION,
@@ -205,5 +205,20 @@ describe('archiveFileName', () => {
   it('falls back rather than producing a dotfile', () => {
     expect(archiveFileName('...')).toBe('export.nix');
     expect(archiveFileName('')).toBe('export.nix');
+  });
+});
+
+describe('exportFileName', () => {
+  it('names the file after the item, in the format that was asked for', () => {
+    expect(exportFileName('Quarterly Review', 'pdf')).toBe('quarterly-review.pdf');
+    expect(exportFileName('Quarterly Review', 'docx')).toBe('quarterly-review.docx');
+  });
+
+  it('strips a leading dot rather than producing a double one', () => {
+    expect(exportFileName('Quarterly Review', '.pdf')).toBe('quarterly-review.pdf');
+  });
+
+  it('applies the same fallback the archive name does', () => {
+    expect(exportFileName('...', 'pdf')).toBe('export.pdf');
   });
 });
