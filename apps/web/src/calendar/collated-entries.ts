@@ -1,0 +1,124 @@
+import type { CalendarEntry, WorkspaceCalendar } from '@nix/api-client';
+
+import type { Item } from '../views/core/container-model';
+
+/**
+ * Turning collated entries into something the shared grids can draw.
+ *
+ * **One property key for every entry, invented here.** Both grids take a single `dateProperty` and
+ * read it off each item, because a container has exactly one. The collated calendar does not: its
+ * entries were placed by whatever their own container names, and the dev workspace alone uses four
+ * different keys. Rewriting each entry onto one synthetic key is what lets the grids stay untouched
+ * - the alternative was widening them to resolve a key per item, which would put the container
+ * calendar's whole suite in the blast radius for a view it does not have.
+ *
+ * The key is not a real property and is never written back. It exists between this module and the
+ * grid, for one render.
+ *
+ * Nothing here reads a clock or a zone; it is a rewrite of values that already exist.
+ */
+
+/**
+ * The key the grids read.
+ *
+ * Prefixed and unlikely to collide with a real property, because it shares a namespace with them
+ * inside the synthetic item below. A container that genuinely declared a property called
+ * `nix:collated-date` would be shadowed, which is a trade worth making for a key nobody can type
+ * into the schema editor by accident.
+ */
+export const COLLATED_DATE_KEY = 'nix:collated-date';
+
+/**
+ * One entry as the grids expect an item.
+ *
+ * **A view model wearing `Item`'s shape.** The grids read exactly
+ * three things off an item - `id`, `properties.title`, and `properties[dateProperty]` - and the
+ * calendar response carries all three. It does not carry a workspace identifier, a sequence, or
+ * the timestamps `Item` also declares, and inventing them would put facts on screen this response
+ * never returned. So the unread fields are filled with the empty value of their type.
+ *
+ * If a grid ever starts reading a fourth field, this is where it will be wrong, and it will be
+ * wrong quietly - which is why the three are named here rather than left to be rediscovered.
+ *
+ * No cast is needed: `Item`'s identifier and timestamp fields are typed as plain strings, since Zod
+ * infers `string` from `z.uuid()` and `z.iso.datetime()`. The compiler will not catch a placeholder
+ * here, which is precisely why the placeholders are named above.
+ */
+export function toGridItem(entry: CalendarEntry): Item {
+  return {
+    id: entry.itemId,
+    workspaceId: '',
+    type: 'note',
+    title: entry.title ?? '',
+    parentId: entry.containerId,
+    hasChildren: false,
+    seq: 0,
+    lifecycleState: 'active',
+    properties: {
+      title: entry.title ?? '',
+      [COLLATED_DATE_KEY]: entry.value,
+    },
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
+/** Every entry, as grid items, in the order the server sent them. */
+export function toGridItems(entries: readonly CalendarEntry[]): readonly Item[] {
+  return entries.map(toGridItem);
+}
+
+/**
+ * The entries of one day, bucketed by the day their value names.
+ *
+ * **The day is the value's own first ten characters, not a conversion.** A `date` is already a day.
+ * A `timestamp` is a moment in a named zone, and converting it into the reader's zone here would be
+ * right for the hour grid and wrong for the month grid, which places by the day the value was
+ * written with. The hour grid does its own conversion when it lays a moment on an hour, which is
+ * the only place the reader's zone actually decides anything.
+ */
+export function bucketByDay(entries: readonly CalendarEntry[]): ReadonlyMap<string, Item[]> {
+  const byDay = new Map<string, Item[]>();
+
+  for (const entry of entries) {
+    const day = entry.value.slice(0, 10);
+    const bucket = byDay.get(day);
+
+    if (bucket === undefined) {
+      byDay.set(day, [toGridItem(entry)]);
+      continue;
+    }
+
+    bucket.push(toGridItem(entry));
+  }
+
+  return byDay;
+}
+
+/**
+ * Which container each item came from, so a card can say so.
+ *
+ * The whole point of collating is that an item from anywhere appears, and an item that cannot say
+ * where it came from is a title with no context - two notes called "Review" from different projects
+ * would be indistinguishable.
+ */
+export function containersById(entries: readonly CalendarEntry[]): ReadonlyMap<string, string> {
+  const names = new Map<string, string>();
+
+  for (const entry of entries) {
+    names.set(entry.itemId, entry.containerTitle ?? 'Untitled');
+  }
+
+  return names;
+}
+
+/**
+ * How many entries the response could not place, counted rather than listed.
+ *
+ * A value that does not begin with a day is one this build cannot put anywhere - the server windows
+ * on those ten characters, so it should not arrive, and if it does the honest thing is to say a
+ * number rather than silently draw a shorter month.
+ */
+export function unplaceableEntryCount(calendar: WorkspaceCalendar): number {
+  return calendar.entries.filter((entry) => !/^\d{4}-\d{2}-\d{2}/.test(entry.value)).length;
+}

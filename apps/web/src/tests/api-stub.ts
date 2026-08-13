@@ -87,6 +87,36 @@ export interface StubOptions {
   readonly graphTruncated?: { readonly nodes?: boolean; readonly links?: boolean };
 
   /**
+   * The dated entries the collated calendar read reports.
+   *
+   * Stated rather than derived from `items`, for the reason `backlinks` and `graphLinks` are: this
+   * stub knows nothing about container views or schemas, and which property carries an item's date
+   * is resolved server-side from the container's stored views.
+   */
+  readonly calendarEntries?: readonly {
+    readonly itemId: string;
+    readonly title: string | null;
+    readonly containerId: string;
+    readonly containerTitle: string | null;
+    readonly dateProperty: string;
+    readonly value: string;
+    readonly kind: 'date' | 'timestamp';
+  }[];
+
+  /** Containers the calendar read reports as offering a calendar it could place nothing on. */
+  readonly calendarUnplaceable?: readonly {
+    readonly containerId: string;
+    readonly containerTitle: string | null;
+    readonly reason: string;
+  }[];
+
+  /** Makes the calendar read fail with the refusal Core gives for an invisible workspace. */
+  readonly calendarFails?: boolean;
+
+  /** Makes the calendar read claim it hit its entry ceiling. */
+  readonly calendarTruncated?: boolean;
+
+  /**
    * Which items link to which, keyed by the target.
    *
    * Stated rather than derived from document contents: this stub knows nothing about documents,
@@ -148,6 +178,10 @@ export function stubCoreApi(options: StubOptions = {}): void {
     graphRouteMissing = false,
     graphLinks = [],
     graphTruncated = {},
+    calendarEntries = [],
+    calendarUnplaceable = [],
+    calendarFails = false,
+    calendarTruncated = false,
     views = {},
     createRefusal,
     removeFails = false,
@@ -313,6 +347,26 @@ export function stubCoreApi(options: StubOptions = {}): void {
 
       // Search, reference resolution and backlinks all read the same seeded items, so a test that
       // stubs a workspace gets a working palette and a working picker without saying anything more.
+      const calendarWindow =
+        /\/api\/v1\/workspaces\/[0-9a-f-]{36}\/calendar\?from=([^&]+)&to=([^&]+)/.exec(url);
+      if (calendarWindow !== null) {
+        if (calendarFails) {
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        }
+
+        return Promise.resolve(
+          json({
+            workspaceId: STUB_WORKSPACE_ID,
+            from: decodeURIComponent(calendarWindow[1] ?? ''),
+            to: decodeURIComponent(calendarWindow[2] ?? ''),
+            entries: calendarEntries,
+            unplaceable: calendarUnplaceable,
+            entryLimit: 2000,
+            entriesTruncated: calendarTruncated,
+          }),
+        );
+      }
+
       if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/graph$/.test(url)) {
         if (graphRouteMissing) {
           return Promise.resolve(new Response(null, { status: 404 }));

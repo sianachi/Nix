@@ -177,9 +177,14 @@ describe('the navigation rail', () => {
     );
   });
 
-  it('says the destination is not built rather than showing an empty one that looks built', async () => {
+  /**
+   * Bookmarks rather than the calendar, which used to stand in here and is now built. The point is
+   * unchanged and still worth holding: a destination the rail can reach and the product cannot yet
+   * fill says so, rather than drawing an empty one that looks finished.
+   */
+  it('says an unbuilt destination is not built rather than showing an empty one that looks built', async () => {
     stubCoreApi({ items: [NOTE] });
-    renderAt(<App />, '/calendar');
+    renderAt(<App />, '/bookmarks');
 
     expect(await screen.findByRole('status')).toHaveTextContent(/not built yet/i);
   });

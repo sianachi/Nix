@@ -1,0 +1,254 @@
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { stubCoreApi } from '../api-stub';
+import { renderAt, signedIn } from '../render-with-router';
+import { stubViewport } from '../stub-viewport';
+import { App } from '../../app';
+
+/**
+ * The calendar destination.
+ *
+ * Driven through the whole application, because most of what this page promises is only true in a
+ * router and against a real fetch: which states it moves through, that the address carries the
+ * grain and the anchor, and that what it cannot read reaches a reader in words.
+ *
+ * `process.env.TZ` is ten hours west of UTC, deliberately, so an accidental `new Date(string)`
+ * anywhere in the placement path shows up as an off-by-one day rather than passing in CI and
+ * failing for somebody in Auckland. The same reason `calendar-view.test.tsx` picks it.
+ */
+process.env.TZ = 'Pacific/Honolulu';
+
+const ONE = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const TWO = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const CONTAINER_ONE = 'cccccccc-3333-4333-8333-cccccccccccc';
+const CONTAINER_TWO = 'dddddddd-4444-4444-8444-dddddddddddd';
+
+/** Two entries from two containers, placed by two differently named properties. */
+const ENTRIES = [
+  {
+    itemId: ONE,
+    title: 'Filing deadline',
+    containerId: CONTAINER_ONE,
+    containerTitle: 'Deadlines',
+    dateProperty: 'due',
+    value: '2026-03-12',
+    kind: 'date' as const,
+  },
+  {
+    itemId: TWO,
+    title: 'Standup',
+    containerId: CONTAINER_TWO,
+    containerTitle: 'Sessions',
+    dateProperty: 'starts',
+    value: '2026-03-17T09:00:00+00:00[Europe/London]',
+    kind: 'timestamp' as const,
+  },
+];
+
+beforeEach(() => {
+  signedIn();
+  stubViewport(true);
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  // Built from local parts, so "today" is the 17th of March here rather than whatever the 17th of
+  // March UTC happens to be in this zone.
+  vi.setSystemTime(new Date(2026, 2, 17, 12, 0, 0));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('the calendar destination', () => {
+  it('draws a date wherever it was set, from every container at once', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
+
+    expect(await screen.findByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+  });
+
+  /**
+   * The whole point of collating: two notes called "Review" from different projects would otherwise
+   * be indistinguishable. A day cell is too narrow to print the container, so it is said rather
+   * than truncated.
+   */
+  it('says which container an entry came from', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    expect(
+      await screen.findByRole('button', { name: /Filing deadline, in Deadlines/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('names itself while it is still loading, so a reader knows where they landed', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    // The heading is outside the state fork, so it is on screen before the first entry is.
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
+  });
+
+  it('offers the three grains and lets the address choose one', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar?grain=week');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    const grains = screen.getByRole('group', { name: /calendar grain/i });
+    expect(within(grains).getAllByRole('button')).toHaveLength(3);
+    expect(within(grains).getByRole('button', { name: 'Week' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  it('falls back to a month for a grain this build does not know', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar?grain=fortnight');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    const grains = screen.getByRole('group', { name: /calendar grain/i });
+    expect(within(grains).getByRole('button', { name: 'Month' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  it('opens the anchor the address names rather than today', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar?on=2026-07-04');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    // The grid's own region name, rather than the live label beside it: the month appears in
+    // three places on screen (the label, the region's name, the table's caption) and the region is
+    // the one that says what is actually drawn.
+    expect(screen.getByRole('region', { name: /July 2026/i })).toBeInTheDocument();
+  });
+
+  it('steps through time and says where it got to', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    expect(screen.getByRole('region', { name: /March 2026/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /next month/i }));
+    expect(await screen.findByRole('region', { name: /April 2026/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /previous month/i }));
+    expect(await screen.findByRole('region', { name: /March 2026/i })).toBeInTheDocument();
+  });
+
+  it('opens the item an entry stands for', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+    await userEvent.click(await screen.findByRole('button', { name: /Filing deadline/i }));
+
+    // The collated calendar does not own a second idea of what is open - it goes through the same
+    // useOpenItem the tree uses, which writes the selection into the address.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /**
+   * The container calendar can create and reschedule because it knows which property it places by.
+   * This one cannot, so it must not offer controls that would have to guess.
+   */
+  it('offers no way to create, because it could not know where a new item would go', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar?grain=week');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(screen.queryByRole('button', { name: /add an item at/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add an all-day item/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * What the calendar admits to. A truncated list looks short and announces itself; a truncated
+ * calendar looks like a calendar, so every gap has to be said out loud.
+ */
+describe('what the calendar admits to', () => {
+  it('says so when the entry ceiling was reached', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES, calendarTruncated: true });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByText(/first 2000 items/i)).toBeInTheDocument();
+    expect(screen.getByText(/not drawn/i)).toBeInTheDocument();
+  });
+
+  /**
+   * A container somebody configured and did not finish. Passed over in silence it would look
+   * exactly like a container with nothing scheduled, and a reader would believe the second.
+   */
+  it('names a container that offers a calendar and places nothing', async () => {
+    stubCoreApi({
+      calendarEntries: ENTRIES,
+      calendarUnplaceable: [
+        { containerId: CONTAINER_ONE, containerTitle: 'Roadmap', reason: 'no_date_property' },
+      ],
+    });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(await screen.findByText(/Roadmap.*names no date property/i)).toBeInTheDocument();
+  });
+
+  it('claims nothing when the calendar is complete', async () => {
+    stubCoreApi({ calendarEntries: ENTRIES });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(screen.queryByText(/not drawn/i)).not.toBeInTheDocument();
+  });
+
+  it('offers a way out when the read fails, and does not call it empty', async () => {
+    stubCoreApi({ calendarFails: true });
+    renderAt(<App />, '/calendar');
+
+    const alert = await screen.findByRole('alert');
+
+    expect(within(alert).getByText(/could not be loaded/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it('says a workspace with nothing scheduled is empty, not broken', async () => {
+    stubCoreApi({ calendarEntries: [] });
+    renderAt(<App />, '/calendar');
+
+    expect(await screen.findByText(/nothing scheduled/i)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /**
+   * A workspace whose only calendar is misconfigured is not empty. Calling it empty would hide the
+   * one thing on screen worth acting on.
+   */
+  it('does not call a workspace empty when the only thing in it is a misconfigured calendar', async () => {
+    stubCoreApi({
+      calendarEntries: [],
+      calendarUnplaceable: [
+        { containerId: CONTAINER_ONE, containerTitle: 'Roadmap', reason: 'no_date_property' },
+      ],
+    });
+    renderAt(<App />, '/calendar');
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    expect(screen.queryByText(/nothing scheduled/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Roadmap.*names no date property/i)).toBeInTheDocument();
+  });
+});

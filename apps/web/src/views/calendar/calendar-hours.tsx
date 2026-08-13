@@ -114,10 +114,15 @@ export interface HourGridProps {
   readonly today: string;
 
   readonly onOpen: (itemId: string) => void;
-  readonly onCreate: (
-    title: string,
-    properties?: Record<string, unknown>,
-  ) => Promise<string | null>;
+  /**
+   * Adds an item to the day or slot it is offered on.
+   *
+   * Optional, and absent means the grid offers no way to create. The collated calendar reads across
+   * containers, so "create here" has no answer - there is no one container a new item would belong
+   * to. A control that appeared and did nothing would be worse than no control.
+   */
+  readonly onCreate?:
+    ((title: string, properties?: Record<string, unknown>) => Promise<string | null>) | undefined;
 
   /**
    * The item a pointer is currently dragging, or null.
@@ -129,7 +134,13 @@ export interface HourGridProps {
   readonly dragged: string | null;
 
   /** Where a dropped item is written to. The value is a stored timestamp, or null to unschedule. */
-  readonly onMove: (itemId: string, value: string | null) => void;
+  /**
+   * Reschedules an item onto the slot it was dropped on.
+   *
+   * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
+   * the same caller - a grid that took a drop it could not write would silently discard it.
+   */
+  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
 }
 
 interface Placed {
@@ -333,12 +344,23 @@ function DayColumn(props: {
   readonly dateProperty: string;
   readonly zone: string;
   readonly onOpen: (itemId: string) => void;
-  readonly onCreate: (
-    title: string,
-    properties?: Record<string, unknown>,
-  ) => Promise<string | null>;
+  /**
+   * Adds an item to the day or slot it is offered on.
+   *
+   * Optional, and absent means the grid offers no way to create. The collated calendar reads across
+   * containers, so "create here" has no answer - there is no one container a new item would belong
+   * to. A control that appeared and did nothing would be worse than no control.
+   */
+  readonly onCreate?:
+    ((title: string, properties?: Record<string, unknown>) => Promise<string | null>) | undefined;
   readonly dragged: string | null;
-  readonly onMove: (itemId: string, value: string | null) => void;
+  /**
+   * Reschedules an item onto the slot it was dropped on.
+   *
+   * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
+   * the same caller - a grid that took a drop it could not write would silently discard it.
+   */
+  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
 }): ReactNode {
   const { day, dayIndex, placed, dateProperty, zone, onOpen, onCreate, dragged, onMove } = props;
 
@@ -397,12 +419,23 @@ function HourSlot(props: {
   readonly hour: number;
   readonly dateProperty: string;
   readonly zone: string;
-  readonly onCreate: (
-    title: string,
-    properties?: Record<string, unknown>,
-  ) => Promise<string | null>;
+  /**
+   * Adds an item to the day or slot it is offered on.
+   *
+   * Optional, and absent means the grid offers no way to create. The collated calendar reads across
+   * containers, so "create here" has no answer - there is no one container a new item would belong
+   * to. A control that appeared and did nothing would be worse than no control.
+   */
+  readonly onCreate?:
+    ((title: string, properties?: Record<string, unknown>) => Promise<string | null>) | undefined;
   readonly dragged: string | null;
-  readonly onMove: (itemId: string, value: string | null) => void;
+  /**
+   * Reschedules an item onto the slot it was dropped on.
+   *
+   * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
+   * the same caller - a grid that took a drop it could not write would silently discard it.
+   */
+  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
 }): ReactNode {
   const { day, dayIndex, hour, dateProperty, zone, onCreate, dragged, onMove } = props;
   const [over, setOver] = useState(false);
@@ -427,7 +460,7 @@ function HourSlot(props: {
       onDrop={(event: DragEvent<HTMLDivElement>) => {
         event.preventDefault();
         setOver(false);
-        if (dragged !== null) {
+        if (dragged !== null && onMove !== undefined) {
           // The hour is the whole point of dropping here rather than on a day: a drop writes the
           // moment the slot stands for, in the reader's zone, through the same function the slot's
           // create control writes.
@@ -446,13 +479,15 @@ function HourSlot(props: {
           element out of the tab order entirely, so `focus-visible:visible` could never fire -
           nothing could tab to the control in order to un-hide it. See the same pattern, with
           the same reasoning, on workspace-sidebar.tsx's row-hover controls. */}
-      <CreateItemControl
-        compact
-        label={`Add an item at ${at} on ${dayLabel(day)}`}
-        properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
-        onCreate={onCreate}
-        className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
-      />
+      {onCreate !== undefined && (
+        <CreateItemControl
+          compact
+          label={`Add an item at ${at} on ${dayLabel(day)}`}
+          properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
+          onCreate={onCreate}
+          className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
+        />
+      )}
     </div>
   );
 }
@@ -489,10 +524,15 @@ function AllDayBand(props: {
   readonly items: readonly Item[];
   readonly dateProperty: string;
   readonly onOpen: (itemId: string) => void;
-  readonly onCreate: (
-    title: string,
-    properties?: Record<string, unknown>,
-  ) => Promise<string | null>;
+  /**
+   * Adds an item to the day or slot it is offered on.
+   *
+   * Optional, and absent means the grid offers no way to create. The collated calendar reads across
+   * containers, so "create here" has no answer - there is no one container a new item would belong
+   * to. A control that appeared and did nothing would be worse than no control.
+   */
+  readonly onCreate?:
+    ((title: string, properties?: Record<string, unknown>) => Promise<string | null>) | undefined;
 }): ReactNode {
   const { days, items, dateProperty, onOpen, onCreate } = props;
 
@@ -553,13 +593,15 @@ function AllDayBand(props: {
 
             {/* `opacity-0`/`pointer-events-none`, not `invisible` - see the hour cell's own
                 control above for why `visibility: hidden` breaks the keyboard path entirely. */}
-            <CreateItemControl
-              compact
-              label={`Add an all-day item on ${dayLabel(day)}`}
-              properties={{ [dateProperty]: wanted }}
-              onCreate={onCreate}
-              className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/allday:pointer-events-auto group-hover/allday:opacity-100"
-            />
+            {onCreate !== undefined && (
+              <CreateItemControl
+                compact
+                label={`Add an all-day item on ${dayLabel(day)}`}
+                properties={{ [dateProperty]: wanted }}
+                onCreate={onCreate}
+                className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/allday:pointer-events-auto group-hover/allday:opacity-100"
+              />
+            )}
           </div>
         );
       })}
