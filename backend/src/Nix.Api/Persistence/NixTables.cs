@@ -77,6 +77,9 @@ public static class NixTables
     /// <summary>A principal's personal set of reusable Excalidraw shapes.</summary>
     public const string CanvasLibrary = "canvas_library";
 
+    /// <summary>One row per item a principal has kept.</summary>
+    public const string Bookmark = "bookmark";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -101,6 +104,7 @@ public static class NixTables
         ItemLink,
         ItemSearch,
         CanvasLibrary,
+        Bookmark,
     ];
 
     /// <summary>
@@ -147,6 +151,10 @@ public static class NixTables
             [TenantRole] = FullDml,
             [WorkspaceMember] = FullDml,
             [Item] = FullDml,
+
+            // A bookmark is personal state the application both reads and writes on the reader's
+            // behalf: keeping one is the whole feature, and there is no other service that owns it.
+            [Bookmark] = FullDml,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 

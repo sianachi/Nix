@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Nix.Domain.Audit;
 using Nix.Domain.Authorization;
+using Nix.Domain.Bookmarks;
 using Nix.Domain.Content;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
@@ -132,6 +133,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets every principal's personal canvas library.</summary>
     public DbSet<CanvasLibrary> CanvasLibraries => Set<CanvasLibrary>();
 
+    /// <summary>The items each principal has kept.</summary>
+    public DbSet<Bookmark> Bookmarks => Set<Bookmark>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -206,5 +210,6 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ItemLinkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
+        modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
     }
 }

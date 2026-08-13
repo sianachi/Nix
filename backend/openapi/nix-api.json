@@ -1616,6 +1616,78 @@
           }
         }
       }
+    },
+    "/api/v1/me/bookmarks": {
+      "get": {
+        "tags": [
+          "Bookmarks"
+        ],
+        "summary": "What the caller has kept",
+        "description": "Returns the items the calling principal has bookmarked, most recently kept first. A shelf is personal: it belongs to the caller and no request can ask for somebody else's. Titles are read from the items rather than stored on the bookmark, so a rename shows here immediately. A bookmark outlives access to what it points at - losing membership of a workspace does not remove rows - so this list carries only the items the caller may still read, filtered while the query runs. The 'hidden' count says how many kept items that left out, without naming them: naming them would disclose the titles of documents somebody has been removed from, and omitting them silently would be a shelf that loses things without saying so. An item that has been moved to the trash is counted as hidden for the same reason and by the same rule.",
+        "operationId": "GetBookmarks",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShelfResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/bookmark": {
+      "put": {
+        "tags": [
+          "Bookmarks"
+        ],
+        "summary": "Keep an item",
+        "description": "Puts an item on the calling principal's shelf. Idempotent: keeping something already kept leaves one row and answers the same way. Only an item the caller may read can be kept, and the check is a predicate inside the insert rather than a separate lookup. An item the caller may not read, and an item already kept, both answer 204 - telling them apart would answer, for any identifier, whether it names something that exists.",
+        "operationId": "KeepItem",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bookmarks"
+        ],
+        "summary": "Stop keeping an item",
+        "description": "Takes an item off the calling principal's shelf. Idempotent, and deliberately not permission-checked: somebody who has lost access to an item must still be able to clear it off their own shelf, and refusing would disclose that the row is there. It can only ever remove the caller's own row.",
+        "operationId": "ReleaseItem",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2115,6 +2187,39 @@
         "type": "object",
         "additionalProperties": { }
       },
+      "KeptItemResponse": {
+        "required": [
+          "itemId",
+          "title",
+          "type",
+          "workspaceId",
+          "keptAt"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "keptAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "LivenessResponse": {
         "required": [
           "status"
@@ -2468,6 +2573,29 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ShelfResponse": {
+        "required": [
+          "items",
+          "hidden"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeptItemResponse"
+            }
+          },
+          "hidden": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2884,6 +3012,9 @@
     },
     {
       "name": "Calendar"
+    },
+    {
+      "name": "Bookmarks"
     }
   ]
 }

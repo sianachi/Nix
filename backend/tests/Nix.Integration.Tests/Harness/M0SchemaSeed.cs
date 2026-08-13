@@ -167,6 +167,12 @@ internal static class M0SchemaSeed
             -- opaque to Core, so an empty array says as much as anything else would.
             INSERT INTO canvas_library (principal_id, tenant_id, library_items, updated_at)
             VALUES ({principal}, {tenant}, '[]'::jsonb, now());
+
+            -- The seeded principal keeps the seeded item. Present for the same reason the library
+            -- above is: the isolation theories need a row to see and a row to try to relabel. The
+            -- seed holds one item per tenant, so this is the only pair there is to make.
+            INSERT INTO bookmark (principal_id, tenant_id, item_id, created_at)
+            VALUES ({principal}, {tenant}, {item}, now());
             """;
     }
 

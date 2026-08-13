@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Nix;
 using Nix.Authentication;
 using Nix.Errors;
+using Nix.Features.Bookmarks;
 using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Graph;
@@ -54,6 +55,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(CanvasJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(GraphJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -311,6 +313,7 @@ app.MapSearchEndpoints();
 app.MapCanvasEndpoints();
 app.MapGraphEndpoints();
 app.MapCalendarEndpoints();
+app.MapBookmarkEndpoints();
 
 app.Run();
 
