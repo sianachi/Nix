@@ -488,6 +488,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/calendar': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every calendar in a workspace, collated into one window
+     * @description Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. That list is never truncated. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.
+     */
+    get: operations['GetWorkspaceCalendar'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -517,6 +537,17 @@ export interface components {
       /** Format: int32 */
       limit: number | string;
       truncated: boolean;
+    };
+    CalendarEntryResponse: {
+      /** Format: uuid */
+      itemId: string;
+      title: null | string;
+      /** Format: uuid */
+      containerId: string;
+      containerTitle: null | string;
+      dateProperty: string;
+      value: string;
+      kind: string;
     };
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
@@ -696,6 +727,12 @@ export interface components {
       views: components['schemas']['ViewRequest'][];
       default: null | string;
     };
+    UnplaceableCalendarResponse: {
+      /** Format: uuid */
+      containerId: string;
+      containerTitle: null | string;
+      reason: string;
+    };
     UpdateItemRequest: {
       title: string;
     };
@@ -736,6 +773,17 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+    };
+    WorkspaceCalendarResponse: {
+      /** Format: uuid */
+      workspaceId: string;
+      from: string;
+      to: string;
+      entries: components['schemas']['CalendarEntryResponse'][];
+      unplaceable: components['schemas']['UnplaceableCalendarResponse'][];
+      /** Format: int32 */
+      entryLimit: number | string;
+      entriesTruncated: boolean;
     };
     WorkspaceGraphResponse: {
       /** Format: uuid */
@@ -1858,6 +1906,49 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['WorkspaceGraphResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetWorkspaceCalendar: {
+    parameters: {
+      query?: {
+        from?: string;
+        to?: string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceCalendarResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
       /** @description Not Found */

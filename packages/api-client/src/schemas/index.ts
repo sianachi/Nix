@@ -32,6 +32,16 @@ export {
   type GraphNode,
   type WorkspaceGraph,
 } from './workspace-graph.js';
+export {
+  calendarEntryKindSchema,
+  calendarEntrySchema,
+  unplaceableCalendarSchema,
+  workspaceCalendarSchema,
+  type CalendarEntry,
+  type CalendarEntryKind,
+  type UnplaceableCalendar,
+  type WorkspaceCalendar,
+} from './workspace-calendar.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

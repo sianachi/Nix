@@ -77,15 +77,20 @@ export {
   problemDetailsSchema,
   graphNodeSchema,
   graphLinkSchema,
+  workspaceCalendarSchema,
   workspaceGraphSchema,
 } from './schemas/index.js';
 export type {
   CursorPage,
+  CalendarEntry,
+  CalendarEntryKind,
   GraphLink,
   GraphNode,
   Item,
   KnownItemType,
   ProblemDetails,
+  UnplaceableCalendar,
+  WorkspaceCalendar,
   WorkspaceGraph,
 } from './schemas/index.js';
 
@@ -118,4 +123,5 @@ export type {
  */
 export * as items from './resources/items.js';
 export * as canvasLibrary from './resources/canvas-library.js';
+export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
