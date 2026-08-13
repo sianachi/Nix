@@ -1,4 +1,4 @@
-import { FilePlus, PanelLeft, type LucideIcon } from 'lucide-react';
+import { FilePlus, PanelLeft, Star, type LucideIcon } from 'lucide-react';
 
 /**
  * What the palette can do, as opposed to what it can find.
@@ -34,6 +34,18 @@ export interface PaletteCommand {
 export interface CommandContext {
   readonly createItem: () => void;
   readonly toggleSidebar: () => void;
+
+  /**
+   * Keeps or releases the item that is open, or null when nothing is.
+   *
+   * Null rather than a no-op function, so the command can be left out of the list entirely rather
+   * than offered and then doing nothing - a palette that lists something inert teaches people to
+   * distrust it.
+   */
+  readonly toggleBookmark: (() => void) | null;
+
+  /** Whether the open item is already kept, so the command can say which way it goes. */
+  readonly openItemIsKept: boolean;
 }
 
 /** The commands this build ships. */
@@ -54,6 +66,21 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       keywords: ['sidebar', 'tree', 'hide', 'show', 'collapse', 'expand', 'navigation'],
       run: context.toggleSidebar,
     },
+
+    // Offered only when there is something to keep. The label names the direction rather than the
+    // control, because somebody reading a list of commands is choosing an outcome.
+    ...(context.toggleBookmark === null
+      ? []
+      : [
+          {
+            id: 'toggle-bookmark',
+            label: context.openItemIsKept ? 'Remove bookmark' : 'Bookmark this note',
+            hint: 'The note you have open',
+            icon: Star,
+            keywords: ['bookmark', 'keep', 'star', 'save', 'favourite', 'favorite', 'shelf'],
+            run: context.toggleBookmark,
+          },
+        ]),
   ];
 }
 

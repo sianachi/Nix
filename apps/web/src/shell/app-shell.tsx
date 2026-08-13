@@ -12,6 +12,7 @@ import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
 import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
+import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
@@ -104,6 +105,12 @@ export function AppShell(): ReactNode {
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
   const narrow = useNarrowViewport();
+
+  // The shelf is loaded once, here, because four places read it at the same time - this page's
+  // rail, the tree's rows, the open document's control and the palette. See use-bookmarks.ts.
+  useBookmarksLoader();
+  const toggleBookmark = useBookmarksStore((state) => state.toggle);
+  const selectedIsKept = useIsKept(selectedId);
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -529,6 +536,16 @@ export function AppShell(): ReactNode {
             });
           },
           toggleSidebar: sidebar.toggle,
+
+          // Null when nothing is open, so the command is left out of the list rather than offered
+          // and inert. See commands.ts for why that distinction is worth a nullable.
+          toggleBookmark:
+            selectedId === null
+              ? null
+              : () => {
+                  void toggleBookmark(selectedId);
+                },
+          openItemIsKept: selectedIsKept,
         })}
         onSelectItem={select}
         onClose={() => {

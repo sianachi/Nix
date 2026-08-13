@@ -42,6 +42,7 @@ export {
   type UnplaceableCalendar,
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
+export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

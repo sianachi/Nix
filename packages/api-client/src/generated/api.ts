@@ -508,6 +508,50 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/bookmarks': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * What the caller has kept
+     * @description Returns the items the calling principal has bookmarked, most recently kept first. A shelf is personal: it belongs to the caller and no request can ask for somebody else's. Titles are read from the items rather than stored on the bookmark, so a rename shows here immediately. A bookmark outlives access to what it points at - losing membership of a workspace does not remove rows - so this list carries only the items the caller may still read, filtered while the query runs. The 'hidden' count says how many kept items that left out, without naming them: naming them would disclose the titles of documents somebody has been removed from, and omitting them silently would be a shelf that loses things without saying so. An item that has been moved to the trash is counted as hidden for the same reason and by the same rule.
+     */
+    get: operations['GetBookmarks'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/bookmark': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Keep an item
+     * @description Puts an item on the calling principal's shelf. Idempotent: keeping something already kept leaves one row and answers the same way. Only an item the caller may read can be kept, and the check is a predicate inside the insert rather than a separate lookup. An item the caller may not read, and an item already kept, both answer 204 - telling them apart would answer, for any identifier, whether it names something that exists.
+     */
+    put: operations['KeepItem'];
+    post?: never;
+    /**
+     * Stop keeping an item
+     * @description Takes an item off the calling principal's shelf. Idempotent, and deliberately not permission-checked: somebody who has lost access to an item must still be able to clear it off their own shelf, and refusing would disclose that the row is there. It can only ever remove the caller's own row.
+     */
+    delete: operations['ReleaseItem'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -639,6 +683,16 @@ export interface components {
     JsonObject: {
       [key: string]: unknown;
     };
+    KeptItemResponse: {
+      /** Format: uuid */
+      itemId: string;
+      title: null | string;
+      type: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: date-time */
+      keptAt: string;
+    };
     LivenessResponse: {
       status: string;
     };
@@ -726,6 +780,11 @@ export interface components {
     SetViewsRequest: {
       views: components['schemas']['ViewRequest'][];
       default: null | string;
+    };
+    ShelfResponse: {
+      items: components['schemas']['KeptItemResponse'][];
+      /** Format: int32 */
+      hidden: number | string;
     };
     UnplaceableCalendarResponse: {
       /** Format: uuid */
@@ -1959,6 +2018,66 @@ export interface operations {
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
         };
+      };
+    };
+  };
+  GetBookmarks: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ShelfResponse'];
+        };
+      };
+    };
+  };
+  KeepItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ReleaseItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

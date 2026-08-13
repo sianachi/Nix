@@ -25,6 +25,7 @@ const CanvasEditor = lazy(async () => {
   return { default: module.CanvasEditor };
 });
 import { announce } from '../a11y/announcer';
+import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { PaneGroup } from '../panes/pane-group';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
@@ -432,6 +433,11 @@ function OpenItem({
             box where every sibling row's box already is; the label sits a further `px-2` in from
             there, which is the same relationship the switcher's own tabs have to their nav. */}
         <div className="flex shrink-0 items-center gap-1 py-1.5 pl-2 pr-8">
+          {/* The thing you are reading is the thing you can keep. First in the row because it acts
+              on the document rather than on the pane around it, which the two controls beside it
+              both do. */}
+          <BookmarkButton compact itemId={itemId} title={title} />
+
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"

@@ -22,6 +22,8 @@ import {
 } from 'react';
 
 import { announce } from '../a11y/announcer';
+import { BookmarkButton } from '../bookmarks/bookmark-button';
+import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
@@ -499,6 +501,10 @@ export function dropZoneAt(offsetY: number, height: number): DropZone {
 }
 
 function TreeNode(props: TreeNodeProps): ReactNode {
+  // A selector rather than the whole store, so a row re-renders when its own answer moves and not
+  // when somebody keeps an unrelated item three folders away.
+  const keptIds = useBookmarksStore((state) => state.keptIds);
+
   const {
     item,
     depth,
@@ -752,6 +758,18 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             <Icon icon={Columns2} size="sm" />
           </button>
         )}
+
+        {/* Revealed on hover and on focus like its neighbours, and always visible once the item is
+            kept - a star that vanished when the pointer left would mean a reader could not tell
+            what they had bookmarked without hovering every row in turn. `BookmarkButton` owns the
+            pressed state and the toggle; the classes here are the row's, because only the row knows
+            what its controls look like. */}
+        <BookmarkButton
+          compact
+          itemId={item.id}
+          title={item.title}
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
+        />
 
         <button
           type="button"

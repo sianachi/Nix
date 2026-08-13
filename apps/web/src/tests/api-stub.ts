@@ -110,6 +110,21 @@ export interface StubOptions {
     readonly reason: string;
   }[];
 
+  /** What the caller has kept, as the shelf read reports it. */
+  readonly bookmarks?: readonly {
+    readonly itemId: string;
+    readonly title: string | null;
+    readonly type: string;
+    readonly workspaceId: string;
+    readonly keptAt: string;
+  }[];
+
+  /** How many kept items the shelf read says it cannot show. */
+  readonly bookmarksHidden?: number;
+
+  /** Makes the shelf read fail. */
+  readonly bookmarksFail?: boolean;
+
   /** Makes the calendar read fail with the refusal Core gives for an invisible workspace. */
   readonly calendarFails?: boolean;
 
@@ -180,6 +195,9 @@ export function stubCoreApi(options: StubOptions = {}): void {
     graphTruncated = {},
     calendarEntries = [],
     calendarUnplaceable = [],
+    bookmarks = [],
+    bookmarksHidden = 0,
+    bookmarksFail = false,
     calendarFails = false,
     calendarTruncated = false,
     views = {},
@@ -192,6 +210,11 @@ export function stubCoreApi(options: StubOptions = {}): void {
   // follow it - a stub whose POST returns an item that the next GET has never heard of tests the
   // opposite of what a creation test means to.
   const known = [...items];
+
+  // The shelf the stub holds. Mutable, because keeping something has to be visible to the read that
+  // follows it - a stub whose PUT is forgotten by the next GET tests the opposite of what a
+  // bookmarking test means to.
+  let kept = [...bookmarks];
 
   /** The four fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
@@ -223,6 +246,38 @@ export function stubCoreApi(options: StubOptions = {}): void {
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const method = (init?.method ?? 'GET').toUpperCase();
+
+      // Ordered before the /me route below, which would otherwise swallow it.
+      if (url.includes('/api/v1/me/bookmarks')) {
+        return Promise.resolve(
+          bookmarksFail
+            ? json({ code: 'bookmarks.unavailable' }, 500)
+            : json({ items: kept, hidden: bookmarksHidden }),
+        );
+      }
+
+      // Keeping and releasing. The stub holds the shelf in memory so a test can press a control and
+      // then assert on what the next read says, which is the whole round trip the store makes.
+      const bookmarkWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/bookmark$/.exec(url);
+      if (bookmarkWrite !== null && (method === 'PUT' || method === 'DELETE')) {
+        const itemId = bookmarkWrite[1] ?? '';
+        if (method === 'PUT') {
+          if (!kept.some((entry) => entry.itemId === itemId)) {
+            const item = known.find((candidate) => candidate.id === itemId);
+            kept.unshift({
+              itemId,
+              title: item?.title ?? 'Untitled',
+              type: item?.type ?? 'note',
+              workspaceId: STUB_WORKSPACE_ID,
+              keptAt: '2026-03-17T09:00:00+00:00',
+            });
+          }
+        } else {
+          kept = kept.filter((entry) => entry.itemId !== itemId);
+        }
+
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
 
       if (url.includes('/api/v1/me')) {
         return Promise.resolve(

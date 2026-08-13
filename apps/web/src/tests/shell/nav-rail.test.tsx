@@ -177,17 +177,13 @@ describe('the navigation rail', () => {
     );
   });
 
-  /**
-   * Bookmarks rather than the calendar, which used to stand in here and is now built. The point is
-   * unchanged and still worth holding: a destination the rail can reach and the product cannot yet
-   * fill says so, rather than drawing an empty one that looks finished.
+  /*
+   * The deliberate-stub test that lived here is gone, and its absence is the point: every
+   * destination the rail offers is now built, so there is no placeholder left to assert on. The
+   * rule it guarded - a destination the product cannot yet fill says so rather than drawing an
+   * empty one that looks finished - still stands, and `status-panels.tsx`'s `EmptyPanel` is still
+   * how it would be honoured. Reinstate a test here the next time a route lands ahead of its view.
    */
-  it('says an unbuilt destination is not built rather than showing an empty one that looks built', async () => {
-    stubCoreApi({ items: [NOTE] });
-    renderAt(<App />, '/bookmarks');
-
-    expect(await screen.findByRole('status')).toHaveTextContent(/not built yet/i);
-  });
 });
 
 /**
