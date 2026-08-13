@@ -1549,6 +1549,73 @@
           }
         }
       }
+    },
+    "/api/v1/workspaces/{workspaceId}/calendar": {
+      "get": {
+        "tags": [
+          "Calendar"
+        ],
+        "summary": "Every calendar in a workspace, collated into one window",
+        "description": "Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. That list is never truncated. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.",
+        "operationId": "GetWorkspaceCalendar",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceCalendarResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1647,6 +1714,49 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "CalendarEntryResponse": {
+        "required": [
+          "itemId",
+          "title",
+          "containerId",
+          "containerTitle",
+          "dateProperty",
+          "value",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "containerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "containerTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dateProperty": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },
@@ -2361,6 +2471,29 @@
           }
         }
       },
+      "UnplaceableCalendarResponse": {
+        "required": [
+          "containerId",
+          "containerTitle",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "containerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "containerTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateItemRequest": {
         "required": [
           "title"
@@ -2578,6 +2711,53 @@
           }
         }
       },
+      "WorkspaceCalendarResponse": {
+        "required": [
+          "workspaceId",
+          "from",
+          "to",
+          "entries",
+          "unplaceable",
+          "entryLimit",
+          "entriesTruncated"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarEntryResponse"
+            }
+          },
+          "unplaceable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnplaceableCalendarResponse"
+            }
+          },
+          "entryLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "entriesTruncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "WorkspaceGraphResponse": {
         "required": [
           "workspaceId",
@@ -2701,6 +2881,9 @@
     },
     {
       "name": "Graph"
+    },
+    {
+      "name": "Calendar"
     }
   ]
 }

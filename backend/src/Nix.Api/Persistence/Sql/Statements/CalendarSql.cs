@@ -1,0 +1,136 @@
+namespace Nix.Persistence.Sql.Statements;
+
+/// <summary>
+/// Collating every calendar in a workspace: which containers place their children on a date, and
+/// which children that puts where.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The permission filter is a predicate in the statement, not a pass over the results.</b> The
+/// readable workspaces are resolved through <c>IPermissionResolver</c> before the query runs and
+/// are never sent by the client. This is the rule <see cref="GraphSql"/> states and the reason is
+/// the same: a collated calendar is bulk disclosure. Filtering afterwards would spend the ceiling
+/// on rows the caller may not see, so a month that is full could come back looking empty.
+/// </para>
+/// <para>
+/// <b>Two predicates, not one.</b> Every arm carries both <c>workspace_id = @workspace_id</c> (which
+/// workspace was asked for) and <c>workspace_id = ANY(@workspace_ids)</c> (which ones may be
+/// answered). While visibility is per workspace the second is implied by a membership test the
+/// handler has already made; it is still written, because the handler's test is a fact about the
+/// request and the predicate is a fact about the rows. When access control entries make visibility
+/// per item, the predicate is the line that grows and the handler does not move.
+/// </para>
+/// <para>
+/// Index dependencies: <c>IX_item_tenant_id_workspace_id</c> for the container scan and
+/// <c>IX_item_parent_id_seq</c> for the child join. The container scan reads <c>views</c>, which is
+/// unindexed - it is bounded by the workspace's item count and the arm is selective on
+/// <c>views IS NOT NULL</c> before the lateral runs.
+/// </para>
+/// </remarks>
+public static class CalendarSql
+{
+    /// <summary>
+    /// The dated children of every container that offers a calendar, plus the containers that offer
+    /// one and place nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Which property is the date is a fact in the data, not a parameter.</b> A container stores
+    /// its views as JSON on its own row, and a calendar view names the property it places by. So
+    /// the whole resolution is one lateral join - no round trip per container, and no client
+    /// deciding what a container meant.
+    /// </para>
+    /// <para>
+    /// <b>An item appears once.</b> A container may configure several calendar views, on different
+    /// properties. <c>WITH ORDINALITY</c> plus <c>row_number()</c> takes the first as the array
+    /// stores it, so the answer is the same on every read rather than whichever row the planner
+    /// happened to emit first. The alternative - returning the item once per calendar view - would
+    /// put the same note on two days with no way for a reader to tell which was meant.
+    /// </para>
+    /// <para>
+    /// <b>The window compares the first ten characters, and must not cast.</b> A <c>date</c> is
+    /// stored <c>yyyy-MM-dd</c> and a <c>timestamp</c> as RFC 9557 with a bracketed zone
+    /// (<c>2026-03-17T09:00:00+00:00[Europe/London]</c>). Both begin with the same ten characters,
+    /// so <c>left(value, 10)</c> is a day for either. Casting to <c>timestamptz</c> would be the
+    /// obvious move and would throw on every zoned value in the table, because Postgres does not
+    /// parse the bracketed suffix.
+    /// </para>
+    /// <para>
+    /// <b>The ceiling is applied to the entries alone.</b> The unplaceable containers are the part
+    /// of the answer that explains what is missing, so truncating them with the same limit could
+    /// remove the explanation for the truncation. They are counted in tens at worst - one per
+    /// misconfigured container.
+    /// </para>
+    /// <para>
+    /// The ordering is stable, so the same window cuts the same entries twice rather than a
+    /// different subset per request. Entries enter by date, then by the workspace's own sibling
+    /// order, so a truncated read keeps the earliest of the window rather than an arbitrary sample.
+    /// </para>
+    /// </remarks>
+    public const string WorkspaceCalendar = """
+        WITH calendar_view AS (
+            SELECT container.id AS container_id,
+                   container.properties ->> 'title' AS container_title,
+                   entry.value ->> 'dateProperty' AS date_property,
+                   row_number() OVER (PARTITION BY container.id ORDER BY entry.ordinality) AS rank
+            FROM item AS container
+            CROSS JOIN LATERAL jsonb_array_elements(container.views -> 'views')
+                WITH ORDINALITY AS entry(value, ordinality)
+            WHERE container.tenant_id = @tenant_id
+              AND container.workspace_id = @workspace_id
+              AND container.workspace_id = ANY(@workspace_ids)
+              AND container.lifecycle_state = 'active'
+              AND container.views IS NOT NULL
+              AND entry.value ->> 'kind' = 'calendar'
+        ),
+        chosen AS (
+            SELECT container_id, container_title, date_property
+            FROM calendar_view
+            WHERE rank = 1
+        ),
+        entries AS (
+            SELECT child.id AS item_id,
+                   child.properties ->> 'title' AS item_title,
+                   chosen.container_id AS container_id,
+                   chosen.container_title AS container_title,
+                   chosen.date_property AS date_property,
+                   child.properties ->> chosen.date_property AS value,
+                   child.seq AS seq
+            FROM chosen
+            JOIN item AS child
+              ON child.parent_id = chosen.container_id
+             AND child.tenant_id = @tenant_id
+             AND child.workspace_id = @workspace_id
+             AND child.workspace_id = ANY(@workspace_ids)
+             AND child.lifecycle_state = 'active'
+            WHERE chosen.date_property IS NOT NULL
+              AND child.properties ->> chosen.date_property IS NOT NULL
+              AND left(child.properties ->> chosen.date_property, 10) >= @from
+              AND left(child.properties ->> chosen.date_property, 10) <= @to
+            ORDER BY value, child.seq, child.id
+            LIMIT @entry_limit
+        )
+        SELECT 0 AS row_kind,
+               entries.item_id AS item_id,
+               entries.item_title AS item_title,
+               entries.container_id AS container_id,
+               entries.container_title AS container_title,
+               entries.date_property AS date_property,
+               entries.value AS value
+        FROM entries
+
+        UNION ALL
+
+        SELECT 1 AS row_kind,
+               NULL AS item_id,
+               NULL AS item_title,
+               chosen.container_id AS container_id,
+               chosen.container_title AS container_title,
+               NULL AS date_property,
+               NULL AS value
+        FROM chosen
+        WHERE chosen.date_property IS NULL
+
+        ORDER BY row_kind, value, item_id
+        """;
+}

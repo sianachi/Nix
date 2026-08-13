@@ -7,6 +7,7 @@ using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
 using Nix.Domain.Views;
+using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Graph;
 using Nix.Features.Internal;
@@ -17,6 +18,7 @@ using Nix.Features.Search;
 using Nix.Features.Views;
 using Nix.Messaging;
 using Nix.Persistence.Authorization;
+using Nix.Persistence.Calendar;
 using Nix.Persistence.Content;
 using Nix.Persistence.Graph;
 using Nix.Persistence.Identity;
@@ -145,6 +147,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemLinks, ItemLinks>();
         services.AddScoped<ICanvasLibraryStore, CanvasLibraryStore>();
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
+        services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
@@ -193,6 +196,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SaveCanvasLibrary, CanvasLibraryItems>, SaveCanvasLibraryHandler>();
 
         services.AddScoped<IQueryHandler<GetWorkspaceGraph, Result<WorkspaceGraphResults>>, GetWorkspaceGraphHandler>();
+        services.AddScoped<IQueryHandler<GetWorkspaceCalendar, Result<WorkspaceCalendarResults>>, GetWorkspaceCalendarHandler>();
 
         return services;
     }
