@@ -1,0 +1,40 @@
+{
+  "name": "@nix/pdf-export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The document schema mapped onto pdfmake: an item bundle in, PDF bytes out, with a stated list of what a page cannot carry",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "fonts"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@fontsource/nunito-sans": "^5.3.0",
+    "@nix/design-tokens": "workspace:*",
+    "@nix/editor-schema": "workspace:*",
+    "@nix/export": "workspace:*",
+    "@nix/sheet": "workspace:*",
+    "pdfmake": "^0.2.20",
+    "wawoff2": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}
