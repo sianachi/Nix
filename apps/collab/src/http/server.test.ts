@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Authorizer } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
+import type { CoreClient } from '../core/client.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
@@ -32,7 +33,28 @@ const refusingPool = new Proxy({} as Pool, {
   },
 });
 
-function server(overrides: { tokens?: TokenValidator; authorizer?: Authorizer; pool?: Pool }) {
+/**
+ * A Core that answers nothing.
+ *
+ * The export tests here are all about requests refused before any tree is walked, so a client that
+ * returns null for everything is the honest fake: reaching it would mean the refusal did not
+ * happen, and a null root produces the same 404 those tests already expect.
+ */
+const silentCore: CoreClient = {
+  getItem: () => Promise.resolve(null),
+  listChildren: () => Promise.resolve(null),
+  getSchema: () => Promise.resolve(null),
+  getViews: () => Promise.resolve(null),
+};
+
+const INTERNAL_SECRET = 'test-internal-secret';
+
+function server(overrides: {
+  tokens?: TokenValidator;
+  authorizer?: Authorizer;
+  pool?: Pool;
+  core?: CoreClient;
+}) {
   return createServer({
     pool: overrides.pool ?? refusingPool,
     sessions: createSessionAuthenticator({
@@ -41,6 +63,8 @@ function server(overrides: { tokens?: TokenValidator; authorizer?: Authorizer; p
       },
       authorizer: overrides.authorizer ?? { authorize: () => Promise.resolve(null) },
     }),
+    core: overrides.core ?? silentCore,
+    internalSecret: INTERNAL_SECRET,
     snapshotEvery: 0,
   });
 }
@@ -240,6 +264,8 @@ describe('the collaboration service HTTP surface', () => {
           tokens: { validate: () => Promise.resolve(null) },
           authorizer: { authorize: () => Promise.resolve(null) },
         }),
+        core: silentCore,
+        internalSecret: INTERNAL_SECRET,
         snapshotEvery: 0,
         metrics: createMetrics(),
       }),
@@ -249,5 +275,110 @@ describe('the collaboration service HTTP surface', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('nix_collab_open_sockets');
+  });
+});
+
+/**
+ * The export routes.
+ *
+ * The archive route is the one the web client already points at; the bundles route is the internal
+ * surface the media service reads to convert a document into a format this process does not know
+ * about. Both refuse before touching the database, which is why they belong in this file.
+ */
+describe('exporting', () => {
+  const granting: Authorizer = { authorize: () => Promise.resolve(GRANTED) };
+
+  it('refuses an archive with no bearer token', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/export`,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json<{ code: string }>().code).toBe('unauthenticated');
+  });
+
+  it('names the media service when asked for a format it does not produce', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/export?format=pdf`,
+      headers: { authorization: 'Bearer token' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ code: string }>().code).toBe('unsupported_format');
+    // A wrong-service call gets told which service to ask, rather than a bare 404.
+    expect(response.json<{ detail: string }>().detail).toContain('media service');
+  });
+
+  it('refuses a scope it does not serve', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/export?scope=everything`,
+      headers: { authorization: 'Bearer token' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ code: string }>().code).toBe('invalid_scope');
+  });
+
+  it('answers not-found for an item Core will not show the caller', async () => {
+    // silentCore returns null for getItem, which is what Core gives for an item the caller may not
+    // read - so an export of somebody else's document is indistinguishable from one that is gone.
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/export`,
+      headers: { authorization: 'Bearer token' },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('the bundle stream', () => {
+  const granting: Authorizer = { authorize: () => Promise.resolve(GRANTED) };
+
+  it('is invisible without the internal secret, answering not-found rather than forbidden', async () => {
+    // 403 would confirm the route exists to anybody who found the URL. Core's internal surface
+    // answers 404 to everything for the same reason, and these two have to agree.
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/bundles`,
+      headers: { authorization: 'Bearer token' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json<{ code: string }>().code).toBe('document_not_found');
+  });
+
+  it('is invisible with the wrong internal secret', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/bundles`,
+      headers: { authorization: 'Bearer token', 'x-nix-internal-secret': 'not-the-secret' },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('still needs the caller own token, so a service cannot export on nobody behalf', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/bundles`,
+      headers: { 'x-nix-internal-secret': INTERNAL_SECRET },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json<{ code: string }>().code).toBe('unauthenticated');
+  });
+
+  it('refuses when Core will not show the caller the item, secret or no secret', async () => {
+    const response = await track(server({ authorizer: granting })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/bundles`,
+      headers: { authorization: 'Bearer token', 'x-nix-internal-secret': INTERNAL_SECRET },
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 });

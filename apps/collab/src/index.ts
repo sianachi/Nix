@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { createAuthorizer } from './auth/authorize.ts';
 import { createTokenValidator } from './auth/token.ts';
 import { readConfig } from './config.ts';
+import { createCoreClient } from './core/client.ts';
 import { createTouchedNotifier } from './core/touched.ts';
 import { connectDocumentLocks } from './db/advisory-lock.ts';
 import { RateWindow } from './documents/limits.ts';
@@ -84,6 +85,8 @@ registry = createDocumentRegistry({
 const app = createServer({
   pool,
   sessions,
+  core: createCoreClient({ coreBaseUrl: config.coreBaseUrl }),
+  internalSecret: config.internalSecret,
   snapshotEvery: config.snapshotEvery,
   reauthMs: config.reauthSeconds * 1000,
   metrics,

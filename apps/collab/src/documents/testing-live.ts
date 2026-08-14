@@ -119,6 +119,13 @@ export async function startLiveServer(
       authorizer: authorizerFor(tenant),
       cacheTtlMs: 1,
     }),
+    core: {
+      getItem: () => Promise.resolve(null),
+      listChildren: () => Promise.resolve(null),
+      getSchema: () => Promise.resolve(null),
+      getViews: () => Promise.resolve(null),
+    },
+    internalSecret: 'live-harness-secret',
     snapshotEvery: FAST.snapshotEvery,
     reauthMs: 60_000,
     hub: registry,

@@ -84,18 +84,9 @@ export async function withTenantScope<TResult>(
   const client: PoolClient = await pool.connect();
 
   try {
-    await client.query('BEGIN');
+    await begin(client, scope);
 
-    // Interpolated, and safe only because of the assertions above. Kept to one statement
-    // so there is exactly one place to audit.
-    await client.query(
-      `SET LOCAL nix.tenant_id = '${scope.tenantId}'; SET LOCAL nix.principal_id = '${scope.principalId}'`,
-    );
-
-    const result = await work({
-      query: (text, values) =>
-        client.query(text, values === undefined ? undefined : [...values]) as never,
-    });
+    const result = await work(scopedQuery(client));
 
     await client.query('COMMIT');
     return result;
@@ -107,6 +98,67 @@ export async function withTenantScope<TResult>(
   } finally {
     client.release();
   }
+}
+
+/**
+ * The same scope, held open for as long as a stream is being read from it.
+ *
+ * **Why this exists rather than a `withTenantScope` returning a generator.** A callback-shaped
+ * scope closes when its callback returns, and a generator returned out of one would be consumed
+ * afterwards - reading rows on a connection already back in the pool, under whatever tenant leased
+ * it next. That is the cross-tenant read this whole module is built to prevent, and it fails
+ * quietly rather than loudly, which is worse.
+ *
+ * A generator can hold the connection because JavaScript suspends it at each `yield` with the
+ * `finally` below still pending. The consumer's `return()` - which `for await` runs on an early
+ * break, and which a Node stream runs when its reader goes away - resumes it into that `finally`,
+ * so an abandoned export releases its connection rather than stranding it.
+ *
+ * Used by the export routes, whose bodies are read lazily so an export costs one document of memory
+ * rather than a subtree's.
+ */
+export async function* streamInTenantScope<TValue>(
+  pool: Pool,
+  scope: TenantScope,
+  work: (sql: ScopedQuery) => AsyncGenerator<TValue>,
+): AsyncGenerator<TValue> {
+  assertUuid(scope.tenantId, 'tenantId');
+  assertUuid(scope.principalId, 'principalId');
+
+  const client: PoolClient = await pool.connect();
+
+  try {
+    await begin(client, scope);
+
+    yield* work(scopedQuery(client));
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    // Reached on normal completion, on a throw, and on the consumer abandoning the stream. An
+    // export whose reader disconnects mid-body is the ordinary case, not the exceptional one.
+    client.release();
+  }
+}
+
+/** Opens the transaction and publishes the scope into it. One place to audit, two callers. */
+async function begin(client: PoolClient, scope: TenantScope): Promise<void> {
+  await client.query('BEGIN');
+
+  // Interpolated, and safe only because of the assertions above. Kept to one statement
+  // so there is exactly one place to audit.
+  await client.query(
+    `SET LOCAL nix.tenant_id = '${scope.tenantId}'; SET LOCAL nix.principal_id = '${scope.principalId}'`,
+  );
+}
+
+function scopedQuery(client: PoolClient): ScopedQuery {
+  return {
+    query: (text, values) =>
+      client.query(text, values === undefined ? undefined : [...values]) as never,
+  };
 }
 
 function assertUuid(value: string, field: string): void {
