@@ -96,6 +96,9 @@ importers:
       '@nix/pdf-export':
         specifier: workspace:*
         version: link:../../packages/pdf-export
+      '@resvg/resvg-js':
+        specifier: ^2.6.2
+        version: 2.6.2
       fastify:
         specifier: ^5.10.0
         version: 5.10.0
@@ -103,9 +106,6 @@ importers:
         specifier: ^15.1.3
         version: 15.1.3
     devDependencies:
-      '@resvg/resvg-js':
-        specifier: ^2.6.2
-        version: 2.6.2
       '@types/node':
         specifier: ^22.15.0
         version: 22.20.1
@@ -318,6 +318,9 @@ importers:
       '@nix/sheet':
         specifier: workspace:*
         version: link:../sheet
+      '@nix/view-render':
+        specifier: workspace:*
+        version: link:../view-render
       docx:
         specifier: ^9.5.1
         version: 9.7.1
@@ -447,6 +450,9 @@ importers:
       '@nix/sheet':
         specifier: workspace:*
         version: link:../sheet
+      '@nix/view-render':
+        specifier: workspace:*
+        version: link:../view-render
       pdfmake:
         specifier: ^0.2.20
         version: 0.2.23

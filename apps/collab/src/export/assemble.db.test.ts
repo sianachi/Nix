@@ -113,7 +113,7 @@ describe.skipIf(!DB_TESTS_ENABLED)('the body an export carries', () => {
         sql,
         tenantId: tenant.tenantId,
         items: [item],
-        metadata: { schemas: new Map(), views: new Map() },
+        metadata: { schemas: new Map(), views: new Map(), viewRows: new Map() },
       })) {
         return bundle.body;
       }

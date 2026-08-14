@@ -1,3 +1,4 @@
+import { PRINT_PALETTE } from '@nix/design-tokens/print';
 import {
   createLossReport,
   visitProse,
@@ -6,12 +7,14 @@ import {
   type ItemBundle,
   type LossNotice,
   type LossReport,
+  type LossSink,
 } from '@nix/export';
+import { renderView } from '@nix/view-render';
 import PdfPrinter from 'pdfmake';
 
 import type { PdfNode } from './content.js';
 import { FONT_FAMILY, loadFonts } from './fonts.js';
-import { nodeHandlers } from './nodes.js';
+import { CONTENT_WIDTH, nodeHandlers } from './nodes.js';
 import { sheetTable } from './sheet.js';
 import { DEFAULT_STYLE, PAGE_MARGINS, STYLES, TABLE_LAYOUTS } from './styles.js';
 
@@ -61,8 +64,9 @@ const DECLARED_LOSS: readonly LossNotice[] = [
     detail: 'A canvas is left out, because a page cannot carry a drawing this export can redraw.',
   },
   {
-    kind: 'views-dropped',
-    detail: 'The boards, calendars and tables an item shows its children through are not included.',
+    kind: 'views-as-image',
+    detail:
+      'A board, calendar or gallery is drawn as a picture: it shows what it showed, and cannot be sorted, grouped or clicked.',
   },
   {
     kind: 'malformed-node',
@@ -152,6 +156,59 @@ async function* render(request: ConvertRequest): AsyncGenerator<Uint8Array> {
   }
 }
 
+/**
+ * The item's views, drawn.
+ *
+ * **Before the body, matching the interface.** An item that offers a board opens on the board and
+ * its document is what sits under it, so a page that put the text first would reorder somebody's
+ * document to suit the exporter.
+ *
+ * The drawing is placed at the text width so it lines up with everything around it; SVG scales, so
+ * this costs no resolution.
+ */
+function drawViews(bundle: ItemBundle, loss: LossSink): readonly PdfNode[] {
+  const views = bundle.views?.views ?? [];
+
+  if (views.length === 0) {
+    return [];
+  }
+
+  loss.note(
+    'views-as-image',
+    'A view is drawn as a picture, so it shows what it showed and cannot be sorted or clicked.',
+  );
+
+  if (bundle.viewRowsTruncated) {
+    loss.note(
+      'view-rows-truncated',
+      'A view is drawn with the first of the things inside it, not all of them.',
+    );
+  }
+
+  const blocks: PdfNode[] = [];
+
+  for (const view of views) {
+    const drawn = renderView({
+      view,
+      rows: bundle.viewRows,
+      schema: bundle.schema,
+      palette: PRINT_PALETTE,
+      width: CONTENT_WIDTH,
+    });
+
+    for (const note of drawn.notes) {
+      loss.note('views-as-image', note);
+    }
+
+    blocks.push(
+      { text: view.name, style: 'summary', margin: [0, 6, 0, 4] },
+      { svg: drawn.svg, width: CONTENT_WIDTH, margin: [0, 0, 0, 10] },
+    );
+  }
+
+  return blocks;
+}
+
 /** One item: its title, then its body in whichever shape it stores one. */
 function itemContent(bundle: ItemBundle, report: LossReport, first: boolean): readonly PdfNode[] {
   const loss = report.for(bundle.id);
@@ -165,12 +222,7 @@ function itemContent(bundle: ItemBundle, report: LossReport, first: boolean): re
 
   blocks.push({ text: bundle.title || 'Untitled', style: 'title' });
 
-  if (bundle.views !== null && bundle.views.views.length > 0) {
-    loss.note(
-      'views-dropped',
-      'The views this item shows its children through are not part of the page.',
-    );
-  }
+  blocks.push(...drawViews(bundle, loss));
 
   const body = bundle.body;
 

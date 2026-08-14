@@ -7,6 +7,7 @@ import {
   type ConvertRequest,
   type ItemBundle,
   type LossKind,
+  type ViewsSnapshot,
 } from '@nix/export';
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
@@ -36,6 +37,8 @@ function bundle(overrides: Partial<ItemBundle> = {}): ItemBundle {
     properties: {},
     schema: null,
     views: null,
+    viewRows: [],
+    viewRowsTruncated: false,
     body: { schemaVersion: 2, prosemirror: FIXTURE_DOCUMENT },
     ...overrides,
   };
@@ -222,5 +225,101 @@ describe('a canvas item', () => {
 
     expect([...report.kinds()]).toEqual(['body-not-rendered']);
     expect(JSON.stringify(blocks)).toContain('What did not come across');
+  });
+});
+
+/**
+ * Views, as pictures in a Word document.
+ *
+ * Open XML embeds pictures as bytes, so this path needs the host to turn a drawing into one. What
+ * the tests pin is that it asks, that it degrades honestly when nothing answers, and that the
+ * picture it embeds is a real PNG rather than an empty run.
+ */
+const BOARD: ViewsSnapshot = {
+  views: [
+    {
+      id: 'v1',
+      name: 'By status',
+      kind: 'board',
+      columns: [],
+      groupBy: 'status',
+      groupOrder: [],
+      dateProperty: null,
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      endDateProperty: null,
+      cardSize: null,
+    },
+  ],
+  default: 'v1',
+};
+
+/** The eight bytes every PNG starts with, which is all a fake needs to be embeddable. */
+const PNG_HEADER = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+function withBoard() {
+  return bundle({
+    body: null,
+    views: BOARD,
+    viewRows: [{ id: 'a', title: 'Draft the brief', properties: { status: 'Todo' } }],
+  });
+}
+
+describe('an item that offers a view', () => {
+  it('asks the host to turn the drawing into a picture', async () => {
+    const seen: { svg?: string; width?: number } = {};
+
+    await buildBlocks({
+      ...requestFor([withBoard()]),
+      host: {
+        rasterise: (svg, width) => {
+          seen.svg = svg;
+          seen.width = width;
+          return Promise.resolve(PNG_HEADER);
+        },
+      },
+    });
+
+    expect(seen.svg).toContain('<svg');
+    expect(seen.svg).toContain('Draft the brief');
+    // Drawn larger than it is placed, so the picture still reads when somebody zooms in.
+    expect(seen.width).toBeGreaterThan(468);
+  });
+
+  it('says a picture is what it is', async () => {
+    const { report } = await buildBlocks({
+      ...requestFor([withBoard()]),
+      host: { rasterise: () => Promise.resolve(PNG_HEADER) },
+    });
+
+    expect([...report.kinds()]).toContain('views-as-image');
+  });
+
+  it('says so rather than failing when the host cannot make a picture', async () => {
+    // The capability is optional, so a host without one degrades to a stated loss instead of an
+    // error - which is what makes it a capability rather than a hidden requirement.
+    const { report, blocks } = await buildBlocks(requestFor([withBoard()]));
+
+    expect([...report.kinds()]).toContain('views-as-image');
+    expect(report.entries()[0]?.detail).toContain('cannot turn a drawing into a picture');
+    expect(JSON.stringify(blocks)).not.toContain('By status');
+  });
+
+  it('puts a real picture into the package', async () => {
+    const chunks: Uint8Array[] = [];
+
+    for await (const chunk of docxConverter.convert({
+      ...requestFor([withBoard()]),
+      host: { rasterise: () => Promise.resolve(PNG_HEADER) },
+    })) {
+      chunks.push(chunk);
+    }
+
+    const entries = unzipSync(new Uint8Array(Buffer.concat(chunks)));
+    const media = Object.keys(entries).filter((name) => name.startsWith('word/media/'));
+
+    expect(media).not.toHaveLength(0);
   });
 });

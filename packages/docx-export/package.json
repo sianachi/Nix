@@ -27,6 +27,7 @@
     "@nix/editor-schema": "workspace:*",
     "@nix/export": "workspace:*",
     "@nix/sheet": "workspace:*",
+    "@nix/view-render": "workspace:*",
     "docx": "^9.5.1"
   },
   "devDependencies": {

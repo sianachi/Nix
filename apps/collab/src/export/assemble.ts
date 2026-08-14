@@ -6,6 +6,7 @@ import {
   type ItemBundle,
   type Omission,
   type SchemaSnapshot,
+  type ViewRowSnapshot,
   type ViewsSnapshot,
 } from '@nix/export';
 
@@ -163,7 +164,24 @@ async function listAllChildren(
 export interface GatheredMetadata {
   readonly schemas: ReadonlyMap<string, SchemaSnapshot | null>;
   readonly views: ReadonlyMap<string, ViewsSnapshot | null>;
+
+  /** The children an item's views draw, for the items that have views. See {@link gatherViewRows}. */
+  readonly viewRows: ReadonlyMap<string, ViewRows>;
 }
+
+export interface ViewRows {
+  readonly rows: readonly ViewRowSnapshot[];
+  readonly truncated: boolean;
+}
+
+/**
+ * How many children one item's views carry into an export.
+ *
+ * A drawing stops being readable long before this, and the ceiling exists to bound the *reads*:
+ * every row here is a listing page against Core, and an item with ten thousand children would
+ * otherwise turn one export into a crawl of the workspace.
+ */
+export const VIEW_ROW_LIMIT = 200;
 
 /**
  * Reads every exported item's declared schema and view set.
@@ -206,7 +224,83 @@ export async function gatherMetadata(
     Array.from({ length: Math.min(EXPORT_LIMITS.concurrency, items.length) }, () => worker()),
   );
 
-  return { schemas, views };
+  const viewRows = await gatherViewRows(core, token, items, views);
+
+  return { schemas, views, viewRows };
+}
+
+/**
+ * The children an item's views draw.
+ *
+ * **Only for items that actually offer a view**, and read as the caller: a view of children the
+ * caller cannot see must not become a picture of them. This is the same listing the tree walk uses,
+ * which is why an item already exported as a subtree pays for it twice - accepted, because the
+ * alternative is a drawing that works in one scope and silently does not in the other.
+ *
+ * A listing that fails produces no rows rather than failing the export. The view then draws empty
+ * and says so, which is a better answer than losing the whole document over one unreadable branch.
+ */
+export async function gatherViewRows(
+  core: CoreClient,
+  token: string,
+  items: readonly CoreItem[],
+  views: ReadonlyMap<string, ViewsSnapshot | null>,
+): Promise<ReadonlyMap<string, ViewRows>> {
+  const drawn = items.filter((item) => (views.get(item.id)?.views.length ?? 0) > 0);
+  const rows = new Map<string, ViewRows>();
+
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+
+      const item = drawn[index];
+      if (item === undefined) {
+        return;
+      }
+
+      rows.set(item.id, await readRows(core, token, item));
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(EXPORT_LIMITS.concurrency, drawn.length) }, () => worker()),
+  );
+
+  return rows;
+}
+
+async function readRows(core: CoreClient, token: string, parent: CoreItem): Promise<ViewRows> {
+  const rows: ViewRowSnapshot[] = [];
+  let cursor: string | null = null;
+
+  for (;;) {
+    const page = await core.listChildren(token, parent.workspaceId, parent.id, cursor);
+
+    if (page === null) {
+      return { rows, truncated: true };
+    }
+
+    for (const child of page.items) {
+      if (child.lifecycleState !== 'active') {
+        continue;
+      }
+
+      if (rows.length >= VIEW_ROW_LIMIT) {
+        return { rows, truncated: true };
+      }
+
+      rows.push({ id: child.id, title: child.title, properties: child.properties });
+    }
+
+    cursor = page.nextCursor;
+
+    if (cursor === null) {
+      return { rows, truncated: false };
+    }
+  }
 }
 
 export function buildManifest(input: {
@@ -270,6 +364,8 @@ export async function* streamBundles(input: {
       properties: item.properties,
       schema: metadata.schemas.get(item.id) ?? null,
       views: metadata.views.get(item.id) ?? null,
+      viewRows: metadata.viewRows.get(item.id)?.rows ?? [],
+      viewRowsTruncated: metadata.viewRows.get(item.id)?.truncated ?? false,
       body: await readBody(sql, tenantId, item),
     };
   }

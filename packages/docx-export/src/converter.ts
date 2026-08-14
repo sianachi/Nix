@@ -8,9 +8,17 @@ import {
   type LossNotice,
   type LossReport,
 } from '@nix/export';
-import { AlignmentType, Document, LevelFormat, Packer, TextRun } from 'docx';
+import { renderView } from '@nix/view-render';
+import { AlignmentType, Document, ImageRun, LevelFormat, Packer, TextRun } from 'docx';
 
 import { paragraph, type BlockSpec } from './blocks.js';
+
+/**
+ * The text width of a Word page in points: US Letter less one-inch margins, which is what Word's
+ * default template uses. A picture wider than this is scaled down by Word and reads smaller than it
+ * should, so views are drawn to it rather than to the PDF's slightly narrower A4 measure.
+ */
+const CONTENT_WIDTH = 468;
 import { MAX_LIST_LEVEL, NUMBERING_REFERENCE, hex, nodeHandlers } from './nodes.js';
 import { renderBlocks } from './render.js';
 import { sheetTable } from './sheet.js';
@@ -64,8 +72,9 @@ const DECLARED_LOSS: readonly LossNotice[] = [
       'A canvas is left out, because a Word document cannot carry a drawing this export can redraw.',
   },
   {
-    kind: 'views-dropped',
-    detail: 'The boards, calendars and tables an item shows its children through are not included.',
+    kind: 'views-as-image',
+    detail:
+      'A board, calendar or gallery becomes a picture: it shows what it showed, and cannot be sorted, grouped or edited.',
   },
   {
     kind: 'malformed-node',
@@ -106,6 +115,7 @@ export async function buildBlocks(
   const blocks: BlockSpec[] = [];
 
   for await (const bundle of request.bundles) {
+    blocks.push(...(await drawViews(bundle, report, request)));
     blocks.push(...itemBlocks(bundle, report));
   }
 
@@ -147,6 +157,89 @@ async function* render(request: ConvertRequest): AsyncGenerator<Uint8Array> {
   yield await Packer.toBuffer(document);
 }
 
+/**
+ * The item's views, as pictures.
+ *
+ * **A raster, and only if the host can make one.** Open XML embeds pictures as bytes, so a drawing
+ * has to be rasterised - which needs a native library this package must not carry if it is to stay
+ * sandboxable. The host supplies it; a host that cannot says so in the report rather than failing
+ * the export, which is what makes the capability optional rather than a hidden requirement.
+ *
+ * The title paragraph is written by `itemBlocks`, so this runs before it and produces the views
+ * that sit under it - matching the interface, where an item offering a board opens on the board.
+ */
+async function drawViews(
+  bundle: ItemBundle,
+  report: LossReport,
+  request: ConvertRequest,
+): Promise<readonly BlockSpec[]> {
+  const views = bundle.views?.views ?? [];
+
+  if (views.length === 0) {
+    return [];
+  }
+
+  const loss = report.for(bundle.id);
+  const rasterise = request.host?.rasterise;
+
+  if (rasterise === undefined) {
+    loss.note(
+      'views-as-image',
+      'A view could not be drawn into this file, because this export cannot turn a drawing into a picture.',
+    );
+    return [];
+  }
+
+  loss.note(
+    'views-as-image',
+    'A view is a picture here: it shows what it showed and cannot be sorted, grouped or edited.',
+  );
+
+  if (bundle.viewRowsTruncated) {
+    loss.note(
+      'view-rows-truncated',
+      'A view is drawn with the first of the things inside it, not all of them.',
+    );
+  }
+
+  const blocks: BlockSpec[] = [];
+
+  for (const view of views) {
+    const drawn = renderView({
+      view,
+      rows: bundle.viewRows,
+      schema: bundle.schema,
+      palette: PRINT_PALETTE,
+      width: CONTENT_WIDTH,
+    });
+
+    for (const note of drawn.notes) {
+      loss.note('views-as-image', note);
+    }
+
+    // Twice the point size, so the picture still reads when somebody zooms in on it. Word scales it
+    // back down to the width below.
+    const png = await rasterise(drawn.svg, Math.round(drawn.width * 2));
+    const height = Math.round((drawn.height / drawn.width) * CONTENT_WIDTH);
+
+    blocks.push(
+      paragraph([new TextRun({ text: view.name, bold: true })], { spacingAfter: 60 }),
+      paragraph(
+        [
+          new ImageRun({
+            type: 'png',
+            data: Buffer.from(png),
+            transformation: { width: CONTENT_WIDTH, height },
+          }),
+        ],
+        { spacingAfter: 160 },
+      ),
+    );
+  }
+
+  return blocks;
+}
+
 function itemBlocks(bundle: ItemBundle, report: LossReport): readonly BlockSpec[] {
   const loss = report.for(bundle.id);
   const blocks: BlockSpec[] = [
@@ -154,13 +247,6 @@ function itemBlocks(bundle: ItemBundle, report: LossReport): readonly BlockSpec[
       spacingAfter: 240,
     }),
   ];
-
-  if (bundle.views?.views.length !== undefined && bundle.views.views.length > 0) {
-    loss.note(
-      'views-dropped',
-      'The views this item shows its children through are not part of the document.',
-    );
-  }
 
   const body = bundle.body;
 

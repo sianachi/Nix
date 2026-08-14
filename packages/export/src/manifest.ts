@@ -114,6 +114,19 @@ export interface ViewSnapshot {
   readonly cardSize: string | null;
 }
 
+/**
+ * One child, as much of it as a view can show.
+ *
+ * Its own bundle carries everything; this carries the title and the property values a card, a row
+ * or a calendar entry draws. Present even when the child is elsewhere in the archive, because a
+ * drawing should not have to go looking for the things it is drawing.
+ */
+export interface ViewRowSnapshot {
+  readonly id: string;
+  readonly title: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
 /** The view set an item offers over its children. */
 export interface ViewsSnapshot {
   readonly views: readonly ViewSnapshot[];
@@ -173,6 +186,23 @@ export interface ItemBundle {
 
   /** How its children are shown, or null when it offers no views. */
   readonly views: ViewsSnapshot | null;
+
+  /**
+   * Enough of its children to draw those views with.
+   *
+   * **Here because a view is a way of looking at children, and an export of one item carries
+   * none.** Without this, choosing "this item" and asking for a PDF produced a document with no
+   * board in it - which reads as the feature being broken rather than as the scope being narrow.
+   *
+   * Deliberately not the children themselves: a card shows a title and a property or two, never a
+   * document body, so this carries what a view can show and nothing more. Empty for an item that
+   * declares no views, and bounded - `viewRowsTruncated` says when the item has more children than
+   * were carried, so a drawing can admit it is partial rather than looking complete.
+   */
+  readonly viewRows: readonly ViewRowSnapshot[];
+
+  /** Whether the item has more children than {@link ItemBundle.viewRows} carries. */
+  readonly viewRowsTruncated: boolean;
 
   /** Its own document body, or null when it has never been opened. */
   readonly body: ItemBody | null;

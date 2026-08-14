@@ -26,6 +26,7 @@ export {
   type ConverterRegistry,
   type DocumentConverter,
   type ExportFormat,
+  type HostCapabilities,
   type LossNotice,
   type PrintPalette,
 } from './converter.js';
@@ -70,6 +71,7 @@ export {
   type OmissionReason,
   type PropertyDefinition,
   type SchemaSnapshot,
+  type ViewRowSnapshot,
   type ViewSnapshot,
   type ViewsSnapshot,
 } from './manifest.js';

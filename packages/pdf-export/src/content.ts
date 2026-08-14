@@ -46,6 +46,14 @@ export interface PdfNode {
   /** Vector drawing, used only for the horizontal rule. */
   readonly canvas?: readonly PdfCanvasElement[];
 
+  /**
+   * An SVG document, drawn as vector.
+   *
+   * pdfmake renders these natively, so a view goes into a page at whatever resolution it is printed
+   * at rather than as a raster somebody would zoom into and find blurry.
+   */
+  readonly svg?: string;
+
   readonly style?: string | readonly string[];
 
   readonly bold?: boolean;

@@ -55,3 +55,18 @@ describe('the formats on offer', () => {
     expect(() => formatFor('markdown' as ExportFormat)).toThrow(/no export format/);
   });
 });
+
+describe('what the copy says about views', () => {
+  it('tells somebody a board becomes a picture, before they choose', () => {
+    // A view is the thing an item is *for* in a workspace that uses boards, so "it became a
+    // picture" is the sentence most likely to change which format somebody picks.
+    for (const format of ['pdf', 'docx'] as const) {
+      expect(formatFor(format).preamble).toMatch(/[Bb]oards, calendars and galleries/);
+    }
+  });
+
+  it('says what a picture cannot do, rather than only that it is one', () => {
+    expect(formatFor('pdf').preamble).toContain('cannot be sorted or clicked');
+    expect(formatFor('docx').preamble).toContain('cannot be edited');
+  });
+});

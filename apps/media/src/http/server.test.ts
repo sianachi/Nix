@@ -45,6 +45,8 @@ function bundle(): ItemBundle {
     properties: {},
     schema: null,
     views: null,
+    viewRows: [],
+    viewRowsTruncated: false,
     body: {
       schemaVersion: 2,
       prosemirror: {

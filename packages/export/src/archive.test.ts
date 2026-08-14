@@ -30,6 +30,8 @@ function bundle(id: string, overrides: Partial<ItemBundle> = {}): ItemBundle {
     properties: {},
     schema: null,
     views: null,
+    viewRows: [],
+    viewRowsTruncated: false,
     body: { schemaVersion: SCHEMA_VERSION, prosemirror: FIXTURE_DOCUMENT },
     ...overrides,
   };

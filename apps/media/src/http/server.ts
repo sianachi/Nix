@@ -6,6 +6,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 
 import { BundleRefusal, type BundleReader } from '../collab/bundles.ts';
 import type { Admission } from '../export/admission.ts';
+import { rasterise } from '../export/rasterise.ts';
 import { boundedBytes } from '../export/run.ts';
 import type { MediaMetrics } from '../metrics.ts';
 import { bearer, isUuid, problem } from './problem.ts';
@@ -128,6 +129,10 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
             exportedAt: deps.now?.() ?? new Date(stream.manifest.exportedAt),
             palette: PRINT_PALETTE,
           },
+          // The one thing a converter cannot do for itself: Open XML embeds pictures as bytes, so
+          // a view drawn as SVG needs turning into a PNG. Supplied rather than imported, so the
+          // converter stays sandboxable.
+          host: { rasterise },
         }),
         { maxBytes: deps.maxOutputBytes, signal: timeout },
       );

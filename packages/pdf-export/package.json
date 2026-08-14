@@ -29,6 +29,7 @@
     "@nix/editor-schema": "workspace:*",
     "@nix/export": "workspace:*",
     "@nix/sheet": "workspace:*",
+    "@nix/view-render": "workspace:*",
     "pdfmake": "^0.2.20",
     "wawoff2": "^2.0.1"
   },

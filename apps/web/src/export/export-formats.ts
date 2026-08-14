@@ -54,7 +54,7 @@ export const EXPORT_FORMATS: readonly FormatDescriptor[] = [
     extension: 'pdf',
     baseUrl: '/media',
     preamble:
-      'A PDF is for reading and printing. Comments, the links between your items, and images stored elsewhere do not come across, a collapsed section is printed open, and a spreadsheet shows its values rather than its formulas. The last page lists exactly what was left out.',
+      'A PDF is for reading and printing. Boards, calendars and galleries are drawn as pictures, so they show what they showed but cannot be sorted or clicked. Comments, the links between your items, and images stored elsewhere do not come across, a collapsed section is printed open, and a spreadsheet shows its values rather than its formulas. The last page lists exactly what was left out.',
     reportLocation: 'The last page of the file names each one.',
   },
   {
@@ -63,7 +63,7 @@ export const EXPORT_FORMATS: readonly FormatDescriptor[] = [
     extension: 'docx',
     baseUrl: '/media',
     preamble:
-      'A Word document is for editing somewhere else. Comments, the links between your items, and images stored elsewhere do not come across; side-by-side columns become a borderless table, a collapsed section is written out open, and a spreadsheet shows its values rather than its formulas. The last section lists exactly what was left out.',
+      'A Word document is for editing somewhere else. Boards, calendars and galleries become pictures, so they show what they showed but cannot be edited. Comments, the links between your items, and images stored elsewhere do not come across; side-by-side columns become a borderless table, a collapsed section is written out open, and a spreadsheet shows its values rather than its formulas. The last section lists exactly what was left out.',
     reportLocation: 'The last section of the file names each one.',
   },
 ];

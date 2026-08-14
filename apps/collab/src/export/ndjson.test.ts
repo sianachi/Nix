@@ -38,6 +38,8 @@ function bundle(id: string, body: ItemBundle['body'] = null): ItemBundle {
     properties: {},
     schema: null,
     views: null,
+    viewRows: [],
+    viewRowsTruncated: false,
     body,
   };
 }

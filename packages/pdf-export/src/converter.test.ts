@@ -7,6 +7,7 @@ import {
   type ConvertRequest,
   type ItemBundle,
   type LossKind,
+  type ViewsSnapshot,
 } from '@nix/export';
 import { describe, expect, it } from 'vitest';
 
@@ -36,6 +37,8 @@ function bundle(overrides: Partial<ItemBundle> = {}): ItemBundle {
     properties: {},
     schema: null,
     views: null,
+    viewRows: [],
+    viewRowsTruncated: false,
     body: { schemaVersion: 2, prosemirror: FIXTURE_DOCUMENT },
     ...overrides,
   };
@@ -195,5 +198,96 @@ describe('a subtree', () => {
 
     const breaks = content.filter((node) => node.pageBreak === 'before');
     expect(breaks).toHaveLength(1);
+  });
+});
+
+/**
+ * Views, drawn into the page.
+ *
+ * A board or a calendar used to be a loss entry saying the views were not included. It is now a
+ * picture, and what a picture cannot do - be sorted, grouped or clicked - is what the report says
+ * instead.
+ */
+const BOARD: ViewsSnapshot = {
+  views: [
+    {
+      id: 'v1',
+      name: 'By status',
+      kind: 'board',
+      columns: [],
+      groupBy: 'status',
+      groupOrder: ['Todo', 'Done'],
+      dateProperty: null,
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      endDateProperty: null,
+      cardSize: null,
+    },
+  ],
+  default: 'v1',
+};
+
+describe('an item that offers a view', () => {
+  const withBoard = () =>
+    bundle({
+      body: null,
+      views: BOARD,
+      viewRows: [
+        { id: 'a', title: 'Draft the brief', properties: { status: 'Todo' } },
+        { id: 'b', title: 'Ship it', properties: { status: 'Done' } },
+      ],
+    });
+
+  it('draws it as vector, which a page prints at whatever resolution it is printed at', async () => {
+    const { content } = await build(withBoard());
+
+    const drawing = content.find((node) => node.svg !== undefined);
+
+    expect(drawing?.svg).toContain('<svg');
+    expect(drawing?.svg).toContain('Draft the brief');
+    expect(drawing?.svg).toContain('Ship it');
+  });
+
+  it('names the view above its picture, so a page with two says which is which', async () => {
+    const { content } = await build(withBoard());
+
+    expect(JSON.stringify(content)).toContain('By status');
+  });
+
+  it('says a picture is what it is, rather than claiming the view came across whole', async () => {
+    const { report } = await build(withBoard());
+
+    expect([...report.kinds()]).toContain('views-as-image');
+  });
+
+  it('draws it above the body, the way the item opens', async () => {
+    const { content } = await build(
+      bundle({
+        views: BOARD,
+        viewRows: [{ id: 'a', title: 'A card', properties: {} }],
+      }),
+    );
+
+    const drawing = content.findIndex((node) => node.svg !== undefined);
+    const body = content.findIndex((node) => node.stack !== undefined);
+
+    expect(drawing).toBeGreaterThan(-1);
+    expect(drawing).toBeLessThan(body);
+  });
+
+  it('admits when it drew only the first of what is inside', async () => {
+    const { report } = await build(
+      bundle({ body: null, views: BOARD, viewRows: [], viewRowsTruncated: true }),
+    );
+
+    expect([...report.kinds()]).toContain('view-rows-truncated');
+  });
+
+  it('draws nothing extra for an item that offers no view', async () => {
+    const { content } = await build(bundle({ body: null }));
+
+    expect(content.find((node) => node.svg !== undefined)).toBeUndefined();
   });
 });

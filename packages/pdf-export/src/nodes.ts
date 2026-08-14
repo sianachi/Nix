@@ -18,8 +18,8 @@ import type { PdfNode } from './content.js';
  * something record it rather than quietly approximating.
  */
 
-/** A rule of thumb for the page's text width in points, for the horizontal rule's canvas. */
-const CONTENT_WIDTH = 483;
+/** The page's text width in points: A4 less the margins. The rule and the views both span it. */
+export const CONTENT_WIDTH = 483;
 
 const HEADING_STYLES: Readonly<Record<number, string>> = { 1: 'h1', 2: 'h2', 3: 'h3' };
 

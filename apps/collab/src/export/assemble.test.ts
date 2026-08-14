@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ViewsSnapshot } from '@nix/export';
+
 import type { ChildPage, CoreClient, CoreItem } from '../core/client.ts';
-import { EXPORT_LIMITS, buildManifest, enumerateSubtree, gatherMetadata } from './assemble.ts';
+import {
+  EXPORT_LIMITS,
+  VIEW_ROW_LIMIT,
+  buildManifest,
+  enumerateSubtree,
+  gatherMetadata,
+  gatherViewRows,
+} from './assemble.ts';
 
 const WORKSPACE = 'c1000000-0000-4000-8000-000000000011';
 
@@ -177,7 +186,7 @@ describe('buildManifest', () => {
     const manifest = buildManifest({
       root,
       tree: { items: [root], omitted: [] },
-      metadata: { schemas: new Map(), views: new Map() },
+      metadata: { schemas: new Map(), views: new Map(), viewRows: new Map() },
       includeDeleted: false,
       exportedAt: new Date('2026-07-29T10:00:00Z'),
     });
@@ -185,5 +194,92 @@ describe('buildManifest', () => {
     expect(manifest.loss).toEqual([]);
     expect(manifest.includesDeleted).toBe(false);
     expect(manifest.root).toBe('root');
+  });
+});
+
+/**
+ * The children a view draws.
+ *
+ * **Gathered for the item that has the view, not for the export's scope.** Choosing "this item" and
+ * asking for a PDF used to produce a document with no board in it, because an item-scope export
+ * carries no children at all - which reads as the feature being broken rather than as the scope
+ * being narrow.
+ */
+describe('gatherViewRows', () => {
+  const VIEWS: ViewsSnapshot = {
+    views: [
+      {
+        id: 'v1',
+        name: 'Board',
+        kind: 'board',
+        columns: [],
+        groupBy: 'status',
+        groupOrder: [],
+        dateProperty: null,
+        sortBy: null,
+        sortDescending: false,
+        mode: null,
+        coverProperty: null,
+        endDateProperty: null,
+        cardSize: null,
+      },
+    ],
+    default: 'v1',
+  };
+
+  it('reads the children of an item that offers a view', async () => {
+    const core = coreWith({ root: [item('a'), item('b')] });
+
+    const rows = await gatherViewRows(core, 't', [root], new Map([['root', VIEWS]]));
+
+    expect(rows.get('root')?.rows.map((row) => row.id)).toEqual(['a', 'b']);
+    expect(rows.get('root')?.truncated).toBe(false);
+  });
+
+  it('reads nothing for an item that offers none, so an export pays only for what it draws', async () => {
+    const core = coreWith({ root: [item('a')] });
+
+    const rows = await gatherViewRows(core, 't', [root], new Map([['root', null]]));
+
+    expect(rows.has('root')).toBe(false);
+  });
+
+  it('leaves out a deleted child, which the view would not show either', async () => {
+    const core = coreWith({
+      root: [item('a'), item('gone', { lifecycleState: 'deleted' })],
+    });
+
+    const rows = await gatherViewRows(core, 't', [root], new Map([['root', VIEWS]]));
+
+    expect(rows.get('root')?.rows.map((row) => row.id)).toEqual(['a']);
+  });
+
+  it('says it was truncated rather than drawing a partial view that looks whole', async () => {
+    const many = Array.from({ length: VIEW_ROW_LIMIT + 3 }, (_unused, index) =>
+      item(`child-${String(index)}`),
+    );
+
+    const rows = await gatherViewRows(
+      coreWith({ root: many }),
+      't',
+      [root],
+      new Map([['root', VIEWS]]),
+    );
+
+    expect(rows.get('root')?.rows).toHaveLength(VIEW_ROW_LIMIT);
+    expect(rows.get('root')?.truncated).toBe(true);
+  });
+
+  it('draws an empty view rather than failing the export when a listing is refused', async () => {
+    const refusing: CoreClient = {
+      getItem: (_token, id) => Promise.resolve(item(id)),
+      listChildren: () => Promise.resolve(null),
+      getSchema: () => Promise.resolve(null),
+      getViews: () => Promise.resolve(null),
+    };
+
+    const rows = await gatherViewRows(refusing, 't', [root], new Map([['root', VIEWS]]));
+
+    expect(rows.get('root')).toEqual({ rows: [], truncated: true });
   });
 });
