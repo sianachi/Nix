@@ -41,9 +41,23 @@
   <!-- The files live outside this project's directory, so LinkBase rebuilds each
        one's real repository-relative path under the solution explorer. Without
        it they all flatten to the project root, where the many identically named
-       index.ts files become indistinguishable. -->
+       index.ts files become indistinguishable.
+
+       `**/*` is already fully recursive. The apps line briefly read
+       `src/**/**/**` on the belief that deeper files needed more stars; they do
+       not, and the two forms were measured to yield the identical 456 items
+       including every file at every depth. One star pattern per line, matching
+       the packages line, so nobody has to re-derive that.
+
+       A new sibling directory - a fourth app, a new package - is matched by
+       these globs but is NOT picked up by an IDE that already has the project
+       loaded: the items live outside this project's own directory, so the file
+       watcher scoped to it never sees them appear. Reload the project (Rider:
+       right-click the solution, Reload Project) after adding one. This is what
+       made apps/media look absent from the solution explorer on the day it was
+       added while every command-line tool saw it. -->
   <ItemGroup>
-    <None Include="../apps/*/src/**/**/**" LinkBase="apps" />
+    <None Include="../apps/*/src/**/*" LinkBase="apps" />
     <None Include="../packages/*/src/**/*" LinkBase="packages" />
   </ItemGroup>
 
