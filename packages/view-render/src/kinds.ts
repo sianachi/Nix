@@ -1,0 +1,458 @@
+import type { RenderRequest, ViewRow } from './types.js';
+import { line, rect, text, truncate } from './svg.js';
+import { labelOf, rawOf, valueOf } from './values.js';
+
+/**
+ * The five view kinds, drawn.
+ *
+ * **A drawing, not a screenshot.** These are the same arrangement the interface uses - a board is
+ * columns of cards, a calendar is a month grid - at print sizes and in the print palette, produced
+ * without a browser. Trying to reproduce the interface pixel for pixel would mean shipping a
+ * renderer that has one, which the product removed for footprint and which would hand a browser to
+ * the service that will one day parse untrusted files.
+ *
+ * Every kind returns its body and the height it used, so the caller can wrap it once.
+ */
+
+export interface Drawing {
+  readonly body: string;
+  readonly height: number;
+  readonly notes: readonly string[];
+}
+
+const ROW_HEIGHT = 22;
+const HEADER_HEIGHT = 24;
+const CARD_PADDING = 8;
+const GAP = 8;
+
+/** How many rows a drawing carries before it stops being readable rather than merely tall. */
+export const ROW_CEILING = 60;
+
+export function drawList(request: RenderRequest): Drawing {
+  const { view, rows, schema, palette, width } = request;
+  const columns = ['title', ...view.columns];
+  const shown = rows.slice(0, ROW_CEILING);
+  const columnWidth = width / columns.length;
+
+  const parts: string[] = [
+    rect({ x: 0, y: 0, width, height: HEADER_HEIGHT, fill: palette.surface }),
+  ];
+
+  columns.forEach((key, index) => {
+    parts.push(
+      text(truncate(key === 'title' ? 'Title' : labelOf(schema, key), 9, columnWidth - GAP), {
+        x: index * columnWidth + CARD_PADDING,
+        y: HEADER_HEIGHT - 8,
+        size: 9,
+        fill: palette.ink,
+        bold: true,
+      }),
+    );
+  });
+
+  shown.forEach((row, rowIndex) => {
+    const y = HEADER_HEIGHT + rowIndex * ROW_HEIGHT;
+
+    parts.push(line(0, y, width, y, palette.divider));
+
+    columns.forEach((key, index) => {
+      const value = key === 'title' ? row.title : valueOf(row, key, schema);
+
+      parts.push(
+        text(truncate(value, 9, columnWidth - GAP * 2), {
+          x: index * columnWidth + CARD_PADDING,
+          y: y + ROW_HEIGHT - 7,
+          size: 9,
+          fill: key === 'title' ? palette.ink : palette.muted,
+        }),
+      );
+    });
+  });
+
+  const height = HEADER_HEIGHT + shown.length * ROW_HEIGHT;
+
+  return {
+    body: parts.join(''),
+    height: Math.max(height, HEADER_HEIGHT),
+    notes: overflowNote(rows.length),
+  };
+}
+
+export function drawBoard(request: RenderRequest): Drawing {
+  const { view, rows, schema, palette, width } = request;
+  const groups = groupRows(rows, view.groupBy, view.groupOrder);
+  const columnWidth = Math.max(
+    90,
+    (width - GAP * (groups.length - 1)) / Math.max(1, groups.length),
+  );
+  const cardHeight = 34;
+
+  const tallest = Math.max(...groups.map((group) => group.rows.length), 0);
+  const height = HEADER_HEIGHT + Math.min(tallest, ROW_CEILING) * (cardHeight + GAP) + GAP;
+
+  const parts: string[] = [];
+
+  groups.forEach((group, index) => {
+    const x = index * (columnWidth + GAP);
+
+    parts.push(
+      text(
+        truncate(`${group.label} (${String(group.rows.length)})`, 9, columnWidth - CARD_PADDING),
+        { x, y: 12, size: 9, fill: palette.muted, bold: true },
+      ),
+    );
+
+    group.rows.slice(0, ROW_CEILING).forEach((row, cardIndex) => {
+      const y = HEADER_HEIGHT + cardIndex * (cardHeight + GAP);
+
+      parts.push(
+        rect({
+          x,
+          y,
+          width: columnWidth,
+          height: cardHeight,
+          fill: palette.surface,
+          stroke: palette.divider,
+          radius: 3,
+        }),
+        text(truncate(row.title, 9, columnWidth - CARD_PADDING * 2), {
+          x: x + CARD_PADDING,
+          y: y + 15,
+          size: 9,
+          fill: palette.ink,
+        }),
+      );
+
+      const secondary = view.columns[0];
+      if (secondary !== undefined) {
+        parts.push(
+          text(truncate(valueOf(row, secondary, schema), 8, columnWidth - CARD_PADDING * 2), {
+            x: x + CARD_PADDING,
+            y: y + 27,
+            size: 8,
+            fill: palette.muted,
+          }),
+        );
+      }
+    });
+  });
+
+  return { body: parts.join(''), height, notes: overflowNote(tallest) };
+}
+
+export function drawGallery(request: RenderRequest): Drawing {
+  const { view, rows, palette, width } = request;
+  const perRow = 3;
+  const tileWidth = (width - GAP * (perRow - 1)) / perRow;
+  const tileHeight = tileWidth * 0.62;
+  const shown = rows.slice(0, 24);
+  const lines = Math.ceil(shown.length / perRow);
+
+  const parts: string[] = [];
+
+  shown.forEach((row, index) => {
+    const x = (index % perRow) * (tileWidth + GAP);
+    const y = Math.floor(index / perRow) * (tileHeight + GAP + 16);
+
+    parts.push(
+      rect({
+        x,
+        y,
+        width: tileWidth,
+        height: tileHeight,
+        fill: palette.calloutFill,
+        stroke: palette.divider,
+        radius: 3,
+      }),
+      // The cover is deliberately not drawn: this runs with no network egress at all, so a picture
+      // at a URL is unreachable by design rather than by omission. See ADR-0035.
+      text('Cover not included', {
+        x: x + tileWidth / 2,
+        y: y + tileHeight / 2 + 3,
+        size: 8,
+        fill: palette.muted,
+        anchor: 'middle',
+      }),
+      text(truncate(row.title, 9, tileWidth), {
+        x,
+        y: y + tileHeight + 12,
+        size: 9,
+        fill: palette.ink,
+      }),
+    );
+  });
+
+  const notes =
+    view.coverProperty === null
+      ? []
+      : ['A gallery is drawn without its cover pictures, which live outside this file.'];
+
+  return {
+    body: parts.join(''),
+    height: lines * (tileHeight + GAP + 16),
+    notes: [...notes, ...overflowNote(rows.length, 24)],
+  };
+}
+
+export function drawCalendar(request: RenderRequest): Drawing {
+  const { view, rows, palette, width } = request;
+  const cell = width / 7;
+  const cellHeight = Math.max(38, cell * 0.62);
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const byDay = new Map<number, ViewRow[]>();
+  let month: string | null = null;
+
+  for (const row of rows) {
+    const stamp = rawOf(row, view.dateProperty);
+    if (stamp === null) {
+      continue;
+    }
+
+    month ??= stamp.slice(0, 7);
+    const day = Number(stamp.slice(8, 10));
+
+    if (Number.isFinite(day) && day > 0) {
+      byDay.set(day, [...(byDay.get(day) ?? []), row]);
+    }
+  }
+
+  const shape = monthShape(month);
+
+  // Sized to the month rather than fixed at five: a 31-day month starting on a Saturday needs six
+  // rows, and a fixed grid simply loses the last days - which is how the 31st went missing.
+  const weeks = shape.days === 0 ? 5 : Math.ceil((shape.leading + shape.days) / 7);
+
+  const parts: string[] = [
+    rect({ x: 0, y: 0, width, height: HEADER_HEIGHT, fill: palette.surface }),
+  ];
+
+  if (month !== null) {
+    parts.push(
+      text(month, { x: width, y: HEADER_HEIGHT - 8, size: 8, fill: palette.muted, anchor: 'end' }),
+    );
+  }
+
+  days.forEach((day, index) => {
+    parts.push(
+      text(day, {
+        x: index * cell + 6,
+        y: HEADER_HEIGHT - 8,
+        size: 8,
+        fill: palette.muted,
+        bold: true,
+      }),
+    );
+  });
+
+  // A real month, not a 5x7 grid of numbers. An earlier cut drew cells 1 to 35 and printed days
+  // 32 to 35, which is not a shortcut but a falsehood - a reader would take them for dates.
+  for (let week = 0; week < weeks; week += 1) {
+    for (let day = 0; day < 7; day += 1) {
+      const number = week * 7 + day + 1 - shape.leading;
+      const x = day * cell;
+      const y = HEADER_HEIGHT + week * cellHeight;
+      const real = number >= 1 && number <= shape.days;
+
+      parts.push(rect({ x, y, width: cell, height: cellHeight, stroke: palette.divider }));
+
+      if (!real) {
+        // Outside the month: drawn as an empty cell, because a blank is the truth about it.
+        continue;
+      }
+
+      parts.push(text(String(number), { x: x + 5, y: y + 11, size: 7, fill: palette.muted }));
+
+      (byDay.get(number) ?? []).slice(0, 2).forEach((row, index) => {
+        parts.push(
+          text(truncate(row.title, 7, cell - 10), {
+            x: x + 5,
+            y: y + 23 + index * 10,
+            size: 7,
+            fill: palette.accentText,
+          }),
+        );
+      });
+    }
+  }
+
+  return {
+    body: parts.join(''),
+    height: HEADER_HEIGHT + weeks * cellHeight,
+    notes:
+      month === null
+        ? ['A calendar is drawn empty, because nothing inside it carries the date it reads.']
+        : [],
+  };
+}
+
+/**
+ * How a month sits on a Monday-first grid.
+ *
+ * Derived from the month itself rather than assumed, so the numbers under the weekday headings are
+ * the real ones. `Date.UTC` throughout: a local-time construction would shift the first of the
+ * month across a day boundary for anybody west of Greenwich and slide the whole calendar by one.
+ */
+function monthShape(month: string | null): { leading: number; days: number } {
+  if (month === null) {
+    return { leading: 0, days: 0 };
+  }
+
+  const year = Number(month.slice(0, 4));
+  const index = Number(month.slice(5, 7)) - 1;
+
+  if (!Number.isFinite(year) || !Number.isFinite(index)) {
+    return { leading: 0, days: 0 };
+  }
+
+  const first = new Date(Date.UTC(year, index, 1));
+
+  // getUTCDay is Sunday-first; the grid is Monday-first, which is what the interface uses.
+  const leading = (first.getUTCDay() + 6) % 7;
+  const days = new Date(Date.UTC(year, index + 1, 0)).getUTCDate();
+
+  return { leading, days };
+}
+
+export function drawTimeline(request: RenderRequest): Drawing {
+  const { view, rows, palette, width } = request;
+  const labelWidth = Math.min(140, width * 0.32);
+  const trackWidth = width - labelWidth;
+  const shown = rows.slice(0, ROW_CEILING);
+
+  const stamps = shown
+    .map((row) => rawOf(row, view.dateProperty))
+    .filter((stamp): stamp is string => stamp !== null)
+    .sort();
+
+  const first = stamps[0] ?? null;
+  const last = stamps[stamps.length - 1] ?? null;
+
+  const parts: string[] = [
+    rect({ x: 0, y: 0, width, height: HEADER_HEIGHT, fill: palette.surface }),
+    text(first === null ? 'No dates' : first.slice(0, 10), {
+      x: labelWidth,
+      y: HEADER_HEIGHT - 8,
+      size: 8,
+      fill: palette.muted,
+    }),
+  ];
+
+  if (last !== null) {
+    parts.push(
+      text(last.slice(0, 10), {
+        x: width,
+        y: HEADER_HEIGHT - 8,
+        size: 8,
+        fill: palette.muted,
+        anchor: 'end',
+      }),
+    );
+  }
+
+  const span = first === null || last === null ? 0 : Math.max(1, dayGap(first, last));
+
+  shown.forEach((row, index) => {
+    const y = HEADER_HEIGHT + index * ROW_HEIGHT;
+    const start = rawOf(row, view.dateProperty);
+    const end = rawOf(row, view.endDateProperty);
+
+    parts.push(
+      text(truncate(row.title, 9, labelWidth - GAP), {
+        x: 0,
+        y: y + ROW_HEIGHT - 7,
+        size: 9,
+        fill: palette.ink,
+      }),
+    );
+
+    if (start === null || first === null || span === 0) {
+      return;
+    }
+
+    const minimum = 10;
+
+    // Pulled back off the right edge rather than clipped to it. The item on the last date sits at
+    // the full track width, so clipping gave it a bar of zero width - the longest-running item in
+    // the export was the one with nothing drawn for it.
+    const offset = Math.min(
+      (dayGap(first, start) / span) * trackWidth,
+      Math.max(0, trackWidth - minimum),
+    );
+
+    const length =
+      end === null ? minimum : Math.max(minimum, (dayGap(start, end) / span) * trackWidth);
+
+    parts.push(
+      rect({
+        x: labelWidth + offset,
+        y: y + 5,
+        width: Math.max(minimum, Math.min(length, trackWidth - offset)),
+        height: ROW_HEIGHT - 12,
+        fill: palette.accentFill,
+        radius: 2,
+      }),
+    );
+  });
+
+  return {
+    body: parts.join(''),
+    height: HEADER_HEIGHT + shown.length * ROW_HEIGHT,
+    notes: overflowNote(rows.length),
+  };
+}
+
+interface Group {
+  readonly label: string;
+  readonly rows: readonly ViewRow[];
+}
+
+/**
+ * Cards by the property the board groups on, in the order the view stored.
+ *
+ * A row whose value is unset lands in a trailing group rather than being dropped: the interface
+ * shows those cards, and a picture that quietly held fewer cards than the board would be the kind
+ * of difference nobody notices until it matters.
+ */
+function groupRows(
+  rows: readonly ViewRow[],
+  groupBy: string | null,
+  groupOrder: readonly string[],
+): readonly Group[] {
+  if (groupBy === null) {
+    return [{ label: 'All', rows }];
+  }
+
+  const buckets = new Map<string, ViewRow[]>();
+
+  for (const row of rows) {
+    const key = rawOf(row, groupBy) ?? '';
+    buckets.set(key, [...(buckets.get(key) ?? []), row]);
+  }
+
+  const ordered = groupOrder.filter((value) => buckets.has(value));
+  const rest = [...buckets.keys()].filter((value) => !ordered.includes(value) && value !== '');
+
+  return [...ordered, ...rest, ...(buckets.has('') ? [''] : [])].map((value) => ({
+    label: value === '' ? 'No value' : value,
+    rows: buckets.get(value) ?? [],
+  }));
+}
+
+function overflowNote(total: number, ceiling: number = ROW_CEILING): readonly string[] {
+  return total <= ceiling
+    ? []
+    : [`A view is drawn with its first ${String(ceiling)} items; it holds ${String(total)}.`];
+}
+
+/** Whole days between two ISO stamps, or zero when either is not one. */
+function dayGap(from: string, to: string): number {
+  const start = Date.parse(from.slice(0, 10));
+  const end = Date.parse(to.slice(0, 10));
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 0;
+  }
+
+  return Math.max(0, (end - start) / 86_400_000);
+}
