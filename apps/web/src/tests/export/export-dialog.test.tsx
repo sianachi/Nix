@@ -132,3 +132,81 @@ describe('the export dialog', () => {
     });
   });
 });
+
+/**
+ * Choosing a format.
+ *
+ * The picker's job is not only to send the right request - it is to say what the choice costs while
+ * the choice is still open. A dialog that took the format silently and let somebody discover the
+ * losses in the file afterwards would be the dishonest version of exactly this feature.
+ */
+describe('the format choice', () => {
+  it('offers the lossless archive and the two lossy formats', () => {
+    open();
+
+    expect(screen.getByRole('group', { name: 'Format' })).toBeInTheDocument();
+
+    for (const label of ['Archive', 'PDF', 'Word']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('starts on the format that loses nothing', () => {
+    open();
+
+    // Segmented marks the chosen one with aria-current rather than being a radio group: these are
+    // buttons that change what is beside them.
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByText(/without losing anything/)).toBeInTheDocument();
+  });
+
+  it('says what a PDF will not carry before Export is pressed', async () => {
+    const requesting = vi.spyOn(archive, 'requestArchive');
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: 'PDF' }));
+
+    expect(screen.getByText(/Comments, the links between your items/)).toBeInTheDocument();
+    // Said before anything was asked for, which is the whole point of saying it.
+    expect(requesting).not.toHaveBeenCalled();
+  });
+
+  it('says the extra thing a Word document loses that a PDF does not', async () => {
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Word' }));
+
+    expect(screen.getByText(/side-by-side columns become a borderless table/)).toBeInTheDocument();
+  });
+
+  it('asks for the format that was chosen', async () => {
+    const requesting = vi
+      .spyOn(archive, 'requestArchive')
+      .mockResolvedValue({ ok: true, value: result({ fileName: 'notes.pdf' }) });
+
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: 'PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => {
+      expect(requesting).toHaveBeenCalledWith(expect.objectContaining({ format: 'pdf' }));
+    });
+  });
+
+  it('points at where the chosen format lists what it left out', async () => {
+    vi.spyOn(archive, 'requestArchive').mockResolvedValue({
+      ok: true,
+      value: result({ omittedCount: 2 }),
+    });
+
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: 'PDF' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    // The archive says "the manifest"; a PDF has to say the last page, or the sentence sends
+    // somebody looking for something that is not there.
+    expect(await screen.findByText(/last page of the file/)).toBeInTheDocument();
+  });
+});

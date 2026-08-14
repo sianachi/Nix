@@ -43,7 +43,7 @@ describe('requestArchive', () => {
     await request({ fetchImpl, scope: 'item' });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      `/collab/documents/${ITEM}/export?scope=item`,
+      `/collab/documents/${ITEM}/export?scope=item&format=nix`,
       expect.objectContaining({ headers: { authorization: 'Bearer token' } }),
     );
   });
@@ -124,5 +124,57 @@ describe('fileNameFrom', () => {
   it('falls back rather than downloading something with no name', () => {
     expect(fileNameFrom(null)).toBe('export.nix');
     expect(fileNameFrom('attachment')).toBe('export.nix');
+  });
+});
+
+/**
+ * Which service answers, and what the file is called.
+ *
+ * Two services produce exports - the collaboration service holds the document log and writes the
+ * lossless archive, the media service converts - and the format is the only thing that decides
+ * between them. A client picking the wrong one gets a 400 rather than a file, so this is worth
+ * pinning rather than assuming.
+ */
+describe('choosing a format', () => {
+  it('asks the collaboration service for the archive, which is the default', async () => {
+    const fetchImpl = vi.fn((url: string) => {
+      expect(url).toContain('/collab/documents/');
+      return Promise.resolve(ok());
+    });
+
+    await request({ fetchImpl, scope: 'item' });
+
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+
+  it('asks the media service for a PDF', async () => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn((url: string) => {
+      seen.push(url);
+      return Promise.resolve(ok());
+    });
+
+    await request({ fetchImpl, scope: 'item', format: 'pdf' });
+
+    expect(seen).toEqual([`/media/documents/${ITEM}/export?scope=item&format=pdf`]);
+  });
+
+  it('asks the media service for a Word document', async () => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn((url: string) => {
+      seen.push(url);
+      return Promise.resolve(ok());
+    });
+
+    await request({ fetchImpl, scope: 'subtree', format: 'docx' });
+
+    expect(seen).toEqual([`/media/documents/${ITEM}/export?scope=subtree&format=docx`]);
+  });
+
+  it('falls back to a name in the format that was asked for, when a proxy strips the header', () => {
+    // A download with no name is worse than a generic one, and a .nix suffix on a PDF is worse
+    // still - the operating system would open it with nothing.
+    expect(fileNameFrom(null, 'pdf')).toBe('export.pdf');
+    expect(fileNameFrom(null)).toBe('export.nix');
   });
 });

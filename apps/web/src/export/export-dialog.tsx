@@ -3,9 +3,18 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../components/states/status-panels';
 import { requestArchive, saveArchive, type ArchiveScope } from './export-archive';
+import { EXPORT_FORMATS, formatFor, type ExportFormat } from './export-formats';
 
 /**
  * Exporting an item as a `.nix` archive.
+ *
+ * **The format is asked first, because it is the more consequential choice.** One of the three
+ * keeps everything and two of them do not, and which is right depends on what somebody means to do
+ * next - read it, edit it elsewhere, or be able to bring it back.
+ *
+ * **What each format cannot carry is stated before the export runs, not after.** A download
+ * starting is evidence that something happened and no evidence of what is in it, so the sentence
+ * under the picker changes with the format while there is still a choice to make.
  *
  * **The scope is asked rather than assumed.** "This item" and "everything inside it" are different
  * files and there is no default that is right for both - somebody exporting a note wants the note,
@@ -21,6 +30,8 @@ const SCOPES: readonly { value: ArchiveScope; label: string }[] = [
   { value: 'item', label: 'This item' },
   { value: 'subtree', label: 'With everything inside' },
 ];
+
+const FORMATS = EXPORT_FORMATS.map((format) => ({ value: format.value, label: format.label }));
 
 type Progress =
   | { readonly phase: 'idle' }
@@ -45,6 +56,9 @@ export function ExportDialog({
 }: ExportDialogProps): ReactNode {
   // An item with nothing inside it has one honest answer, so it is not asked a question with one
   // real option.
+  // The lossless one first: leaving with everything is the default a workspace owes, and the two
+  // lossy formats are deliberate choices somebody makes rather than lands on.
+  const [format, setFormat] = useState<ExportFormat>('nix');
   const [scope, setScope] = useState<ArchiveScope>(hasChildren ? 'subtree' : 'item');
   const [progress, setProgress] = useState<Progress>({ phase: 'idle' });
   const abort = useRef<AbortController | null>(null);
@@ -68,6 +82,7 @@ export function ExportDialog({
     const outcome = await requestArchive({
       itemId,
       scope,
+      format,
       getAccessToken,
       signal: controller.signal,
     });
@@ -120,10 +135,12 @@ export function ExportDialog({
       }
     >
       <div className="flex flex-col gap-4">
+        <Segmented label="Format" options={FORMATS} value={format} onChange={setFormat} />
+
+        {/* Recomputed on every change, and read before Export is pressed rather than discovered
+            in the file afterwards. */}
         <Text tone="muted" variant="body">
-          A <code>.nix</code> archive keeps everything: the text, the properties, the fields and
-          views, and the order things are in. It is the format that can be brought back without
-          losing anything.
+          {formatFor(format).preamble}
         </Text>
 
         {hasChildren ? (
@@ -141,7 +158,7 @@ export function ExportDialog({
 
         {progress.phase === 'partial' ? (
           <PartialNotice
-            pending={`${String(progress.itemCount)} ${progress.itemCount === 1 ? 'item was' : 'items were'} exported. ${String(progress.omittedCount)} ${progress.omittedCount === 1 ? 'was' : 'were'} left out, because ${progress.omittedCount === 1 ? 'it is' : 'they are'} deleted, not yours to read, or past the size one export carries. The archive's manifest names each one.`}
+            pending={`${String(progress.itemCount)} ${progress.itemCount === 1 ? 'item was' : 'items were'} exported. ${String(progress.omittedCount)} ${progress.omittedCount === 1 ? 'was' : 'were'} left out, because ${progress.omittedCount === 1 ? 'it is' : 'they are'} deleted, not yours to read, or past the size one export carries. ${formatFor(format).reportLocation}`}
           />
         ) : null}
       </div>

@@ -1,11 +1,17 @@
 /**
- * Asking the collaboration service for a `.nix` archive.
+ * Asking for an exported file.
  *
- * The export lives there rather than in Core because it needs the document bodies, and Core never
- * touches document content - the block set has one definition, in `@nix/editor-schema`, and a
- * second one in C# to render exports is the drift that package exists to prevent. This is the same
- * origin and the same bearer token the editor already uses for its updates.
+ * Exports live outside Core because they need the document bodies, and Core never touches document
+ * content - the block set has one definition, in `@nix/editor-schema`, and a second one in C# to
+ * render exports is the drift that package exists to prevent.
+ *
+ * **Two services answer here, and the format decides which.** `.nix` comes from the collaboration
+ * service, which holds the document log; PDF and Word come from the media service, which converts.
+ * The shape of the request and of the refusal is identical either way, so this is one function with
+ * a base URL looked up per format rather than two clients to keep in step.
  */
+
+import { formatFor, type ExportFormat } from './export-formats';
 
 export type ArchiveScope = 'item' | 'subtree';
 
@@ -33,23 +39,28 @@ export type ArchiveOutcome =
 export interface ArchiveRequest {
   readonly itemId: string;
   readonly scope: ArchiveScope;
+
+  /** Defaults to the lossless archive, which is what the first version of this only produced. */
+  readonly format?: ExportFormat;
+
   readonly getAccessToken: () => Promise<string | null>;
   readonly signal?: AbortSignal;
   readonly baseUrl?: string;
   readonly fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-const DEFAULT_BASE_URL = '/collab';
-
 export async function requestArchive(request: ArchiveRequest): Promise<ArchiveOutcome> {
   const {
     itemId,
     scope,
+    format = 'nix',
     getAccessToken,
     signal,
-    baseUrl = DEFAULT_BASE_URL,
     fetchImpl = globalThis.fetch,
   } = request;
+
+  const descriptor = formatFor(format);
+  const baseUrl = request.baseUrl ?? descriptor.baseUrl;
 
   const token = await getAccessToken();
   if (token === null) {
@@ -60,7 +71,7 @@ export async function requestArchive(request: ArchiveRequest): Promise<ArchiveOu
 
   try {
     response = await fetchImpl(
-      `${baseUrl}/documents/${itemId}/export?scope=${scope}`,
+      `${baseUrl}/documents/${itemId}/export?scope=${scope}&format=${format}`,
       signal === undefined
         ? { headers: { authorization: `Bearer ${token}` } }
         : { headers: { authorization: `Bearer ${token}` }, signal },
@@ -85,7 +96,7 @@ export async function requestArchive(request: ArchiveRequest): Promise<ArchiveOu
   return {
     ok: true,
     value: {
-      fileName: fileNameFrom(response.headers.get('content-disposition')),
+      fileName: fileNameFrom(response.headers.get('content-disposition'), descriptor.extension),
       blob,
       itemCount: count(response.headers.get('x-nix-export-items')),
       omittedCount: count(response.headers.get('x-nix-export-omitted')),
@@ -131,11 +142,11 @@ function count(header: string | null): number {
  * folder is the one the archive was written under. The fallback exists because a proxy may strip
  * the header, and a download with no name is worse than a generic one.
  */
-export function fileNameFrom(header: string | null): string {
+export function fileNameFrom(header: string | null, extension = 'nix'): string {
   const match = header === null ? null : /filename="([^"]+)"/.exec(header);
   const name = match?.[1];
 
-  return name === undefined || name.length === 0 ? 'export.nix' : name;
+  return name === undefined || name.length === 0 ? `export.${extension}` : name;
 }
 
 /**

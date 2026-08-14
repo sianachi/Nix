@@ -1,5 +1,5 @@
 import { Button, Icon, Text, focusRing } from '@nix/ui';
-import { PanelRightClose, Settings2 } from 'lucide-react';
+import { Download, PanelRightClose, Settings2 } from 'lucide-react';
 import {
   Suspense,
   lazy,
@@ -25,7 +25,9 @@ const CanvasEditor = lazy(async () => {
   return { default: module.CanvasEditor };
 });
 import { announce } from '../a11y/announcer';
+import { useAuth } from '../auth/auth-provider';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
+import { ExportDialog } from '../export/export-dialog';
 import { PaneGroup } from '../panes/pane-group';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
@@ -364,6 +366,11 @@ function OpenItem({
   // worked.
   const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(browserStorage()));
 
+  // The dialog is mounted only while it is open, so an export that was never started costs nothing
+  // and a closed one keeps no half-chosen format from last time.
+  const [exportOpen, setExportOpen] = useState(false);
+  const { getAccessToken } = useAuth();
+
   function togglePanel(): void {
     setPanelOpen((current) => {
       storePanelOpen(browserStorage(), !current);
@@ -438,6 +445,19 @@ function OpenItem({
               both do. */}
           <BookmarkButton compact itemId={itemId} title={title} />
 
+          {/* Beside the bookmark for the reason stated above it: both act on the document rather
+              than on the pane around it, and the two controls after them do not. */}
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            onClick={() => {
+              setExportOpen(true);
+            }}
+          >
+            <Icon icon={Download} size="sm" />
+            Export
+          </Button>
+
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"
@@ -507,6 +527,20 @@ function OpenItem({
           <ItemPanel container={container} details={details} onClose={togglePanel} />
         ) : null}
       </div>
+
+      {exportOpen ? (
+        <ExportDialog
+          open
+          itemId={itemId}
+          // Straight from the tree node, which already carries it - the scope picker is hidden for
+          // an item with nothing inside rather than offering a question with one real answer.
+          hasChildren={tree.find(itemId)?.hasChildren ?? false}
+          getAccessToken={getAccessToken}
+          onClose={() => {
+            setExportOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }
