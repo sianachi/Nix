@@ -15,7 +15,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "dev:collab": "bash scripts/dev-collab.sh"
+    "dev:collab": "bash scripts/dev-collab.sh",
+    "dev:media": "bash scripts/dev-media.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

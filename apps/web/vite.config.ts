@@ -98,6 +98,14 @@ export default defineConfig({
         ws: true,
         rewrite: (path: string) => path.replace(/^\/collab/, ''),
       },
+
+      // The media service is a fourth origin, and it produces the lossy formats. No `ws`: it
+      // has no sockets, and it never will - it converts a request and answers it.
+      '/media': {
+        target: 'http://localhost:8200',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/media/, ''),
+      },
     },
   },
 

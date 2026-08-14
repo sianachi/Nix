@@ -37,6 +37,7 @@
 #   5014  Nix.Api             (dotnet run --project backend/src/Nix.Api)
 #   5173  web                 (pnpm --filter @nix/web dev)
 #   8100  collaboration       (pnpm --filter @nix/collab dev)
+#   8200  media               (pnpm run dev:media)
 
 name: nix-dev
 

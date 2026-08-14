@@ -22,15 +22,24 @@ export interface BundleStream {
   readonly bundles: AsyncGenerator<ItemBundle>;
 }
 
-/** Why a bundle read did not produce a stream. Mapped to a status by the caller, never here. */
+/**
+ * Why a bundle read did not produce a stream. Mapped to a status by the caller, never here.
+ *
+ * The fields are assigned in the body rather than declared as constructor parameter properties.
+ * That is not style: this service runs from source under Node's type-stripping loader, which
+ * removes types without rewriting anything, and a parameter property *is* a rewrite - it refuses
+ * the file outright with ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. Vitest compiles through esbuild and
+ * accepts it happily, so the suite stays green while the service cannot boot.
+ */
 export class BundleRefusal extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    detail: string,
-  ) {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, detail: string) {
     super(detail);
     this.name = 'BundleRefusal';
+    this.status = status;
+    this.code = code;
   }
 }
 
