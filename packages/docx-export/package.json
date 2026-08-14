@@ -1,0 +1,38 @@
+{
+  "name": "@nix/docx-export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The document schema mapped onto Open XML: an item bundle in, DOCX bytes out, with a stated list of what Word cannot carry",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@nix/design-tokens": "workspace:*",
+    "@nix/editor-schema": "workspace:*",
+    "@nix/export": "workspace:*",
+    "@nix/sheet": "workspace:*",
+    "docx": "^9.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "fflate": "^0.8.2",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}
