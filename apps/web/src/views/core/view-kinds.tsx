@@ -1,4 +1,12 @@
-import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt, Table2 } from 'lucide-react';
+import {
+  ClipboardList,
+  Columns3,
+  LayoutGrid,
+  LayoutList,
+  CalendarDays,
+  ChartGantt,
+  Table2,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -6,6 +14,7 @@ import { BoardView } from '../board/board-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
+import { FormView } from '../form/form-view';
 import { ListView } from '../list/list-view';
 import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
 import { TimelineView } from '../timeline/timeline-view';
@@ -20,10 +29,17 @@ import type { ContainerData } from './use-container';
  * anything new and drew it as a list. A kind added to three of those four compiled and shipped
  * looking like a list.
  *
- * The backend has the matching table in `Nix.Core/Views/ViewDefinition.cs`. The two are deliberately
- * separate: the server decides what is *storable* (a board must name a property to group by) and
- * this decides what is *drawable*. They agree on the stored names and nothing else, which is why an
- * older build meeting a newer build's view says it cannot draw it rather than crashing.
+ * The backend has the matching table in `backend/src/Nix.Api/Domain/Views/ViewDefinition.cs`. The
+ * two are deliberately separate: the server decides what is *storable* (a board must name a
+ * property to group by) and this decides what is *drawable*. They agree on the stored names and
+ * nothing else, which is why an older build meeting a newer build's view says it cannot draw it
+ * rather than crashing.
+ *
+ * There is a third per-kind table the promise does not reach: `packages/view-render/src/render.ts`
+ * draws views inside exports, and a kind it has no renderer for falls back to a list with a note
+ * naming the kind - honest, so a kind added to the two tables here ships without touching it. But
+ * "adding a kind is one entry" is a per-table promise, not a repo-wide one; a kind that should
+ * export as itself is a third entry there.
  */
 
 /**
@@ -330,6 +346,17 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     label: 'Spreadsheet',
     icon: Table2,
     render: (props) => <SpreadsheetView {...props} />,
+    configures: [],
+    chooses: [],
+  },
+  {
+    // The intake shape: the schema as fields, each submission a new child. Requirement-free by
+    // the list's own fallback argument - with no columns configured the form offers the effective
+    // schema, and with no schema at all it still takes a title.
+    kind: 'form',
+    label: 'Form',
+    icon: ClipboardList,
+    render: (props) => <FormView {...props} />,
     configures: [],
     chooses: [],
   },

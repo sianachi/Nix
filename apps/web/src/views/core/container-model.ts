@@ -187,6 +187,20 @@ export { itemSchema as ItemSchema };
 export type { Item };
 
 /**
+ * The part of an item a property control actually touches: its name, and its bag.
+ *
+ * `Item` means "an item as the server sent it, after parse" - a provenance a draft being typed
+ * into a form does not have and must not fake. The readers below and `PropertyInput` take this
+ * shape instead, so a caller with a real item passes it unchanged (an `Item` is structurally one
+ * of these) and a caller with a draft passes `{ title, properties }` without manufacturing wire
+ * fields nothing reads.
+ */
+export interface PropertyOwner {
+  readonly title: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+/**
  * Reads one property value off an item, as text.
  *
  * Every view needs this and none of them should each decide what a number or a list looks like.
@@ -194,7 +208,7 @@ export type { Item };
  * between "no value" and "the empty string" is not one a table cell can draw, and pretending
  * otherwise would put "null" in front of people.
  */
-export function readPropertyText(item: Item, key: string): string {
+export function readPropertyText(item: PropertyOwner, key: string): string {
   const value = item.properties[key];
 
   if (value === null || value === undefined) {
@@ -213,7 +227,7 @@ export function readPropertyText(item: Item, key: string): string {
 }
 
 /** Reads a property as a single select value, or null when it is not one. */
-export function readSelectValue(item: Item, key: string): string | null {
+export function readSelectValue(item: PropertyOwner, key: string): string | null {
   const value = item.properties[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
@@ -225,7 +239,7 @@ export function readSelectValue(item: Item, key: string): string | null {
  * "the 3rd" must not shift to the 2nd for a reader in another zone, which is exactly what an
  * instant would do. So this compares text and never constructs a Date for placement.
  */
-export function readDateValue(item: Item, key: string): string | null {
+export function readDateValue(item: PropertyOwner, key: string): string | null {
   const value = item.properties[key];
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }

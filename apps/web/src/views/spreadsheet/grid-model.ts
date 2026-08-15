@@ -1,5 +1,6 @@
 import { type CellRange, type CellRef, cellKey } from '@nix/sheet';
 
+import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
 import {
   readPropertyText,
   type EffectiveSchema,
@@ -9,6 +10,8 @@ import {
 } from '../core/container-model';
 import { dayFor, formatTime, readTimestampValue, readerZone } from '../core/timestamps';
 
+export { TITLE_COLUMN_KEY } from '../core/columns';
+
 /**
  * The spreadsheet view's geometry and coercion, as pure functions.
  *
@@ -17,9 +20,6 @@ import { dayFor, formatTime, readTimestampValue, readerZone } from '../core/time
  * writing raw text. The component owns the DOM and the writes; everything that can be a unit test
  * lives here instead.
  */
-
-/** The title is the row's name, not one of its properties; it leads and is read-only. */
-export const TITLE_COLUMN_KEY = 'title';
 
 export interface SpreadsheetColumn {
   readonly key: string;
@@ -57,38 +57,30 @@ const TEXT_EDITABLE_TYPES: readonly string[] = [
 /**
  * The columns, in order: the title first, then the properties.
  *
- * The same resolution as the list view, for the same reasons: the view's own columns when it names
- * any, the schema's declared order when it does not, `title` deduplicated because choosing which
- * properties to show is not choosing whether the row says what it is. A configured column the
- * schema no longer describes still gets a column headed by its key - a renamed property should
- * leave a column of blanks with a name, not vanish without a stated reason.
+ * Resolution is the shared rule (`views/core/columns.ts`); what stays here is this view's answer
+ * for an unresolvable key: a configured column the schema no longer describes still gets a column
+ * headed by its key - a renamed property should leave a column of blanks with a name, not vanish
+ * without a stated reason - and it reads without editing.
  */
 export function resolveColumns(
   view: View | null,
   schema: EffectiveSchema | null,
 ): readonly SpreadsheetColumn[] {
-  const definitions = new Map(
-    (schema?.properties ?? []).map((definition) => [definition.key, definition]),
-  );
-
-  const configured =
-    view !== null && view.columns.length > 0 ? view.columns : [...definitions.keys()];
+  const { keys, definitions } = resolveConfiguredColumns(view, schema);
 
   return [
     { key: TITLE_COLUMN_KEY, label: 'Title', type: null, editable: false },
-    ...[...new Set(configured)]
-      .filter((key) => key !== TITLE_COLUMN_KEY)
-      .map((key): SpreadsheetColumn => {
-        const definition = definitions.get(key);
-        const type = definition?.type ?? null;
+    ...keys.map((key): SpreadsheetColumn => {
+      const definition = definitions.get(key);
+      const type = definition?.type ?? null;
 
-        return {
-          key,
-          label: definition?.label ?? key,
-          type,
-          editable: type !== null && TEXT_EDITABLE_TYPES.includes(type),
-        };
-      }),
+      return {
+        key,
+        label: definition?.label ?? key,
+        type,
+        editable: type !== null && TEXT_EDITABLE_TYPES.includes(type),
+      };
+    }),
   ];
 }
 

@@ -20,6 +20,13 @@ export interface FieldControlProps {
   readonly id: string;
   readonly 'aria-describedby': string | undefined;
   readonly 'aria-invalid': true | undefined;
+
+  /**
+   * Carried into the control so required-ness reaches assistive technology, not only the label's
+   * asterisk (which is aria-hidden). Provided here rather than remembered at every call site -
+   * one form field shipped announcing nothing precisely because the site had to remember.
+   */
+  readonly required: boolean | undefined;
 }
 
 export interface FieldProps {
@@ -73,6 +80,7 @@ export function Field(props: FieldProps): ReactNode {
         id: controlId,
         'aria-describedby': describedBy,
         'aria-invalid': invalid ? true : undefined,
+        required: required ? true : undefined,
       })}
 
       {invalid ? (

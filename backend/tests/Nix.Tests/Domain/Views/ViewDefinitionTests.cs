@@ -39,6 +39,7 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.Gallery, "gallery")]
     [InlineData(ViewKind.Timeline, "timeline")]
     [InlineData(ViewKind.Sheet, "sheet")]
+    [InlineData(ViewKind.Form, "form")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));

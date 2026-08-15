@@ -34,13 +34,17 @@ function onlyConfiguration(kind: string): ViewConfiguration {
 }
 
 describe('the view-kind registry', () => {
-  it('knows the six this build can draw', () => {
+  it('knows the seven this build can draw', () => {
+    // The count keeps the test's name honest: a kind added without updating this sentence fails
+    // here rather than leaving a name that undercounts.
+    expect(VIEW_KINDS).toHaveLength(7);
     expect(isKnownViewKind('list')).toBe(true);
     expect(isKnownViewKind('board')).toBe(true);
     expect(isKnownViewKind('calendar')).toBe(true);
     expect(isKnownViewKind('gallery')).toBe(true);
     expect(isKnownViewKind('timeline')).toBe(true);
     expect(isKnownViewKind('sheet')).toBe(true);
+    expect(isKnownViewKind('form')).toBe(true);
   });
 
   it('does not claim to know a kind from a newer build', () => {
@@ -77,6 +81,7 @@ describe('the view-kind registry', () => {
     // same argument - its columns resolve exactly as the list's do.
     expect(findViewKind('list')?.configures).toEqual([]);
     expect(findViewKind('sheet')?.configures).toEqual([]);
+    expect(findViewKind('form')?.configures).toEqual([]);
 
     expect(onlyConfiguration('board').field).toBe('groupBy');
     expect(onlyConfiguration('calendar').field).toBe('dateProperty');

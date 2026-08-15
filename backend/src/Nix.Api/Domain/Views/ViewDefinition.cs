@@ -60,6 +60,16 @@ public enum ViewKind
     /// reading a hit.
     /// </remarks>
     Sheet = 5,
+
+    /// <summary>A fillable form over the schema; each submission creates a child.</summary>
+    /// <remarks>
+    /// The intake shape - a daily tracker, an inventory log: the view renders the container's
+    /// effective schema as fields, and a submit is an ordinary item create carrying the values.
+    /// Nothing new is stored or read on this axis; the kind exists so a container can *offer*
+    /// entry as a view, switchable beside the list the entries land in. ADR-0040 records why a
+    /// kind that writes children rather than drawing them still belongs on this axis.
+    /// </remarks>
+    Form = 6,
 }
 
 /// <summary>
@@ -151,6 +161,10 @@ public static class ViewKinds
         // Like a list, and by the list's own argument: with no columns configured the grid falls
         // back to the effective schema, and with no schema at all it still has titles to show.
         new ViewKindDescriptor(ViewKind.Sheet, "sheet", Requirement: null),
+
+        // Requirement-free by the same fallback: with no columns configured the form offers the
+        // effective schema's fields, and with no schema at all it still takes a title.
+        new ViewKindDescriptor(ViewKind.Form, "form", Requirement: null),
     ];
 
     /// <summary>Reads a stored kind.</summary>
