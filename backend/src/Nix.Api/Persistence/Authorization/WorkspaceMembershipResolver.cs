@@ -111,15 +111,40 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
                });
 
         var workspaces = new List<WorkspaceId>();
-        var rows = _sql.QueryAsync<WorkspaceId, WorkspaceIdMapper>(
-            statement,
-            default,
-            parameters,
-            cancellationToken);
 
-        await foreach (var workspaceId in rows.ConfigureAwait(false))
+        if (administrator)
         {
-            workspaces.Add(workspaceId);
+            var adminRows = _sql.QueryAsync<WorkspaceId, WorkspaceIdMapper>(
+                statement,
+                default,
+                parameters,
+                cancellationToken);
+
+            await foreach (var workspaceId in adminRows.ConfigureAwait(false))
+            {
+                workspaces.Add(workspaceId);
+            }
+        }
+        else
+        {
+            // The same rule the point check applies, applied to the list: a grant whose role this
+            // build cannot parse grants nothing. This list feeds the permission predicate of every
+            // bulk read, so a list wider than the point check would let a filter disclose rows the
+            // gate refuses - the wrong fail direction for a database written by a newer build.
+            var seen = new HashSet<WorkspaceId>();
+            var grantRows = _sql.QueryAsync<WorkspaceGrant, WorkspaceGrantMapper>(
+                statement,
+                default,
+                parameters,
+                cancellationToken);
+
+            await foreach (var grant in grantRows.ConfigureAwait(false))
+            {
+                if (WorkspaceRoles.TryParse(grant.Role, out _) && seen.Add(grant.WorkspaceId))
+                {
+                    workspaces.Add(grant.WorkspaceId);
+                }
+            }
         }
 
         // Deliberately not seeding `_roles` from this. The statement answers "may read", and the
@@ -205,6 +230,21 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
 
     private static NpgsqlParameter Uuid(string name, Guid value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value };
+
+    /// <summary>One membership grant row: the workspace, and the role text as stored.</summary>
+    private readonly record struct WorkspaceGrant(WorkspaceId WorkspaceId, string Role);
+
+    /// <summary>Reads a grant's <c>workspace_id</c> and <c>role</c> columns.</summary>
+    /// <remarks>A struct, so the query loop devirtualises and allocates only the role string.</remarks>
+    private readonly struct WorkspaceGrantMapper : INixRowMapper<WorkspaceGrant>
+    {
+        /// <inheritdoc />
+        public WorkspaceGrant Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+            return new WorkspaceGrant(WorkspaceId.From(reader.GetGuid(0)), reader.GetString(1));
+        }
+    }
 
     /// <summary>Reads the single <c>workspace_id</c> column.</summary>
     /// <remarks>A struct, so the query loop devirtualises and allocates nothing per row.</remarks>

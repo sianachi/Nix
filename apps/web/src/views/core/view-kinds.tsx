@@ -5,6 +5,7 @@ import {
   LayoutList,
   CalendarDays,
   ChartGantt,
+  ListFilter,
   Table2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -16,6 +17,7 @@ import type { PropertyDefinition, View } from './container-model';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import { FormView } from '../form/form-view';
 import { ListView } from '../list/list-view';
+import { QueryView } from '../query/query-view';
 import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
 import { TimelineView } from '../timeline/timeline-view';
 import type { ContainerData } from './use-container';
@@ -191,6 +193,16 @@ export interface ViewKindDescriptor {
    * true for this axis the same way `configures` keeps it true for properties.
    */
   readonly chooses: readonly ViewChoice[];
+
+  /**
+   * Whether the editor offers this kind the filter-rules block.
+   *
+   * A capability flag rather than a `kind === 'query'` check in the editor, so "adding a kind is
+   * one entry" survives the first kind whose configuration is neither a property slot nor a
+   * closed token. The block itself lives with the query feature; the registry only says who gets
+   * it.
+   */
+  readonly editsFilters?: true;
 }
 
 /**
@@ -359,6 +371,21 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     render: (props) => <FormView {...props} />,
     configures: [],
     chooses: [],
+  },
+  {
+    // Stored as "query" (the contract word - Item.cs reserved the item type, and the goal text
+    // says "items whose view is a query"); "Smart list" is copy. Its data is not the container's
+    // children: the renderer runs the view's stored filters through the server and ignores
+    // `container.children` entirely. Requirement-free because the requirement mechanism reads a
+    // single string field and this kind's configuration is the filters array - policed by the
+    // server on write, edited through the block `editsFilters` grants.
+    kind: 'query',
+    label: 'Smart list',
+    icon: ListFilter,
+    render: (props) => <QueryView {...props} />,
+    configures: [],
+    chooses: [],
+    editsFilters: true,
   },
 ];
 

@@ -293,12 +293,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet' and 'form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form' and 'query') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet' or 'form'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form' or 'query'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -508,6 +508,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/query': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Run one of an item's query views
+     * @description Runs the saved query the named view stores: every active item the caller may read, in any container, whose properties satisfy the view's filters. The client names the view and never sends rules - the stored view is the whole query, and rules are edited through PUT /items/{itemId}/views like any other view configuration. 'today' is required, as yyyy-MM-dd in the caller's own zone, because a stored rule may say 'today' and only the caller knows which day that is. Rows the caller may not read are excluded while the query runs, never filtered from its results, so the ceiling is spent only on rows that are actually returned. Results are ordered by the first date-shaped filter's property soonest-first, else by the view's own sort compared as text, else most recently modified first, and always tie-broken by id so the same read returns the same rows twice. At most 500 rows are returned; 'truncated' says when more matched, which a list cannot convey on its own. Each row carries its container's title so a cross-container list can say where a row lives.
+     */
+    get: operations['RunItemQuery'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/bookmarks': {
     parameters: {
       query?: never;
@@ -634,6 +654,11 @@ export interface components {
       declared: components['schemas']['PropertyDefinitionResponse'][];
       inherit: boolean;
     };
+    FilterRuleContract: {
+      property: string;
+      operator: string;
+      value: string;
+    };
     GraphLinkResponse: {
       /** Format: uuid */
       sourceId: string;
@@ -728,6 +753,28 @@ export interface components {
       options: string[];
       required: boolean;
     };
+    QueryResultResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      containerId: null | string;
+      containerTitle: null | string;
+      title: null | string;
+      type: string;
+      properties: components['schemas']['JsonObject'];
+    };
+    QueryResultsResponse: {
+      /** Format: uuid */
+      itemId: string;
+      viewId: string;
+      today: string;
+      results: components['schemas']['QueryResultResponse'][];
+      /** Format: int32 */
+      limit: number | string;
+      truncated: boolean;
+    };
     ReferenceResolutionResponse: {
       /** Format: uuid */
       id: string;
@@ -817,6 +864,7 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+      filters: null | components['schemas']['FilterRuleContract'][];
     };
     ViewResponse: {
       id: string;
@@ -832,6 +880,7 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+      filters: components['schemas']['FilterRuleContract'][];
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -2017,6 +2066,31 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RunItemQuery: {
+    parameters: {
+      query?: {
+        view?: string;
+        today?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['QueryResultsResponse'];
         };
       };
     };

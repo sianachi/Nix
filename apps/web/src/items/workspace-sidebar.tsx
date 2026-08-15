@@ -6,6 +6,7 @@ import {
   FilePlus,
   FileText,
   Grid3x3,
+  ListFilter,
   Plus,
   Shapes,
   Trash2,
@@ -23,6 +24,7 @@ import {
 
 import { announce } from '../a11y/announcer';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
+import { SMART_LISTS, type SmartListPreset } from '../views/query/smart-lists';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
@@ -98,6 +100,14 @@ export interface WorkspaceSidebarProps {
    * `<Dialog>` does; this scroll region is the nearest thing that is still guaranteed to be there.
    */
   readonly treeRegionRef: RefObject<HTMLDivElement | null>;
+
+  /**
+   * Stores a preset's query view on a freshly created smart list, answering with the refusal or
+   * null. Supplied by the shell rather than performed here, because the write needs the session's
+   * token and this component deliberately has no auth dependency - it renders in tests and in any
+   * host that hands it a tree.
+   */
+  readonly applySmartListViews: (itemId: string, preset: SmartListPreset) => Promise<string | null>;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -111,6 +121,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     besideRefusal,
     onDeleteItem,
     treeRegionRef,
+    applySmartListViews,
   } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -159,6 +170,30 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     }
   }
 
+  async function createSmartList(preset: SmartListPreset): Promise<void> {
+    setRefusal(null);
+    const { id: created, refusal: reason } = await tree.create(destination, preset.title, 'query');
+
+    if (reason !== null) {
+      setRefusal(reason);
+      return;
+    }
+
+    if (created === null) {
+      return;
+    }
+
+    // The view is stored after the create, and a failure here is reported rather than rolled
+    // back: the item exists either way, and its filters can be added under Views. Silence would
+    // leave somebody opening an empty document wondering where their list went.
+    const viewsRefusal = await applySmartListViews(created, preset);
+    if (viewsRefusal !== null) {
+      setRefusal(viewsRefusal);
+    }
+
+    onSelect(created);
+  }
+
   return (
     // The width belongs to the shell, which sizes and resizes the region this fills; a width
     // here as well would be two owners for one dimension.
@@ -174,6 +209,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           disabled={tree.status !== 'ready' || tree.isCreating}
           onCreate={(title, type) => {
             void create(title, type);
+          }}
+          onCreateSmartList={(preset) => {
+            void createSmartList(preset);
           }}
         />
       </div>
@@ -243,6 +281,9 @@ interface CreateMenuProps {
   readonly destinationName: string;
   readonly disabled: boolean;
   readonly onCreate: (title: string, type: string) => void;
+
+  /** Creates a smart list from a preset: an item of type `query` carrying the preset's view. */
+  readonly onCreateSmartList: (preset: SmartListPreset) => void;
 }
 
 /**
@@ -257,7 +298,12 @@ interface CreateMenuProps {
  * a control whose meaning depends on an invisible selection is the kind people press twice and
  * then undo.
  */
-function CreateMenu({ destinationName, disabled, onCreate }: CreateMenuProps): ReactNode {
+function CreateMenu({
+  destinationName,
+  disabled,
+  onCreate,
+  onCreateSmartList,
+}: CreateMenuProps): ReactNode {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -331,6 +377,29 @@ function CreateMenu({ destinationName, disabled, onCreate }: CreateMenuProps): R
             >
               <Icon icon={kind.icon} size="sm" />
               {kind.label}
+            </button>
+          ))}
+
+          {/* The smart lists, below the body kinds under a divider: each creates an item of type
+              `query` whose view is the preset's saved query. Offered here because a smart list is
+              created, not configured into an existing note - and a person looking for "where do I
+              make an Overdue list" looks at New. */}
+          <div role="separator" className="border-t border-divider" />
+          {SMART_LISTS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              role="menuitem"
+              aria-label={`New ${preset.label} smart list in ${destinationName}`}
+              title={preset.detail}
+              onClick={() => {
+                setOpen(false);
+                onCreateSmartList(preset);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={ListFilter} size="sm" />
+              {preset.label}
             </button>
           ))}
         </div>

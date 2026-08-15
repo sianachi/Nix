@@ -26,7 +26,10 @@ internal static class ViewMapping
             view.Mode,
             view.CoverProperty,
             view.EndDateProperty,
-            view.CardSize);
+            view.CardSize,
+            view.Filters.IsDefaultOrEmpty
+                ? []
+                : [.. view.Filters.Select(rule => new FilterRuleContract(rule.Property, rule.Operator, rule.Value))]);
     }
 
     /// <summary>
@@ -68,7 +71,10 @@ internal static class ViewMapping
                     view.Mode,
                     view.CoverProperty,
                     view.EndDateProperty,
-                    view.CardSize));
+                    view.CardSize,
+                    view.Filters is null
+                        ? []
+                        : [.. view.Filters.Select(rule => new FilterRule(rule.Property, rule.Operator, rule.Value))]));
         }
 
         views = mapped.ToImmutable();

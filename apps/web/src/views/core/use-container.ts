@@ -33,6 +33,13 @@ export interface SchemaDraft {
 export type ContainerStatus = 'loading' | 'ready' | 'error';
 
 export interface ContainerData {
+  /**
+   * The item whose container this is - what the hook was asked to load - or null at a workspace
+   * root. Carried so a view whose data is not the children (the query view runs its own item's
+   * stored filters) can name the item without reaching into the URL.
+   */
+  readonly itemId: string | null;
+
   readonly status: ContainerStatus;
   readonly error: string | null;
   readonly schema: EffectiveSchema | null;
@@ -614,6 +621,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   );
 
   return {
+    itemId: containerId,
     status,
     error,
     create,

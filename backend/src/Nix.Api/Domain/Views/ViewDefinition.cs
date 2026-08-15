@@ -70,6 +70,15 @@ public enum ViewKind
     /// kind that writes children rather than drawing them still belongs on this axis.
     /// </remarks>
     Form = 6,
+
+    /// <summary>A saved cross-container query: the view's filters, run server-side.</summary>
+    /// <remarks>
+    /// The smart-list kind (goal 3.4). Unlike every other kind it does not draw the item's own
+    /// children - its results come from <c>GET /items/{id}/query</c>, which compiles the stored
+    /// <see cref="ViewDefinition.Filters"/> into SQL filtered by the reader's own reach. The
+    /// client never sends rules; the stored view is the whole query. ADR-0039 records the design.
+    /// </remarks>
+    Query = 7,
 }
 
 /// <summary>
@@ -165,6 +174,11 @@ public static class ViewKinds
         // Requirement-free by the same fallback: with no columns configured the form offers the
         // effective schema's fields, and with no schema at all it still takes a title.
         new ViewKindDescriptor(ViewKind.Form, "form", Requirement: null),
+
+        // Requirement-free because the requirement mechanism reads one string field and this
+        // kind's configuration is the Filters array - policed in SetContainerViewsHandler.Refuse
+        // instead. An empty filter set is valid and means "everything readable, newest first".
+        new ViewKindDescriptor(ViewKind.Query, "query", Requirement: null),
     ];
 
     /// <summary>Reads a stored kind.</summary>
@@ -291,6 +305,10 @@ public static class GalleryCardSizes
 /// <see langword="null"/> means <c>medium</c>, which is what every gallery stored before this field
 /// existed has always looked like.
 /// </param>
+/// <param name="Filters">
+/// For a query: the conditions the server compiles and runs, AND-combined. Default and empty both
+/// mean no conditions; on every other kind the field is stored and ignored.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>One record for every kind, rather than a hierarchy.</b> The per-kind fields are nullable
@@ -346,7 +364,15 @@ public sealed record ViewDefinition(
     // medium - the size every gallery drew at before the field existed - and the value set is
     // closed and policed on write; see GalleryCardSizes for why this one is refused where Mode's
     // strays are defaulted.
-    string? CardSize = null)
+    string? CardSize = null,
+
+    // Last and defaulted like every field added since the record was first cut. For a query view:
+    // the conditions the server compiles and runs, AND-combined, each policed on write against
+    // QueryOperators' closed grammar. Default (unset) and empty both mean "no conditions" - for a
+    // query view that is "everything readable, newest first", and for every other kind the field
+    // is stored and ignored (ADR-0020: cheap to ignore, expensive to police). ADR-0039 records
+    // why this is a structured field rather than a packed string.
+    ImmutableArray<FilterRule> Filters = default)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

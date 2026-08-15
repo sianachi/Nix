@@ -204,6 +204,13 @@ public sealed class SetContainerViewsHandler
     /// two independent edits matter. The read path reports such a view as unrenderable instead,
     /// which is a thing the interface can explain.
     /// </remarks>
+    /// <summary>The most filter rules one view may carry.</summary>
+    /// <remarks>
+    /// The presets need two; eight is headroom. The bound is what keeps the compiled statement's
+    /// size a constant rather than a function of what somebody managed to store.
+    /// </remarks>
+    internal const int MaximumFilters = 8;
+
     private static NixError? Refuse(ImmutableArray<ViewDefinition> views, string? defaultView)
     {
         if (views.Length > ViewDefinitionsJson.MaximumViews)
@@ -260,6 +267,28 @@ public sealed class SetContainerViewsHandler
                 return PropertyErrors.InvalidViews(
                     $"'{view.Name}': '{size}' is not a card size; "
                         + $"use '{GalleryCardSizes.Small}', '{GalleryCardSizes.Medium}' or '{GalleryCardSizes.Large}'.");
+            }
+
+            // Filters follow the CardSize precedent: policed on any kind that carries them, since
+            // the grammar is closed and a rule outside it has no meaning anywhere - but not gated
+            // to query views, because a stored-and-ignored set on another kind is cheap and a
+            // gate is a second opinion. An EMPTY set is fine: on a query view it means
+            // "everything readable", and refusing it would make edit order matter.
+            if (!view.Filters.IsDefaultOrEmpty)
+            {
+                if (view.Filters.Length > MaximumFilters)
+                {
+                    return PropertyErrors.InvalidViews(
+                        $"'{view.Name}': a view may carry at most {MaximumFilters} filters.");
+                }
+
+                foreach (var rule in view.Filters)
+                {
+                    if (QueryOperators.Refuse(rule) is { } reason)
+                    {
+                        return PropertyErrors.InvalidViews($"'{view.Name}': {reason}.");
+                    }
+                }
             }
         }
 

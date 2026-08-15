@@ -15,6 +15,7 @@ import type { ContainerData } from '../views/core/use-container';
  */
 export function aContainer(overrides: Partial<ContainerData> = {}): ContainerData {
   return {
+    itemId: 'container-1',
     status: 'ready',
     error: null,
     schema: null,

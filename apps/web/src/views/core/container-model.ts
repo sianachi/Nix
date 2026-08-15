@@ -108,9 +108,33 @@ export const ViewSchema = z.object({
    * size - the gallery falls back to medium - never the parse of the whole view set.
    */
   cardSize: z.string().nullable(),
+
+  /**
+   * For a query: the conditions the server compiles and runs, AND-combined.
+   *
+   * The operator is an open string, matching `mode` and for the same reason: the server polices
+   * the closed set on write and re-validates at execution, and an editor meeting a token from a
+   * newer build must preserve it rather than fail the parse - only the server executes. Empty is
+   * the ordinary state on every other kind, and on a query view it means "everything readable,
+   * newest first".
+   */
+  filters: z
+    .array(
+      z.object({
+        property: z.string(),
+        operator: z.string(),
+        value: z.string(),
+      }),
+    )
+    // Defaulted, unlike its siblings: a server from before the field answers views without it,
+    // and absence must cost nothing - the parse fills the empty set the contract now always sends.
+    .default([]),
 });
 
 export type View = z.infer<typeof ViewSchema>;
+
+/** One condition of a query view. */
+export type ViewFilterRule = View['filters'][number];
 
 /**
  * The compile-time tie to the generated contract.
