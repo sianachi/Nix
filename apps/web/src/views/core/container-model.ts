@@ -108,9 +108,33 @@ export const ViewSchema = z.object({
    * size - the gallery falls back to medium - never the parse of the whole view set.
    */
   cardSize: z.string().nullable(),
+
+  /**
+   * For a query: the conditions the server compiles and runs, AND-combined.
+   *
+   * The operator is an open string, matching `mode` and for the same reason: the server polices
+   * the closed set on write and re-validates at execution, and an editor meeting a token from a
+   * newer build must preserve it rather than fail the parse - only the server executes. Empty is
+   * the ordinary state on every other kind, and on a query view it means "everything readable,
+   * newest first".
+   */
+  filters: z
+    .array(
+      z.object({
+        property: z.string(),
+        operator: z.string(),
+        value: z.string(),
+      }),
+    )
+    // Defaulted, unlike its siblings: a server from before the field answers views without it,
+    // and absence must cost nothing - the parse fills the empty set the contract now always sends.
+    .default([]),
 });
 
 export type View = z.infer<typeof ViewSchema>;
+
+/** One condition of a query view. */
+export type ViewFilterRule = View['filters'][number];
 
 /**
  * The compile-time tie to the generated contract.
@@ -187,6 +211,20 @@ export { itemSchema as ItemSchema };
 export type { Item };
 
 /**
+ * The part of an item a property control actually touches: its name, and its bag.
+ *
+ * `Item` means "an item as the server sent it, after parse" - a provenance a draft being typed
+ * into a form does not have and must not fake. The readers below and `PropertyInput` take this
+ * shape instead, so a caller with a real item passes it unchanged (an `Item` is structurally one
+ * of these) and a caller with a draft passes `{ title, properties }` without manufacturing wire
+ * fields nothing reads.
+ */
+export interface PropertyOwner {
+  readonly title: string;
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+/**
  * Reads one property value off an item, as text.
  *
  * Every view needs this and none of them should each decide what a number or a list looks like.
@@ -194,7 +232,7 @@ export type { Item };
  * between "no value" and "the empty string" is not one a table cell can draw, and pretending
  * otherwise would put "null" in front of people.
  */
-export function readPropertyText(item: Item, key: string): string {
+export function readPropertyText(item: PropertyOwner, key: string): string {
   const value = item.properties[key];
 
   if (value === null || value === undefined) {
@@ -213,7 +251,7 @@ export function readPropertyText(item: Item, key: string): string {
 }
 
 /** Reads a property as a single select value, or null when it is not one. */
-export function readSelectValue(item: Item, key: string): string | null {
+export function readSelectValue(item: PropertyOwner, key: string): string | null {
   const value = item.properties[key];
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
@@ -225,7 +263,7 @@ export function readSelectValue(item: Item, key: string): string | null {
  * "the 3rd" must not shift to the 2nd for a reader in another zone, which is exactly what an
  * instant would do. So this compares text and never constructs a Date for placement.
  */
-export function readDateValue(item: Item, key: string): string | null {
+export function readDateValue(item: PropertyOwner, key: string): string | null {
   const value = item.properties[key];
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
@@ -280,6 +318,17 @@ function compareSeq(left: Item['seq'], right: Item['seq']): number {
 }
 
 /**
+ * One collator, hoisted, rather than an options object passed to `localeCompare` per comparison.
+ *
+ * Passing options to `localeCompare` resolves a collator on every call - roughly n log n of them
+ * per sort. Measured at 3,000 items sorted by a text property: 61.65ms per sort the old way,
+ * 2.65ms with the collator hoisted, byte-identical ordering (perf review of goal 1.6, harness in
+ * its report). A sort runs on every write once a header is clicked, so this is a hot path, not a
+ * micro-optimisation.
+ */
+const textCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/**
  * Sorts items by a property, or by sibling order when no property is named.
  *
  * Sibling order is the default because it is the order somebody arranged by hand, and replacing
@@ -306,7 +355,7 @@ export function sortItems(
     if (a === '' && b !== '') return 1;
     if (b === '' && a !== '') return -1;
 
-    const comparison = a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    const comparison = textCollator.compare(a, b);
     return descending ? -comparison : comparison;
   });
 

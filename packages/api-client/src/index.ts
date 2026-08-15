@@ -72,6 +72,7 @@ export {
   itemLifecycleStateSchema,
   itemSequenceSchema,
   KNOWN_ITEM_TYPES,
+  itemQueryResultsSchema,
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
@@ -84,6 +85,8 @@ export {
 export type {
   CursorPage,
   CalendarEntry,
+  ItemQueryResults,
+  QueryResultRow,
   KeptItem,
   CalendarEntryKind,
   GraphLink,
@@ -126,5 +129,6 @@ export type {
  */
 export * as items from './resources/items.js';
 export * as canvasLibrary from './resources/canvas-library.js';
+export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';

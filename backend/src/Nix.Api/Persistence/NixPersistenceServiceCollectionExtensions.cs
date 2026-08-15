@@ -15,6 +15,7 @@ using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Me;
 using Nix.Features.Properties;
+using Nix.Features.Query;
 using Nix.Features.Search;
 using Nix.Features.Views;
 using Nix.Messaging;
@@ -27,6 +28,7 @@ using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
 using Nix.Persistence.Properties;
+using Nix.Persistence.Query;
 using Nix.Persistence.Rls;
 using Nix.Persistence.Search;
 using Nix.Persistence.Sql;
@@ -150,6 +152,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICanvasLibraryStore, CanvasLibraryStore>();
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
         services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
+        services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
@@ -200,6 +203,7 @@ public static class NixPersistenceServiceCollectionExtensions
 
         services.AddScoped<IQueryHandler<GetWorkspaceGraph, Result<WorkspaceGraphResults>>, GetWorkspaceGraphHandler>();
         services.AddScoped<IQueryHandler<GetWorkspaceCalendar, Result<WorkspaceCalendarResults>>, GetWorkspaceCalendarHandler>();
+        services.AddScoped<IQueryHandler<RunItemQuery, Result<ItemQueryResults>>, RunItemQueryHandler>();
         services.AddScoped<IQueryHandler<GetShelf, Result<ShelfResults>>, GetShelfHandler>();
         services.AddScoped<ICommandHandler<KeepItem, bool>, KeepItemHandler>();
         services.AddScoped<ICommandHandler<ReleaseItem, bool>, ReleaseItemHandler>();

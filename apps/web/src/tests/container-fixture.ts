@@ -15,14 +15,17 @@ import type { ContainerData } from '../views/core/use-container';
  */
 export function aContainer(overrides: Partial<ContainerData> = {}): ContainerData {
   return {
+    itemId: 'container-1',
     status: 'ready',
     error: null,
     schema: null,
     views: null,
     children: [],
     writeError: null,
+    truncated: false,
     create: () => Promise.resolve(null),
     setProperties: () => Promise.resolve(null),
+    setPropertiesMany: () => Promise.resolve({ saved: 0, refused: [] }),
     setSchema: () => Promise.resolve(null),
     setViews: () => Promise.resolve(null),
     setDefaultView: () => Promise.resolve(null),

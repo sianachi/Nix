@@ -43,6 +43,12 @@ export {
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
+export {
+  itemQueryResultsSchema,
+  queryResultSchema,
+  type ItemQueryResults,
+  type QueryResultRow,
+} from './item-query.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

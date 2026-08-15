@@ -20,7 +20,7 @@ import {
   readDateValue,
   readPropertyText,
   readSelectValue,
-  type Item,
+  type PropertyOwner,
   type PropertyDefinition,
   type PropertyValue,
 } from '../views/core/container-model';
@@ -54,7 +54,7 @@ import {
 export type PropertyInputDensity = 'panel' | 'cell';
 
 export interface PropertyInputProps {
-  readonly item: Item;
+  readonly item: PropertyOwner;
   readonly property: PropertyDefinition;
 
   /**
@@ -183,7 +183,7 @@ interface ControlProps {
  */
 function controlName(
   density: PropertyInputDensity,
-  item: Item,
+  item: PropertyOwner,
   property: PropertyDefinition,
 ): string {
   return density === 'cell' ? `${property.label} for ${item.title || 'Untitled'}` : property.label;

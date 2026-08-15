@@ -93,6 +93,10 @@ public static class ViewDefinitionsJson
     private const string ModeKey = "mode";
     private const string SortByKey = "sortBy";
     private const string SortDescendingKey = "sortDescending";
+    private const string FiltersKey = "filters";
+    private const string FilterPropertyKey = "property";
+    private const string FilterOperatorKey = "operator";
+    private const string FilterValueKey = "value";
 
     /// <summary>
     /// Reads a stored view set.
@@ -213,6 +217,24 @@ public static class ViewDefinitionsJson
                 entry[SortByKey] = view.SortBy;
             }
 
+            // The same null-guard shape as every other per-kind field: a view with no filters
+            // stores no key at all, so a later reader never has to tell absent from empty.
+            if (!view.Filters.IsDefaultOrEmpty)
+            {
+                var filters = new JsonArray();
+                foreach (var rule in view.Filters)
+                {
+                    filters.Add(new JsonObject
+                    {
+                        [FilterPropertyKey] = rule.Property,
+                        [FilterOperatorKey] = rule.Operator,
+                        [FilterValueKey] = rule.Value,
+                    });
+                }
+
+                entry[FiltersKey] = filters;
+            }
+
             stored.Add(entry);
         }
 
@@ -282,7 +304,46 @@ public static class ViewDefinitionsJson
             ReadString(view[ModeKey]),
             ReadString(view[CoverPropertyKey]),
             ReadString(view[EndDatePropertyKey]),
-            ReadCardSize(view[CardSizeKey]));
+            ReadCardSize(view[CardSizeKey]),
+            ReadFilters(view[FiltersKey]));
+    }
+
+    /// <summary>
+    /// Reads stored filter rules, dropping a malformed entry without costing the view.
+    /// </summary>
+    /// <remarks>
+    /// The reader's usual contract - a malformed field is a malformed field, not a dropped
+    /// switcher entry - with one sharper guarantee downstream: a dropped rule can only ever
+    /// <em>widen</em> a query, so the execution endpoint re-validates the surviving set against
+    /// <see cref="QueryOperators"/> and refuses to run one that no longer passes. Fail-soft here,
+    /// fail-closed where the rows are.
+    /// </remarks>
+    private static ImmutableArray<FilterRule> ReadFilters(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        var rules = ImmutableArray.CreateBuilder<FilterRule>(array.Count);
+        foreach (var entry in array)
+        {
+            if (entry is not JsonObject rule)
+            {
+                continue;
+            }
+
+            var property = ReadString(rule[FilterPropertyKey]);
+            var @operator = ReadString(rule[FilterOperatorKey]);
+            var value = ReadString(rule[FilterValueKey]);
+
+            if (property is { Length: > 0 } && @operator is { Length: > 0 } && value is not null)
+            {
+                rules.Add(new FilterRule(property, @operator, value));
+            }
+        }
+
+        return rules.ToImmutable();
     }
 
     /// <summary>

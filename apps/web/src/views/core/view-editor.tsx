@@ -2,6 +2,7 @@ import { Button, Field, Icon, Input, Segmented, Select, Text, fieldLabel } from 
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 
+import { FilterRulesEditor } from '../query/filter-rules-editor';
 import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
@@ -391,6 +392,20 @@ export function ViewEditor({
                 }}
               />
             ))}
+
+            {/* The filter rules, for the kinds whose registry entry grants them. Not a property
+                slot and not a closed token, which is why it is a capability rather than a third
+                generic block: the rules span containers, so the editor's own schema is only a
+                suggestion inside it. */}
+            {findViewKind(view.kind)?.editsFilters === true ? (
+              <FilterRulesEditor
+                rules={view.filters}
+                schema={schema}
+                onChange={(filters) => {
+                  update(index, { filters: [...filters] });
+                }}
+              />
+            ) : null}
           </div>
         ))}
 
@@ -416,6 +431,7 @@ export function ViewEditor({
                 coverProperty: null,
                 endDateProperty: null,
                 cardSize: null,
+                filters: [],
               },
             ]);
           }}

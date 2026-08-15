@@ -481,4 +481,72 @@ public sealed class ViewDefinitionsJsonTests
 
         Assert.False(written.ContainsKey("default"));
     }
+
+    [Fact]
+    public void A_query_view_stores_its_filters_and_reads_them_back()
+    {
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition(
+                "overdue",
+                "Overdue",
+                ViewKind.Query,
+                [],
+                null,
+                [],
+                null,
+                null,
+                false,
+                Filters:
+                [
+                    new FilterRule("due", "before", "today"),
+                    new FilterRule("done", "not-equals", "true"),
+                ]),
+        ];
+
+        var read = ReadViews(ViewDefinitionsJson.Write(views));
+
+        var view = Assert.Single(read);
+        Assert.Equal(2, view.Filters.Length);
+        Assert.Equal(new FilterRule("due", "before", "today"), view.Filters[0]);
+        Assert.Equal(new FilterRule("done", "not-equals", "true"), view.Filters[1]);
+    }
+
+    [Fact]
+    public void A_view_with_no_filters_stores_no_filters_key_at_all()
+    {
+        // The same null-guard shape as every other per-kind field: absent, never an explicit
+        // empty, so a later reader never has to tell the two apart.
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition("all", "All", ViewKind.Query, [], null, [], null, null, false),
+        ];
+
+        var written = Assert.IsType<JsonObject>(JsonNode.Parse(ViewDefinitionsJson.Write(views)!));
+        var entry = Assert.IsType<JsonObject>(written["views"]![0]);
+
+        Assert.False(entry.ContainsKey("filters"));
+        Assert.True(ReadViews(written.ToJsonString())[0].Filters.IsEmpty);
+    }
+
+    [Fact]
+    public void A_malformed_filter_entry_is_dropped_without_costing_the_view()
+    {
+        // Fail-soft here, fail-closed at execution: a dropped rule can only widen a query, so the
+        // endpoint re-validates the surviving set and refuses to run one that no longer passes.
+        // This asserts the reader's half of that pair.
+        var read = ReadViews(
+            """
+            {"views":[{"id":"v1","name":"Q","kind":"query","filters":[
+                {"property":"due","operator":"before","value":"today"},
+                {"property":"","operator":"equals","value":"x"},
+                "not an object",
+                {"property":"status"}
+            ]}]}
+            """);
+
+        var view = Assert.Single(read);
+        var rule = Assert.Single(view.Filters);
+        Assert.Equal(new FilterRule("due", "before", "today"), rule);
+    }
 }

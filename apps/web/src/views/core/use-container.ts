@@ -33,6 +33,13 @@ export interface SchemaDraft {
 export type ContainerStatus = 'loading' | 'ready' | 'error';
 
 export interface ContainerData {
+  /**
+   * The item whose container this is - what the hook was asked to load - or null at a workspace
+   * root. Carried so a view whose data is not the children (the query view runs its own item's
+   * stored filters) can name the item without reaching into the URL.
+   */
+  readonly itemId: string | null;
+
   readonly status: ContainerStatus;
   readonly error: string | null;
   readonly schema: EffectiveSchema | null;
@@ -67,6 +74,21 @@ export interface ContainerData {
     itemId: string,
     properties: Record<string, unknown>,
   ) => Promise<string | null>;
+
+  /**
+   * Writes property values onto many children as one gesture, and answers for the whole gesture.
+   *
+   * The spreadsheet view's paste, fill and clear land here: one optimistic pass over the children
+   * rather than one per row, requests issued with bounded concurrency rather than all at once, and
+   * one reconciling pass at the end that keeps the rows the server took and puts back only the
+   * rows it refused. The per-row `setProperties` above cannot do any of that - N calls in one tick
+   * share one closure snapshot, so the first refusal used to revert every row in the gesture,
+   * including the ones the server had already stored.
+   *
+   * Refuses a plan larger than {@link MAXIMUM_PLAN_WRITES} outright, with a sentence naming the
+   * ceiling: a bigger gesture is a bulk operation the server should own, not a request storm.
+   */
+  readonly setPropertiesMany: (writes: readonly PlanWrite[]) => Promise<PlanOutcome>;
 
   /**
    * Replaces the schema this container declares.
@@ -105,8 +127,67 @@ export interface ContainerData {
    */
   readonly writeError: string | null;
 
+  /**
+   * Whether the children shown are only the first pages of a larger container.
+   *
+   * `load` pages through the children endpoint until it is exhausted or {@link MAXIMUM_CHILDREN}
+   * is reached; past that, this is true and a view must say the list is partial. A count asserted
+   * over a truncated list - a grid's `aria-rowcount`, a filtered-empty state's total - is a claim
+   * about items that were never loaded.
+   */
+  readonly truncated: boolean;
+
   readonly reload: () => Promise<void>;
 }
+
+/** One row's worth of a bulk write: the item, and the property changes going to it together. */
+export interface PlanWrite {
+  readonly itemId: string;
+
+  /** How the row is named in the outcome's sentences - its title, since an id names nothing. */
+  readonly label: string;
+
+  readonly properties: Record<string, unknown>;
+}
+
+/** One refused or failed row of a bulk write, named so a sentence can say which row. */
+export interface PlanRefusal {
+  readonly label: string;
+  readonly reason: string;
+}
+
+/** What a bulk write did, for the one notice a view renders about it. */
+export interface PlanOutcome {
+  /** Rows the server stored. */
+  readonly saved: number;
+
+  /** Rows the server refused or that could not be sent, each put back as it was. */
+  readonly refused: readonly PlanRefusal[];
+}
+
+/**
+ * The most rows one gesture may write.
+ *
+ * A ceiling rather than a queue: past this, the honest answer is that the gesture is a bulk
+ * operation the server should own end to end, and letting it run as a request storm would hold a
+ * connection pool for minutes with no way to cancel.
+ */
+export const MAXIMUM_PLAN_WRITES = 1000;
+
+/** How many requests of one plan are in flight at once. */
+const PLAN_CONCURRENCY = 6;
+
+/**
+ * The most children `load` pages in before reporting the container truncated.
+ *
+ * Twenty pages at the server's 200-per-page ceiling. Views window their rendering, so the cost of
+ * a large container is memory and parse time rather than DOM - but it is not free, and a container
+ * past this size needs server-side querying rather than a bigger client buffer.
+ */
+export const MAXIMUM_CHILDREN = 4000;
+
+/** The server's own page ceiling (`CursorPaging.MaximumPageSize`), asked for explicitly. */
+const PAGE_SIZE = 200;
 
 function readWorkspaceId(): string {
   const configured: unknown = import.meta.env.VITE_WORKSPACE_ID;
@@ -137,6 +218,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const [schema, storeSchema] = useState<EffectiveSchema | null>(null);
   const [views, storeViews] = useState<ContainerViews | null>(null);
   const [children, setChildren] = useState<readonly Item[]>([]);
+  const [truncated, setTruncated] = useState(false);
 
   const request = useCallback(
     async (path: string, init?: RequestInit): Promise<Response> => {
@@ -157,15 +239,16 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     setError(null);
 
     try {
-      const childrenPath =
+      const basePath =
         containerId === null
-          ? `/api/v1/workspaces/${WORKSPACE_ID}/items`
-          : `/api/v1/workspaces/${WORKSPACE_ID}/items?parentId=${containerId}`;
+          ? `/api/v1/workspaces/${WORKSPACE_ID}/items?limit=${String(PAGE_SIZE)}`
+          : `/api/v1/workspaces/${WORKSPACE_ID}/items?parentId=${containerId}&limit=${String(PAGE_SIZE)}`;
 
       // In parallel: three independent reads, and the screen needs all three before it can draw
-      // anything. Sequencing them would make opening an item three round trips deep.
+      // anything. Sequencing them would make opening an item three round trips deep. The children
+      // read is only the first page here; the rest are paged in below.
       const [childrenResponse, schemaResponse, viewsResponse] = await Promise.all([
-        request(childrenPath),
+        request(basePath),
         containerId === null
           ? Promise.resolve(null)
           : request(`/api/v1/items/${containerId}/schema`),
@@ -174,32 +257,58 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           : request(`/api/v1/items/${containerId}/views`),
       ]);
 
-      if (!childrenResponse.ok) {
-        const problem = (await childrenResponse.json().catch(() => null)) as {
-          detail?: string;
-        } | null;
-        setError(
-          problem?.detail ??
-            `This item\u2019s contents could not be loaded (${String(childrenResponse.status)}).`,
-        );
-        setStatus('error');
-        return;
+      // Paged until exhausted rather than one default page. The endpoint answers 50 items unless
+      // asked, and every view here draws "the children" - a grid publishing aria-rowcount, a
+      // filtered-empty state naming a total. A view asserting a count over one silent page of a
+      // larger container would be claiming to have seen items it never loaded. Past
+      // MAXIMUM_CHILDREN the list is reported truncated instead, and the views say so.
+      const loaded: Item[] = [];
+      let response = childrenResponse;
+      let partial = false;
+
+      for (;;) {
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as {
+            detail?: string;
+          } | null;
+          setError(
+            problem?.detail ??
+              `This item\u2019s contents could not be loaded (${String(response.status)}).`,
+          );
+          setStatus('error');
+          return;
+        }
+
+        const page = (await response.json()) as { items: unknown[]; nextCursor?: string | null };
+        const parsed = page.items.map((item) => ItemSchema.safeParse(item));
+
+        const bad = parsed.find((result) => !result.success);
+        if (bad !== undefined) {
+          // A parse failure is telemetry, not a silent fallback: it means the contract moved and
+          // this build did not.
+          console.warn('An item did not match the contract:', bad.error.message);
+          setError('This item\u2019s contents could not be read.');
+          setStatus('error');
+          return;
+        }
+
+        loaded.push(...parsed.flatMap((result) => (result.success ? [result.data] : [])));
+
+        const cursor = page.nextCursor ?? null;
+        if (cursor === null) {
+          break;
+        }
+
+        if (loaded.length >= MAXIMUM_CHILDREN) {
+          partial = true;
+          break;
+        }
+
+        response = await request(`${basePath}&cursor=${encodeURIComponent(cursor)}`);
       }
 
-      const page = (await childrenResponse.json()) as { items: unknown[] };
-      const parsed = page.items.map((item) => ItemSchema.safeParse(item));
-
-      const bad = parsed.find((result) => !result.success);
-      if (bad !== undefined) {
-        // A parse failure is telemetry, not a silent fallback: it means the contract moved and
-        // this build did not.
-        console.warn('An item did not match the contract:', bad.error.message);
-        setError('This item\u2019s contents could not be read.');
-        setStatus('error');
-        return;
-      }
-
-      setChildren(parsed.flatMap((result) => (result.success ? [result.data] : [])));
+      setChildren(loaded);
+      setTruncated(partial);
 
       // The schema and the views are optional context. A workspace root has neither, and an item
       // whose schema request failed can still show its children - so these degrade rather than
@@ -227,7 +336,11 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       // Optimistic: the card moves under the pointer and the request follows. A drag that waited
       // for a round trip before moving would feel broken, and the reconcile below puts it back if
       // the server disagrees.
-      const previous = children;
+      //
+      // The one item is captured, not the whole array: concurrent writes fired in one tick share
+      // this closure, and reverting the array a write happened to see would wipe the optimistic
+      // values of every other write in flight - including rows the server had already stored.
+      const before = children.find((item) => item.id === itemId);
       setChildren((current) =>
         current.map((item) =>
           item.id === itemId
@@ -236,18 +349,35 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         ),
       );
 
-      const response = await request(`/api/v1/items/${itemId}/properties`, {
-        method: 'PATCH',
-        body: JSON.stringify({ properties }),
-      });
+      const putBack = (): void => {
+        // Put it back exactly where it was and say why. Leaving the card in its new column after
+        // the server refused would be a lie that survives until the next reload.
+        if (before !== undefined) {
+          setChildren((current) => current.map((item) => (item.id === itemId ? before : item)));
+        }
+      };
+
+      let response: Response;
+      try {
+        response = await request(`/api/v1/items/${itemId}/properties`, {
+          method: 'PATCH',
+          body: JSON.stringify({ properties }),
+        });
+      } catch {
+        // The request never reached the server - offline, DNS, a dropped connection. Without this
+        // the promise rejected, nothing rolled back, and the cell kept showing a value the server
+        // never took, with no sentence anywhere saying so.
+        putBack();
+        const failure = 'That change could not be sent. Check the connection and try again.';
+        setWriteError(failure);
+        return failure;
+      }
 
       if (!response.ok) {
         const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
         const refusal = problem?.detail ?? 'That change could not be saved.';
 
-        // Put it back exactly where it was and say why. Leaving the card in its new column after
-        // the server refused would be a lie that survives until the next reload.
-        setChildren(previous);
+        putBack();
 
         // Said twice, to two different kinds of caller - see the two channels on `setProperties`.
         // Setting both is safe because no view reads both: the one that awaits the answer renders
@@ -262,6 +392,123 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       }
 
       return null;
+    },
+    [children, request],
+  );
+
+  const setPropertiesMany = useCallback(
+    async (writes: readonly PlanWrite[]): Promise<PlanOutcome> => {
+      if (writes.length === 0) {
+        return { saved: 0, refused: [] };
+      }
+
+      if (writes.length > MAXIMUM_PLAN_WRITES) {
+        return {
+          saved: 0,
+          refused: [
+            {
+              label: 'The whole gesture',
+              reason: `this would change ${String(writes.length)} rows at once, and the most one gesture takes is ${String(MAXIMUM_PLAN_WRITES)}.`,
+            },
+          ],
+        };
+      }
+
+      // One optimistic pass for the whole plan, not one per row: N chained map passes are N
+      // renders and N walks, and the plan is one gesture that should paint once.
+      const beforeById = new Map(children.map((item) => [item.id, item]));
+      const bags = new Map(writes.map((write) => [write.itemId, write.properties]));
+      setChildren((current) =>
+        current.map((item) => {
+          const bag = bags.get(item.id);
+          return bag === undefined ? item : { ...item, properties: { ...item.properties, ...bag } };
+        }),
+      );
+
+      // Bounded concurrency rather than a request storm: a 1,000-row paste at full parallelism is
+      // 1,000 sockets fighting the browser's own per-host cap, and there is no cancelling it.
+      const results = new Array<{ write: PlanWrite; refusal: string | null; stored: Item | null }>(
+        writes.length,
+      );
+      let next = 0;
+
+      async function worker(): Promise<void> {
+        for (;;) {
+          const index = next;
+          next += 1;
+          const write = writes[index];
+          if (write === undefined) {
+            return;
+          }
+
+          try {
+            const response = await request(`/api/v1/items/${write.itemId}/properties`, {
+              method: 'PATCH',
+              body: JSON.stringify({ properties: write.properties }),
+            });
+
+            if (!response.ok) {
+              const problem = (await response.json().catch(() => null)) as {
+                detail?: string;
+              } | null;
+              results[index] = {
+                write,
+                refusal: problem?.detail ?? 'That change could not be saved.',
+                stored: null,
+              };
+              continue;
+            }
+
+            const updated = ItemSchema.safeParse(await response.json());
+            results[index] = {
+              write,
+              refusal: null,
+              stored: updated.success ? updated.data : null,
+            };
+          } catch {
+            results[index] = {
+              write,
+              refusal: 'that change could not be sent. Check the connection and try again.',
+              stored: null,
+            };
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(PLAN_CONCURRENCY, writes.length) }, () => worker()),
+      );
+
+      // One reconciling pass: rows the server stored take its answer, rows it refused go back
+      // exactly as they were, rows it never mentioned keep their optimistic value. This is what
+      // the per-row path cannot do - its rollback knows one row and one snapshot.
+      const storedById = new Map<string, Item>();
+      const revertIds = new Set<string>();
+      const refused: PlanRefusal[] = [];
+
+      for (const result of results) {
+        if (result.refusal !== null) {
+          refused.push({ label: result.write.label, reason: result.refusal });
+          revertIds.add(result.write.itemId);
+        } else if (result.stored !== null) {
+          storedById.set(result.stored.id, result.stored);
+        }
+      }
+
+      setChildren((current) =>
+        current.map((item) => {
+          const stored = storedById.get(item.id);
+          if (stored !== undefined) {
+            return stored;
+          }
+          if (revertIds.has(item.id)) {
+            return beforeById.get(item.id) ?? item;
+          }
+          return item;
+        }),
+      );
+
+      return { saved: writes.length - refused.length, refused };
     },
     [children, request],
   );
@@ -374,6 +621,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   );
 
   return {
+    itemId: containerId,
     status,
     error,
     create,
@@ -381,10 +629,12 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     views,
     children,
     setProperties,
+    setPropertiesMany,
     setSchema,
     setDefaultView,
     setViews,
     writeError,
+    truncated,
     reload: load,
   };
 }

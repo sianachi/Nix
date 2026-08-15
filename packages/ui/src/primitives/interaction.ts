@@ -113,3 +113,15 @@ export const accentFillStates =
  * Hover stays at the lighter `inkWashStates` tint in the component, so the two read apart.
  */
 export const listboxActiveOption = 'bg-accent/15 shadow-[inset_2px_0_0_0_var(--color-accent)]'; // design-token-exempt: an inset rule is a shadow geometry, not a scale step; the colour it draws is the accent token.
+
+/**
+ * A cell inside a grid's range selection.
+ *
+ * The same argument as {@link listboxActiveOption}, in a grid: the range is what Delete, fill and
+ * copy will act on, so its extent is a state indicator owing WCAG 1.4.11's 3:1 - which the 10%
+ * wash it used to be carried alone did not approach. The accent perimeter on each cell carries the
+ * contrast (adjacent cells' outlines merge into one border around the block); the wash keeps the
+ * block reading as one surface. Shared by the spreadsheet body grid and the spreadsheet view so
+ * the two cannot drift apart.
+ */
+export const gridRangeCell = 'bg-accent/10 outline-1 -outline-offset-1 outline-accent';

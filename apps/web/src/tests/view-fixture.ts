@@ -31,6 +31,7 @@ export function aView(overrides: Partial<View> = {}): View {
     coverProperty: null,
     endDateProperty: null,
     cardSize: null,
+    filters: [],
     ...overrides,
   };
 }

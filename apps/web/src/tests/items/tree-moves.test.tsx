@@ -83,6 +83,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -109,6 +110,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -134,6 +136,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -161,6 +164,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -184,6 +188,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -207,6 +212,7 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
+        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 

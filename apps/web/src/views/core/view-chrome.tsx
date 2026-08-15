@@ -108,36 +108,48 @@ export interface ViewChromeArgs<TValue> {
   readonly descending: boolean;
 }
 
-export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<TValue> {
-  const { container, viewState, subject } = args;
-
+/**
+ * The two states every view answers before its subject even exists: still loading, and could not
+ * be read.
+ *
+ * Split out of {@link resolveViewChrome} for the one view whose subject is not the children - the
+ * form draws no items, so the chrome's empty and filtered branches are statements about data it
+ * does not show, but a container that has not loaded or could not be read is still a fact it must
+ * not paper over. One copy, so a change to how a failed read reports cannot silently miss a view.
+ */
+export function resolveLoadState(container: ContainerData, subject: string): ReactNode | null {
   if (container.status === 'loading') {
-    return {
-      kind: 'chrome',
-      node: <LoadingPanel label={subject} />,
-    };
+    return <LoadingPanel label={subject} />;
   }
 
   if (container.status === 'error') {
-    return {
-      kind: 'chrome',
-      node: (
-        <ErrorPanel
-          title={`${capitalise(subject)} could not be loaded`}
-          detail={container.error ?? `The contents of ${subject} could not be read.`}
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void container.reload();
-              }}
-            >
-              Try again
-            </Button>
-          }
-        />
-      ),
-    };
+    return (
+      <ErrorPanel
+        title={`${capitalise(subject)} could not be loaded`}
+        detail={container.error ?? `The contents of ${subject} could not be read.`}
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void container.reload();
+            }}
+          >
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+
+  return null;
+}
+
+export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<TValue> {
+  const { container, viewState } = args;
+
+  const loadState = resolveLoadState(container, args.subject);
+  if (loadState !== null) {
+    return { kind: 'chrome', node: loadState };
   }
 
   // Before anything about items: can this be drawn at all? Checked after the two states above, so a
@@ -191,11 +203,22 @@ export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChr
 
   const hidden = container.children.length - visible.length;
 
+  // Truncation is said alongside the filter notice, not instead of it: they are two different
+  // partialities. A container past the paging ceiling shows its first pages, and every count a
+  // view derives from `children` - a row count, a filtered total - is a claim about only those,
+  // which this sentence is what keeps honest.
+  const partiality = [
+    container.truncated
+      ? `Only the first ${String(container.children.length)} items in here are loaded.`
+      : null,
+    hidden === 0 ? null : hiddenNotice(hidden),
+  ].filter((sentence): sentence is string => sentence !== null);
+
   return {
     kind: 'items',
     items: sortItems(visible, args.sortBy, args.descending),
     drawable: args.drawable.value,
-    notice: hidden === 0 ? null : <PartialNotice pending={hiddenNotice(hidden)} />,
+    notice: partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />,
   };
 }
 

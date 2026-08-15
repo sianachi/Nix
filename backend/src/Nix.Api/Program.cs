@@ -14,6 +14,7 @@ using Nix.Features.Items;
 using Nix.Features.Me;
 using Nix.Features.Permissions;
 using Nix.Features.Properties;
+using Nix.Features.Query;
 using Nix.Features.Roles;
 using Nix.Features.Search;
 using Nix.Features.Workspaces;
@@ -55,6 +56,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(CanvasJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(GraphJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(QueryJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
 });
 
@@ -313,6 +315,7 @@ app.MapSearchEndpoints();
 app.MapCanvasEndpoints();
 app.MapGraphEndpoints();
 app.MapCalendarEndpoints();
+app.MapQueryEndpoints();
 app.MapBookmarkEndpoints();
 
 app.Run();

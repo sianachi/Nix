@@ -22,25 +22,44 @@ giving you the full flexibility of Obsidian.
 - **Database-backed permissions.** Roles and authorization live in Postgres with row-level
   security, never in tokens, with a single authorization code path evaluated during query
   time.
-- **Responsive and mobile web** (planned)
-- **Task semantics, recurrence, reminders and smart lists** (planned)
-- **Assignment and workload views** (planned)
-- **User-configurable templates** (planned)
-- **Forms view for collecting new items** (planned)
-- **Wiki-style links, backlinks and full-text search** (planned)
-- **Command palette** (planned)
-- **Pen input on canvas: pressure, tilt, palm rejection** (planned)
-- **Team sharing with full ACL and audit trail** (planned)
-- **Public sharing: share links, published sites, custom domains** (planned)
-- **Version history: named versions, compare, restore** (planned)
-- **Live cursors and presence at 100+ concurrent editors on one document** (planned)
-- **File uploads with scanning, thumbnails and PDF viewing** (planned)
-- **Export/import: Markdown, `.nix` archive, PDF, DOCX** (planned)
-- **Formula and rollup properties, an advanced spreadsheet view with dependency graphs** (planned)
-- **Charts view** (planned)
-- **Calendar integrations: Google, Outlook, CalDAV, ICS subscription** (planned)
-- **Obsidian sync plugin** (planned)
-- **Native mobile apps and a plugin ecosystem** (planned)
+- **Write, organise and link.** A rich editor over an append-only CRDT log, an item tree with
+  drag-to-reparent and cycle checking, `[[` and `@` references with four resolution states, a
+  backlinks panel and full-text search.
+- **Three kinds of body, five ways to look at children.** A note, a canvas and a spreadsheet behind
+  one dispatch seam; list, board, gallery, calendar and timeline over an item's children, with
+  property schemas that cascade from ancestors and are validated on write.
+- **A calendar across the workspace**, two panes side by side, and a phone layout below the `sm`
+  breakpoint.
+- **Leave with your work.** Export a document or a subtree as a lossless `.nix` archive, a PDF or a
+  DOCX.
+
+Planned, in priority order — the sequence is the plan:
+
+1. **Templates and the spreadsheet view** — user-authored templates, a template library, templates as
+   files, and children as rows and columns
+2. **Computed properties** — formulas over an item's own properties, rollups across its children,
+   and charts
+3. **Running your week** — task semantics, recurrence, reminders that fire with the tab closed,
+   smart lists, assignment
+4. **Version history** — named versions, compare, restore
+5. **Trust** — everything it already does, done provably; the asserted list becomes a proved one
+6. **Operability** — backup, a restore drill that is actually run, observability
+7. **Import** — `.nix`, Markdown, DOCX and PDF, each honest about what it could not carry
+8. **Workspaces and who is in them** — create and switch between workspaces, member and admin roles,
+   invitations, revocation that reaches a live session
+9. **Reach it without a browser** — a CLI, and an MCP server so tools can drive it
+
+**Every phase ends with a stress test**, and the phase is not finished until it has been run and the
+number written down. The first one is a container with 3,000+ children opened in every view it
+offers.
+
+Deliberately **not** planned, so nobody waits for them: an extension or plugin platform of any kind;
+calendar sync, OAuth and ICS feeds, or anything else that reaches another service; file uploads and
+attachments; public sharing and share links; native mobile clients; full ACL precedence with an audit
+pipeline; pen input on canvas; and an Obsidian sync. The CLI and MCP server are **not** an extension
+platform — they are clients of the API holding no more than the person they act for, which is why
+they are planned and a plugin runtime is not. Nix is a self-hosted workspace for a trusted team of
+about ten, and `docs/nix-mvps.md` holds the reasoning and, for each exclusion, what it costs.
 
 ## Stack
 

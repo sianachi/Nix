@@ -27,6 +27,7 @@ export {
   dragHandleLineStates,
   focusRing,
   focusRingInset,
+  gridRangeCell,
   inkWashStates,
   listboxActiveOption,
 } from './interaction';

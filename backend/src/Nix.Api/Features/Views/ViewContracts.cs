@@ -45,6 +45,11 @@ namespace Nix.Features.Views;
 /// means <c>medium</c>, which is what every gallery stored before this field existed has always
 /// looked like. Anything else is refused on write; the set is closed.
 /// </param>
+/// <param name="Filters">
+/// Query views: the conditions the server compiles and runs, AND-combined. Empty means no
+/// conditions - for a query view, everything the reader can see, newest first. Stored and ignored
+/// on every other kind.
+/// </param>
 /// <remarks>
 /// <b>There is no placement or layout field, and there will not be one.</b> Where a card sits is
 /// its property value and its sibling order - never a coordinate stored against a view. That is
@@ -64,7 +69,26 @@ internal sealed record ViewResponse(
     string? Mode,
     string? CoverProperty,
     string? EndDateProperty,
-    string? CardSize);
+    string? CardSize,
+    IReadOnlyList<FilterRuleContract> Filters);
+
+/// <summary>One condition of a query view.</summary>
+/// <param name="Property">The property key the condition tests, matched across containers.</param>
+/// <param name="Operator">
+/// One of: <c>equals</c>, <c>not-equals</c>, <c>on</c>, <c>before</c>, <c>on-or-after</c>,
+/// <c>within-next</c>. A closed set, refused outside it.
+/// </param>
+/// <param name="Value">
+/// What the operator compares against: a literal for the equality pair; <c>today</c> or a
+/// <c>yyyy-MM-dd</c> date for <c>on</c>/<c>before</c>/<c>on-or-after</c>; a day count from 1 to
+/// 365 for <c>within-next</c>. <c>today</c> is resolved at read time from the caller's own
+/// <c>today</c> parameter, so a saved query stays a rule rather than a date.
+/// </param>
+/// <remarks>
+/// Rules combine with AND. Whether the property exists is deliberately not checked - the query
+/// spans containers, and a rule naming a property nothing declares simply matches nothing.
+/// </remarks>
+internal sealed record FilterRuleContract(string Property, string Operator, string Value);
 
 /// <summary>
 /// The views a container offers.
@@ -127,6 +151,10 @@ internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views, string?
 /// Gallery views: <c>small</c>, <c>medium</c> or <c>large</c>, or null for <c>medium</c>. A value
 /// outside the set is refused.
 /// </param>
+/// <param name="Filters">
+/// Query views: the conditions to store, AND-combined; each is checked against the closed
+/// operator grammar. Null and empty both mean no conditions.
+/// </param>
 internal sealed record ViewRequest(
     string Id,
     string Name,
@@ -140,4 +168,5 @@ internal sealed record ViewRequest(
     string? Mode,
     string? CoverProperty,
     string? EndDateProperty,
-    string? CardSize);
+    string? CardSize,
+    IReadOnlyList<FilterRuleContract>? Filters);

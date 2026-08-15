@@ -68,17 +68,20 @@ public static class AuthorizationSql
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>UNION</c> rather than <c>UNION ALL</c>: unlike
-    /// <see cref="WorkspaceRolesForPrincipal"/>, which wants every grant so the caller can pick the
-    /// strongest, this wants each workspace once. A principal granted the same workspace by name
-    /// and through a group would otherwise be told to search it twice, and the duplicate would
-    /// travel all the way into the search statement's parameter array.
+    /// <c>UNION</c> rather than <c>UNION ALL</c>, and the resolver deduplicates workspaces on top:
+    /// with the role projected, two different grants over one workspace are two rows here, and a
+    /// principal granted the same workspace by name and through a group must still search it once
+    /// rather than twice - the duplicate would otherwise travel all the way into the search
+    /// statement's parameter array.
     /// </para>
     /// <para>
-    /// Holding <i>any</i> role is the right test while a role is the whole answer: every workspace
-    /// role can read, and which of them can also write is
-    /// <c>Nix.Domain.Authorization.WorkspaceRoles</c>'s question, not this one's. A reader-only
-    /// role that could not read would be a contradiction rather than a policy.
+    /// Holding <i>any interpretable</i> role is the test: every workspace role this build defines
+    /// can read, and which of them can also write is
+    /// <c>Nix.Domain.Authorization.WorkspaceRoles</c>'s question, not this one's. The role text
+    /// is projected so the resolver can apply the same rule the point check applies - a grant
+    /// whose role this build cannot parse grants nothing - because this list feeds the permission
+    /// predicate of every bulk read, and a list wider than the point check would let a filter
+    /// disclose what the gate refuses.
     /// </para>
     /// <para>
     /// Index dependencies: <c>IX_workspace_member_tenant_id_subject_type_subject_id</c> for both
@@ -86,7 +89,7 @@ public static class AuthorizationSql
     /// </para>
     /// </remarks>
     public const string WorkspacesReadableByPrincipal = """
-        SELECT member.workspace_id
+        SELECT member.workspace_id, member.role
         FROM workspace_member member
         WHERE member.tenant_id = @tenant_id
           AND member.subject_type = 'principal'
@@ -94,7 +97,7 @@ public static class AuthorizationSql
 
         UNION
 
-        SELECT member.workspace_id
+        SELECT member.workspace_id, member.role
         FROM workspace_member member
         JOIN group_membership membership
           ON membership.group_id = member.subject_id

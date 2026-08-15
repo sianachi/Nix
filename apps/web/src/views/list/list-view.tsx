@@ -2,6 +2,7 @@ import { Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui'
 import { type ReactNode } from 'react';
 
 import { isKnownPropertyType } from '../../properties/property-input';
+import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
 import {
   readPropertyText,
   type EffectiveSchema,
@@ -40,9 +41,6 @@ import { useViewState, type SortDirection } from '../core/view-state';
  * component reads the sort out of `useViewState` and writes a header click back to it; between
  * those two the state is the address bar's, and React re-renders because the address changed.
  */
-
-/** The title is a column like any other for sorting, and `sortItems` knows the key by name. */
-const TITLE_COLUMN_KEY = 'title';
 
 export interface ListViewProps {
   readonly container: ContainerData;
@@ -166,14 +164,7 @@ function buildColumns(
   onOpen: (itemId: string) => void,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
 ): readonly TableColumn<Item>[] {
-  const definitions = new Map(
-    (schema?.properties ?? []).map((definition) => [definition.key, definition]),
-  );
-
-  // The schema's declared order when the view names nothing - a Map keeps insertion order, so the
-  // columns come out in the order the schema lists them rather than an order of our invention.
-  const configured =
-    view !== null && view.columns.length > 0 ? view.columns : [...definitions.keys()];
+  const { keys, definitions } = resolveConfiguredColumns(view, schema);
 
   return [
     {
@@ -200,22 +191,20 @@ function buildColumns(
         </button>
       ),
     },
-    ...[...new Set(configured)]
-      .filter((key) => key !== TITLE_COLUMN_KEY)
-      .map((key): TableColumn<Item> => {
-        const definition = definitions.get(key);
+    ...keys.map((key): TableColumn<Item> => {
+      const definition = definitions.get(key);
 
-        return {
-          key,
-          header: definition?.label ?? key,
-          sortable: true,
-          cell: (item) => renderProperty(item, key, definition, write),
+      return {
+        key,
+        header: definition?.label ?? key,
+        sortable: true,
+        cell: (item) => renderProperty(item, key, definition, write),
 
-          // Numbers read right-aligned so their digits line up; everything else keeps the table's
-          // own default rather than restating it.
-          ...(definition?.type === 'number' ? { align: 'end' as const } : {}),
-        };
-      }),
+        // Numbers read right-aligned so their digits line up; everything else keeps the table's
+        // own default rather than restating it.
+        ...(definition?.type === 'number' ? { align: 'end' as const } : {}),
+      };
+    }),
   ];
 }
 

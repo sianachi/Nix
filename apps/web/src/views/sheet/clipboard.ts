@@ -7,6 +7,11 @@ import { type CellRange, cellKey } from '@nix/sheet';
  * pasted back in, so a round trip through the clipboard loses nothing. The
  * cost is that other applications receive `=SUM(A1:A3)` rather than its
  * value, which is also what the incumbents put on the plain-text clipboard.
+ *
+ * A stated limit: there is no escaping. A value containing a tab or a
+ * newline shifts the fields after it, and a paste from a source with quoted
+ * multi-line cells lands as extra rows. Accepted for now - the incumbents'
+ * plain-text lane has the same failure - but it is a limit, not an oversight.
  */
 
 export function rangeToTsv(cells: ReadonlyMap<string, string>, range: CellRange): string {

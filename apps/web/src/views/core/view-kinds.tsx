@@ -1,4 +1,13 @@
-import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt } from 'lucide-react';
+import {
+  ClipboardList,
+  Columns3,
+  LayoutGrid,
+  LayoutList,
+  CalendarDays,
+  ChartGantt,
+  ListFilter,
+  Table2,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -6,7 +15,10 @@ import { BoardView } from '../board/board-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
+import { FormView } from '../form/form-view';
 import { ListView } from '../list/list-view';
+import { QueryView } from '../query/query-view';
+import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
 import { TimelineView } from '../timeline/timeline-view';
 import type { ContainerData } from './use-container';
 
@@ -19,10 +31,17 @@ import type { ContainerData } from './use-container';
  * anything new and drew it as a list. A kind added to three of those four compiled and shipped
  * looking like a list.
  *
- * The backend has the matching table in `Nix.Core/Views/ViewDefinition.cs`. The two are deliberately
- * separate: the server decides what is *storable* (a board must name a property to group by) and
- * this decides what is *drawable*. They agree on the stored names and nothing else, which is why an
- * older build meeting a newer build's view says it cannot draw it rather than crashing.
+ * The backend has the matching table in `backend/src/Nix.Api/Domain/Views/ViewDefinition.cs`. The
+ * two are deliberately separate: the server decides what is *storable* (a board must name a
+ * property to group by) and this decides what is *drawable*. They agree on the stored names and
+ * nothing else, which is why an older build meeting a newer build's view says it cannot draw it
+ * rather than crashing.
+ *
+ * There is a third per-kind table the promise does not reach: `packages/view-render/src/render.ts`
+ * draws views inside exports, and a kind it has no renderer for falls back to a list with a note
+ * naming the kind - honest, so a kind added to the two tables here ships without touching it. But
+ * "adding a kind is one entry" is a per-table promise, not a repo-wide one; a kind that should
+ * export as itself is a third entry there.
  */
 
 /**
@@ -174,6 +193,16 @@ export interface ViewKindDescriptor {
    * true for this axis the same way `configures` keeps it true for properties.
    */
   readonly chooses: readonly ViewChoice[];
+
+  /**
+   * Whether the editor offers this kind the filter-rules block.
+   *
+   * A capability flag rather than a `kind === 'query'` check in the editor, so "adding a kind is
+   * one entry" survives the first kind whose configuration is neither a property slot nor a
+   * closed token. The block itself lives with the query feature; the registry only says who gets
+   * it.
+   */
+  readonly editsFilters?: true;
 }
 
 /**
@@ -317,6 +346,46 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
       },
     ],
     chooses: [],
+  },
+  {
+    // Stored as "sheet", labelled "Spreadsheet". The body kind `item.type === 'spreadsheet'`
+    // (sidebar label "Sheet") is the other axis; the stored words differ only so the wire values
+    // cannot collide - the vocabulary genuinely overlaps, so mind the axis when reading a grep
+    // hit. The icon is not the body's Grid3x3 for the same reason: one glyph must not mean two
+    // different things in one product. Like the list, this kind needs nothing configured: columns
+    // fall back to the effective schema, and titles exist with no schema at all.
+    kind: 'sheet',
+    label: 'Spreadsheet',
+    icon: Table2,
+    render: (props) => <SpreadsheetView {...props} />,
+    configures: [],
+    chooses: [],
+  },
+  {
+    // The intake shape: the schema as fields, each submission a new child. Requirement-free by
+    // the list's own fallback argument - with no columns configured the form offers the effective
+    // schema, and with no schema at all it still takes a title.
+    kind: 'form',
+    label: 'Form',
+    icon: ClipboardList,
+    render: (props) => <FormView {...props} />,
+    configures: [],
+    chooses: [],
+  },
+  {
+    // Stored as "query" (the contract word - Item.cs reserved the item type, and the goal text
+    // says "items whose view is a query"); "Smart list" is copy. Its data is not the container's
+    // children: the renderer runs the view's stored filters through the server and ignores
+    // `container.children` entirely. Requirement-free because the requirement mechanism reads a
+    // single string field and this kind's configuration is the filters array - policed by the
+    // server on write, edited through the block `editsFilters` grants.
+    kind: 'query',
+    label: 'Smart list',
+    icon: ListFilter,
+    render: (props) => <QueryView {...props} />,
+    configures: [],
+    chooses: [],
+    editsFilters: true,
   },
 ];
 
