@@ -10,7 +10,7 @@ import {
   isSheetError,
   rangeContains,
 } from '@nix/sheet';
-import { Text, cn, dragHandleLineStates, fieldLabel, focusRingInset } from '@nix/ui';
+import { Text, cn, dragHandleLineStates, fieldLabel, focusRingInset, gridRangeCell } from '@nix/ui';
 import {
   Fragment,
   useEffect,
@@ -29,6 +29,7 @@ import {
   beginColumnResize,
   moveColumnResize,
 } from './column-resize';
+import { gridKeyAction } from './grid-keys';
 import { INITIAL_SELECTION, type GridBounds, selectedRange, selectionReducer } from './selection';
 import { FormulaBar } from './formula-bar';
 import { fitCellText } from './overflow';
@@ -60,9 +61,10 @@ export interface SheetGridProps {
   readonly sheet: SheetData;
 }
 
-// Geometry the windowing arithmetic and the utility classes must agree on:
-// h-8 is 32px and w-12 is 48px on the default 4px spacing scale. Stated once
-// here; the classes below are the tokens' spelling of the same numbers.
+// The cell geometry is a fixed 32px of runtime arithmetic. The h-8/w-12
+// chrome strips beside it are on the token spacing scale (which is not 4px -
+// theme.css sets --spacing to 3.4px, so h-8 is 27.2px); the strips and the
+// cells never need to agree on a number, only each on its own.
 const ROW_HEIGHT = 32;
 const DEFAULT_COLUMN_WIDTH = SHEET_COLUMN_WIDTH.default;
 /** Blank rows and columns past the used extent, so there is room to type. */
@@ -77,6 +79,11 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [resize, setResize] = useState<ResizeDrag | null>(null);
+
+  // Whether Tab is a cell movement or an exit. Escape releases the trap and any grid keystroke
+  // restores it - blurring on Escape, which this replaced, sent focus to <body>, so the promised
+  // "Escape, then Tab" resumed from the top of the document instead of from after the grid.
+  const [trapsTab, setTrapsTab] = useState(true);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
   // The latest pointer position and the one frame scheduled to apply it:
@@ -212,76 +219,16 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
       return;
     }
     if (event.key === 'Escape') {
-      // Tab is repurposed for cell movement below, so Escape is the only way
-      // out of the grid for a keyboard-only visitor - it must exist, and it
-      // must actually move focus rather than merely deselecting.
+      // Escape releases the Tab trap; the next Tab then leaves the grid in
+      // document order, which is what the hint promises.
       event.preventDefault();
-      scrollerRef.current?.blur();
+      setTrapsTab(false);
+      return;
+    }
+    if (event.key === 'Tab' && !trapsTab) {
       return;
     }
     const meta = event.metaKey || event.ctrlKey;
-    const arrows: Record<string, readonly [number, number]> = {
-      ArrowUp: [-1, 0],
-      ArrowDown: [1, 0],
-      ArrowLeft: [0, -1],
-      ArrowRight: [0, 1],
-    };
-    const arrow = arrows[event.key];
-    if (arrow !== undefined) {
-      event.preventDefault();
-      const [dRow, dCol] = arrow;
-      if (meta) {
-        dispatch({ type: 'jump', dRow, dCol, extend: event.shiftKey, bounds, isOccupied });
-      } else {
-        dispatch({ type: 'move', dRow, dCol, extend: event.shiftKey, bounds });
-      }
-      return;
-    }
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      dispatch({ type: 'move', dRow: 0, dCol: event.shiftKey ? -1 : 1, extend: false, bounds });
-      return;
-    }
-    if (event.key === 'Enter' || event.key === 'F2') {
-      event.preventDefault();
-      beginEdit('open', activeRaw);
-      return;
-    }
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      event.preventDefault();
-      sheet.clearRange(range);
-      return;
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      dispatch({
-        type: 'moveTo',
-        ref: { row: meta ? 0 : selection.active.row, col: 0 },
-        extend: event.shiftKey,
-      });
-      return;
-    }
-    if (event.key === 'End') {
-      event.preventDefault();
-      dispatch({
-        type: 'moveTo',
-        ref: { row: meta ? bounds.rows - 1 : selection.active.row, col: bounds.cols - 1 },
-        extend: event.shiftKey,
-      });
-      return;
-    }
-    if (event.key === 'PageDown' || event.key === 'PageUp') {
-      event.preventDefault();
-      const page = Math.max(1, Math.floor(viewport.height / ROW_HEIGHT) - 1);
-      dispatch({
-        type: 'move',
-        dRow: event.key === 'PageDown' ? page : -page,
-        dCol: 0,
-        extend: event.shiftKey,
-        bounds,
-      });
-      return;
-    }
     if (meta && (event.key === 'z' || event.key === 'Z')) {
       event.preventDefault();
       if (event.shiftKey) {
@@ -296,13 +243,39 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
       sheet.redo();
       return;
     }
-    // A printable character starts an edit that replaces the cell. Copy and
-    // paste arrive as clipboard events, not here. isComposing is checked so
-    // the first keystroke of an IME composition (Japanese, Chinese, Korean)
-    // does not open an edit with a stray character already in it.
-    if (!meta && !event.nativeEvent.isComposing && event.key.length === 1) {
-      event.preventDefault();
-      beginEdit('typing', event.key);
+
+    // Everything else is the ladder both grids share; only what the result
+    // means - what a clear clears, what text an opened edit starts from - is
+    // this grid's own.
+    const result = gridKeyAction(
+      {
+        key: event.key,
+        shiftKey: event.shiftKey,
+        meta,
+        isComposing: event.nativeEvent.isComposing,
+      },
+      {
+        active: selection.active,
+        bounds,
+        pageRows: Math.max(1, Math.floor(viewport.height / ROW_HEIGHT) - 1),
+        isOccupied,
+      },
+    );
+    if (result === null) {
+      return;
+    }
+
+    event.preventDefault();
+    setTrapsTab(true);
+    switch (result.kind) {
+      case 'action':
+        dispatch(result.action);
+        return;
+      case 'edit':
+        beginEdit(result.source, result.source === 'typing' ? result.draft : activeRaw);
+        return;
+      case 'clear':
+        sheet.clearRange(range);
     }
   }
 
@@ -728,7 +701,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                       className={`absolute overflow-hidden text-ellipsis border-b border-r border-divider px-2 py-1.5 text-sm whitespace-nowrap ${
                         numeric ? 'text-right' : 'text-left'
                       } ${failed ? 'font-semibold underline decoration-dotted decoration-2' : ''} ${
-                        inRange ? 'bg-accent/10' : ''
+                        inRange ? gridRangeCell : ''
                       } ${isActive ? 'outline-2 -outline-offset-2 outline-accent' : ''}`}
                       style={cellStyle}
                     >

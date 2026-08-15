@@ -48,6 +48,18 @@ public enum ViewKind
     /// </para>
     /// </remarks>
     Timeline = 4,
+
+    /// <summary>Children as an editable grid, one row per child and one column per property.</summary>
+    /// <remarks>
+    /// The <em>view</em> axis only: rows are children and cells are property values, so an edit
+    /// here is a property write visible in every other view. The spreadsheet <em>body</em>
+    /// (<c>item.type == "spreadsheet"</c>) is the other axis - free cells and formulas, owned by
+    /// the item itself. The two axes share a vocabulary and always will: the stored words differ
+    /// (<c>"sheet"</c> here, <c>"spreadsheet"</c> there) only so the wire values cannot collide,
+    /// and a grep for either word still lands on both features' surroundings - mind the axis when
+    /// reading a hit.
+    /// </remarks>
+    Sheet = 5,
 }
 
 /// <summary>
@@ -135,6 +147,10 @@ public static class ViewKinds
                 static view => view.DateProperty,
                 static type => Nix.Domain.Properties.PropertyTypes.CanPlaceOnCalendar(type),
                 "a timeline needs a date to start from")),
+
+        // Like a list, and by the list's own argument: with no columns configured the grid falls
+        // back to the effective schema, and with no schema at all it still has titles to show.
+        new ViewKindDescriptor(ViewKind.Sheet, "sheet", Requirement: null),
     ];
 
     /// <summary>Reads a stored kind.</summary>

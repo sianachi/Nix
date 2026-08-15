@@ -191,11 +191,22 @@ export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChr
 
   const hidden = container.children.length - visible.length;
 
+  // Truncation is said alongside the filter notice, not instead of it: they are two different
+  // partialities. A container past the paging ceiling shows its first pages, and every count a
+  // view derives from `children` - a row count, a filtered total - is a claim about only those,
+  // which this sentence is what keeps honest.
+  const partiality = [
+    container.truncated
+      ? `Only the first ${String(container.children.length)} items in here are loaded.`
+      : null,
+    hidden === 0 ? null : hiddenNotice(hidden),
+  ].filter((sentence): sentence is string => sentence !== null);
+
   return {
     kind: 'items',
     items: sortItems(visible, args.sortBy, args.descending),
     drawable: args.drawable.value,
-    notice: hidden === 0 ? null : <PartialNotice pending={hiddenNotice(hidden)} />,
+    notice: partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />,
   };
 }
 

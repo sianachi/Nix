@@ -1,4 +1,4 @@
-import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt } from 'lucide-react';
+import { Columns3, LayoutGrid, LayoutList, CalendarDays, ChartGantt, Table2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -7,6 +7,7 @@ import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import { ListView } from '../list/list-view';
+import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
 import { TimelineView } from '../timeline/timeline-view';
 import type { ContainerData } from './use-container';
 
@@ -316,6 +317,20 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         accepts: (property) => property.type === 'date' || property.type === 'timestamp',
       },
     ],
+    chooses: [],
+  },
+  {
+    // Stored as "sheet", labelled "Spreadsheet". The body kind `item.type === 'spreadsheet'`
+    // (sidebar label "Sheet") is the other axis; the stored words differ only so the wire values
+    // cannot collide - the vocabulary genuinely overlaps, so mind the axis when reading a grep
+    // hit. The icon is not the body's Grid3x3 for the same reason: one glyph must not mean two
+    // different things in one product. Like the list, this kind needs nothing configured: columns
+    // fall back to the effective schema, and titles exist with no schema at all.
+    kind: 'sheet',
+    label: 'Spreadsheet',
+    icon: Table2,
+    render: (props) => <SpreadsheetView {...props} />,
+    configures: [],
     chooses: [],
   },
 ];

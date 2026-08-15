@@ -68,7 +68,8 @@ export const INITIAL_SELECTION: SelectionState = {
   editSource: 'open',
 };
 
-function clamp(ref: CellRef, bounds: GridBounds): CellRef {
+/** A ref forced inside the bounds. Exported for hosts whose bounds move under the selection. */
+export function clamp(ref: CellRef, bounds: GridBounds): CellRef {
   return {
     row: Math.max(0, Math.min(bounds.rows - 1, ref.row)),
     col: Math.max(0, Math.min(bounds.cols - 1, ref.col)),

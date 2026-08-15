@@ -34,12 +34,13 @@ function onlyConfiguration(kind: string): ViewConfiguration {
 }
 
 describe('the view-kind registry', () => {
-  it('knows the five this build can draw', () => {
+  it('knows the six this build can draw', () => {
     expect(isKnownViewKind('list')).toBe(true);
     expect(isKnownViewKind('board')).toBe(true);
     expect(isKnownViewKind('calendar')).toBe(true);
     expect(isKnownViewKind('gallery')).toBe(true);
     expect(isKnownViewKind('timeline')).toBe(true);
+    expect(isKnownViewKind('sheet')).toBe(true);
   });
 
   it('does not claim to know a kind from a newer build', () => {
@@ -72,8 +73,10 @@ describe('the view-kind registry', () => {
 
   it('describes what each configurable kind needs, and what needs nothing', () => {
     // A list needs nothing: with no columns configured it falls back to the effective schema, and
-    // with no schema at all it still has titles to show.
+    // with no schema at all it still has titles to show. The spreadsheet view needs nothing by the
+    // same argument - its columns resolve exactly as the list's do.
     expect(findViewKind('list')?.configures).toEqual([]);
+    expect(findViewKind('sheet')?.configures).toEqual([]);
 
     expect(onlyConfiguration('board').field).toBe('groupBy');
     expect(onlyConfiguration('calendar').field).toBe('dateProperty');

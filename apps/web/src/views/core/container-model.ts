@@ -280,6 +280,17 @@ function compareSeq(left: Item['seq'], right: Item['seq']): number {
 }
 
 /**
+ * One collator, hoisted, rather than an options object passed to `localeCompare` per comparison.
+ *
+ * Passing options to `localeCompare` resolves a collator on every call - roughly n log n of them
+ * per sort. Measured at 3,000 items sorted by a text property: 61.65ms per sort the old way,
+ * 2.65ms with the collator hoisted, byte-identical ordering (perf review of goal 1.6, harness in
+ * its report). A sort runs on every write once a header is clicked, so this is a hot path, not a
+ * micro-optimisation.
+ */
+const textCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/**
  * Sorts items by a property, or by sibling order when no property is named.
  *
  * Sibling order is the default because it is the order somebody arranged by hand, and replacing
@@ -306,7 +317,7 @@ export function sortItems(
     if (a === '' && b !== '') return 1;
     if (b === '' && a !== '') return -1;
 
-    const comparison = a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    const comparison = textCollator.compare(a, b);
     return descending ? -comparison : comparison;
   });
 
