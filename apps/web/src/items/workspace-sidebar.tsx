@@ -7,6 +7,7 @@ import {
   FileText,
   FolderUp,
   Grid3x3,
+  LayoutTemplate,
   Plus,
   Shapes,
   Trash2,
@@ -21,11 +22,11 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-
 import { announce } from '../a11y/announcer';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
+import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
 /**
@@ -99,6 +100,9 @@ export interface WorkspaceSidebarProps {
    * `<Dialog>` does; this scroll region is the nearest thing that is still guaranteed to be there.
    */
   readonly treeRegionRef: RefObject<HTMLDivElement | null>;
+
+  /** Opens the shell's guided setup route for a structured item. */
+  readonly onStartStructured?: (parentId: string | null, recipe: StructuredRecipeId) => void;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -164,6 +168,9 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           disabled={tree.status !== 'ready' || tree.isCreating}
           onCreate={(parentId, title, type) => {
             void create(parentId, title, type);
+          }}
+          onStartStructured={(parentId, recipe) => {
+            props.onStartStructured?.(parentId, recipe);
           }}
         />
       </div>
@@ -233,6 +240,7 @@ interface CreateMenuProps {
   readonly childDestination: { readonly id: string; readonly name: string } | null;
   readonly disabled: boolean;
   readonly onCreate: (parentId: string | null, title: string, type: string) => void;
+  readonly onStartStructured: (parentId: string | null, recipe: StructuredRecipeId) => void;
 }
 
 /**
@@ -246,7 +254,12 @@ interface CreateMenuProps {
  * for the one list of body kinds: unchecked means the workspace root; checked means inside the
  * open item. The destination changes, not the set of actions, so the menu never repeats itself.
  */
-function CreateMenu({ childDestination, disabled, onCreate }: CreateMenuProps): ReactNode {
+function CreateMenu({
+  childDestination,
+  disabled,
+  onCreate,
+  onStartStructured,
+}: CreateMenuProps): ReactNode {
   const [open, setOpen] = useState(false);
   const [insideSelected, setInsideSelected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -334,6 +347,9 @@ function CreateMenu({ childDestination, disabled, onCreate }: CreateMenuProps): 
           )}
 
           <div role="separator" className="border-t border-divider" />
+          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+            Create
+          </span>
           {CREATABLE_KINDS.map((kind) => (
             <button
               key={kind.type}
@@ -356,6 +372,60 @@ function CreateMenu({ childDestination, disabled, onCreate }: CreateMenuProps): 
             >
               <Icon icon={kind.icon} size="sm" />
               {kind.label}
+            </button>
+          ))}
+
+          <div role="separator" className="border-t border-divider" />
+          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+            Structured
+          </span>
+          {STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured').map((recipe) => (
+            <button
+              key={recipe.id}
+              type="button"
+              role="menuitem"
+              aria-label={`New ${recipe.label}${insideSelected && childDestination !== null ? ` inside ${childDestination.name}` : ' in the workspace'}`}
+              title={recipe.detail}
+              onClick={() => {
+                setOpen(false);
+                onStartStructured(
+                  insideSelected && childDestination !== null ? childDestination.id : null,
+                  recipe.id,
+                );
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={LayoutTemplate} size="sm" />
+              {recipe.label}
+            </button>
+          ))}
+
+          <div role="separator" className="border-t border-divider" />
+          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+            Templates
+          </span>
+          {STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'template').map((recipe) => (
+            <button
+              key={recipe.id}
+              type="button"
+              role="menuitem"
+              aria-label={
+                insideSelected && childDestination !== null
+                  ? `New ${recipe.label} inside ${childDestination.name}`
+                  : `New ${recipe.label} in the workspace`
+              }
+              title={recipe.detail}
+              onClick={() => {
+                setOpen(false);
+                onStartStructured(
+                  insideSelected && childDestination !== null ? childDestination.id : null,
+                  recipe.id,
+                );
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={LayoutTemplate} size="sm" />
+              {recipe.label}
             </button>
           ))}
         </div>

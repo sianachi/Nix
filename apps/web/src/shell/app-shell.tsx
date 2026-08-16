@@ -1,7 +1,7 @@
 import { Icon, Toast, focusRing } from '@nix/ui';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, Outlet } from 'react-router';
+import { Link, Outlet, useNavigate } from 'react-router';
 
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
@@ -22,6 +22,7 @@ import { SidebarDivider } from '../layout/sidebar-divider';
 import { SidebarDrawer } from '../layout/sidebar-drawer';
 import { useNarrowViewport } from '../layout/viewport';
 import { useSidebar } from '../layout/use-sidebar';
+import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -98,6 +99,7 @@ interface ShellToast {
 const MAX_SHELL_TOASTS = 2;
 
 export function AppShell(): ReactNode {
+  const navigate = useNavigate();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
@@ -152,6 +154,14 @@ export function AppShell(): ReactNode {
   function closeDrawer(): void {
     sidebar.toggle();
     sidebarToggleRef.current?.focus();
+  }
+
+  function startStructured(parentId: string | null, recipe: StructuredRecipeId): void {
+    const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
+    void navigate(`/new/${recipe}${search}`);
+    if (narrow && sidebar.visible) {
+      sidebar.toggle();
+    }
   }
 
   // Where focus goes once a delete toast's undo window closes, by any path. The row that opened it
@@ -441,6 +451,7 @@ export function AppShell(): ReactNode {
                   onDeleteItem={(item) => {
                     void requestDelete(item);
                   }}
+                  onStartStructured={startStructured}
                   treeRegionRef={treeRegionRef}
                 />
               </SidebarDrawer>
@@ -462,6 +473,7 @@ export function AppShell(): ReactNode {
                     onDeleteItem={(item) => {
                       void requestDelete(item);
                     }}
+                    onStartStructured={startStructured}
                     treeRegionRef={treeRegionRef}
                   />
                 </div>
