@@ -127,6 +127,7 @@ export type {
  * Per-resource methods: the only place API paths appear. A caller builds a descriptor and hands it
  * to the client, so nothing above this package ever sees a URL.
  */
+export * as accessTokens from './resources/access-tokens.js';
 export * as items from './resources/items.js';
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemQuery from './resources/item-query.js';

@@ -47,6 +47,10 @@ test-results/
 # (issuer, generated client ID, dev credentials), not source.
 deploy/.zitadel/
 
+# Development signing key for personal-access-token sessions; generated per
+# machine with the openssl line in .env.example, never committed.
+deploy/.dev-access-token-key.pem
+
 # --- Tooling state ---
 .idea/
 *.log
