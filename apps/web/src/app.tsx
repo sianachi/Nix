@@ -11,6 +11,7 @@ import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { NotFoundPage } from './pages/not-found-page';
 import { PublicFormPage } from './pages/public-form-page';
+import { SettingsPage } from './pages/settings-page';
 import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { AppShell } from './shell/app-shell';
 import { RequireSession } from './shell/require-session';
@@ -86,6 +87,13 @@ export function App(): ReactElement {
                 <Route path="calendar" element={<CalendarPage />} />
                 <Route path="graph" element={<GraphPage />} />
                 <Route path="bookmarks" element={<BookmarksPage />} />
+
+                {/* Reached from the profile menu rather than the rail: members and access tokens
+                    are about who may act here, not a way of looking at the workspace's notes, and
+                    the rail is deliberately only the latter. Not lazy-loaded, for the rail
+                    destinations' reason - the screen is small, and a Suspense boundary around
+                    nothing is a fallback that can only ever flash. */}
+                <Route path="settings" element={<SettingsPage />} />
 
                 {/* The boundary is per-route rather than around the whole tree: a fallback over
                     `Routes` would blank the shell while a chunk arrives. The wording matches the

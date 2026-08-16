@@ -2200,10 +2200,255 @@
           }
         }
       }
+    },
+    "/api/v1/me/tokens": {
+      "get": {
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "The caller's personal access tokens",
+        "description": "Returns every token the calling principal has issued, newest first, revoked and expired ones included: the list is an audit of what has been able to act as this principal, and an audit that forgets is not one. The secret is never here - it was shown once, at creation, and only its hash is stored.",
+        "operationId": "ListAccessTokens",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Mint a personal access token",
+        "description": "Mints a token that authenticates a non-browser client as the calling principal, within the ceiling the request chooses: scopes from 'read', 'write' and 'admin', and an expiry of 1 to 365 days - both required, neither defaulted. The response is the only place the secret ever appears; store it or lose it. A token only narrows: every request it authenticates still resolves the principal's own permissions, so it can never do what its issuer cannot. Fails with 'tokens.invalid' when the name, scopes or expiry cannot mint a token, and 'tokens.limit_reached' when the caller already holds the most live tokens one principal may.",
+        "operationId": "CreateAccessToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccessTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedAccessTokenResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/tokens/{tokenId}": {
+      "delete": {
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Revoke a personal access token",
+        "description": "Ends a token immediately: the next request it would have authenticated is refused, without waiting out any session already exchanged. Idempotent, and scoped to the caller's own tokens - revoking one twice, one that never existed, and one belonging to somebody else all answer 204, because telling them apart would answer, for any identifier, whether it names a row.",
+        "operationId": "RevokeAccessToken",
+        "parameters": [
+          {
+            "name": "tokenId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/public/v1/auth/token": {
+      "post": {
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "Exchange a personal access token for a short-lived session",
+        "description": "Turns a personal access token into a JWT that every Nix service accepts as a bearer token, for a few minutes. Exchange again before it runs out - the personal access token lives until its chosen expiry or its revocation, and revocation does not wait for an exchanged session to expire: every request is re-checked against the token row. Fails with 'auth.unauthenticated' for a token that does not authenticate, 'auth.token_revoked' and 'auth.token_expired' for one that did and no longer does, and 'auth.principal_inactive' when the principal behind it may no longer act.",
+        "operationId": "ExchangeAccessToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenExchangeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/auth/jwks": {
+      "get": {
+        "tags": [
+          "AccessTokens"
+        ],
+        "summary": "The public keys exchanged sessions are signed with",
+        "description": "An RFC 7517 key set. The collaboration and media services list Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.",
+        "operationId": "GetAccessTokenSigningKeys",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwksResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AccessTokenListResponse": {
+        "required": [
+          "tokens"
+        ],
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccessTokenResponse"
+            }
+          }
+        }
+      },
+      "AccessTokenResponse": {
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "createdAt",
+          "expiresAt",
+          "revokedAt",
+          "lastUsedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "AclEntryResponse": {
         "required": [
           "id",
@@ -2409,6 +2654,55 @@
           },
           "default": {
             "type": "string"
+          }
+        }
+      },
+      "CreateAccessTokenRequest": {
+        "required": [
+          "name",
+          "scopes",
+          "expiresInDays"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "scopes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "expiresInDays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreatedAccessTokenResponse": {
+        "required": [
+          "token",
+          "details"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/AccessTokenResponse"
           }
         }
       },
@@ -2929,6 +3223,55 @@
       "JsonObject": {
         "type": "object",
         "additionalProperties": { }
+      },
+      "JwkResponse": {
+        "required": [
+          "kty",
+          "crv",
+          "x",
+          "y",
+          "kid",
+          "use",
+          "alg"
+        ],
+        "type": "object",
+        "properties": {
+          "kty": {
+            "type": "string"
+          },
+          "crv": {
+            "type": "string"
+          },
+          "x": {
+            "type": "string"
+          },
+          "y": {
+            "type": "string"
+          },
+          "kid": {
+            "type": "string"
+          },
+          "use": {
+            "type": "string"
+          },
+          "alg": {
+            "type": "string"
+          }
+        }
+      },
+      "JwksResponse": {
+        "required": [
+          "keys"
+        ],
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JwkResponse"
+            }
+          }
+        }
       },
       "KeptItemResponse": {
         "required": [
@@ -3692,6 +4035,44 @@
           }
         }
       },
+      "TokenExchangeRequest": {
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TokenExchangeResponse": {
+        "required": [
+          "accessToken",
+          "tokenType",
+          "expiresInSeconds"
+        ],
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string"
+          },
+          "expiresInSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "UnplaceableCalendarResponse": {
         "required": [
           "containerId",
@@ -4181,6 +4562,9 @@
     },
     {
       "name": "Bookmarks"
+    },
+    {
+      "name": "AccessTokens"
     }
   ]
 }

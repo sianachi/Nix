@@ -17,6 +17,7 @@ using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.Tokens;
 using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
@@ -59,12 +60,18 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(QueryJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
 // controllable in tests.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PublicFormTokenService>();
+
+// Singleton: it holds the one signing key, and the mint is pure computation over it. Registered
+// whether or not persistence is, because the token validator takes it as a dependency and the
+// exchange endpoint reports "unconfigured" honestly rather than failing to resolve.
+builder.Services.AddSingleton<SelfIssuedTokenService>();
 
 // RFC 9457 problem details for every failure the framework produces. Endpoint-owned
 // failures build their payload through ApiProblem; this covers the rest and
@@ -113,6 +120,9 @@ var writesPerMinute = builder.Configuration.GetValue("Nix:RateLimits:WritesPerMi
 var publicFormSubmissionsPerMinute = builder.Configuration.GetValue(
     "Nix:RateLimits:PublicFormSubmissionsPerMinute",
     20);
+var tokenExchangesPerMinute = builder.Configuration.GetValue(
+    "Nix:RateLimits:TokenExchangesPerMinute",
+    30);
 
 // One window, named once: the limiter's window and the fallback the rejection reports are the same
 // interval by definition, and two literals would eventually disagree.
@@ -151,6 +161,20 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             });
     });
+
+    // The exchange is unauthenticated by nature and signs a JWT on success, so it carries its own
+    // window besides the failed-authentication throttle: guessing is throttled there, and this
+    // bounds how fast even a valid token can spend signatures. Per address, like the writes
+    // policy and for the same pre-authentication reason.
+    options.AddPolicy<IPAddress>(RateLimitRefusal.TokenExchangePolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey.For(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = tokenExchangesPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            }));
 
     options.OnRejected = (context, cancellationToken) =>
     {
@@ -340,6 +364,8 @@ app.MapCalendarEndpoints();
 app.MapQueryEndpoints();
 app.MapBookmarkEndpoints();
 app.MapPublicFormEndpoints();
+app.MapTokenEndpoints();
+app.MapTokenExchangeEndpoints();
 
 app.Run();
 
