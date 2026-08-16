@@ -76,6 +76,30 @@ describe('an item nobody has configured', () => {
 });
 
 describe('an item with views', () => {
+  it('renders a beside companion as equal slots that stack before the large breakpoint', async () => {
+    const primary = {
+      ...BOARD,
+      id: 'primary',
+      name: 'Primary',
+      companionViewId: 'companion',
+      companionPlacement: 'beside',
+    };
+    const companion = { ...BOARD, id: 'companion', name: 'Companion' };
+    stubCoreApi({
+      items: [NOTES, CHILD],
+      views: { [NOTES.id]: { views: [primary, companion], default: 'primary' } },
+    });
+    renderAt(<App />, `/?item=${NOTES.id}`);
+
+    const primarySlot = await screen.findByRole('region', { name: 'Primary' });
+    const companionSlot = screen.getByRole('region', { name: 'Companion' });
+    const composition = primarySlot.parentElement;
+
+    expect(composition).toHaveClass('flex-col', 'lg:flex-row');
+    expect(primarySlot).toHaveClass('flex-1');
+    expect(companionSlot).toHaveClass('flex-1');
+  });
+
   it('offers its document alongside them', async () => {
     stubCoreApi({
       items: [NOTES, CHILD],
