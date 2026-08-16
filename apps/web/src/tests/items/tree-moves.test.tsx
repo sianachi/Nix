@@ -40,9 +40,11 @@ const ROOT_C: TreeItem = {
   seq: 3000,
 };
 
-function treeOf(move: WorkspaceTree['move']): WorkspaceTree {
-  const items = [ROOT_A, ROOT_B, ROOT_C];
-
+function treeOf(
+  move: WorkspaceTree['move'],
+  items: readonly TreeItem[] = [ROOT_A, ROOT_B, ROOT_C],
+  expanded: ReadonlySet<string> = new Set(),
+): WorkspaceTree {
   return {
     status: 'ready',
     error: null,
@@ -51,7 +53,7 @@ function treeOf(move: WorkspaceTree['move']): WorkspaceTree {
     find: (id: string) => items.find((item) => item.id === id) ?? null,
     childrenOf: (parentId: string | null) => items.filter((item) => item.parentId === parentId),
     breadcrumbs: () => [],
-    isExpanded: () => false,
+    isExpanded: (itemId: string) => expanded.has(itemId),
     isLoadingChildren: () => false,
     toggle: () => Promise.resolve(),
     reveal: () => Promise.resolve(),
@@ -83,7 +85,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -110,7 +111,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -136,7 +136,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -164,7 +163,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -188,7 +186,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -212,7 +209,6 @@ describe('moving an item from the keyboard', () => {
         canOpenBeside
         onDeleteItem={vi.fn()}
         treeRegionRef={{ current: null }}
-        applySmartListViews={() => Promise.resolve(null)}
       />,
     );
 
@@ -222,5 +218,34 @@ describe('moving an item from the keyboard', () => {
     // Arrow keys alone belong to whatever the browser and the tree do with focus. Claiming them
     // would break moving around the tree in order to serve the rarer act of rearranging it.
     expect(move).not.toHaveBeenCalled();
+  });
+});
+
+describe('moving an item to the workspace root', () => {
+  it('offers one direct action for a nested item', async () => {
+    const user = userEvent.setup();
+    const move = vi.fn(() => Promise.resolve());
+    const parent = { ...ROOT_A, hasChildren: true };
+    const child = { ...ROOT_C, parentId: parent.id, title: 'Nested' };
+
+    render(
+      <WorkspaceSidebar
+        tree={treeOf(move, [parent, ROOT_B, child], new Set([parent.id]))}
+        selectedId={child.id}
+        onSelect={vi.fn()}
+        onOpenBeside={() => undefined}
+        onOpenPinned={() => undefined}
+        besideRefusal={null}
+        canOpenBeside
+        onDeleteItem={vi.fn()}
+        treeRegionRef={{ current: null }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /move nested to the workspace root/i }));
+
+    await waitFor(() => {
+      expect(move).toHaveBeenCalledWith(child.id, null, ROOT_B.id);
+    });
   });
 });

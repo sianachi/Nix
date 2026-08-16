@@ -5,8 +5,8 @@ import {
   Columns2,
   FilePlus,
   FileText,
+  FolderUp,
   Grid3x3,
-  ListFilter,
   Plus,
   Shapes,
   Trash2,
@@ -24,7 +24,6 @@ import {
 
 import { announce } from '../a11y/announcer';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
-import { SMART_LISTS, type SmartListPreset } from '../views/query/smart-lists';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
@@ -100,14 +99,6 @@ export interface WorkspaceSidebarProps {
    * `<Dialog>` does; this scroll region is the nearest thing that is still guaranteed to be there.
    */
   readonly treeRegionRef: RefObject<HTMLDivElement | null>;
-
-  /**
-   * Stores a preset's query view on a freshly created smart list, answering with the refusal or
-   * null. Supplied by the shell rather than performed here, because the write needs the session's
-   * token and this component deliberately has no auth dependency - it renders in tests and in any
-   * host that hands it a tree.
-   */
-  readonly applySmartListViews: (itemId: string, preset: SmartListPreset) => Promise<string | null>;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -121,21 +112,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     besideRefusal,
     onDeleteItem,
     treeRegionRef,
-    applySmartListViews,
   } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  /**
-   * Where a new item goes.
-   *
-   * **Inside the item you are looking at**, or the workspace when nothing is open.
-   *
-   * It used to depend on the item's type - inside a folder, beside a note - because a note could
-   * not hold anything. Now that every item can, "inside" is the answer for all of them, and it is
-   * the simpler rule to hold in your head: what you are looking at is what you are adding to.
-   */
-  const destination = ((): string | null => {
+  /** The explicit child destination offered alongside the workspace-level create actions. */
+  const childDestination = ((): { readonly id: string; readonly name: string } | null => {
     if (selectedId === null) {
       return null;
     }
@@ -145,15 +127,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       return null;
     }
 
-    return selected.id;
+    return { id: selected.id, name: selected.title || 'Untitled' };
   })();
 
-  const destinationName =
-    destination === null ? 'the workspace' : (tree.find(destination)?.title ?? 'this item');
-
-  async function create(title: string, type: string): Promise<void> {
+  async function create(parentId: string | null, title: string, type: string): Promise<void> {
     setRefusal(null);
-    const { id: created, refusal: reason } = await tree.create(destination, title, type);
+    const { id: created, refusal: reason } = await tree.create(parentId, title, type);
 
     if (reason !== null) {
       // Shown here, beside the control that was pressed. The refusal names the property at fault,
@@ -170,30 +149,6 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     }
   }
 
-  async function createSmartList(preset: SmartListPreset): Promise<void> {
-    setRefusal(null);
-    const { id: created, refusal: reason } = await tree.create(destination, preset.title, 'query');
-
-    if (reason !== null) {
-      setRefusal(reason);
-      return;
-    }
-
-    if (created === null) {
-      return;
-    }
-
-    // The view is stored after the create, and a failure here is reported rather than rolled
-    // back: the item exists either way, and its filters can be added under Views. Silence would
-    // leave somebody opening an empty document wondering where their list went.
-    const viewsRefusal = await applySmartListViews(created, preset);
-    if (viewsRefusal !== null) {
-      setRefusal(viewsRefusal);
-    }
-
-    onSelect(created);
-  }
-
   return (
     // The width belongs to the shell, which sizes and resizes the region this fills; a width
     // here as well would be two owners for one dimension.
@@ -205,13 +160,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
         <span className={cn('truncate', fieldLabel)}>Workspace</span>
 
         <CreateMenu
-          destinationName={destinationName}
+          childDestination={childDestination}
           disabled={tree.status !== 'ready' || tree.isCreating}
-          onCreate={(title, type) => {
-            void create(title, type);
-          }}
-          onCreateSmartList={(preset) => {
-            void createSmartList(preset);
+          onCreate={(parentId, title, type) => {
+            void create(parentId, title, type);
           }}
         />
       </div>
@@ -278,12 +230,9 @@ const CREATABLE_KINDS: readonly {
 ];
 
 interface CreateMenuProps {
-  readonly destinationName: string;
+  readonly childDestination: { readonly id: string; readonly name: string } | null;
   readonly disabled: boolean;
-  readonly onCreate: (title: string, type: string) => void;
-
-  /** Creates a smart list from a preset: an item of type `query` carrying the preset's view. */
-  readonly onCreateSmartList: (preset: SmartListPreset) => void;
+  readonly onCreate: (parentId: string | null, title: string, type: string) => void;
 }
 
 /**
@@ -293,18 +242,13 @@ interface CreateMenuProps {
  * added would take another bite. A menu spends one control's width however many kinds exist.
  *
  * The open-close grammar is `ProfileMenu`'s: outside click and Escape close it, choosing closes
- * it, and the trigger reports state through `aria-expanded`. The label still names where the
- * item will land - that moved from the buttons to the trigger, not out of the interface, because
- * a control whose meaning depends on an invisible selection is the kind people press twice and
- * then undo.
+ * it, and the trigger reports state through `aria-expanded`. One checkbox changes the destination
+ * for the one list of body kinds: unchecked means the workspace root; checked means inside the
+ * open item. The destination changes, not the set of actions, so the menu never repeats itself.
  */
-function CreateMenu({
-  destinationName,
-  disabled,
-  onCreate,
-  onCreateSmartList,
-}: CreateMenuProps): ReactNode {
+function CreateMenu({ childDestination, disabled, onCreate }: CreateMenuProps): ReactNode {
   const [open, setOpen] = useState(false);
+  const [insideSelected, setInsideSelected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -344,11 +288,19 @@ function CreateMenu({
       <Button
         variant="ghost"
         className="px-1.5 py-1 text-xs"
-        aria-label={`New item in ${destinationName}`}
+        aria-label="New item in the workspace"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
-          setOpen((current) => !current);
+          if (open) {
+            setOpen(false);
+            return;
+          }
+
+          // Root is the safe default every time the menu opens. A previous contextual creation
+          // must not quietly turn the next global New action into another child creation.
+          setInsideSelected(false);
+          setOpen(true);
         }}
         disabled={disabled}
       >
@@ -360,46 +312,50 @@ function CreateMenu({
       {open ? (
         <div
           role="menu"
-          aria-label={`New item in ${destinationName}`}
+          aria-label="New item"
           className="absolute right-0 z-20 mt-1 w-[180px] border border-divider bg-background shadow-md"
         >
+          {childDestination === null ? (
+            <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+              Workspace root
+            </span>
+          ) : (
+            <label className="flex items-center gap-2 px-3 py-2 text-base hover:bg-accent/10">
+              <input
+                type="checkbox"
+                checked={insideSelected}
+                onChange={(event) => {
+                  setInsideSelected(event.target.checked);
+                }}
+                className={`size-4 shrink-0 ${focusRing}`}
+              />
+              <span className="min-w-0 truncate">Create inside {childDestination.name}</span>
+            </label>
+          )}
+
+          <div role="separator" className="border-t border-divider" />
           {CREATABLE_KINDS.map((kind) => (
             <button
               key={kind.type}
               type="button"
               role="menuitem"
-              aria-label={`New ${kind.type} in ${destinationName}`}
+              aria-label={
+                insideSelected && childDestination !== null
+                  ? `New ${kind.type} inside ${childDestination.name}`
+                  : `New ${kind.type} in the workspace`
+              }
               onClick={() => {
                 setOpen(false);
-                onCreate(kind.title, kind.type);
+                onCreate(
+                  insideSelected && childDestination !== null ? childDestination.id : null,
+                  kind.title,
+                  kind.type,
+                );
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
               <Icon icon={kind.icon} size="sm" />
               {kind.label}
-            </button>
-          ))}
-
-          {/* The smart lists, below the body kinds under a divider: each creates an item of type
-              `query` whose view is the preset's saved query. Offered here because a smart list is
-              created, not configured into an existing note - and a person looking for "where do I
-              make an Overdue list" looks at New. */}
-          <div role="separator" className="border-t border-divider" />
-          {SMART_LISTS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              role="menuitem"
-              aria-label={`New ${preset.label} smart list in ${destinationName}`}
-              title={preset.detail}
-              onClick={() => {
-                setOpen(false);
-                onCreateSmartList(preset);
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon icon={ListFilter} size="sm" />
-              {preset.label}
             </button>
           ))}
         </div>
@@ -839,6 +795,24 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           title={item.title}
           className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
         />
+
+        {/* A direct escape from nesting. Dragging beside a root or pressing Alt+Left once per
+            ancestor still works, but neither is a reasonable requirement for the common outcome
+            "put this in the workspace". Appended after the current last root so moving does not
+            unexpectedly reorder the roots already there. */}
+        {item.parentId === null ? null : (
+          <button
+            type="button"
+            aria-label={`Move ${item.title || 'Untitled'} to the workspace root`}
+            onClick={() => {
+              const lastRoot = tree.childrenOf(null).at(-1);
+              void tree.move(item.id, null, lastRoot?.id ?? null);
+            }}
+            className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
+          >
+            <Icon icon={FolderUp} size="sm" />
+          </button>
+        )}
 
         <button
           type="button"

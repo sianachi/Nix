@@ -47,35 +47,35 @@ describe('creating an item', () => {
     await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
   });
 
-  it('puts it inside the item you are looking at', async () => {
+  it('offers an explicit way to put it inside the item you are looking at', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT, CHILD] });
-    renderAt(<App />);
+    renderAt(<App />, `/?item=${PARENT.id}`);
 
-    await user.click(await screen.findByRole('button', { name: 'Engineering' }));
+    await screen.findByRole('button', { name: 'Engineering' });
 
-    // Creating always at the root made putting anything inside anything impossible without a drag.
-    // The label says where it will land, so the control does not depend on an invisible selection.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new item in engineering/i })).toBeVisible();
-    });
+    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+
+    // Root is the stable default. One checkbox changes the destination of the existing actions;
+    // it does not repeat the complete list of body kinds underneath a second heading.
+    const inside = screen.getByRole('checkbox', { name: /create inside engineering/i });
+    expect(inside).not.toBeChecked();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+
+    await user.click(inside);
+    expect(screen.getByRole('menuitem', { name: /new note inside engineering/i })).toBeVisible();
   });
 
   it('puts it inside a nested item too, rather than beside it', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT, CHILD] });
-    renderAt(<App />);
+    renderAt(<App />, `/?item=${CHILD.id}`);
 
-    await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
-    await user.click(await screen.findByRole('button', { name: 'Roadmap' }));
+    await screen.findByRole('button', { name: 'Roadmap' });
 
-    // This test used to assert the opposite - that a new item landed *beside* Roadmap, in
-    // Engineering - because a note could not hold anything and the sibling position was the only
-    // sensible reading. Every item can hold children now, so "inside what you are looking at" is
-    // one rule instead of two, and it is the one a file manager already taught everybody.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new item in roadmap/i })).toBeVisible();
-    });
+    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+    await user.click(screen.getByRole('checkbox', { name: /create inside roadmap/i }));
+    expect(screen.getByRole('menuitem', { name: /new note inside roadmap/i })).toBeVisible();
   });
 });
 

@@ -3,10 +3,8 @@ import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router';
 
-import { useAuth } from '../auth/auth-provider';
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
-import { applySmartList, type SmartListPreset } from '../views/query/smart-lists';
 import { announce, useAnnouncement } from '../a11y/announcer';
 import type { ShellContext } from './shell-context';
 import { focusPane } from '../panes/pane-params';
@@ -101,13 +99,6 @@ const MAX_SHELL_TOASTS = 2;
 
 export function AppShell(): ReactNode {
   const tree = useWorkspaceTree();
-  const { getAccessToken } = useAuth();
-
-  // The one auth-dependent step of smart-list creation, held at shell level so the sidebar stays
-  // auth-free (it renders in tests and drawers with nothing but a tree).
-  function applySmartListViews(itemId: string, preset: SmartListPreset): Promise<string | null> {
-    return applySmartList(itemId, preset, getAccessToken);
-  }
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
   const { panes } = usePanes();
@@ -451,7 +442,6 @@ export function AppShell(): ReactNode {
                     void requestDelete(item);
                   }}
                   treeRegionRef={treeRegionRef}
-                  applySmartListViews={applySmartListViews}
                 />
               </SidebarDrawer>
             ) : (
@@ -473,7 +463,6 @@ export function AppShell(): ReactNode {
                       void requestDelete(item);
                     }}
                     treeRegionRef={treeRegionRef}
-                    applySmartListViews={applySmartListViews}
                   />
                 </div>
 
@@ -537,7 +526,7 @@ export function AppShell(): ReactNode {
             // refusal, and dropping both meant the palette closed onto either a document nobody
             // could find or a silent failure - which is how people end up with six items called
             // "Untitled". The sidebar's own create has handled both since U8; this now does too.
-            void tree.create(selectedId, 'Untitled').then((outcome) => {
+            void tree.create(null, 'Untitled note').then((outcome) => {
               if (outcome.id !== null) {
                 select(outcome.id);
                 return;
