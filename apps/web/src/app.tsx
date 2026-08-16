@@ -10,6 +10,8 @@ import { CalendarPage } from './pages/calendar-page';
 import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { NotFoundPage } from './pages/not-found-page';
+import { PublicFormPage } from './pages/public-form-page';
+import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { AppShell } from './shell/app-shell';
 import { RequireSession } from './shell/require-session';
 
@@ -60,6 +62,7 @@ export function App(): ReactElement {
             {/* Outside the session gate: these two ARE the sign-in process. */}
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/auth/silent-renew" element={<SilentRenewPage />} />
+            <Route path="/forms/:token" element={<PublicFormPage />} />
 
             <Route element={<RequireSession />}>
               <Route element={<AppShell />}>
@@ -67,6 +70,12 @@ export function App(): ReactElement {
                     than a destination, and search opens over whatever is on screen, so neither
                     has a route of its own. */}
                 <Route index element={<EditorPage />} />
+                <Route path="new/:recipe" element={<CreationStudioPage />} />
+                <Route path="items/:itemId/views/new/:recipe" element={<CreationStudioPage />} />
+                <Route
+                  path="items/:itemId/views/:viewId/edit/:recipe"
+                  element={<CreationStudioPage />}
+                />
 
                 {/* The rail's three destinations. These *are* places, unlike a board or a
                     search: each is a way of looking at the whole workspace rather than at one
