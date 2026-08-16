@@ -13,7 +13,7 @@ import {
 } from '@nix/sheet';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 import { LIMITS } from './limits.ts';
 import { extractItemLinks } from './links.ts';
@@ -79,6 +79,26 @@ export interface BodyKindStrategy {
   explain?(state: Y.Doc): string | null;
 
   /**
+   * Puts a state back over this kind's structural floor, in place, returning whether it did.
+   *
+   * **Deliberately narrow: the floor, and nothing else.** This is not a repair of arbitrary
+   * invalid documents, and must never become one - guessing at what a broken document meant is
+   * how a service loses somebody's work while reporting success. It answers exactly one fault,
+   * the one the schema states as a minimum rather than as a rule about content: a prose document
+   * must hold at least one block, and a state holding none is not a document anyone wrote, it is
+   * a state a client can reach and then cannot get out of.
+   *
+   * A kind whose empty state is legitimate does not implement this. An empty canvas is a canvas,
+   * and an empty sheet is a sheet; neither has a floor to fall through, which is why prose is
+   * the only implementation and why this is optional rather than a no-op every kind carries.
+   *
+   * Called only after {@link measure} has already returned null, and the caller re-measures
+   * afterwards - a repair that does not produce a parsing document is not honoured. So an
+   * implementation may be optimistic; it may not be trusted.
+   */
+  repair?(state: Y.Doc): boolean;
+
+  /**
    * What the snapshot stores beside the Yjs state, so search and previews can read the
    * document without a Yjs runtime. The JSON lands in the snapshot's materialised-body
    * column; the plaintext feeds search.
@@ -140,6 +160,25 @@ export const noteStrategy: BodyKindStrategy = {
 
   explain(state: Y.Doc): string | null {
     return explainProse(state);
+  },
+
+  /**
+   * The floor is `block+`: one empty paragraph, which is what `emptyDocument` in
+   * `@nix/editor-schema` already means by an empty note, and what the editor needs to place a
+   * cursor. The repaired state is therefore the same document a brand-new note starts as.
+   *
+   * Only a fragment with no children at all is answered. A fragment that still holds something is
+   * a document with a content fault - a node this build does not know, a block where an inline
+   * belongs - and adding a paragraph beside it would not make it parse; it would only make the
+   * refusal harder to read.
+   */
+  repair(state: Y.Doc): boolean {
+    const fragment = state.getXmlFragment(FRAGMENT_NAME);
+    if (fragment.length > 0) {
+      return false;
+    }
+    fragment.insert(0, [new Y.XmlElement('paragraph')]);
+    return true;
   },
 
   materialize(state: Y.Doc): { json: unknown; plaintext: string } {

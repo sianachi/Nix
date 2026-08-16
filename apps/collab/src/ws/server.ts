@@ -160,7 +160,8 @@ function handleConnection(
       return;
     }
 
-    hub.handleMessage(session, toUint8Array(data));
+    //console.log("recieved note from editor");
+      hub.handleMessage(session, toUint8Array(data));
   });
 
   socket.on('close', () => {

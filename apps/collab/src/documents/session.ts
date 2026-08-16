@@ -367,7 +367,55 @@ export class DocumentSession {
       return;
     }
 
+    if (verdict.repair) {
+      this.#applyWithRepair(socket, update);
+      return;
+    }
+
     Y.applyUpdate(this.#doc, update, socket);
+  }
+
+  /**
+   * Applies an update that would have left the document under its structural floor, and puts the
+   * floor back with it.
+   *
+   * **One transaction, and the origin is the socket, and both facts are load-bearing.** One
+   * transaction, because Yjs emits a single update for it: the document is never observable
+   * between the emptying and the mend, so nothing can flush, broadcast or snapshot the state that
+   * would not parse. The socket as origin, because `#onDocUpdate` only queues an update for the
+   * log when its origin is an attached socket - a server-invented origin would broadcast the mend
+   * and never persist it, and the document would come back empty on the next load, which is the
+   * bug this exists to close wearing a longer fuse.
+   *
+   * Attributing the mend to the principal whose update caused it is also the honest record: their
+   * edit is what took the document to the floor, and the log should say so rather than invent a
+   * second author.
+   */
+  #applyWithRepair(socket: SocketSession, update: Uint8Array): void {
+    const before = Y.encodeStateVector(this.#doc);
+
+    this.#doc.transact(() => {
+      Y.applyUpdate(this.#doc, update, socket);
+      this.strategy.repair?.(this.#doc);
+    }, socket);
+
+    // The broadcast in `#onDocUpdate` skips the origin, on the sound assumption that a client
+    // already has what it just sent. That assumption is exactly false here: the mend is the one
+    // part of this transaction the sender does not have, and without it the sender goes on
+    // editing a document with no block in it and every later update is refused again. So the
+    // delta since the state vector taken above goes back to it specifically - the mend, plus its
+    // own update, which merges idempotently and costs nothing to re-receive.
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(this.#doc, before));
+    socket.socket.send(encoding.toUint8Array(encoder));
+
+    this.#context.log?.(
+      `Repaired an emptied ${this.strategy.kind} document from principal ` +
+        `${socket.authorization.principalId} on item ${this.itemId} in tenant ` +
+        `${this.tenantId}: the merge left it under the schema's structural floor, so the floor ` +
+        'was restored and the update accepted rather than refused.',
+    );
   }
 
   #refuse(socket: SocketSession, refusal: Rejection): void {
@@ -748,9 +796,17 @@ export interface CandidateJudgement {
   readonly diagnose?: (reason: string) => void;
 }
 
-/** What became of a candidate update: apply it, or refuse it - and maybe force a resync. */
+/**
+ * What became of a candidate update: apply it, or refuse it - and maybe force a resync.
+ *
+ * `repair` on the accepting side is the one case where applying the update verbatim is not
+ * enough: the merged document fell through its kind's structural floor, and the caller must put
+ * the floor back in the same breath as it applies the update. It is reported rather than done
+ * here because this function is deliberately free of side effects on the resident document -
+ * everything it learns, it learns from throwaway forks.
+ */
 export type CandidateVerdict =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly repair: boolean }
   | { readonly ok: false; readonly refusal: Rejection; readonly resync: boolean };
 
 /**
@@ -777,12 +833,10 @@ export function judgeCandidate(
   const ceilings = judgement.ceilings ?? strategy.ceilings;
   const pin = judgement.pin ?? SCHEMA_VERSION;
 
-  const fork = new Y.Doc();
+  let fork: Y.Doc;
   try {
-    Y.applyUpdate(fork, Y.encodeStateAsUpdate(resident));
-    Y.applyUpdate(fork, update);
+    fork = forkWith(resident, update);
   } catch (cause) {
-    fork.destroy();
     return {
       ok: false,
       refusal: rejection(
@@ -793,8 +847,51 @@ export function judgeCandidate(
     };
   }
 
-  const after = strategy.measure(fork);
+  let after = strategy.measure(fork);
   fork.destroy();
+
+  // The floor, before the refusal. A merged document that holds nothing is the one unparseable
+  // outcome a client can reach without having written anything wrong - the Yjs undo manager
+  // unwinds below the schema's `block+` minimum, which ProseMirror editing itself cannot do - and
+  // refusing it strands the client in a state it cannot edit its way out of. So the floor is put
+  // back and the update accepted, rather than the person's edit being dropped.
+  //
+  // A fresh fork, because measuring consumed the one above for the same reason the diagnosis
+  // below rebuilds its own: reading a fragment as prose drops what the schema does not know from
+  // the Yjs document itself, so a measured fork can no longer be asked anything. Every fork here
+  // is thrown away; the resident is not touched by anything in this function, which is what lets
+  // the caller treat a refusal as having left no trace.
+  //
+  // **Gated on the resident having parsed.** Without that, "the merged document has no blocks"
+  // also describes an update belonging to an entirely different body kind - a canvas keeps its
+  // scene in a Y.Map and leaves the prose fragment empty - and the backstop would answer a
+  // client talking to the wrong document by silently writing it an empty paragraph and accepting
+  // the update. Requiring the resident to be a document of this kind already is what makes this
+  // "a valid document fell through its floor" rather than "anything that does not parse".
+  let repair = false;
+  if (after === null && strategy.repair !== undefined && parsesAlone(resident, strategy)) {
+    try {
+      const mended = forkWith(resident, update);
+      try {
+        if (strategy.repair(mended)) {
+          // Re-measured, never assumed: a repair is honoured only if it actually produced a
+          // document this build could open again. Anything else - a fault the floor was not the
+          // cause of, a repaired document now over its schema pin - falls through to the refusal
+          // with the diagnosis intact, which is the outcome that tells an operator the truth.
+          const mendedMeasurement = strategy.measure(mended);
+          if (mendedMeasurement !== null) {
+            after = mendedMeasurement;
+            repair = true;
+          }
+        }
+      } finally {
+        mended.destroy();
+      }
+    } catch {
+      // A failed repair attempt is not a second failure mode to report; it simply means the
+      // update stays refused, which is what it already was.
+    }
+  }
 
   if (after === null) {
     // A second fork, built from the same two inputs, because measuring consumed the first: reading
@@ -882,7 +979,47 @@ export function judgeCandidate(
     }
   }
 
-  return { ok: true };
+  return { ok: true, repair };
+}
+
+/**
+ * Whether the resident document, as it stands and before any candidate update, is one this
+ * strategy can already read.
+ *
+ * Through a copy rather than by measuring the resident, because measuring is not read-only:
+ * reading a fragment as prose drops the nodes the schema does not know from the Yjs document
+ * itself. Asking the resident directly would mutate live state to answer a question about it,
+ * and on exactly the documents where the answer matters most.
+ */
+function parsesAlone(resident: Y.Doc, strategy: BodyKindStrategy): boolean {
+  const copy = new Y.Doc();
+  try {
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(resident));
+    return strategy.measure(copy) !== null;
+  } catch {
+    return false;
+  } finally {
+    copy.destroy();
+  }
+}
+
+/**
+ * A throwaway copy of the resident document with the candidate update applied.
+ *
+ * Throws when the update does not decode, which is the caller's `update_unreadable`. Every caller
+ * destroys what it gets back: these are short-lived and the resident document must never be
+ * reachable from one.
+ */
+function forkWith(resident: Y.Doc, update: Uint8Array): Y.Doc {
+  const fork = new Y.Doc();
+  try {
+    Y.applyUpdate(fork, Y.encodeStateAsUpdate(resident));
+    Y.applyUpdate(fork, update);
+  } catch (cause) {
+    fork.destroy();
+    throw cause;
+  }
+  return fork;
 }
 
 interface PrincipalRun {

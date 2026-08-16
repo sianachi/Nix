@@ -73,7 +73,7 @@ describe('body-kind dispatch', () => {
     editor.getMap('elements').set('b', element('b'));
     const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
 
-    expect(judgeCandidate(resident, goodUpdate, { strategy: canvasStrategy })).toEqual({
+    expect(judgeCandidate(resident, goodUpdate, { strategy: canvasStrategy })).toMatchObject({
       ok: true,
     });
     // The same update judged as prose would be refused: the map is not a fragment. That
@@ -108,7 +108,7 @@ describe('body-kind dispatch', () => {
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
     expect(
       judgeCandidate(resident, shrinkage, { strategy: canvasStrategy, ceilings: ceiling }),
-    ).toEqual({ ok: true });
+    ).toMatchObject({ ok: true });
 
     resident.destroy();
     grower.destroy();
@@ -183,7 +183,7 @@ describe('body-kind dispatch', () => {
     editor.getMap('sheet-cells').set('B1', { raw: '=A1*2' });
     const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
 
-    expect(judgeCandidate(resident, goodUpdate, { strategy: sheetStrategy })).toEqual({ ok: true });
+    expect(judgeCandidate(resident, goodUpdate, { strategy: sheetStrategy })).toMatchObject({ ok: true });
     // The same update judged as prose would be refused: the map is not a fragment. That
     // asymmetry is the whole reason dispatch exists.
     expect(judgeCandidate(resident, goodUpdate, { strategy: noteStrategy })).toMatchObject({
@@ -216,7 +216,7 @@ describe('body-kind dispatch', () => {
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
     expect(
       judgeCandidate(resident, shrinkage, { strategy: sheetStrategy, ceilings: ceiling }),
-    ).toEqual({ ok: true });
+    ).toMatchObject({ ok: true });
 
     resident.destroy();
     grower.destroy();
@@ -238,5 +238,117 @@ describe('body-kind dispatch', () => {
 
     expect(sheetStrategy.materialize(doc)).toMatchObject({ json: { cells: {} }, plaintext: '' });
     doc.destroy();
+  });
+});
+
+describe('the structural floor', () => {
+  /** A fragment holding an element the schema has never heard of: broken, but not empty. */
+  function unknownNode(): Y.Doc {
+    const state = new Y.Doc();
+    state.getXmlFragment('default').insert(0, [new Y.XmlElement('nodeThisBuildHasNeverHeardOf')]);
+    return state;
+  }
+
+  it('puts a paragraph back into a fragment that holds nothing', () => {
+    // `doc` is `block+`, so a fragment with no children is the one shape the schema refuses for
+    // a reason that is not about content at all - and the Yjs undo manager can reach it from
+    // below, where ProseMirror's own floor does not apply.
+    const state = new Y.Doc();
+
+    expect(noteStrategy.measure(state)).toBeNull();
+    expect(noteStrategy.repair?.(state)).toBe(true);
+
+    expect(state.getXmlFragment('default').length).toBe(1);
+    expect(noteStrategy.measure(state)).not.toBeNull();
+    state.destroy();
+  });
+
+  it('declines a document whose fault is its content rather than its floor', () => {
+    // The narrowness is the point: adding a paragraph beside a node the schema cannot read would
+    // not make the document parse, it would only make the refusal harder to read.
+    const state = unknownNode();
+
+    expect(noteStrategy.repair?.(state)).toBe(false);
+    state.destroy();
+  });
+
+  it('is not offered by kinds whose empty state is a legitimate document', () => {
+    // An empty canvas is a canvas and an empty sheet is a sheet. Neither has a floor to fall
+    // through, so neither carries a repair that would never fire.
+    expect(Object.hasOwn(canvasStrategy, 'repair')).toBe(false);
+    expect(Object.hasOwn(sheetStrategy, 'repair')).toBe(false);
+  });
+
+  it('accepts an emptying update rather than refusing it, and says it mended one', () => {
+    // The bug this closes: refusing the emptying leaves the client holding a document it cannot
+    // edit its way out of, because every subsequent update merges onto the same empty fragment
+    // and is refused for the same reason. Accepting it with the floor restored is the way out.
+    const resident = new Y.Doc();
+    resident.getXmlFragment('default').insert(0, [new Y.XmlElement('paragraph')]);
+
+    const emptying = new Y.Doc();
+    Y.applyUpdate(emptying, Y.encodeStateAsUpdate(resident));
+    const before = Y.encodeStateVector(emptying);
+    emptying.getXmlFragment('default').delete(0, 1);
+
+    const verdict = judgeCandidate(resident, Y.encodeStateAsUpdate(emptying, before), {
+      strategy: noteStrategy,
+    });
+
+    expect(verdict).toMatchObject({ ok: true, repair: true });
+    resident.destroy();
+    emptying.destroy();
+  });
+
+  it('leaves the resident document untouched while judging one', () => {
+    // The contract the whole function rests on: everything is learned from throwaway forks, so a
+    // caller may treat any verdict as having changed nothing. A repair that leaked into the
+    // resident here would apply the update twice at the call site.
+    const resident = new Y.Doc();
+    resident.getXmlFragment('default').insert(0, [new Y.XmlElement('paragraph')]);
+
+    const emptying = new Y.Doc();
+    Y.applyUpdate(emptying, Y.encodeStateAsUpdate(resident));
+    const before = Y.encodeStateVector(emptying);
+    emptying.getXmlFragment('default').delete(0, 1);
+
+    expect(
+      judgeCandidate(resident, Y.encodeStateAsUpdate(emptying, before), { strategy: noteStrategy }),
+    ).toMatchObject({ ok: true, repair: true });
+
+    expect(resident.getXmlFragment('default').length).toBe(1);
+    resident.destroy();
+    emptying.destroy();
+  });
+
+  it('refuses an update to a document that was never prose, rather than inventing a paragraph', () => {
+    // The gate that keeps this a floor and not a catch-all. A canvas keeps its scene in a Y.Map
+    // and leaves the prose fragment empty, so judged as prose it looks exactly like an emptied
+    // note - and answering a client that is talking about the wrong document by writing it a
+    // blank paragraph would be a worse failure than the refusal it replaced.
+    const canvas = canvasDocWith([element('a')]);
+    const resident = new Y.Doc();
+
+    const verdict = judgeCandidate(resident, Y.encodeStateAsUpdate(canvas), {
+      strategy: noteStrategy,
+    });
+
+    expect(verdict).toMatchObject({ ok: false, refusal: { code: 'document_does_not_parse' } });
+    canvas.destroy();
+    resident.destroy();
+  });
+
+  it('still refuses a document the floor was not the cause of, with its diagnosis intact', () => {
+    const reasons: string[] = [];
+    const resident = new Y.Doc();
+
+    const verdict = judgeCandidate(resident, Y.encodeStateAsUpdate(unknownNode()), {
+      strategy: noteStrategy,
+      diagnose: (reason) => reasons.push(reason),
+    });
+
+    expect(verdict).toMatchObject({ ok: false });
+    expect(reasons[0]).toContain('fragment held: nodeThisBuildHasNeverHeardOf');
+    resident.destroy();
   });
 });

@@ -160,6 +160,48 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     expect(textOf(writer.doc)).not.toContain('no-such-node-kind');
   });
 
+  it('mends a document a client emptied, instead of stranding the client on a refusal', async () => {
+    // The failure this closes, observed in a dev log: the Yjs undo manager unwinds below the
+    // schema's `block+` floor, which ProseMirror editing cannot do, and the emptying update
+    // reaches the server alone. Refusing it leaves the client holding a document every later
+    // update is refused against, for the same reason, with no edit that gets it out.
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const writer = open(harness.url);
+    const witness = open(harness.url);
+    await Promise.all([writer.ready, witness.ready]);
+
+    typeParagraph(writer.doc, 'Something worth keeping.');
+    await until(async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0, 'the first flush');
+
+    // Counted from here, not from zero: opening a brand-new document that nobody has written to
+    // yet legitimately draws a refusal, because an empty resident is not a document that fell
+    // through its floor - it is one that was never over it. That is the behaviour this mend is
+    // deliberately gated to leave alone, so the assertion below is about new refusals only.
+    const refusalsBefore = writer.notices.filter(
+      (notice) => notice.code === 'document_does_not_parse',
+    ).length;
+
+    // Straight at the shared document, below the editor: this is the seam under test, and what
+    // produced it upstream is the client guard's business rather than the server's.
+    const fragment = writer.doc.getXmlFragment('default');
+    writer.doc.transact(() => {
+      fragment.delete(0, fragment.length);
+    });
+
+    // No refusal, and the floor comes back on the writer's own document - which is the half a
+    // broadcast that skips the origin would miss, and the half that decides whether the client
+    // can go on editing.
+    await until(() => writer.doc.getXmlFragment('default').length > 0, 'the mended floor');
+    expect(
+      writer.notices.filter((notice) => notice.code === 'document_does_not_parse').length,
+    ).toBe(refusalsBefore);
+    expect(noteStrategy.measure(writer.doc)).not.toBeNull();
+
+    // Everyone else sees the same document, and it is the mended one rather than the empty one.
+    await until(() => witness.doc.getXmlFragment('default').length > 0, 'the witness catching up');
+    expect(textOf(witness.doc)).not.toContain('Something worth keeping.');
+  });
+
   it('tells a reader their edits are refused, and keeps their socket', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha));
     const reader = open(harness.url, 'as-reader');
@@ -264,7 +306,7 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     const shrinkage = Y.encodeStateAsUpdate(shrinker, Y.encodeStateVector(resident));
     expect(
       judgeCandidate(resident, shrinkage, { strategy: noteStrategy, ceilings: tinyCeiling }),
-    ).toEqual({ ok: true });
+    ).toMatchObject({ ok: true });
 
     resident.destroy();
     grower.destroy();
