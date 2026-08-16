@@ -22,9 +22,7 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     {
         var unlimited = MutatingEndpoints()
             .Where(endpoint => endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName
-                != (endpoint.RoutePattern.RawText == "/public/v1/forms/{token}"
-                    ? RateLimitRefusal.PublicFormsPolicyName
-                    : RateLimitRefusal.WritesPolicyName))
+                != ExpectedPolicy(endpoint.RoutePattern.RawText))
             .Select(endpoint => endpoint.DisplayName)
             .ToList();
 
@@ -57,6 +55,17 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
 
         Assert.Empty(raisedReads);
     }
+
+    /// <summary>
+    /// The policy each mutating route is expected to carry. The two unauthenticated public
+    /// surfaces carry their own windows; every other mutation shares the writes policy.
+    /// </summary>
+    private static string ExpectedPolicy(string? routePattern) => routePattern switch
+    {
+        "/public/v1/forms/{token}" => RateLimitRefusal.PublicFormsPolicyName,
+        "/public/v1/auth/token" => RateLimitRefusal.TokenExchangePolicyName,
+        _ => RateLimitRefusal.WritesPolicyName,
+    };
 
     private List<RouteEndpoint> MutatingEndpoints() =>
         [.. Routes().Where(IsMutating)];

@@ -23,6 +23,11 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <!-- Hosts the real Program against the container for the access-token lifecycle proof:
+         exchange, authenticated call, revocation taking effect inside a live JWT's lifetime.
+         The self-issued branch is the one authentication path that needs no external issuer,
+         which is what makes an end-to-end HTTP test possible here at all. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
 </Project>

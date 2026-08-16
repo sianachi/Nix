@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using Nix.Abstractions;
+using Nix.Domain.Identity;
+using Nix.Domain.Tenancy;
 
 namespace Nix.Authentication;
 
@@ -44,6 +46,7 @@ namespace Nix.Authentication;
 internal sealed class NixTokenValidator
 {
     private readonly IIdentityDirectory _directory;
+    private readonly SelfIssuedTokenService _selfIssued;
     // MapInboundClaims off, deliberately. The handler's legacy default rewrites standard JWT claim
     // names into WS-Federation URIs - `sub` becomes ...claims/nameidentifier - so a lookup for
     // "sub" silently finds nothing and every token is refused with no error to explain it.
@@ -83,10 +86,13 @@ internal sealed class NixTokenValidator
 
     /// <summary>Initializes a new instance of the <see cref="NixTokenValidator"/> class.</summary>
     /// <param name="directory">The pre-authentication lookups.</param>
-    public NixTokenValidator(IIdentityDirectory directory)
+    /// <param name="selfIssued">Core's own issuer, for tokens minted by the exchange endpoint.</param>
+    public NixTokenValidator(IIdentityDirectory directory, SelfIssuedTokenService selfIssued)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(selfIssued);
         _directory = directory;
+        _selfIssued = selfIssued;
     }
 
     /// <summary>
@@ -117,6 +123,17 @@ internal sealed class NixTokenValidator
         if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience))
         {
             return null;
+        }
+
+        // Core's own issuer, checked before the registration lookup for the same reason the
+        // lookup exists: the unvalidated `iss` only ever selects which trusted configuration to
+        // validate against. This branch selects a locally-held public key instead of a fetched
+        // key set; a forged `iss` naming Core's issuer still faces the signature check, and an
+        // unconfigured self-issuer makes the branch unreachable rather than permissive.
+        if (_selfIssued.IsConfigured
+            && string.Equals(issuer, _selfIssued.Issuer, StringComparison.Ordinal))
+        {
+            return await ValidateSelfIssuedAsync(token).ConfigureAwait(false);
         }
 
         var registration = await _directory
@@ -166,11 +183,51 @@ internal sealed class NixTokenValidator
             var subject = result.ClaimsIdentity.FindFirst("sub")?.Value;
             return string.IsNullOrWhiteSpace(subject)
                 ? null
-                : new ValidatedToken(registration, subject);
+                : new ValidatedToken(registration.TenantId, subject, AccessTokenId: null);
         }
         catch (SecurityTokenException)
         {
             // An invalid token is an expected outcome on a public endpoint, not an exceptional one.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Validates a token claiming Core's own issuer, against the locally-held key.
+    /// </summary>
+    /// <param name="token">The raw bearer token.</param>
+    /// <returns>
+    /// The tenant, subject and token row it names, or <see langword="null"/> on any defect. A
+    /// signed token missing the tenant or token-row claim was not minted by the exchange endpoint
+    /// and is refused whole rather than half-trusted.
+    /// </returns>
+    private async ValueTask<ValidatedToken?> ValidateSelfIssuedAsync(string token)
+    {
+        try
+        {
+            var result = await _handler
+                .ValidateTokenAsync(token, _selfIssued.CreateValidationParameters())
+                .ConfigureAwait(false);
+
+            if (!result.IsValid)
+            {
+                return null;
+            }
+
+            var subject = result.ClaimsIdentity.FindFirst("sub")?.Value;
+            if (string.IsNullOrWhiteSpace(subject)
+                || !SelfIssuedTokenService.TryReadClaims(
+                    result.ClaimsIdentity,
+                    out var tenantId,
+                    out var accessTokenId))
+            {
+                return null;
+            }
+
+            return new ValidatedToken(tenantId, subject, accessTokenId);
+        }
+        catch (SecurityTokenException)
+        {
             return null;
         }
     }
@@ -229,6 +286,14 @@ internal sealed class NixTokenValidator
 }
 
 /// <summary>A token that validated, and what it says.</summary>
-/// <param name="Registration">The issuer registration it validated against.</param>
+/// <param name="TenantId">The tenant the issuer it validated against belongs to.</param>
 /// <param name="Subject">The issuer's stable subject claim.</param>
-internal sealed record ValidatedToken(IdentityProviderRegistration Registration, string Subject);
+/// <param name="AccessTokenId">
+/// The personal access token behind a self-issued session, or <see langword="null"/> for an
+/// interactive one. Presence is what the unit-of-work middleware branches on: a session with one
+/// re-checks the row and runs under its scopes; a session without one is a person.
+/// </param>
+internal sealed record ValidatedToken(
+    TenantId TenantId,
+    string Subject,
+    PersonalAccessTokenId? AccessTokenId);

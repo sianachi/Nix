@@ -652,10 +652,111 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/tokens': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The caller's personal access tokens
+     * @description Returns every token the calling principal has issued, newest first, revoked and expired ones included: the list is an audit of what has been able to act as this principal, and an audit that forgets is not one. The secret is never here - it was shown once, at creation, and only its hash is stored.
+     */
+    get: operations['ListAccessTokens'];
+    put?: never;
+    /**
+     * Mint a personal access token
+     * @description Mints a token that authenticates a non-browser client as the calling principal, within the ceiling the request chooses: scopes from 'read', 'write' and 'admin', and an expiry of 1 to 365 days - both required, neither defaulted. The response is the only place the secret ever appears; store it or lose it. A token only narrows: every request it authenticates still resolves the principal's own permissions, so it can never do what its issuer cannot. Fails with 'tokens.invalid' when the name, scopes or expiry cannot mint a token, and 'tokens.limit_reached' when the caller already holds the most live tokens one principal may.
+     */
+    post: operations['CreateAccessToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/tokens/{tokenId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Revoke a personal access token
+     * @description Ends a token immediately: the next request it would have authenticated is refused, without waiting out any session already exchanged. Idempotent, and scoped to the caller's own tokens - revoking one twice, one that never existed, and one belonging to somebody else all answer 204, because telling them apart would answer, for any identifier, whether it names a row.
+     */
+    delete: operations['RevokeAccessToken'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/public/v1/auth/token': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Exchange a personal access token for a short-lived session
+     * @description Turns a personal access token into a JWT that every Nix service accepts as a bearer token, for a few minutes. Exchange again before it runs out - the personal access token lives until its chosen expiry or its revocation, and revocation does not wait for an exchanged session to expire: every request is re-checked against the token row. Fails with 'auth.unauthenticated' for a token that does not authenticate, 'auth.token_revoked' and 'auth.token_expired' for one that did and no longer does, and 'auth.principal_inactive' when the principal behind it may no longer act.
+     */
+    post: operations['ExchangeAccessToken'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/public/v1/auth/jwks': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The public keys exchanged sessions are signed with
+     * @description An RFC 7517 key set. The collaboration and media services list Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.
+     */
+    get: operations['GetAccessTokenSigningKeys'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    AccessTokenListResponse: {
+      tokens: components['schemas']['AccessTokenResponse'][];
+    };
+    AccessTokenResponse: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      scopes: string[];
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: date-time */
+      revokedAt: null | string;
+      /** Format: date-time */
+      lastUsedAt: null | string;
+    };
     AclEntryResponse: {
       /** Format: uuid */
       id: string;
@@ -706,6 +807,16 @@ export interface components {
       views: components['schemas']['ViewResponse'][];
       unrenderable: string[];
       default: string;
+    };
+    CreateAccessTokenRequest: {
+      name: null | string;
+      scopes: null | string[];
+      /** Format: int32 */
+      expiresInDays: null | number | string;
+    };
+    CreatedAccessTokenResponse: {
+      token: string;
+      details: components['schemas']['AccessTokenResponse'];
     };
     CreateItemRequest: {
       type: string;
@@ -831,6 +942,18 @@ export interface components {
     JsonArray: unknown[];
     JsonObject: {
       [key: string]: unknown;
+    };
+    JwkResponse: {
+      kty: string;
+      crv: string;
+      x: string;
+      y: string;
+      kid: string;
+      use: string;
+      alg: string;
+    };
+    JwksResponse: {
+      keys: components['schemas']['JwkResponse'][];
     };
     KeptItemResponse: {
       /** Format: uuid */
@@ -1011,6 +1134,15 @@ export interface components {
     SubmitPublicFormRequest: {
       answers: null | Record<string, never>;
       website: null | string;
+    };
+    TokenExchangeRequest: {
+      token: null | string;
+    };
+    TokenExchangeResponse: {
+      accessToken: string;
+      tokenType: string;
+      /** Format: int64 */
+      expiresInSeconds: number | string;
     };
     UnplaceableCalendarResponse: {
       /** Format: uuid */
@@ -2675,6 +2807,159 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  ListAccessTokens: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AccessTokenListResponse'];
+        };
+      };
+    };
+  };
+  CreateAccessToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateAccessTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreatedAccessTokenResponse'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RevokeAccessToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tokenId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ExchangeAccessToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TokenExchangeRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TokenExchangeResponse'];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetAccessTokenSigningKeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['JwksResponse'];
+        };
       };
     };
   };
