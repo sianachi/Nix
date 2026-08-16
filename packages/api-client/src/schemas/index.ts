@@ -44,6 +44,17 @@ export {
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
 export {
+  ACCESS_TOKEN_SCOPES,
+  accessTokenListSchema,
+  accessTokenSchema,
+  createdAccessTokenSchema,
+  tokenExchangeResponseSchema,
+  type AccessToken,
+  type AccessTokenList,
+  type CreatedAccessToken,
+  type TokenExchangeResponse,
+} from './access-tokens.js';
+export {
   itemQueryResultsSchema,
   queryResultSchema,
   type ItemQueryResults,

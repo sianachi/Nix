@@ -140,6 +140,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the revocable capabilities for published interactive forms.</summary>
     public DbSet<PublicFormLink> PublicFormLinks => Set<PublicFormLink>();
 
+    /// <summary>Gets the credentials principals issued for non-browser clients.</summary>
+    public DbSet<PersonalAccessToken> PersonalAccessTokens => Set<PersonalAccessToken>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -176,6 +179,7 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<AclEntryId>().HaveConversion<NixIdConverter<AclEntryId>>();
         configurationBuilder.Properties<AuditEventId>().HaveConversion<NixIdConverter<AuditEventId>>();
         configurationBuilder.Properties<ContentDocId>().HaveConversion<NixIdConverter<ContentDocId>>();
+        configurationBuilder.Properties<PersonalAccessTokenId>().HaveConversion<NixIdConverter<PersonalAccessTokenId>>();
     }
 
     /// <inheritdoc />
@@ -216,5 +220,6 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
+        modelBuilder.ApplyConfiguration(new PersonalAccessTokenConfiguration());
     }
 }
