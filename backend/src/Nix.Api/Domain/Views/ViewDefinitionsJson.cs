@@ -97,6 +97,10 @@ public static class ViewDefinitionsJson
     private const string FilterPropertyKey = "property";
     private const string FilterOperatorKey = "operator";
     private const string FilterValueKey = "value";
+    private const string CompanionViewIdKey = "companionViewId";
+    private const string CompanionPlacementKey = "companionPlacement";
+    private const string InteractiveFormKey = "interactiveForm";
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// Reads a stored view set.
@@ -235,6 +239,17 @@ public static class ViewDefinitionsJson
                 entry[FiltersKey] = filters;
             }
 
+            if (view.CompanionViewId is not null)
+            {
+                entry[CompanionViewIdKey] = view.CompanionViewId;
+                entry[CompanionPlacementKey] = view.CompanionPlacement;
+            }
+
+            if (view.InteractiveForm is not null)
+            {
+                entry[InteractiveFormKey] = JsonSerializer.SerializeToNode(view.InteractiveForm, WebJson);
+            }
+
             stored.Add(entry);
         }
 
@@ -305,7 +320,22 @@ public static class ViewDefinitionsJson
             ReadString(view[CoverPropertyKey]),
             ReadString(view[EndDatePropertyKey]),
             ReadCardSize(view[CardSizeKey]),
-            ReadFilters(view[FiltersKey]));
+            ReadFilters(view[FiltersKey]),
+            ReadString(view[CompanionViewIdKey]),
+            ReadString(view[CompanionPlacementKey]),
+            ReadInteractiveForm(view[InteractiveFormKey]));
+    }
+
+    private static InteractiveFormDefinition? ReadInteractiveForm(JsonNode? node)
+    {
+        try
+        {
+            return node?.Deserialize<InteractiveFormDefinition>(WebJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

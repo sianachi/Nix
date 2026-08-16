@@ -44,6 +44,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/structured-items': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CreateStructuredItem'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/canvas-library': {
     parameters: {
       query?: never;
@@ -62,6 +78,38 @@ export interface paths {
      */
     put: operations['SaveCanvasLibrary'];
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/views/{viewId}/public-link': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPublicFormStatus'];
+    put: operations['PublishPublicForm'];
+    post?: never;
+    delete: operations['RevokePublicForm'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/public/v1/forms/{token}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPublicForm'];
+    put?: never;
+    post: operations['SubmitPublicForm'];
     delete?: never;
     options?: never;
     head?: never;
@@ -240,6 +288,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/view-setups': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AppendViewSetup'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/view-setups/{viewId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['ReplaceViewSetup'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/schema': {
     parameters: {
       query?: never;
@@ -293,12 +373,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form' and 'query') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form' or 'query'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query' or 'interactive_form'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -591,6 +671,12 @@ export interface components {
       /** Format: uuid */
       inheritedFromItemId: null | string;
     };
+    AppendViewSetupRequest: {
+      properties: components['schemas']['PropertyDefinitionRequest'][];
+      views: components['schemas']['ViewRequest'][];
+      makeDefault: boolean;
+      publishInteractiveFormViewId: null | string;
+    };
     BacklinkResponse: {
       source: components['schemas']['SearchHitResponse'];
       /** Format: int32 */
@@ -628,6 +714,15 @@ export interface components {
       parentId: null | string;
       properties: null | components['schemas']['JsonObject'];
     };
+    CreateStructuredItemRequest: {
+      type: string;
+      title: string;
+      /** Format: uuid */
+      parentId: null | string;
+      schema: components['schemas']['SetSchemaRequest'];
+      views: components['schemas']['SetViewsRequest'];
+      publishInteractiveFormViewId: null | string;
+    };
     CurrentPrincipalResponse: {
       /** Format: uuid */
       id: string;
@@ -659,6 +754,28 @@ export interface components {
       operator: string;
       value: string;
     };
+    FormBlockContract: {
+      id: string;
+      kind: string;
+      propertyKey: null | string;
+      text: string;
+      help: null | string;
+      required: boolean;
+      identityRole: null | string;
+      visibleWhen: components['schemas']['FormConditionContract'][];
+    };
+    FormConditionContract: {
+      fieldBlockId: string;
+      operator: string;
+      value: null | string;
+    };
+    FormPageContract: {
+      id: string;
+      title: string;
+      description: null | string;
+      visibleWhen: components['schemas']['FormConditionContract'][];
+      blocks: components['schemas']['FormBlockContract'][];
+    };
     GraphLinkResponse: {
       /** Format: uuid */
       sourceId: string;
@@ -676,6 +793,13 @@ export interface components {
     HealthCheckResponse: {
       name: string;
       status: string;
+    };
+    InteractiveFormContract: {
+      pages: components['schemas']['FormPageContract'][];
+      titleMode: string;
+      titleFieldBlockId: null | string;
+      confirmationTitle: string;
+      confirmationMessage: string;
     };
     ItemPermissionsResponse: {
       /** Format: uuid */
@@ -753,6 +877,45 @@ export interface components {
       options: string[];
       required: boolean;
     };
+    PublicFormBlockResponse: {
+      id: string;
+      kind: string;
+      text: string;
+      help: null | string;
+      required: boolean;
+      identityRole: null | string;
+      visibleWhen: components['schemas']['FormConditionContract'][];
+    };
+    PublicFormDefinitionResponse: {
+      pages: components['schemas']['PublicFormPageResponse'][];
+      confirmationTitle: string;
+      confirmationMessage: string;
+    };
+    PublicFormLinkResponse: {
+      published: boolean;
+      url: null | string;
+      /** Format: date-time */
+      publishedAt: null | string;
+      /** Format: date-time */
+      revokedAt: null | string;
+    };
+    PublicFormPageResponse: {
+      id: string;
+      title: string;
+      description: null | string;
+      visibleWhen: components['schemas']['FormConditionContract'][];
+      blocks: components['schemas']['PublicFormBlockResponse'][];
+    };
+    PublicFormPropertyResponse: {
+      blockId: string;
+      type: string;
+      options: string[];
+    };
+    PublicInteractiveFormResponse: {
+      name: string;
+      form: components['schemas']['PublicFormDefinitionResponse'];
+      fields: components['schemas']['PublicFormPropertyResponse'][];
+    };
     QueryResultResponse: {
       /** Format: uuid */
       id: string;
@@ -783,6 +946,12 @@ export interface components {
     };
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
+    };
+    ReplaceViewSetupRequest: {
+      schema: components['schemas']['SetSchemaRequest'];
+      originalPropertyKeys: string[];
+      views: components['schemas']['ViewRequest'][];
+      publishInteractiveFormViewId: null | string;
     };
     RoleGrantResponse: {
       subjectType: string;
@@ -833,6 +1002,16 @@ export interface components {
       /** Format: int32 */
       hidden: number | string;
     };
+    StructuredItemResponse: {
+      item: components['schemas']['ItemResponse'];
+      schema: components['schemas']['EffectiveSchemaResponse'];
+      views: components['schemas']['ContainerViewsResponse'];
+      publicForm: null | components['schemas']['PublicFormLinkResponse'];
+    };
+    SubmitPublicFormRequest: {
+      answers: null | Record<string, never>;
+      website: null | string;
+    };
     UnplaceableCalendarResponse: {
       /** Format: uuid */
       containerId: string;
@@ -865,6 +1044,9 @@ export interface components {
       endDateProperty: null | string;
       cardSize: null | string;
       filters: null | components['schemas']['FilterRuleContract'][];
+      companionViewId: null | string;
+      companionPlacement: null | string;
+      interactiveForm: null | components['schemas']['InteractiveFormContract'];
     };
     ViewResponse: {
       id: string;
@@ -881,6 +1063,9 @@ export interface components {
       endDateProperty: null | string;
       cardSize: null | string;
       filters: components['schemas']['FilterRuleContract'][];
+      companionViewId: null | string;
+      companionPlacement: null | string;
+      interactiveForm: null | components['schemas']['InteractiveFormContract'];
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -983,6 +1168,59 @@ export interface operations {
       };
     };
   };
+  CreateStructuredItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateStructuredItemRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StructuredItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   GetCanvasLibrary: {
     parameters: {
       query?: never;
@@ -1027,6 +1265,184 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetPublicFormStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        viewId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PublicFormLinkResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PublishPublicForm: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        viewId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PublicFormLinkResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RevokePublicForm: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        viewId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PublicFormLinkResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetPublicForm: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        token: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PublicInteractiveFormResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SubmitPublicForm: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        token: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SubmitPublicFormRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -1463,6 +1879,113 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AppendViewSetup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AppendViewSetupRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StructuredItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ReplaceViewSetup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        viewId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReplaceViewSetupRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StructuredItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

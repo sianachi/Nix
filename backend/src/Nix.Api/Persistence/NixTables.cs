@@ -80,6 +80,9 @@ public static class NixTables
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
+    /// <summary>One revocable capability per published item view.</summary>
+    public const string PublicFormLink = "public_form_link";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -105,6 +108,7 @@ public static class NixTables
         ItemSearch,
         CanvasLibrary,
         Bookmark,
+        PublicFormLink,
     ];
 
     /// <summary>
@@ -155,6 +159,7 @@ public static class NixTables
             // A bookmark is personal state the application both reads and writes on the reader's
             // behalf: keeping one is the whole feature, and there is no other service that owns it.
             [Bookmark] = FullDml,
+            [PublicFormLink] = FullDml,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 

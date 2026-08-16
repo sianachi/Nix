@@ -7,6 +7,7 @@ using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
+using Nix.Domain.Views;
 using Nix.Persistence.Configurations;
 using Nix.Persistence.Conversion;
 
@@ -136,6 +137,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>The items each principal has kept.</summary>
     public DbSet<Bookmark> Bookmarks => Set<Bookmark>();
 
+    /// <summary>Gets the revocable capabilities for published interactive forms.</summary>
+    public DbSet<PublicFormLink> PublicFormLinks => Set<PublicFormLink>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -211,5 +215,6 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
+        modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
     }
 }

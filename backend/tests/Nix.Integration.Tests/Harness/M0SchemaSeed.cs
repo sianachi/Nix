@@ -173,6 +173,14 @@ internal static class M0SchemaSeed
             -- seed holds one item per tenant, so this is the only pair there is to make.
             INSERT INTO bookmark (principal_id, tenant_id, item_id, created_at)
             VALUES ({principal}, {tenant}, {item}, now());
+
+            -- One published capability so the generic tenant-isolation theories exercise the
+            -- public link table exactly as they do every other tenant-scoped table.
+            INSERT INTO public_form_link
+                (id, tenant_id, workspace_id, item_id, view_id, nonce,
+                 submission_principal_id, published_by, published_at, revoked_at)
+            VALUES ({auditEvent}, {tenant}, {workspace}, {item}, 'form', '{slug}-nonce',
+                    {principal}, {principal}, now(), NULL);
             """;
     }
 
