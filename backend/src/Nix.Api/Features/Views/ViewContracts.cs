@@ -70,7 +70,10 @@ internal sealed record ViewResponse(
     string? CoverProperty,
     string? EndDateProperty,
     string? CardSize,
-    IReadOnlyList<FilterRuleContract> Filters);
+    IReadOnlyList<FilterRuleContract> Filters,
+    string? CompanionViewId,
+    string? CompanionPlacement,
+    InteractiveFormContract? InteractiveForm);
 
 /// <summary>One condition of a query view.</summary>
 /// <param name="Property">The property key the condition tests, matched across containers.</param>
@@ -89,6 +92,32 @@ internal sealed record ViewResponse(
 /// spans containers, and a rule naming a property nothing declares simply matches nothing.
 /// </remarks>
 internal sealed record FilterRuleContract(string Property, string Operator, string Value);
+
+internal sealed record FormConditionContract(string FieldBlockId, string Operator, string? Value);
+
+internal sealed record FormBlockContract(
+    string Id,
+    string Kind,
+    string? PropertyKey,
+    string Text,
+    string? Help,
+    bool Required,
+    string? IdentityRole,
+    IReadOnlyList<FormConditionContract> VisibleWhen);
+
+internal sealed record FormPageContract(
+    string Id,
+    string Title,
+    string? Description,
+    IReadOnlyList<FormConditionContract> VisibleWhen,
+    IReadOnlyList<FormBlockContract> Blocks);
+
+internal sealed record InteractiveFormContract(
+    IReadOnlyList<FormPageContract> Pages,
+    string TitleMode,
+    string? TitleFieldBlockId,
+    string ConfirmationTitle,
+    string ConfirmationMessage);
 
 /// <summary>
 /// The views a container offers.
@@ -169,4 +198,7 @@ internal sealed record ViewRequest(
     string? CoverProperty,
     string? EndDateProperty,
     string? CardSize,
-    IReadOnlyList<FilterRuleContract>? Filters);
+    IReadOnlyList<FilterRuleContract>? Filters,
+    string? CompanionViewId,
+    string? CompanionPlacement,
+    InteractiveFormContract? InteractiveForm);

@@ -29,6 +29,7 @@ import { useAuth } from '../auth/auth-provider';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { ExportDialog } from '../export/export-dialog';
 import { PaneGroup } from '../panes/pane-group';
+import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
 import { usePanes, type PaneState } from '../panes/pane-state';
 import { usePaneCycling } from '../panes/use-pane-cycling';
@@ -370,6 +371,7 @@ function OpenItem({
   // and a closed one keeps no half-chosen format from last time.
   const [exportOpen, setExportOpen] = useState(false);
   const { getAccessToken } = useAuth();
+  const paneIndex = usePaneIndex();
 
   function togglePanel(): void {
     setPanelOpen((current) => {
@@ -517,7 +519,45 @@ function OpenItem({
                   dormant is that the view inside brings its own and this can shrink to fit around
                   it. See `paneScroller`. */}
               <div className={paneScroller}>
-                <ContainerView container={container} view={active} onOpen={onOpen} />
+                {active.companionViewId === null || active.companionViewId === undefined ? (
+                  <ContainerView container={container} view={active} onOpen={onOpen} />
+                ) : (
+                  <div
+                    className={
+                      active.companionPlacement === 'beside'
+                        ? 'flex flex-col gap-4 lg:flex-row'
+                        : 'flex flex-col gap-4'
+                    }
+                  >
+                    <section aria-label={active.name} className="min-w-0 flex-1">
+                      <ContainerView container={container} view={active} onOpen={onOpen} />
+                    </section>
+                    <section
+                      aria-label={
+                        views.find((candidate) => candidate.id === active.companionViewId)?.name ??
+                        'Companion view'
+                      }
+                      className={
+                        active.companionPlacement === 'beside'
+                          ? 'min-w-0 flex-1 border-t border-divider pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0'
+                          : 'min-w-0 flex-1 border-t border-divider pt-4'
+                      }
+                    >
+                      {/* A distinct URL-state scope keeps filters and modes in one half from
+                          changing the other. The offset is beyond the real pane limit. */}
+                      <PaneProvider index={paneIndex + 3}>
+                        <ContainerView
+                          container={container}
+                          view={
+                            views.find((candidate) => candidate.id === active.companionViewId) ??
+                            null
+                          }
+                          onOpen={onOpen}
+                        />
+                      </PaneProvider>
+                    </section>
+                  </div>
+                )}
               </div>
             </section>
           )}
