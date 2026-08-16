@@ -16,6 +16,9 @@
        row-level security, grants, and SET LOCAL scoping only exist in the database. -->
   <ItemGroup>
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <!-- Transitive of Testcontainers.PostgreSql; 2025.1.0 carries GHSA-q939-rpr3-3284
+         (high). Lifted to a direct reference to force the patched version. -->
+    <PackageReference Include="SSH.NET" />
     <PackageReference Include="Respawn" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
