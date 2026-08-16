@@ -54,19 +54,21 @@ describe('creating an item', () => {
   it('opens the parent so a child made inside a closed one is not invisible', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT, CHILD] });
-    renderAt(<App />);
+    renderAt(<App />, `/?item=${PARENT.id}`);
 
-    // Select the parent without expanding it, so the new child lands somewhere closed.
-    await user.click(await screen.findByRole('button', { name: 'Engineering' }));
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /new item in engineering/i })).toBeVisible();
-    });
+    // Open the parent without expanding it, so the new child lands somewhere closed.
+    await screen.findByRole('button', { name: 'Engineering' });
 
-    await user.click(screen.getByRole('button', { name: /new item in engineering/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new note in engineering/i }));
+    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+    await user.click(screen.getByRole('checkbox', { name: /create inside engineering/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /new note inside engineering/i }));
 
     // A creation you cannot see reads as a creation that failed.
     expect(await screen.findByRole('button', { name: /collapse engineering/i })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Untitled note' }).closest('ul')).toHaveAttribute(
+      'role',
+      'group',
+    );
   });
 
   it('says what the server said when it refuses', async () => {
@@ -119,7 +121,7 @@ describe('the new-item menu', () => {
   it('offers every kind the client can draw, and closes once one is chosen', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
-    renderAt(<App />);
+    renderAt(<App />, `/?item=${PARENT.id}`);
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
@@ -130,6 +132,11 @@ describe('the new-item menu', () => {
     expect(
       screen.getByRole('menuitem', { name: /new spreadsheet in the workspace/i }),
     ).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: /create inside engineering/i })).not.toBeChecked();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+    expect(screen.queryByText('Today')).not.toBeInTheDocument();
+    expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
+    expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('menuitem', { name: /new note in the workspace/i }));
 

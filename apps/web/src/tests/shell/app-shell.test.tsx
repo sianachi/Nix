@@ -161,6 +161,19 @@ describe('the shell', () => {
     // One list, ordered commands then items, so a single run of arrow keys walks the whole answer.
     expect(await screen.findByRole('option', { name: /New note/ })).toBeVisible();
   });
+
+  it('creates a command-palette note at the workspace root even when another note is open', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+
+    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.type(screen.getByRole('combobox', { name: /search items/i }), 'note');
+    await user.click(await screen.findByRole('option', { name: /New note/ }));
+
+    const created = await screen.findByRole('button', { name: 'Untitled note' });
+    expect(created.closest('ul')).toHaveAttribute('role', 'tree');
+  });
 });
 
 describe('the profile menu', () => {
