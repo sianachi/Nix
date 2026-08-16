@@ -28,6 +28,8 @@ export function aContainer(overrides: Partial<ContainerData> = {}): ContainerDat
     setPropertiesMany: () => Promise.resolve({ saved: 0, refused: [] }),
     setSchema: () => Promise.resolve(null),
     setViews: () => Promise.resolve(null),
+    appendViewSetup: () => Promise.resolve(null),
+    replaceViewSetup: () => Promise.resolve(null),
     setDefaultView: () => Promise.resolve(null),
     reload: () => Promise.resolve(),
     ...overrides,

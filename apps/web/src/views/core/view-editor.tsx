@@ -1,13 +1,21 @@
-import { Button, Field, Icon, Input, Segmented, Select, Text, fieldLabel } from '@nix/ui';
+import { Button, Icon, Text } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router';
 
-import { FilterRulesEditor } from '../query/filter-rules-editor';
+import { STRUCTURED_RECIPES } from '../wizard/structured-recipes';
 import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
-import { TEMPLATES, applyTemplate, type Template } from './templates';
-import { VIEW_KINDS, findViewKind, type ViewChoice } from './view-kinds';
+import { findViewKind } from './view-kinds';
+
+function guidedRecipeFor(kind: string): (typeof STRUCTURED_RECIPES)[number] | null {
+  return (
+    STRUCTURED_RECIPES.find((recipe) => recipe.viewKind === kind && recipe.menu === 'structured') ??
+    STRUCTURED_RECIPES.find((recipe) => recipe.viewKind === kind) ??
+    null
+  );
+}
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -31,86 +39,6 @@ export interface ViewEditorProps {
   readonly inline?: boolean;
 }
 
-interface ChoiceBlockProps {
-  readonly choice: ViewChoice;
-
-  /** What the view stores, which may be null or a token this build does not offer. */
-  readonly value: string | null;
-
-  readonly onChange: (value: string) => void;
-}
-
-/**
- * One closed-set choice: a caption, a segmented control, and the sentence explaining it.
- *
- * **Its own component because the sentence needs an id, and an id needs a hook.** The hint used to
- * be a `<Text>` sitting loose beneath the group - visible to a reader, invisible to a screen
- * reader, which landed on the group, heard three unexplained words ("Small Medium Large") and had
- * no way to reach the explanation. `useId` cannot be called inside the `.map` that draws these, so
- * the block is a component rather than a fragment.
- *
- * Not `<Field>`: its label wires `htmlFor` to one labelable control, and a group of buttons is not
- * one. So the caption and the description are carried here, with the group's name coming from
- * `label` and its description from `describedBy`.
- */
-function ChoiceBlock({ choice, value, onChange }: ChoiceBlockProps): ReactNode {
-  const hintId = useId();
-
-  // Resolved against the options rather than passed through, so a token stored by a newer build
-  // marks the same option current that the renderer will actually draw. A raw `value ?? fallback`
-  // would mark nothing current and leave the control looking unset.
-  const current = choice.options.find((option) => option.value === value)?.value ?? choice.fallback;
-
-  return (
-    <div className="flex flex-col gap-1">
-      {/* Hidden from assistive technology because the group already announces the same words as
-          its name; a visible caption keeps the block reading like the fields above it. */}
-      <span aria-hidden="true" className={fieldLabel}>
-        {choice.label}
-      </span>
-
-      <Segmented
-        label={choice.label}
-        options={choice.options}
-        value={current}
-        onChange={onChange}
-        describedBy={hintId}
-        className="self-start"
-      />
-
-      <Text variant="note" tone="muted" id={hintId}>
-        {choice.hint}
-      </Text>
-    </div>
-  );
-}
-
-/**
- * An identifier for a new view.
- *
- * Derived from the name, because a shared link carries it and `by-status` in an address is worth
- * more than a random string. Uniqueness is checked below rather than assumed; the server refuses a
- * duplicate anyway, and catching it here says which name to change.
- */
-function idFor(name: string, taken: readonly string[]): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'view';
-
-  if (!taken.includes(base)) {
-    return base;
-  }
-
-  let suffix = 2;
-  while (taken.includes(`${base}-${String(suffix)}`)) {
-    suffix += 1;
-  }
-
-  return `${base}-${String(suffix)}`;
-}
-
 export function ViewEditor({
   container,
   open,
@@ -118,11 +46,11 @@ export function ViewEditor({
   inline = false,
 }: ViewEditorProps): ReactNode {
   const stored = container.views?.views ?? [];
-  const schema = container.schema?.properties ?? [];
-
   const [draft, setDraft] = useState<readonly View[]>(stored);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const navigate = useNavigate();
 
   const [openedWith, setOpenedWith] = useState(open);
   if (open !== openedWith) {
@@ -131,15 +59,6 @@ export function ViewEditor({
       setDraft(stored);
       setError(null);
     }
-  }
-
-  // Which properties a kind may be configured from is the kind's own business, declared once in
-  // the registry. Offering the rest would let somebody configure a view that cannot draw.
-
-  function update(index: number, change: Partial<View>): void {
-    setDraft((current) =>
-      current.map((view, position) => (position === index ? { ...view, ...change } : view)),
-    );
   }
 
   function move(index: number, by: number): void {
@@ -157,29 +76,6 @@ export function ViewEditor({
       next[target] = moved;
       return next;
     });
-  }
-
-  /**
-   * Applies a template and closes.
-   *
-   * It writes through the container rather than into this editor's draft, because a template sets
-   * a schema as well as views and the schema is not this form's to hold. Closing on success is the
-   * honest end: what it did is on the screen behind, not in here.
-   */
-  async function applyChosen(template: Template): Promise<void> {
-    setSaving(true);
-    setError(null);
-
-    const refusal = await applyTemplate(template, container);
-
-    setSaving(false);
-
-    if (refusal === null) {
-      onClose();
-      return;
-    }
-
-    setError(refusal);
   }
 
   async function save(): Promise<void> {
@@ -239,69 +135,33 @@ export function ViewEditor({
           </Text>
         ) : null}
 
-        {/* Offered first, and only while there is nothing configured. Somebody who has already
-            built a view does not want a row of buttons that would add a second one beside it. */}
-        {draft.length === 0 ? (
-          <div className="flex flex-col gap-2 rounded-md bg-surface p-3">
-            <Text variant="note" tone="muted">
-              Start from a template
-            </Text>
-
-            <div className="flex flex-wrap gap-2">
-              {TEMPLATES.map((template) => (
-                <Button
-                  key={template.id}
-                  variant="secondary"
-                  className="flex-col items-start gap-0.5 px-3 py-2 text-left"
-                  disabled={saving}
-                  onClick={() => {
-                    void applyChosen(template);
-                  }}
-                >
-                  <span>{template.label}</span>
-                  <Text variant="caption" as="span" tone="muted">
-                    {template.detail}
-                  </Text>
-                </Button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         {draft.map((view, index) => (
           <div key={view.id} className="flex flex-col gap-2 border border-divider p-3">
-            <div className="flex items-end gap-2">
-              <Field label="Name" className="flex-1">
-                {(control) => (
-                  <Input
-                    {...control}
-                    value={view.name}
-                    onChange={(event) => {
-                      // The name changes; the identifier does not. A link somebody shared names
-                      // the view, and renaming it must not break their link.
-                      update(index, { name: event.target.value });
-                    }}
-                  />
-                )}
-              </Field>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Text variant="bodySmall" className="truncate">
+                  {view.name}
+                </Text>
+                <Text variant="caption" tone="muted">
+                  {findViewKind(view.kind)?.label ?? view.kind}
+                  {view.companionViewId === null ? '' : ' · Has companion'}
+                </Text>
+              </div>
 
-              <Field label="Shown as" className="w-[150px]">
-                {(control) => (
-                  <Select
-                    {...control}
-                    value={view.kind}
-                    onChange={(event) => {
-                      update(index, { kind: event.target.value });
-                    }}
-                  >
-                    {VIEW_KINDS.map((descriptor) => (
-                      <option key={descriptor.kind} value={descriptor.kind}>
-                        {descriptor.label}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
+              <Button
+                variant="secondary"
+                disabled={container.itemId === null || guidedRecipeFor(view.kind) === null}
+                onClick={() => {
+                  const guidedRecipe = guidedRecipeFor(view.kind);
+                  if (container.itemId !== null && guidedRecipe !== null) {
+                    void navigate(
+                      `/items/${container.itemId}/views/${encodeURIComponent(view.id)}/edit/${guidedRecipe.id}`,
+                    );
+                  }
+                }}
+              >
+                Configure
+              </Button>
 
               <Button
                 variant="icon"
@@ -335,110 +195,43 @@ export function ViewEditor({
                 <Icon icon={Trash2} size="sm" />
               </Button>
             </div>
-
-            {/* One block for every property a kind is configured from, rather than one per kind.
-                The two that used to be here were the same control twice: a label, a hint that
-                changed when the schema had nothing to offer, and a select filtered to the property
-                types the kind can use. All four of those come from the registry entry, and a kind
-                that needs two properties configured gets two of these rather than a second copy
-                of the block. */}
-            {(findViewKind(view.kind)?.configures ?? []).map((configuration) => {
-              const usable = schema.filter((property) => configuration.accepts(property));
-              const chosen = view[configuration.field] ?? '';
-
-              return (
-                <Field
-                  key={configuration.field}
-                  label={configuration.label}
-                  hint={usable.length === 0 ? configuration.emptyHint : configuration.hint}
-                >
-                  {(control) => (
-                    <Select
-                      {...control}
-                      value={chosen}
-                      onChange={(event) => {
-                        const key = event.target.value;
-                        update(index, {
-                          [configuration.field]: key.length > 0 ? key : null,
-                          ...configuration.clears,
-                        });
-                      }}
-                    >
-                      {/* The registry holds the wording, because whether the view is complete
-                          without this property is the kind's fact, not this form's. */}
-                      <option value="">{configuration.emptyChoice}</option>
-                      {usable.map((property) => (
-                        <option key={property.key} value={property.key}>
-                          {property.label}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                </Field>
-              );
-            })}
-
-            {/* The closed-set choices, after the property selects: a segmented control rather
-                than another property `<Select>`, because a size is not a key into the schema and
-                the set is three words the server polices. `ChoiceBlock` carries the caption, the
-                group's name and the description it is wired to. */}
-            {(findViewKind(view.kind)?.chooses ?? []).map((choice) => (
-              <ChoiceBlock
-                key={choice.field}
-                choice={choice}
-                value={view[choice.field]}
-                onChange={(value) => {
-                  update(index, { [choice.field]: value });
-                }}
-              />
-            ))}
-
-            {/* The filter rules, for the kinds whose registry entry grants them. Not a property
-                slot and not a closed token, which is why it is a capability rather than a third
-                generic block: the rules span containers, so the editor's own schema is only a
-                suggestion inside it. */}
-            {findViewKind(view.kind)?.editsFilters === true ? (
-              <FilterRulesEditor
-                rules={view.filters}
-                schema={schema}
-                onChange={(filters) => {
-                  update(index, { filters: [...filters] });
-                }}
-              />
-            ) : null}
           </div>
         ))}
 
         <Button
           variant="secondary"
           onClick={() => {
-            setDraft((current) => [
-              ...current,
-              {
-                id: idFor(
-                  `View ${String(current.length + 1)}`,
-                  current.map((view) => view.id),
-                ),
-                name: `View ${String(current.length + 1)}`,
-                kind: 'list',
-                columns: [],
-                groupBy: null,
-                groupOrder: [],
-                dateProperty: null,
-                sortBy: null,
-                sortDescending: false,
-                mode: null,
-                coverProperty: null,
-                endDateProperty: null,
-                cardSize: null,
-                filters: [],
-              },
-            ]);
+            setAdding((current) => !current);
           }}
         >
           <Icon icon={Plus} size="sm" />
-          Add a view
+          {adding ? 'Close view choices' : 'Add a view'}
         </Button>
+        {adding ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {STRUCTURED_RECIPES.filter(
+              (recipe, index, all) =>
+                all.findIndex((candidate) => candidate.viewKind === recipe.viewKind) === index,
+            ).map((recipe) => (
+              <Button
+                key={recipe.id}
+                variant="secondary"
+                className="flex-col items-start gap-0.5 px-3 py-2 text-left"
+                disabled={container.itemId === null}
+                onClick={() => {
+                  if (container.itemId !== null) {
+                    void navigate(`/items/${container.itemId}/views/new/${recipe.id}`);
+                  }
+                }}
+              >
+                <span>{recipe.label}</span>
+                <Text variant="caption" as="span" tone="muted">
+                  {recipe.detail}
+                </Text>
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </EditorShell>
   );

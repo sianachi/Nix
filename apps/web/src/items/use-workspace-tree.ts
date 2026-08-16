@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
+import type { Template } from '../views/core/templates';
+import type { PropertyDefinition, View } from '../views/core/container-model';
 
 /**
  * The workspace tree: the items, their shape, and the writes the shell performs on them.
@@ -136,6 +138,17 @@ export interface WorkspaceTree {
     type?: string,
     properties?: Record<string, unknown>,
   ) => Promise<CreateOutcome>;
+  /** Configures a newly created note with one of the shipped workspace templates. */
+  readonly applyTemplate: (itemId: string, template: Template) => Promise<MutationOutcome>;
+  /** Atomically creates a container together with the fields and views assembled by a wizard. */
+  readonly createStructured: (setup: {
+    readonly parentId: string | null;
+    readonly title: string;
+    readonly properties: readonly PropertyDefinition[];
+    readonly views: readonly View[];
+    readonly defaultView: string;
+    readonly publishInteractiveFormViewId: string | null;
+  }) => Promise<CreateOutcome & { readonly publicUrl?: string | null }>;
   readonly rename: (itemId: string, title: string) => Promise<void>;
   readonly move: (itemId: string, parentId: string | null, afterId: string | null) => Promise<void>;
   readonly remove: (itemId: string) => Promise<MutationOutcome>;
@@ -461,6 +474,107 @@ export function useWorkspaceTree(): WorkspaceTree {
     [request],
   );
 
+  const applyTemplate = useCallback(
+    async (itemId: string, template: Template): Promise<MutationOutcome> => {
+      setIsSaving(true);
+      try {
+        // A template-created note is fresh, so these writes can use the preset directly. The
+        // settings-panel path still merges when applying a template to an existing item.
+        const schema = await request(`/api/v1/items/${itemId}/schema`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            inherit: true,
+            properties: template.properties.map((property) => ({
+              ...property,
+              options: property.options.length === 0 ? null : property.options,
+            })),
+          }),
+        });
+
+        if (!schema.ok) {
+          const problem = (await schema.json().catch(() => null)) as { detail?: string } | null;
+          return { refusal: problem?.detail ?? 'The template schema could not be saved.' };
+        }
+
+        const views = await request(`/api/v1/items/${itemId}/views`, {
+          method: 'PUT',
+          body: JSON.stringify({ views: template.views, default: template.opensOn }),
+        });
+
+        if (!views.ok) {
+          const problem = (await views.json().catch(() => null)) as { detail?: string } | null;
+          return { refusal: problem?.detail ?? 'The template views could not be saved.' };
+        }
+
+        return { refusal: null };
+      } catch {
+        return { refusal: 'The template could not be sent. Check the connection and try again.' };
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [request],
+  );
+
+  const createStructured = useCallback(
+    async (setup: {
+      readonly parentId: string | null;
+      readonly title: string;
+      readonly properties: readonly PropertyDefinition[];
+      readonly views: readonly View[];
+      readonly defaultView: string;
+      readonly publishInteractiveFormViewId: string | null;
+    }): Promise<CreateOutcome & { readonly publicUrl?: string | null }> => {
+      setIsCreating(true);
+      try {
+        const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/structured-items`, {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'note',
+            title: setup.title,
+            parentId: setup.parentId,
+            schema: {
+              inherit: true,
+              properties: setup.properties.map((property) => ({
+                ...property,
+                options: property.options.length === 0 ? null : property.options,
+              })),
+            },
+            views: { views: setup.views, default: setup.defaultView },
+            publishInteractiveFormViewId: setup.publishInteractiveFormViewId,
+          }),
+        });
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+          return {
+            id: null,
+            refusal: problem?.detail ?? 'This setup could not be created.',
+          };
+        }
+
+        const result = (await response.json()) as {
+          item: ItemPayload;
+          publicForm: { url: string | null } | null;
+        };
+        const created = toItem(result.item);
+        setItems((current) => [...current, created]);
+        const createdParent = setup.parentId;
+        if (createdParent !== null) {
+          setExpanded((current) => new Set(current).add(createdParent));
+        }
+        return { id: created.id, refusal: null, publicUrl: result.publicForm?.url ?? null };
+      } catch {
+        return {
+          id: null,
+          refusal: 'This setup could not be sent. Check the connection and try again.',
+        };
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [request],
+  );
+
   const rename = useCallback(
     async (itemId: string, title: string): Promise<void> => {
       setIsSaving(true);
@@ -632,6 +746,8 @@ export function useWorkspaceTree(): WorkspaceTree {
     toggle,
     expand,
     create,
+    applyTemplate,
+    createStructured,
     rename,
     move,
     remove,
