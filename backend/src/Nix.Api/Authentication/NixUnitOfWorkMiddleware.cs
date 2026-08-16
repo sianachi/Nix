@@ -48,10 +48,27 @@ namespace Nix.Authentication;
 internal sealed class NixUnitOfWorkMiddleware
 {
     /// <summary>Stable code for a request with no usable credentials.</summary>
-    internal const string UnauthenticatedCode = "auth.unauthenticated";
+    internal const string UnauthenticatedCode = AuthenticationRefusalCodes.Unauthenticated;
 
     /// <summary>Stable code for a principal who exists but may no longer act.</summary>
-    internal const string PrincipalInactiveCode = "auth.principal_inactive";
+    internal const string PrincipalInactiveCode = AuthenticationRefusalCodes.PrincipalInactive;
+
+    /// <summary>Stable code for a session whose access token has been revoked or deleted.</summary>
+    internal const string TokenRevokedCode = AuthenticationRefusalCodes.TokenRevoked;
+
+    /// <summary>Stable code for a session whose access token has passed its chosen expiry.</summary>
+    internal const string TokenExpiredCode = AuthenticationRefusalCodes.TokenExpired;
+
+    /// <summary>Stable code for a token that stands but does not reach this route.</summary>
+    internal const string InsufficientScopeCode = AuthenticationRefusalCodes.InsufficientScope;
+
+    /// <summary>
+    /// How stale <c>last_used_at</c> may be before authenticating writes it again. Coarse on
+    /// purpose: the column answers "is anything still using this token", which does not need
+    /// per-request precision, and a write per authenticated read would put an update on the
+    /// hottest path in the system.
+    /// </summary>
+    private static readonly TimeSpan LastUsedGranularity = TimeSpan.FromMinutes(5);
 
     private readonly RequestDelegate _next;
 
@@ -70,6 +87,8 @@ internal sealed class NixUnitOfWorkMiddleware
     /// <param name="accessor">Where the session context is written, once per scope.</param>
     /// <param name="dbContext">The context whose transaction carries the scope.</param>
     /// <param name="throttle">Counts failed validations per client, so guessing meets a 429.</param>
+    /// <param name="accessTokens">Re-checks the token row behind a token-authenticated session.</param>
+    /// <param name="clock">Judges token expiry and stamps last use.</param>
     /// <param name="logger">Where a refusal is recorded.</param>
     /// <returns>A task that completes when the request has been handled.</returns>
     public async Task InvokeAsync(
@@ -79,6 +98,8 @@ internal sealed class NixUnitOfWorkMiddleware
         ScopedNixSessionContextAccessor accessor,
         NixDbContext dbContext,
         FailedAuthenticationThrottle throttle,
+        IPersonalAccessTokens accessTokens,
+        TimeProvider clock,
         ILogger<NixUnitOfWorkMiddleware> logger)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -87,6 +108,8 @@ internal sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(accessor);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(throttle);
+        ArgumentNullException.ThrowIfNull(accessTokens);
+        ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
 
         var token = ReadBearerToken(context.Request);
@@ -141,7 +164,7 @@ internal sealed class NixUnitOfWorkMiddleware
         }
 
         var principal = await directory
-            .FindPrincipalAsync(validated.Registration.TenantId, validated.Subject, context.RequestAborted)
+            .FindPrincipalAsync(validated.TenantId, validated.Subject, context.RequestAborted)
             .ConfigureAwait(false);
 
         if (principal is null)
@@ -183,6 +206,28 @@ internal sealed class NixUnitOfWorkMiddleware
 
         await using (transaction.ConfigureAwait(false))
         {
+            // A token-authenticated session re-checks its row on every request, inside the
+            // transaction that just published the tenant scope. This is what makes revocation
+            // immediate rather than "when the ten-minute JWT runs out", and it is where the
+            // scope ceiling is applied - before the endpoint, after the transaction, so a
+            // refused request rolls back like any other failure.
+            if (validated.AccessTokenId is { } accessTokenId)
+            {
+                var admitted = await EnforceAccessTokenAsync(
+                    context,
+                    accessTokens,
+                    clock,
+                    accessTokenId,
+                    principal.Id)
+                    .ConfigureAwait(false);
+
+                if (!admitted)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             await _next(context).ConfigureAwait(false);
 
             if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
@@ -193,6 +238,94 @@ internal sealed class NixUnitOfWorkMiddleware
 
             await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Re-judges a token-authenticated session against its row: standing, unexpired, held by the
+    /// resolved principal, and scoped to reach this route.
+    /// </summary>
+    /// <param name="context">The current request.</param>
+    /// <param name="accessTokens">Reads and touches the row.</param>
+    /// <param name="clock">Judges expiry and stamps last use.</param>
+    /// <param name="accessTokenId">The row the validated JWT names.</param>
+    /// <param name="principalId">The principal the session resolved to.</param>
+    /// <returns>Whether the request may proceed. A refusal has already been written.</returns>
+    private static async Task<bool> EnforceAccessTokenAsync(
+        HttpContext context,
+        IPersonalAccessTokens accessTokens,
+        TimeProvider clock,
+        PersonalAccessTokenId accessTokenId,
+        PrincipalId principalId)
+    {
+        var state = await accessTokens
+            .FindSessionStateAsync(accessTokenId, context.RequestAborted)
+            .ConfigureAwait(false);
+
+        // A deleted row and a row belonging to a different principal answer identically: the JWT
+        // is signed by us and both claims came from one mint, so a mismatch is a defect or a
+        // forgery, and neither deserves a more detailed answer than "this token no longer works".
+        if (state is null || state.PrincipalId != principalId)
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status401Unauthorized,
+                TokenRevokedCode,
+                "Access token no longer valid",
+                $"Personal access token '{accessTokenId}' no longer authenticates requests. "
+                + "Issue a new token from your settings.")
+                .ConfigureAwait(false);
+            return false;
+        }
+
+        if (state.RevokedAt is { } revokedAt)
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status401Unauthorized,
+                TokenRevokedCode,
+                "Access token revoked",
+                $"Personal access token '{accessTokenId}' was revoked at {revokedAt:O}.")
+                .ConfigureAwait(false);
+            return false;
+        }
+
+        var now = clock.GetUtcNow();
+        if (state.ExpiresAt <= now)
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status401Unauthorized,
+                TokenExpiredCode,
+                "Access token expired",
+                $"Personal access token '{accessTokenId}' expired at {state.ExpiresAt:O}.")
+                .ConfigureAwait(false);
+            return false;
+        }
+
+        var requirement = AccessTokenScopePolicy.Classify(context.Request.Method, context.Request.Path);
+        if (!AccessTokenScopePolicy.Satisfies(state.Scopes, requirement))
+        {
+            // 403, not 401: the session authenticated. The detail names the principal their own
+            // identity and the scope the route wanted, which is the honest refusal MVP-9.4 asks
+            // for and discloses nothing the caller does not already hold.
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status403Forbidden,
+                InsufficientScopeCode,
+                "Access token out of scope",
+                $"Principal '{principalId}' is authenticated, but personal access token "
+                + $"'{accessTokenId}' does not reach {context.Request.Method} "
+                + $"{context.Request.Path}: it requires {AccessTokenScopePolicy.Describe(requirement)}.")
+                .ConfigureAwait(false);
+            return false;
+        }
+
+        if (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity)
+        {
+            await accessTokens.TouchAsync(accessTokenId, now, context.RequestAborted).ConfigureAwait(false);
+        }
+
+        return true;
     }
 
     private static void RecordFailure(

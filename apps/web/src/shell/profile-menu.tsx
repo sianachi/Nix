@@ -1,6 +1,7 @@
 import { Icon, Text, focusRing } from '@nix/ui';
-import { ChevronDown, LogOut, User } from 'lucide-react';
+import { ChevronDown, LogOut, Settings, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { ThemeChoice } from '../theme/theme-choice';
@@ -99,6 +100,22 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
           </div>
 
           <ThemeChoice />
+
+          {/* In this menu rather than on the nav rail, because the rail is only ways of looking
+              at the workspace's notes and this is not one: members and access tokens are about
+              who may act here, and the tokens half belongs to the person - exactly what this menu
+              holds. A real link, so it can be opened in a new tab and revisited by address. */}
+          <Link
+            role="menuitem"
+            to="/settings"
+            onClick={() => {
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <Icon icon={Settings} size="sm" />
+            Settings
+          </Link>
 
           <button
             type="button"
