@@ -1,0 +1,39 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG, $OIDC_ISSUER.
+apiVersion: v1
+kind: Service
+metadata: { name: nix-web, namespace: nix }
+spec:
+  selector: { app: nix-web }
+  ports: [{ port: 8090, targetPort: 8090 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-web, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-web } }
+  template:
+    metadata: { labels: { app: nix-web } }
+    spec:
+      containers:
+        - name: caddy
+          image: ${REGISTRY}/web:${TAG}
+          ports: [{ containerPort: 8090 }]
+          env:
+            - name: NIX_OIDC_ISSUER
+              value: "${OIDC_ISSUER}"     # origin only, no path
+          volumeMounts:
+            - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
+            - { name: caddy-data, mountPath: /data }
+            - { name: caddy-config, mountPath: /config }
+          readinessProbe:
+            httpGet: { path: /, port: 8090 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+      volumes:
+        - name: caddyfile
+          configMap: { name: nix-caddy }
+        - { name: caddy-data, emptyDir: {} }
+        - { name: caddy-config, emptyDir: {} }

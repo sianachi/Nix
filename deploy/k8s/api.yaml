@@ -1,0 +1,64 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG, $POD_CIDR.
+apiVersion: v1
+kind: Service
+metadata: { name: nix-api, namespace: nix }
+spec:
+  selector: { app: nix-api }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-api, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-api } }
+  template:
+    metadata: { labels: { app: nix-api } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: ${REGISTRY}/api:${TAG}
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ConnectionStrings__Nix
+              valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
+            - name: Nix__InternalSecret
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            # Core sits behind Caddy and Traefik. Without this every request appears
+            # to come from the proxy and both rate limiters collapse into one global
+            # bucket: ten bad tokens from anyone would 429 everyone. Confirm $POD_CIDR
+            # with: kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
+            - name: Nix__ForwardedHeaders__KnownNetworks
+              value: "${POD_CIDR}"
+            - name: Nix__ForwardedHeaders__ForwardLimit
+              value: "2"          # Traefik, then Caddy
+            - name: Nix__RateLimits__WritesPerMinute
+              value: "120"
+          livenessProbe:
+            # Deliberately touches no dependency - a liveness probe that queried Postgres
+            # would report the database's health and restart healthy pods when the database
+            # was briefly slow.
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            # 150-250 MB resident is the design's Workstation GC budget, not a guess.
+            # If Core routinely approaches this limit, that is a finding, not a reason to raise it.
+            limits: { memory: 512Mi }
+          volumeMounts:
+            # readOnlyRootFilesystem needs somewhere writable: the runtime uses /tmp.
+            - { name: tmp, mountPath: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: tmp, emptyDir: {} }

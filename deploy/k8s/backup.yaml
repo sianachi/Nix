@@ -1,0 +1,35 @@
+# Postgres holds everything durable. Derived data (closure, snapshots, search, links,
+# embeddings) is rebuildable by design, so a logical dump is sufficient. Test a restore -
+# an untested backup is a hypothesis.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-backup, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: { requests: { storage: 20Gi } }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: nix-backup, namespace: nix }
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: dump
+              image: pgvector/pgvector:pg16
+              env:
+                - { name: PGHOST, value: postgres }
+                - { name: PGUSER, value: postgres }
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: nix-db, key: superuser-password } }
+              command: ["/bin/bash", "-ec"]
+              args: ["pg_dump -Fc -d nix > /backup/nix-$(date +%F).dump"]
+              volumeMounts: [{ name: backup, mountPath: /backup }]
+          volumes:
+            - name: backup
+              persistentVolumeClaim: { claimName: nix-backup }

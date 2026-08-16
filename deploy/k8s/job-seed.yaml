@@ -1,0 +1,48 @@
+# Loads deploy/seed/seed.sql and deploy/seed/seed_database.sql (via the nix-seed ConfigMap,
+# see deploy/k8s/create-secrets.sh) as roles + schema-independent setup. Idempotent: every
+# statement in both files is guarded, so re-running the Job is a no-op that also re-applies
+# the passwords, which is how you rotate them.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: nix-db-seed, namespace: nix }
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: pgvector/pgvector:pg16
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGUSER
+              value: postgres
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: nix-db, key: superuser-password } }
+            - name: APP_PW
+              valueFrom: { secretKeyRef: { name: nix-db, key: app-password } }
+            - name: MIG_PW
+              valueFrom: { secretKeyRef: { name: nix-db, key: migrator-password } }
+            - name: COL_PW
+              valueFrom: { secretKeyRef: { name: nix-db, key: collab-password } }
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              psql -v ON_ERROR_STOP=1 -d postgres \
+                -v app_password="$APP_PW" \
+                -v collab_password="$COL_PW" \
+                -v migrator_password="$MIG_PW" \
+                -v db_name=nix \
+                -f /seed/seed.sql
+
+              if [ "$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='nix'" -d postgres)" != "1" ]; then
+                psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE "nix" OWNER nix_migrator'
+              fi
+
+              psql -v ON_ERROR_STOP=1 -d nix -v db_name=nix -f /seed/seed_database.sql
+          volumeMounts:
+            - { name: seed, mountPath: /seed, readOnly: true }
+      volumes:
+        - name: seed
+          configMap: { name: nix-seed }
