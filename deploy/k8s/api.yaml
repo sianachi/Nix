@@ -29,6 +29,8 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
             - name: Nix__InternalSecret
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: Nix__PublicForms__SigningKey
+              valueFrom: { secretKeyRef: { name: nix-internal, key: public-forms-signing-key } }
             # Core sits behind Caddy and Traefik. Without this every request appears
             # to come from the proxy and both rate limiters collapse into one global
             # bucket: ten bad tokens from anyone would 429 everyone. Confirm $POD_CIDR
@@ -39,6 +41,8 @@ spec:
               value: "2"          # Traefik, then Caddy
             - name: Nix__RateLimits__WritesPerMinute
               value: "120"
+            - name: Nix__RateLimits__PublicFormSubmissionsPerMinute
+              value: "20"
           livenessProbe:
             # Deliberately touches no dependency - a liveness probe that queried Postgres
             # would report the database's health and restart healthy pods when the database

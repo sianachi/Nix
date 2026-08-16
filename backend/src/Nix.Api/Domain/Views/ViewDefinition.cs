@@ -79,6 +79,9 @@ public enum ViewKind
     /// client never sends rules; the stored view is the whole query. ADR-0039 records the design.
     /// </remarks>
     Query = 7,
+
+    /// <summary>A multi-page, conditional form whose answers create a child item.</summary>
+    InteractiveForm = 8,
 }
 
 /// <summary>
@@ -179,6 +182,8 @@ public static class ViewKinds
         // kind's configuration is the Filters array - policed in SetContainerViewsHandler.Refuse
         // instead. An empty filter set is valid and means "everything readable, newest first".
         new ViewKindDescriptor(ViewKind.Query, "query", Requirement: null),
+
+        new ViewKindDescriptor(ViewKind.InteractiveForm, "interactive_form", Requirement: null),
     ];
 
     /// <summary>Reads a stored kind.</summary>
@@ -329,6 +334,32 @@ public static class GalleryCardSizes
 /// rather than a change to how one person happens to be looking at it.
 /// </para>
 /// </remarks>
+public sealed record FormCondition(string FieldBlockId, string Operator, string? Value);
+
+public sealed record FormBlock(
+    string Id,
+    string Kind,
+    string? PropertyKey,
+    string Text,
+    string? Help,
+    bool Required,
+    string? IdentityRole,
+    ImmutableArray<FormCondition> VisibleWhen);
+
+public sealed record FormPage(
+    string Id,
+    string Title,
+    string? Description,
+    ImmutableArray<FormCondition> VisibleWhen,
+    ImmutableArray<FormBlock> Blocks);
+
+public sealed record InteractiveFormDefinition(
+    ImmutableArray<FormPage> Pages,
+    string TitleMode,
+    string? TitleFieldBlockId,
+    string ConfirmationTitle,
+    string ConfirmationMessage);
+
 public sealed record ViewDefinition(
     string Id,
     string Name,
@@ -372,7 +403,10 @@ public sealed record ViewDefinition(
     // query view that is "everything readable, newest first", and for every other kind the field
     // is stored and ignored (ADR-0020: cheap to ignore, expensive to police). ADR-0039 records
     // why this is a structured field rather than a packed string.
-    ImmutableArray<FilterRule> Filters = default)
+    ImmutableArray<FilterRule> Filters = default,
+    string? CompanionViewId = null,
+    string? CompanionPlacement = null,
+    InteractiveFormDefinition? InteractiveForm = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.
