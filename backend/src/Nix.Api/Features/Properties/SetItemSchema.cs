@@ -129,6 +129,12 @@ public sealed class SetItemSchemaHandler : ICommandHandler<SetItemSchema, Proper
     /// value anybody could give it, which looks like a bug in the validator rather than an
     /// unfinished schema.
     /// </remarks>
+    public static NixError? Validate(PropertySchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        return Refuse(schema);
+    }
+
     private static NixError? Refuse(PropertySchema schema)
     {
         var keys = new HashSet<string>(StringComparer.Ordinal);

@@ -18,12 +18,13 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     private static readonly string[] MutatingMethods = ["POST", "PUT", "PATCH", "DELETE"];
 
     [Fact]
-    public void Every_mutating_endpoint_requires_the_writes_rate_limit_policy()
+    public void Every_mutating_endpoint_requires_its_expected_rate_limit_policy()
     {
         var unlimited = MutatingEndpoints()
-            .Where(endpoint =>
-                endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName
-                    != RateLimitRefusal.WritesPolicyName)
+            .Where(endpoint => endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName
+                != (endpoint.RoutePattern.RawText == "/public/v1/forms/{token}"
+                    ? RateLimitRefusal.PublicFormsPolicyName
+                    : RateLimitRefusal.WritesPolicyName))
             .Select(endpoint => endpoint.DisplayName)
             .ToList();
 

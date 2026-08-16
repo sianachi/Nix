@@ -60,10 +60,11 @@ describe('creating an item', () => {
     // it does not repeat the complete list of body kinds underneath a second heading.
     const inside = screen.getByRole('checkbox', { name: /create inside engineering/i });
     expect(inside).not.toBeChecked();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(13);
 
     await user.click(inside);
     expect(screen.getByRole('menuitem', { name: /new note inside engineering/i })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /new kanban inside engineering/i })).toBeVisible();
   });
 
   it('puts it inside a nested item too, rather than beside it', async () => {

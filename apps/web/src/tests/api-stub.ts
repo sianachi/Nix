@@ -182,6 +182,8 @@ export function item(overrides: Partial<StubItem> & { id: string; title: string 
 export interface StubWrites {
   /** Every property PATCH, in the order it was sent. */
   readonly properties: readonly { itemId: string; properties: Record<string, unknown> }[];
+  /** Every atomic structured-item request, in the order it was sent. */
+  readonly structuredItems: readonly Record<string, unknown>[];
 }
 
 export function stubCoreApi(options: StubOptions = {}): StubWrites {
@@ -225,6 +227,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // Every property PATCH the application made, in order, for tests about what a write actually
   // sent rather than about what the view drew afterwards.
   const propertyWrites: { itemId: string; properties: Record<string, unknown> }[] = [];
+  const structuredItemWrites: Record<string, unknown>[] = [];
 
   /** The four fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
@@ -239,6 +242,18 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       type: item.type,
       title: item.title.length === 0 ? null : item.title,
     };
+  }
+
+  function normalizeProperties(properties: readonly unknown[]): readonly unknown[] {
+    return properties.map((property) =>
+      typeof property === 'object' && property !== null
+        ? {
+            ...property,
+            options:
+              'options' in property && Array.isArray(property.options) ? property.options : [],
+          }
+        : property,
+    );
   }
 
   // What has been written back. Seeded from the options so a test can start with an item already
@@ -359,9 +374,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             inherit?: boolean;
           };
 
+          const properties = normalizeProperties(body.properties ?? []);
           stored.schema[id] = {
-            properties: body.properties ?? [],
-            declared: body.properties ?? [],
+            properties,
+            declared: properties,
             inherit: body.inherit ?? true,
           };
         }
@@ -369,6 +385,37 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         return Promise.resolve(
           json(stored.schema[id] ?? { properties: [], declared: [], inherit: true }),
         );
+      }
+
+      const appendSetupFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/view-setups$/.exec(url);
+      if (appendSetupFor !== null && method === 'POST') {
+        const id = appendSetupFor[1] ?? '';
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          properties?: readonly unknown[];
+          views?: readonly unknown[];
+          makeDefault?: boolean;
+        };
+        const currentSchema = stored.schema[id] ?? {
+          properties: [],
+          declared: [],
+          inherit: true,
+        };
+        const currentViews = stored.views[id] ?? { views: [], default: 'document' };
+        const addedViews = body.views ?? [];
+        const properties = normalizeProperties(body.properties ?? []);
+        stored.schema[id] = {
+          ...currentSchema,
+          properties: [...currentSchema.properties, ...properties],
+          declared: [...currentSchema.declared, ...properties],
+        };
+        stored.views[id] = {
+          views: [...currentViews.views, ...addedViews],
+          default:
+            body.makeDefault === true && addedViews.length > 0
+              ? ((addedViews[0] as { id?: string }).id ?? currentViews.default)
+              : currentViews.default,
+        };
+        return Promise.resolve(json({}));
       }
 
       // Undoing a delete. Answered from the same `known` list a delete never actually removes an
@@ -392,6 +439,45 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         }
         const found = known.find((candidate) => candidate.id === single[1]);
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
+      }
+
+      if (
+        method === 'POST' &&
+        /\/api\/v1\/workspaces\/[0-9a-f-]{36}\/structured-items$/.test(url)
+      ) {
+        if (createRefusal !== undefined) {
+          return Promise.resolve(json({ detail: createRefusal }, 422));
+        }
+
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          title?: string;
+          type?: string;
+          parentId?: string | null;
+          schema?: { properties?: readonly unknown[]; inherit?: boolean };
+          views?: { views?: readonly unknown[]; default?: string };
+          publishInteractiveFormViewId?: string | null;
+          [key: string]: unknown;
+        };
+        structuredItemWrites.push(body);
+        const created = item({
+          id: createdId(known.length),
+          title: body.title ?? 'Untitled',
+          type: body.type ?? 'note',
+          parentId: body.parentId ?? null,
+          properties: { title: body.title ?? 'Untitled' },
+        });
+        known.push(created);
+        const properties = normalizeProperties(body.schema?.properties ?? []);
+        stored.schema[created.id] = {
+          properties,
+          declared: properties,
+          inherit: body.schema?.inherit ?? true,
+        };
+        stored.views[created.id] = {
+          views: body.views?.views ?? [],
+          default: body.views?.default ?? 'document',
+        };
+        return Promise.resolve(json({ item: created, publicForm: null }, 201));
       }
 
       // Creating. Dispatched on the method, which this stub used not to look at - so a POST fell
@@ -542,7 +628,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     }),
   );
 
-  return { properties: propertyWrites };
+  return { properties: propertyWrites, structuredItems: structuredItemWrites };
 }
 
 function json(body: unknown, status = 200): Response {

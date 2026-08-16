@@ -110,6 +110,22 @@ export interface ContainerData {
     defaultView?: string | null,
   ) => Promise<string | null>;
 
+  /** Atomically appends fields and views assembled by the guided setup studio. */
+  readonly appendViewSetup: (
+    properties: readonly PropertyDefinition[],
+    views: readonly View[],
+    makeDefault: boolean,
+    publishInteractiveFormViewId?: string | null,
+  ) => Promise<string | null>;
+
+  /** Atomically replaces one guided view setup while preserving unrelated views. */
+  readonly replaceViewSetup: (
+    originalViewId: string,
+    properties: readonly PropertyDefinition[],
+    views: readonly View[],
+    publishInteractiveFormViewId?: string | null,
+  ) => Promise<string | null>;
+
   /**
    * Remembers which view opens, when somebody deliberately switches to it.
    *
@@ -576,6 +592,80 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     [containerId, replace, views],
   );
 
+  const appendViewSetup = useCallback(
+    async (
+      properties: readonly PropertyDefinition[],
+      addedViews: readonly View[],
+      makeDefault: boolean,
+      publishInteractiveFormViewId: string | null = null,
+    ): Promise<string | null> => {
+      if (containerId === null) return 'A workspace root cannot offer views.';
+      try {
+        const response = await request(`/api/v1/items/${containerId}/view-setups`, {
+          method: 'POST',
+          body: JSON.stringify({
+            properties: properties.map((property) => ({
+              ...property,
+              options: property.options.length === 0 ? null : property.options,
+            })),
+            views: addedViews,
+            makeDefault,
+            publishInteractiveFormViewId,
+          }),
+        });
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+          return problem?.detail ?? 'This view setup could not be saved.';
+        }
+        await load();
+        return null;
+      } catch {
+        return 'This view setup could not be sent. Check the connection and try again.';
+      }
+    },
+    [containerId, load, request],
+  );
+
+  const replaceViewSetup = useCallback(
+    async (
+      originalViewId: string,
+      properties: readonly PropertyDefinition[],
+      replacementViews: readonly View[],
+      publishInteractiveFormViewId: string | null = null,
+    ): Promise<string | null> => {
+      if (containerId === null) return 'A workspace root cannot offer views.';
+      try {
+        const response = await request(
+          `/api/v1/items/${containerId}/view-setups/${encodeURIComponent(originalViewId)}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              schema: {
+                inherit: schema?.inherit ?? true,
+                properties: properties.map((property) => ({
+                  ...property,
+                  options: property.options.length === 0 ? null : property.options,
+                })),
+              },
+              originalPropertyKeys: schema?.declared.map((property) => property.key) ?? [],
+              views: replacementViews,
+              publishInteractiveFormViewId,
+            }),
+          },
+        );
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+          return problem?.detail ?? 'This view setup could not be saved.';
+        }
+        await load();
+        return null;
+      } catch {
+        return 'This view setup could not be sent. Check the connection and try again.';
+      }
+    },
+    [containerId, load, request, schema?.declared, schema?.inherit],
+  );
+
   /**
    * Remembers which view opens.
    *
@@ -633,6 +723,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     setSchema,
     setDefaultView,
     setViews,
+    appendViewSetup,
+    replaceViewSetup,
     writeError,
     truncated,
     reload: load,
