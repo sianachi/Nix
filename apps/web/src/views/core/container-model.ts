@@ -55,6 +55,43 @@ export type EffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
 const _effectiveSchemaContract = EffectiveSchemaSchema satisfies z.ZodType<EffectiveSchemaContract>;
 void _effectiveSchemaContract;
 
+export const FormConditionSchema = z.object({
+  fieldBlockId: z.string(),
+  operator: z.string(),
+  value: z.string().nullable(),
+});
+
+export const FormBlockSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  propertyKey: z.string().nullable(),
+  text: z.string(),
+  help: z.string().nullable(),
+  required: z.boolean(),
+  identityRole: z.string().nullable(),
+  visibleWhen: z.array(FormConditionSchema),
+});
+
+export const FormPageSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  visibleWhen: z.array(FormConditionSchema),
+  blocks: z.array(FormBlockSchema),
+});
+
+export const InteractiveFormSchema = z.object({
+  pages: z.array(FormPageSchema),
+  titleMode: z.string(),
+  titleFieldBlockId: z.string().nullable(),
+  confirmationTitle: z.string(),
+  confirmationMessage: z.string(),
+});
+
+export type FormCondition = z.infer<typeof FormConditionSchema>;
+export type FormBlock = z.infer<typeof FormBlockSchema>;
+export type InteractiveFormDefinition = z.infer<typeof InteractiveFormSchema>;
+
 export const ViewSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -129,9 +166,16 @@ export const ViewSchema = z.object({
     // Defaulted, unlike its siblings: a server from before the field answers views without it,
     // and absence must cost nothing - the parse fills the empty set the contract now always sends.
     .default([]),
+  companionViewId: z.string().nullable().default(null),
+  companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
+  interactiveForm: InteractiveFormSchema.nullable().default(null),
 });
 
-export type View = z.infer<typeof ViewSchema>;
+type ParsedView = z.infer<typeof ViewSchema>;
+
+/** New layout/form fields are optional in drafts; parsed server views always receive null defaults. */
+export type View = Omit<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'> &
+  Partial<Pick<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'>>;
 
 /** One condition of a query view. */
 export type ViewFilterRule = View['filters'][number];
@@ -173,7 +217,8 @@ export const ContainerViewsSchema = z.object({
 /** What the `default` field says when the item opens on its own body rather than on a view. */
 export const DOCUMENT_VIEW = 'document';
 
-export type ContainerViews = z.infer<typeof ContainerViewsSchema>;
+type ParsedContainerViews = z.infer<typeof ContainerViewsSchema>;
+export type ContainerViews = Omit<ParsedContainerViews, 'views'> & { readonly views: View[] };
 
 const _containerViewsContract = ContainerViewsSchema satisfies z.ZodType<ContainerViewsContract>;
 void _containerViewsContract;

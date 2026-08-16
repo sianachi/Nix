@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChartGantt,
   ListFilter,
+  MousePointerClick,
   Table2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -16,6 +17,7 @@ import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import { FormView } from '../form/form-view';
+import { InteractiveFormView } from '../form/interactive-form-view';
 import { ListView } from '../list/list-view';
 import { QueryView } from '../query/query-view';
 import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
@@ -386,6 +388,14 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     configures: [],
     chooses: [],
     editsFilters: true,
+  },
+  {
+    kind: 'interactive_form',
+    label: 'Interactive form',
+    icon: MousePointerClick,
+    render: (props) => <InteractiveFormView {...props} />,
+    configures: [],
+    chooses: [],
   },
 ];
 
