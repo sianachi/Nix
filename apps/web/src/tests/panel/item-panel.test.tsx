@@ -96,7 +96,7 @@ describe('the settings panel', () => {
     expect(within(panel).queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
-  it('offers templates only while an item has no views', async () => {
+  it('keeps template suggestions out of the Views pane', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
@@ -105,7 +105,9 @@ describe('the settings panel', () => {
     const panel = await screen.findByRole('complementary', { name: /item settings/i });
     await user.click(within(panel).getByRole('button', { name: 'Views' }));
 
-    expect(await within(panel).findByRole('button', { name: /kanban board/i })).toBeVisible();
+    expect(await within(panel).findByText(/no views yet/i)).toBeVisible();
+    expect(within(panel).queryByText(/start from a template/i)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: /kanban board/i })).not.toBeInTheDocument();
   });
 
   it('remembers being open', async () => {
