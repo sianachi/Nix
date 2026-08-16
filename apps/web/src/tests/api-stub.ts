@@ -50,6 +50,28 @@ export interface StubOptions {
   readonly items?: readonly StubItem[];
   /** Makes the profile request fail, for tests about what the menu does then. */
   readonly profileFails?: boolean;
+
+  /** The caller's personal access tokens, newest first, dead ones included - it is an audit. */
+  readonly accessTokens?: readonly StubAccessToken[];
+
+  /** Makes the token list read fail. */
+  readonly tokensFail?: boolean;
+
+  /**
+   * Makes every token mint fail with this problem, for tests about the two refusals the endpoint
+   * can give: 422 `tokens.invalid` and 409 `tokens.limit_reached`.
+   */
+  readonly createTokenProblem?: {
+    readonly status: number;
+    readonly code: string;
+    readonly detail: string;
+  };
+
+  /** Who holds a role in the workspace, as the members read reports them. */
+  readonly members?: readonly StubMember[];
+
+  /** Makes the members read fail. */
+  readonly membersFail?: boolean;
   /** Makes the tree request fail. */
   readonly treeFails?: boolean;
 
@@ -155,6 +177,31 @@ export interface StubOptions {
   readonly views?: StubViews;
 }
 
+/** A personal access token as `GET /api/v1/me/tokens` reports one - metadata, never the secret. */
+export interface StubAccessToken {
+  readonly id: string;
+  readonly name: string;
+  readonly scopes: readonly string[];
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+  readonly lastUsedAt: string | null;
+}
+
+/** A role grant as `GET /api/v1/workspaces/{id}/members` reports one. */
+export interface StubMember {
+  readonly subjectType: string;
+  readonly subjectId: string;
+  readonly subjectDisplayName: string;
+  readonly role: string;
+  readonly grantedAt: string;
+}
+
+/** The id a minted stub token is given. Uuid-shaped, for the reason `createdId` gives. */
+function mintedTokenId(sequence: number): string {
+  return `dddddddd-0000-4000-8000-${String(sequence).padStart(12, '0')}`;
+}
+
 export function item(overrides: Partial<StubItem> & { id: string; title: string }): StubItem {
   return {
     workspaceId: STUB_WORKSPACE_ID,
@@ -193,6 +240,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     email = 'test@example.test',
     items = [],
     profileFails = false,
+    accessTokens = [],
+    tokensFail = false,
+    createTokenProblem,
+    members = [],
+    membersFail = false,
     treeFails = false,
     searchFails = false,
     backlinksFail = false,
@@ -223,6 +275,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // follows it - a stub whose PUT is forgotten by the next GET tests the opposite of what a
   // bookmarking test means to.
   let kept = [...bookmarks];
+
+  // The tokens the stub holds, newest first as the endpoint promises. Mutable for the reason
+  // `known` is: a mint has to be visible to the list read that follows it, and a revocation has to
+  // flip the row's `revokedAt` rather than remove it - the real endpoint keeps dead tokens because
+  // the list is an audit, and a stub that dropped them would let the interface hide them unnoticed.
+  let heldTokens = [...accessTokens];
 
   // Every property PATCH the application made, in order, for tests about what a write actually
   // sent rather than about what the view drew afterwards.
@@ -316,6 +374,77 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         }
 
         return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      // Revoking one token. Ordered, like every /me/tokens route, before the /me route below,
+      // which matches by `includes` and would otherwise swallow them all. Flips the row rather
+      // than removing it, exactly as the endpoint does, and answers 204 regardless - it is
+      // idempotent and scoped to the caller on the real server.
+      const revokeToken = /\/api\/v1\/me\/tokens\/([0-9a-f-]{36})$/.exec(url);
+      if (revokeToken !== null && method === 'DELETE') {
+        heldTokens = heldTokens.map((token) =>
+          token.id === revokeToken[1] && token.revokedAt === null
+            ? { ...token, revokedAt: '2026-08-16T12:00:00+00:00' }
+            : token,
+        );
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      if (/\/api\/v1\/me\/tokens$/.test(url)) {
+        if (method === 'POST') {
+          if (createTokenProblem !== undefined) {
+            return Promise.resolve(
+              json(
+                { code: createTokenProblem.code, detail: createTokenProblem.detail },
+                createTokenProblem.status,
+              ),
+            );
+          }
+
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            name?: string;
+            scopes?: readonly string[];
+            expiresInDays?: number;
+          };
+
+          // The expiry honours the requested days against a fixed creation instant, so a test can
+          // assert the expiry the interface renders follows the choice the form sent.
+          const createdAtMs = Date.parse('2026-08-16T12:00:00+00:00');
+          const minted: StubAccessToken = {
+            id: mintedTokenId(heldTokens.length),
+            name: body.name ?? '',
+            scopes: body.scopes ?? [],
+            createdAt: '2026-08-16T12:00:00+00:00',
+            expiresAt: new Date(
+              createdAtMs + (body.expiresInDays ?? 0) * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+            revokedAt: null,
+            lastUsedAt: null,
+          };
+
+          // Newest first, as the endpoint promises, so a creation test's next read sees the new
+          // token at the top.
+          heldTokens = [minted, ...heldTokens];
+          return Promise.resolve(
+            json({ token: `stub-secret-${minted.id}`, details: minted }, 201),
+          );
+        }
+
+        return Promise.resolve(
+          tokensFail
+            ? json({ code: 'tokens.unavailable' }, 500)
+            : json({ tokens: heldTokens }),
+        );
+      }
+
+      // The workspace's members. One page with no cursor: pagination is the reader's concern and
+      // walking it is covered by the page shape, not by this stub growing pages.
+      if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/members/.test(url)) {
+        return Promise.resolve(
+          membersFail
+            ? json({ code: 'workspaces.not_found' }, 404)
+            : json({ items: members, nextCursor: null }),
+        );
       }
 
       if (url.includes('/api/v1/me')) {

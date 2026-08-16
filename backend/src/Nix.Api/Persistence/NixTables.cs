@@ -83,6 +83,9 @@ public static class NixTables
     /// <summary>One revocable capability per published item view.</summary>
     public const string PublicFormLink = "public_form_link";
 
+    /// <summary>One credential a principal issued for a non-browser client.</summary>
+    public const string PersonalAccessToken = "personal_access_token";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -109,6 +112,7 @@ public static class NixTables
         CanvasLibrary,
         Bookmark,
         PublicFormLink,
+        PersonalAccessToken,
     ];
 
     /// <summary>
@@ -185,6 +189,11 @@ public static class NixTables
             // A principal's own library, read and written by Core alone - nothing else ever
             // touches it.
             [CanvasLibrary] = FullDml,
+
+            // Revoked, never deleted: the rows are the audit of what has been able to act as a
+            // principal, and an application that can erase that record can erase evidence.
+            // Purging rides the principal's own cascade, which does not need this grant.
+            [PersonalAccessToken] = ["INSERT", "SELECT", "UPDATE"],
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }

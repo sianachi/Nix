@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
+using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
@@ -17,6 +18,7 @@ using Nix.Features.Me;
 using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Search;
+using Nix.Features.Tokens;
 using Nix.Features.Views;
 using Nix.Messaging;
 using Nix.Persistence.Authorization;
@@ -32,6 +34,7 @@ using Nix.Persistence.Query;
 using Nix.Persistence.Rls;
 using Nix.Persistence.Search;
 using Nix.Persistence.Sql;
+using Nix.Persistence.Tokens;
 using Npgsql;
 
 namespace Nix.Persistence;
@@ -155,6 +158,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IPublicFormStore, PublicFormStore>();
+        services.AddScoped<IPersonalAccessTokens, PersonalAccessTokenStore>();
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
@@ -211,6 +215,10 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetShelf, Result<ShelfResults>>, GetShelfHandler>();
         services.AddScoped<ICommandHandler<KeepItem, bool>, KeepItemHandler>();
         services.AddScoped<ICommandHandler<ReleaseItem, bool>, ReleaseItemHandler>();
+
+        services.AddScoped<ICommandHandler<CreateAccessToken, IssuedAccessToken>, CreateAccessTokenHandler>();
+        services.AddScoped<IQueryHandler<ListAccessTokens, Result<IReadOnlyList<PersonalAccessToken>>>, ListAccessTokensHandler>();
+        services.AddScoped<ICommandHandler<RevokeAccessToken, bool>, RevokeAccessTokenHandler>();
 
         return services;
     }

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accessTokenSchema,
+  createdAccessTokenSchema,
   cursorPageSchema,
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
+  tokenExchangeResponseSchema,
   workspaceGraphSchema,
 } from './index.js';
 
@@ -235,5 +238,46 @@ describe('the workspace graph schema', () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe('the access token schemas', () => {
+  const row = {
+    id: '33333333-3333-4333-8333-333333333333',
+    name: 'ci runner',
+    scopes: ['read'],
+    createdAt: '2026-08-16T09:30:00.000Z',
+    expiresAt: '2026-09-15T09:30:00.000Z',
+    revokedAt: null,
+    lastUsedAt: null,
+  };
+
+  it('accepts a row whose revocation and last use have not happened yet', () => {
+    expect(accessTokenSchema.safeParse(row).success).toBe(true);
+  });
+
+  it('refuses a row that does not say when it expires', () => {
+    // Expiry is chosen at creation and the list renders it; a token without one is not a shape
+    // this product mints, so it is not a shape this client will hand on.
+    const { expiresAt, ...withoutIt } = row;
+    void expiresAt;
+    expect(accessTokenSchema.safeParse(withoutIt).success).toBe(false);
+  });
+
+  it('carries the secret only in the created shape', () => {
+    const created = createdAccessTokenSchema.safeParse({ token: 'nixpat_x', details: row });
+    expect(created.success).toBe(true);
+    expect(accessTokenSchema.safeParse({ ...row, token: 'nixpat_x' }).success).toBe(true);
+    // The list shape has no token member to leak: parsing strips nothing, but the type never
+    // declares one, so a component cannot reach for it.
+  });
+
+  it('parses an exchange answer with its lifetime', () => {
+    const parsed = tokenExchangeResponseSchema.safeParse({
+      accessToken: 'a.b.c',
+      tokenType: 'Bearer',
+      expiresInSeconds: 600,
+    });
+    expect(parsed.success).toBe(true);
   });
 });
