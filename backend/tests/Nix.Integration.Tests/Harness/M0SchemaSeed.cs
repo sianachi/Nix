@@ -181,6 +181,18 @@ internal static class M0SchemaSeed
                  submission_principal_id, published_by, published_at, revoked_at)
             VALUES ({auditEvent}, {tenant}, {workspace}, {item}, 'form', '{slug}-nonce',
                     {principal}, {principal}, now(), NULL);
+
+            -- One credential the seeded principal issued, so the isolation theories exercise the
+            -- token table exactly as they do every other tenant-scoped table. The hash is an
+            -- arbitrary constant: no test exchanges this row, and a secret that never existed
+            -- cannot leak. The lookup embeds the slug so the two tenants' rows stay unique under
+            -- the global index.
+            INSERT INTO personal_access_token
+                (token_id, tenant_id, principal_id, name, lookup, secret_hash, scopes,
+                 created_at, expires_at, revoked_at, last_used_at)
+            VALUES ({group}, {tenant}, {principal}, '{slug} seeded token', 'seed{slug}0000',
+                    '\\x0304'::bytea, ARRAY['read']::text[], now(), now() + interval '30 days',
+                    NULL, NULL);
             """;
     }
 
