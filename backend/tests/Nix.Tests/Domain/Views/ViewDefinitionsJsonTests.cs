@@ -403,6 +403,8 @@ public sealed class ViewDefinitionsJsonTests
         Assert.Equal(expected.CoverProperty, actual.CoverProperty);
         Assert.Equal(expected.EndDateProperty, actual.EndDateProperty);
         Assert.Equal(expected.CardSize, actual.CardSize);
+        Assert.Equal(expected.CompanionViewId, actual.CompanionViewId);
+        Assert.Equal(expected.CompanionPlacement, actual.CompanionPlacement);
     }
 
     [Fact]
@@ -510,6 +512,62 @@ public sealed class ViewDefinitionsJsonTests
         Assert.Equal(2, view.Filters.Length);
         Assert.Equal(new FilterRule("due", "before", "today"), view.Filters[0]);
         Assert.Equal(new FilterRule("done", "not-equals", "true"), view.Filters[1]);
+    }
+
+    [Fact]
+    public void A_composed_interactive_form_round_trips_its_pages_conditions_and_confirmation()
+    {
+        var form = new InteractiveFormDefinition(
+            [
+                new FormPage(
+                    "intro",
+                    "Daily check-in",
+                    "A short reflection.",
+                    [],
+                    [
+                        new FormBlock("mood", "field", "mood", "How are you?", null, true, null, []),
+                        new FormBlock(
+                            "notes",
+                            "field",
+                            "notes",
+                            "What happened?",
+                            "Optional context",
+                            false,
+                            null,
+                            [new FormCondition("mood", "equals", "Low")]),
+                    ]),
+            ],
+            "field",
+            "mood",
+            "Thank you",
+            "Your response was recorded.");
+        ImmutableArray<ViewDefinition> views =
+        [
+            new ViewDefinition(
+                "form",
+                "Check-in",
+                ViewKind.InteractiveForm,
+                [],
+                null,
+                [],
+                null,
+                null,
+                false,
+                CompanionViewId: "responses",
+                CompanionPlacement: "beside",
+                InteractiveForm: form),
+            new ViewDefinition("responses", "Responses", ViewKind.List, [], null, [], null, null, false),
+        ];
+
+        var read = ReadViews(ViewDefinitionsJson.Write(views));
+
+        Assert.Equal("responses", read[0].CompanionViewId);
+        Assert.Equal("beside", read[0].CompanionPlacement);
+        var storedForm = Assert.IsType<InteractiveFormDefinition>(read[0].InteractiveForm);
+        Assert.Equal("Thank you", storedForm.ConfirmationTitle);
+        Assert.Equal("mood", storedForm.TitleFieldBlockId);
+        Assert.Equal("notes", storedForm.Pages[0].Blocks[1].Id);
+        Assert.Equal(new FormCondition("mood", "equals", "Low"), storedForm.Pages[0].Blocks[1].VisibleWhen[0]);
     }
 
     [Fact]

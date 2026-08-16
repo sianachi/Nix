@@ -33,6 +33,33 @@ internal static class StructureEndpoints
 
         var items = endpoints.MapGroup("/api/v1/items").WithTags("Structure");
 
+        endpoints.MapPost(
+                "/api/v1/workspaces/{workspaceId:guid}/structured-items",
+                StructuredItemSetupEndpoints.Create)
+            .WithTags("Structure")
+            .WithName("CreateStructuredItem")
+            .Produces<StructuredItemResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        items.MapPost("/{itemId:guid}/view-setups", StructuredItemSetupEndpoints.Append)
+            .WithName("AppendViewSetup")
+            .Produces<StructuredItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        items.MapPut("/{itemId:guid}/view-setups/{viewId}", StructuredItemSetupEndpoints.Replace)
+            .WithName("ReplaceViewSetup")
+            .Produces<StructuredItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
         items.MapGet("/{itemId:guid}/schema", GetEffectiveSchemaEndpoint.Handle)
             .WithName("GetEffectiveSchema")
             .WithSummary("The property schema in force at an item")
@@ -124,6 +151,7 @@ internal static class StructureEndpoints
             PropertyErrors.InvalidPropertiesCode
                 or PropertyErrors.InvalidSchemaCode
                 or PropertyErrors.InvalidViewsCode => StatusCodes.Status422UnprocessableEntity,
+            PropertyErrors.SetupCollisionCode => StatusCodes.Status409Conflict,
             ItemEndpoints.LifecycleConflictCode => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status404NotFound,
         };

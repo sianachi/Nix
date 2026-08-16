@@ -17,6 +17,7 @@ using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
 using Nix.Persistence;
@@ -63,6 +64,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
 // controllable in tests.
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<PublicFormTokenService>();
 
 // RFC 9457 problem details for every failure the framework produces. Endpoint-owned
 // failures build their payload through ApiProblem; this covers the rest and
@@ -108,6 +110,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // client does. Limits read from configuration so a deployment (or the Testing host) can move them
 // without a rebuild; the defaults are the policy.
 var writesPerMinute = builder.Configuration.GetValue("Nix:RateLimits:WritesPerMinute", 120);
+var publicFormSubmissionsPerMinute = builder.Configuration.GetValue(
+    "Nix:RateLimits:PublicFormSubmissionsPerMinute",
+    20);
 
 // One window, named once: the limiter's window and the fallback the rejection reports are the same
 // interval by definition, and two literals would eventually disagree.
@@ -129,6 +134,23 @@ builder.Services.AddRateLimiter(options =>
                 Window = writesWindow,
                 QueueLimit = 0,
             }));
+
+    options.AddPolicy<string>(RateLimitRefusal.PublicFormsPolicyName, httpContext =>
+    {
+        var token = httpContext.Request.RouteValues["token"]?.ToString() ?? "invalid";
+        var tokens = httpContext.RequestServices.GetRequiredService<PublicFormTokenService>();
+        var linkKey = tokens.TryRead(token, out var payload)
+            ? payload.LinkId.ToString("D")
+            : "invalid";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{ClientKey.For(httpContext)}:{linkKey}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = publicFormSubmissionsPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            });
+    });
 
     options.OnRejected = (context, cancellationToken) =>
     {
@@ -317,6 +339,7 @@ app.MapGraphEndpoints();
 app.MapCalendarEndpoints();
 app.MapQueryEndpoints();
 app.MapBookmarkEndpoints();
+app.MapPublicFormEndpoints();
 
 app.Run();
 

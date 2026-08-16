@@ -27,6 +27,9 @@ public static class RateLimitRefusal
     /// <summary>Name of the rate-limiter policy applied to every mutating endpoint.</summary>
     public const string WritesPolicyName = "writes";
 
+    /// <summary>Name of the limiter partitioned by public-form link and client address.</summary>
+    public const string PublicFormsPolicyName = "public-forms";
+
     /// <summary>Name the failed-authentication throttle is logged under.</summary>
     public const string FailedAuthenticationLimiterName = "failed-authentication";
 
