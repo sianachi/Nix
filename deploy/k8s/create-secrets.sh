@@ -34,7 +34,8 @@ kubectl -n nix create secret generic nix-db \
 # Core, collab and media must all carry the same value: it proves which service is calling.
 # The user's own token still proves on whose behalf.
 kubectl -n nix create secret generic nix-internal \
-  --from-literal=secret="$(openssl rand -hex 32)"
+  --from-literal=secret="$(openssl rand -hex 32)" \
+  --from-literal=public-forms-signing-key="$(openssl rand -hex 32)"
 
 APP_PW=$(kubectl -n nix get secret nix-db -o jsonpath='{.data.app-password}' | base64 -d)
 MIG_PW=$(kubectl -n nix get secret nix-db -o jsonpath='{.data.migrator-password}' | base64 -d)

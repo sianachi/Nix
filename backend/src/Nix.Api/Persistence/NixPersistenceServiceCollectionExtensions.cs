@@ -154,6 +154,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
+        services.AddScoped<IPublicFormStore, PublicFormStore>();
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
@@ -174,6 +175,9 @@ public static class NixPersistenceServiceCollectionExtensions
         // test can walk it. The cost is that adding a handler means remembering this file - which
         // is what CompositionRootTests exists to catch.
         services.AddScoped<ICommandHandler<CreateItem, Item>, CreateItemHandler>();
+        services.AddScoped<ICommandHandler<CreateStructuredItem, Item>, CreateStructuredItemHandler>();
+        services.AddScoped<ICommandHandler<AppendViewSetup, Item>, AppendViewSetupHandler>();
+        services.AddScoped<ICommandHandler<ReplaceViewSetup, Item>, ReplaceViewSetupHandler>();
         services.AddScoped<ICommandHandler<DeleteItem, ItemId>, DeleteItemHandler>();
         services.AddScoped<ICommandHandler<RenameItem, Item>, RenameItemHandler>();
         services.AddScoped<ICommandHandler<MoveItem, Item>, MoveItemHandler>();

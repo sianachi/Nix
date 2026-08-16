@@ -23,6 +23,9 @@ public static class PropertyErrors
     /// <summary>Stable code for a view set that could not be accepted.</summary>
     public const string InvalidViewsCode = "views.invalid";
 
+    /// <summary>Stable code for a guided setup colliding with configuration added meanwhile.</summary>
+    public const string SetupCollisionCode = "structure.setup_collision";
+
     /// <summary>
     /// One or more property values do not fit the schema.
     /// </summary>
@@ -50,4 +53,7 @@ public static class PropertyErrors
     /// <param name="detail">Why.</param>
     /// <returns>The error.</returns>
     public static NixError InvalidViews(string detail) => new(InvalidViewsCode, detail);
+
+    /// <summary>A field or view identifier was claimed after a wizard draft was opened.</summary>
+    public static NixError SetupCollision(string detail) => new(SetupCollisionCode, detail);
 }

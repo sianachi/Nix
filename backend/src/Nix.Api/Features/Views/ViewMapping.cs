@@ -29,7 +29,10 @@ internal static class ViewMapping
             view.CardSize,
             view.Filters.IsDefaultOrEmpty
                 ? []
-                : [.. view.Filters.Select(rule => new FilterRuleContract(rule.Property, rule.Operator, rule.Value))]);
+                : [.. view.Filters.Select(rule => new FilterRuleContract(rule.Property, rule.Operator, rule.Value))],
+            view.CompanionViewId,
+            view.CompanionPlacement,
+            ToContract(view.InteractiveForm));
     }
 
     /// <summary>
@@ -74,11 +77,66 @@ internal static class ViewMapping
                     view.CardSize,
                     view.Filters is null
                         ? []
-                        : [.. view.Filters.Select(rule => new FilterRule(rule.Property, rule.Operator, rule.Value))]));
+                        : [.. view.Filters.Select(rule => new FilterRule(rule.Property, rule.Operator, rule.Value))],
+                    view.CompanionViewId,
+                    view.CompanionPlacement,
+                    ToDomain(view.InteractiveForm)));
         }
 
         views = mapped.ToImmutable();
         unknownKind = null;
         return true;
     }
+
+    private static InteractiveFormContract? ToContract(InteractiveFormDefinition? form) =>
+        form is null
+            ? null
+            : new InteractiveFormContract(
+                [.. form.Pages.Select(page => new FormPageContract(
+                    page.Id,
+                    page.Title,
+                    page.Description,
+                    [.. page.VisibleWhen.Select(ToContract)],
+                    [.. page.Blocks.Select(block => new FormBlockContract(
+                        block.Id,
+                        block.Kind,
+                        block.PropertyKey,
+                        block.Text,
+                        block.Help,
+                        block.Required,
+                        block.IdentityRole,
+                        [.. block.VisibleWhen.Select(ToContract)]))]))],
+                form.TitleMode,
+                form.TitleFieldBlockId,
+                form.ConfirmationTitle,
+                form.ConfirmationMessage);
+
+    private static FormConditionContract ToContract(FormCondition condition) =>
+        new(condition.FieldBlockId, condition.Operator, condition.Value);
+
+    private static InteractiveFormDefinition? ToDomain(InteractiveFormContract? form) =>
+        form is null
+            ? null
+            : new InteractiveFormDefinition(
+                [.. form.Pages.Select(page => new FormPage(
+                    page.Id,
+                    page.Title,
+                    page.Description,
+                    [.. page.VisibleWhen.Select(ToDomain)],
+                    [.. page.Blocks.Select(block => new FormBlock(
+                        block.Id,
+                        block.Kind,
+                        block.PropertyKey,
+                        block.Text,
+                        block.Help,
+                        block.Required,
+                        block.IdentityRole,
+                        [.. block.VisibleWhen.Select(ToDomain)]))]))],
+                form.TitleMode,
+                form.TitleFieldBlockId,
+                form.ConfirmationTitle,
+                form.ConfirmationMessage);
+
+    private static FormCondition ToDomain(FormConditionContract condition) =>
+        new(condition.FieldBlockId, condition.Operator, condition.Value);
 }

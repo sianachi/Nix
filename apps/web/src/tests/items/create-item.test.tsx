@@ -133,7 +133,11 @@ describe('the new-item menu', () => {
       screen.getByRole('menuitem', { name: /new spreadsheet in the workspace/i }),
     ).toBeVisible();
     expect(screen.getByRole('checkbox', { name: /create inside engineering/i })).not.toBeChecked();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+    expect(screen.getByText('Templates')).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /new kanban in the workspace/i })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /new calendar in the workspace/i })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /new list in the workspace/i })).toBeVisible();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(13);
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
     expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
@@ -144,6 +148,30 @@ describe('the new-item menu', () => {
     await waitFor(() => {
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
+  });
+
+  it('creates a template through an editable prefilled wizard', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: 'Engineering' });
+    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+    await user.click(screen.getByRole('menuitem', { name: /new kanban in the workspace/i }));
+
+    expect(await screen.findByRole('heading', { name: /new kanban/i })).toBeVisible();
+    expect(screen.getByText(/creating in workspace root/i)).toBeVisible();
+    expect(screen.getByRole('navigation', { name: /creation steps/i })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue('Untitled kanban');
+
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    expect(screen.getByRole('combobox', { name: /columns field/i })).toHaveValue('status');
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await user.click(screen.getByRole('button', { name: /create kanban/i }));
+
+    const switcher = await screen.findByRole('navigation', { name: /views/i });
+    expect(switcher).toHaveTextContent('Board');
   });
 
   it('closes on Escape without creating anything', async () => {

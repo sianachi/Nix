@@ -29,3 +29,15 @@ export function browserStorage(): Storage | undefined {
     return undefined;
   }
 }
+
+/** Tab-scoped storage for unfinished flows that must not reappear in another browser session. */
+export function browserSessionStorage(): Storage | undefined {
+  try {
+    const candidate: unknown = globalThis.sessionStorage;
+    return typeof (candidate as Storage | undefined)?.getItem === 'function'
+      ? (candidate as Storage)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
