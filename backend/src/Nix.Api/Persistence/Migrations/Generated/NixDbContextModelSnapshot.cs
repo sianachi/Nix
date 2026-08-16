@@ -749,6 +749,67 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("workspace", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Views.PublicFormLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Nonce")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("nonce");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<Guid>("PublishedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("published_by");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid>("SubmissionPrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("submission_principal_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ViewId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("view_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "PublishedBy");
+
+                    b.HasIndex("TenantId", "SubmissionPrincipalId");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.HasIndex("TenantId", "ItemId", "ViewId")
+                        .IsUnique();
+
+                    b.ToTable("public_form_link", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Audit.AuditEvent", b =>
                 {
                     b.HasOne("Nix.Domain.Tenancy.Tenant", null)
@@ -953,6 +1014,43 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Views.PublicFormLink", b =>
+                {
+                    b.HasOne("Nix.Domain.Tenancy.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PublishedBy")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SubmissionPrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

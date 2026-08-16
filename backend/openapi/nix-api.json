@@ -70,6 +70,77 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/structured-items": {
+      "post": {
+        "tags": [
+          "Structure"
+        ],
+        "operationId": "CreateStructuredItem",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStructuredItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/canvas-library": {
       "get": {
         "tags": [
@@ -121,6 +192,250 @@
           },
           "422": {
             "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/views/{viewId}/public-link": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "GetPublicFormStatus",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicFormLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "PublishPublicForm",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicFormLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "RevokePublicForm",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicFormLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/forms/{token}": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "GetPublicForm",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicInteractiveFormResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "SubmitPublicForm",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitPublicFormRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -747,6 +1062,156 @@
         }
       }
     },
+    "/api/v1/items/{itemId}/view-setups": {
+      "post": {
+        "tags": [
+          "Structure"
+        ],
+        "operationId": "AppendViewSetup",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendViewSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/view-setups/{viewId}": {
+      "put": {
+        "tags": [
+          "Structure"
+        ],
+        "operationId": "ReplaceViewSetup",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceViewSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/schema": {
       "get": {
         "tags": [
@@ -940,7 +1405,7 @@
           "Structure"
         ],
         "summary": "The views a container offers",
-        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form' and 'query') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
+        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
         "operationId": "GetContainerViews",
         "parameters": [
           {
@@ -981,7 +1446,7 @@
           "Structure"
         ],
         "summary": "Replace the views a container offers",
-        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form' or 'query'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
+        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query' or 'interactive_form'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
         "operationId": "SetContainerViews",
         "parameters": [
           {
@@ -1789,6 +2254,38 @@
           }
         }
       },
+      "AppendViewSetupRequest": {
+        "required": [
+          "properties",
+          "views",
+          "makeDefault",
+          "publishInteractiveFormViewId"
+        ],
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PropertyDefinitionRequest"
+            }
+          },
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewRequest"
+            }
+          },
+          "makeDefault": {
+            "type": "boolean"
+          },
+          "publishInteractiveFormViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "BacklinkResponse": {
         "required": [
           "source",
@@ -1949,6 +2446,44 @@
           }
         }
       },
+      "CreateStructuredItemRequest": {
+        "required": [
+          "type",
+          "title",
+          "parentId",
+          "schema",
+          "views",
+          "publishInteractiveFormViewId"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SetSchemaRequest"
+          },
+          "views": {
+            "$ref": "#/components/schemas/SetViewsRequest"
+          },
+          "publishInteractiveFormViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CurrentPrincipalResponse": {
         "required": [
           "id",
@@ -2088,6 +2623,115 @@
           }
         }
       },
+      "FormBlockContract": {
+        "required": [
+          "id",
+          "kind",
+          "propertyKey",
+          "text",
+          "help",
+          "required",
+          "identityRole",
+          "visibleWhen"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "propertyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "help": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "identityRole": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormConditionContract"
+            }
+          }
+        }
+      },
+      "FormConditionContract": {
+        "required": [
+          "fieldBlockId",
+          "operator",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldBlockId": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FormPageContract": {
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibleWhen",
+          "blocks"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormConditionContract"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormBlockContract"
+            }
+          }
+        }
+      },
       "GraphLinkResponse": {
         "required": [
           "sourceId",
@@ -2147,6 +2791,39 @@
             "type": "string"
           },
           "status": {
+            "type": "string"
+          }
+        }
+      },
+      "InteractiveFormContract": {
+        "required": [
+          "pages",
+          "titleMode",
+          "titleFieldBlockId",
+          "confirmationTitle",
+          "confirmationMessage"
+        ],
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormPageContract"
+            }
+          },
+          "titleMode": {
+            "type": "string"
+          },
+          "titleFieldBlockId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confirmationTitle": {
+            "type": "string"
+          },
+          "confirmationMessage": {
             "type": "string"
           }
         }
@@ -2432,6 +3109,186 @@
           }
         }
       },
+      "PublicFormBlockResponse": {
+        "required": [
+          "id",
+          "kind",
+          "text",
+          "help",
+          "required",
+          "identityRole",
+          "visibleWhen"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "help": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "identityRole": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormConditionContract"
+            }
+          }
+        }
+      },
+      "PublicFormDefinitionResponse": {
+        "required": [
+          "pages",
+          "confirmationTitle",
+          "confirmationMessage"
+        ],
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFormPageResponse"
+            }
+          },
+          "confirmationTitle": {
+            "type": "string"
+          },
+          "confirmationMessage": {
+            "type": "string"
+          }
+        }
+      },
+      "PublicFormLinkResponse": {
+        "required": [
+          "published",
+          "url",
+          "publishedAt",
+          "revokedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "published": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "PublicFormPageResponse": {
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibleWhen",
+          "blocks"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FormConditionContract"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFormBlockResponse"
+            }
+          }
+        }
+      },
+      "PublicFormPropertyResponse": {
+        "required": [
+          "blockId",
+          "type",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PublicInteractiveFormResponse": {
+        "required": [
+          "name",
+          "form",
+          "fields"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "form": {
+            "$ref": "#/components/schemas/PublicFormDefinitionResponse"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicFormPropertyResponse"
+            }
+          }
+        }
+      },
       "QueryResultResponse": {
         "required": [
           "id",
@@ -2557,6 +3414,38 @@
             "items": {
               "$ref": "#/components/schemas/ReferenceResolutionResponse"
             }
+          }
+        }
+      },
+      "ReplaceViewSetupRequest": {
+        "required": [
+          "schema",
+          "originalPropertyKeys",
+          "views",
+          "publishInteractiveFormViewId"
+        ],
+        "type": "object",
+        "properties": {
+          "schema": {
+            "$ref": "#/components/schemas/SetSchemaRequest"
+          },
+          "originalPropertyKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewRequest"
+            }
+          },
+          "publishInteractiveFormViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2752,6 +3641,57 @@
           }
         }
       },
+      "StructuredItemResponse": {
+        "required": [
+          "item",
+          "schema",
+          "views",
+          "publicForm"
+        ],
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ItemResponse"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/EffectiveSchemaResponse"
+          },
+          "views": {
+            "$ref": "#/components/schemas/ContainerViewsResponse"
+          },
+          "publicForm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublicFormLinkResponse"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitPublicFormRequest": {
+        "required": [
+          "answers",
+          "website"
+        ],
+        "type": "object",
+        "properties": {
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "website": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UnplaceableCalendarResponse": {
         "required": [
           "containerId",
@@ -2829,7 +3769,10 @@
           "coverProperty",
           "endDateProperty",
           "cardSize",
-          "filters"
+          "filters",
+          "companionViewId",
+          "companionPlacement",
+          "interactiveForm"
         ],
         "type": "object",
         "properties": {
@@ -2913,6 +3856,28 @@
             "items": {
               "$ref": "#/components/schemas/FilterRuleContract"
             }
+          },
+          "companionViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "companionPlacement": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "interactiveForm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InteractiveFormContract"
+              }
+            ]
           }
         }
       },
@@ -2931,7 +3896,10 @@
           "coverProperty",
           "endDateProperty",
           "cardSize",
-          "filters"
+          "filters",
+          "companionViewId",
+          "companionPlacement",
+          "interactiveForm"
         ],
         "type": "object",
         "properties": {
@@ -3006,6 +3974,28 @@
             "items": {
               "$ref": "#/components/schemas/FilterRuleContract"
             }
+          },
+          "companionViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "companionPlacement": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "interactiveForm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InteractiveFormContract"
+              }
+            ]
           }
         }
       },
@@ -3157,16 +4147,19 @@
       "name": "Me"
     },
     {
+      "name": "Structure"
+    },
+    {
       "name": "Canvas"
+    },
+    {
+      "name": "Forms"
     },
     {
       "name": "Workspaces"
     },
     {
       "name": "Items"
-    },
-    {
-      "name": "Structure"
     },
     {
       "name": "Permissions"

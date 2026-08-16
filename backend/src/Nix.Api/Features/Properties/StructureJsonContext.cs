@@ -19,4 +19,11 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(SetPropertiesRequest))]
 [JsonSerializable(typeof(ContainerViewsResponse))]
 [JsonSerializable(typeof(SetViewsRequest))]
+[JsonSerializable(typeof(PublicFormLinkResponse))]
+[JsonSerializable(typeof(PublicInteractiveFormResponse))]
+[JsonSerializable(typeof(SubmitPublicFormRequest))]
+[JsonSerializable(typeof(CreateStructuredItemRequest))]
+[JsonSerializable(typeof(StructuredItemResponse))]
+[JsonSerializable(typeof(AppendViewSetupRequest))]
+[JsonSerializable(typeof(ReplaceViewSetupRequest))]
 internal sealed partial class StructureJsonContext : JsonSerializerContext;
