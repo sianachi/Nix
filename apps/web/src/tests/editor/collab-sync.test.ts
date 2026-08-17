@@ -20,6 +20,7 @@ import {
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_NOTICE = 2;
+const MESSAGE_PERSISTENCE_BARRIER = 3;
 
 class FakeSocket implements ProviderSocket {
   binaryType = 'blob';
@@ -197,6 +198,37 @@ describe('the websocket provider', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(socket.binaryFramesSent().length).toBeGreaterThan(before);
+  });
+
+  it('flushes pending edits and waits for the matching persistence barrier before resolving', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    const before = socket.binaryFramesSent().length;
+
+    typeParagraph(h.doc, 'Must be durable before save.');
+    let completed = false;
+    const pending = h.sync.flushAndWait().then(() => {
+      completed = true;
+    });
+
+    const frames = socket.binaryFramesSent().slice(before);
+    expect(frames).toHaveLength(2);
+    const barrier = decoding.createDecoder(frames[1] ?? new Uint8Array());
+    expect(decoding.readVarUint(barrier)).toBe(MESSAGE_PERSISTENCE_BARRIER);
+    const barrierId = decoding.readVarString(barrier);
+    expect(completed).toBe(false);
+
+    const echo = encoding.createEncoder();
+    encoding.writeVarUint(echo, MESSAGE_PERSISTENCE_BARRIER);
+    encoding.writeVarString(echo, barrierId);
+    socket.receiveBinary(encoding.toUint8Array(echo));
+    await pending;
+
+    expect(completed).toBe(true);
   });
 
   it('sends one frame for a burst of updates, not one frame each', async () => {

@@ -47,6 +47,8 @@ export const FRAGMENT_NAME = 'default';
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 const MESSAGE_NOTICE = 2;
+const MESSAGE_PERSISTENCE_BARRIER = 3;
+const BARRIER_TIMEOUT_MS = 15_000;
 
 /** Close codes the provider reacts to by name. Everything else is a plain drop. */
 const CLOSE_UNAUTHENTICATED = 4401;
@@ -73,6 +75,8 @@ export interface ProviderSocket {
 
 export interface CollabSyncOptions {
   readonly itemId: string;
+  /** Overrides the ordinary item WebSocket route for staged or library-only document aliases. */
+  readonly documentPath?: string | undefined;
   readonly doc: Y.Doc;
   readonly fragmentName: string;
   readonly getAccessToken: () => Promise<string | null>;
@@ -110,6 +114,9 @@ export interface CollabSync {
    */
   readonly awareness: awarenessProtocol.Awareness;
 
+  /** Flushes local frames and resolves only after the server has persisted every prior update. */
+  readonly flushAndWait: () => Promise<void>;
+
   /** Closes the socket and stops reconnecting. The document itself keeps every edit. */
   destroy: () => void;
 }
@@ -119,6 +126,7 @@ const DEFAULT_BASE_URL = '/collab';
 export function startCollabSync(options: CollabSyncOptions): CollabSync {
   const {
     itemId,
+    documentPath,
     doc,
     getAccessToken,
     onState,
@@ -182,6 +190,23 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
    */
   let pending: Uint8Array[] = [];
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let barrierSequence = 0;
+  const barriers = new Map<
+    string,
+    {
+      readonly resolve: () => void;
+      readonly reject: (reason: Error) => void;
+      readonly timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+
+  function rejectBarriers(detail: string): void {
+    for (const barrier of barriers.values()) {
+      clearTimeout(barrier.timer);
+      barrier.reject(new Error(detail));
+    }
+    barriers.clear();
+  }
 
   function flushPending(): void {
     flushTimer = null;
@@ -275,7 +300,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       return;
     }
 
-    const next = createSocket(`${baseUrl}/documents/${itemId}/ws`);
+    const next = createSocket(documentPath ?? `${baseUrl}/documents/${itemId}/ws`);
     next.binaryType = 'arraybuffer';
     socket = next;
     ready = false;
@@ -298,6 +323,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       }
       socket = null;
       ready = false;
+      rejectBarriers('The document disconnected before its changes were confirmed.');
 
       if (destroyed) {
         return;
@@ -402,6 +428,15 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         }
         return;
       }
+      case MESSAGE_PERSISTENCE_BARRIER: {
+        const barrierId = decoding.readVarString(decoder);
+        const barrier = barriers.get(barrierId);
+        if (barrier === undefined) return;
+        clearTimeout(barrier.timer);
+        barriers.delete(barrierId);
+        barrier.resolve();
+        return;
+      }
       default:
         return;
     }
@@ -412,6 +447,39 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
   return {
     awareness,
+    flushAndWait(): Promise<void> {
+      const current = socket;
+      if (current === null || !ready || current.readyState !== 1 || mode === 'read') {
+        return Promise.reject(
+          new Error('The document must be connected and editable before its changes can be saved.'),
+        );
+      }
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      flushPending();
+
+      barrierSequence += 1;
+      const barrierId = `${String(doc.clientID)}-${String(barrierSequence)}`;
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          barriers.delete(barrierId);
+          reject(new Error('The document changes were not confirmed in time.'));
+        }, BARRIER_TIMEOUT_MS);
+        barriers.set(barrierId, { resolve, reject, timer });
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, MESSAGE_PERSISTENCE_BARRIER);
+        encoding.writeVarString(encoder, barrierId);
+        try {
+          current.send(encoding.toUint8Array(encoder));
+        } catch (reason) {
+          clearTimeout(timer);
+          barriers.delete(barrierId);
+          reject(reason instanceof Error ? reason : new Error('The document could not be saved.'));
+        }
+      });
+    },
     destroy(): void {
       // Last chance for anything still waiting on the flush timer. Closing the editor is exactly
       // when a person expects their last keystroke to have counted, and up to `FLUSH_MS` of it is
@@ -423,6 +491,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       flushPending();
 
       destroyed = true;
+      rejectBarriers('The editor closed before its changes were confirmed.');
       doc.off('update', onDocUpdate);
       awareness.off('update', onAwarenessUpdate);
       if (ownsAwareness) {

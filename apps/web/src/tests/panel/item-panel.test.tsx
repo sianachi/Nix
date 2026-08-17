@@ -61,6 +61,7 @@ describe('the settings panel', () => {
     const panel = await screen.findByRole('complementary', { name: /item settings/i });
 
     expect(panel).toBeVisible();
+    expect(panel).toHaveClass('w-[340px]', 'max-w-full');
     expect(screen.getByRole('textbox', { name: /note title/i })).toBeVisible();
   });
 
@@ -105,7 +106,7 @@ describe('the settings panel', () => {
     const panel = await screen.findByRole('complementary', { name: /item settings/i });
     await user.click(within(panel).getByRole('button', { name: 'Views' }));
 
-    expect(await within(panel).findByText(/no views yet/i)).toBeVisible();
+    expect(await within(panel).findByText(/no child-item views yet/i)).toBeVisible();
     expect(within(panel).queryByText(/start from a template/i)).not.toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: /kanban board/i })).not.toBeInTheDocument();
   });

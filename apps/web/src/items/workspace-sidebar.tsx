@@ -2,6 +2,7 @@ import { Button, Icon, Text, cn, disabledState, fieldLabel, focusRing } from '@n
 import {
   ChevronDown,
   ChevronRight,
+  Check,
   Columns2,
   FilePlus,
   FileText,
@@ -27,6 +28,8 @@ import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
 import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
+import type { TemplateLibraryStatus } from '../templates/use-templates';
+import type { TemplateSummary } from '../templates/template-api';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
 /**
@@ -103,6 +106,11 @@ export interface WorkspaceSidebarProps {
 
   /** Opens the shell's guided setup route for a structured item. */
   readonly onStartStructured?: (parentId: string | null, recipe: StructuredRecipeId) => void;
+
+  readonly templates?: readonly TemplateSummary[];
+  readonly templateStatus?: TemplateLibraryStatus;
+  readonly onStartTemplate?: (parentId: string | null, templateId: string) => void;
+  readonly onBrowseTemplates?: (parentId: string | null) => void;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -171,6 +179,14 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           }}
           onStartStructured={(parentId, recipe) => {
             props.onStartStructured?.(parentId, recipe);
+          }}
+          templates={props.templates ?? []}
+          templateStatus={props.templateStatus ?? 'loading'}
+          onStartTemplate={(parentId, templateId) => {
+            props.onStartTemplate?.(parentId, templateId);
+          }}
+          onBrowseTemplates={(parentId) => {
+            props.onBrowseTemplates?.(parentId);
           }}
         />
       </div>
@@ -241,6 +257,10 @@ interface CreateMenuProps {
   readonly disabled: boolean;
   readonly onCreate: (parentId: string | null, title: string, type: string) => void;
   readonly onStartStructured: (parentId: string | null, recipe: StructuredRecipeId) => void;
+  readonly templates: readonly TemplateSummary[];
+  readonly templateStatus: TemplateLibraryStatus;
+  readonly onStartTemplate: (parentId: string | null, templateId: string) => void;
+  readonly onBrowseTemplates: (parentId: string | null) => void;
 }
 
 /**
@@ -259,10 +279,16 @@ function CreateMenu({
   disabled,
   onCreate,
   onStartStructured,
+  templates,
+  templateStatus,
+  onStartTemplate,
+  onBrowseTemplates,
 }: CreateMenuProps): ReactNode {
   const [open, setOpen] = useState(false);
   const [insideSelected, setInsideSelected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -283,7 +309,9 @@ function CreateMenu({
         // would close the whole drawer instead of just this menu. Stopping here keeps the event
         // from ever reaching it.
         event.stopPropagation();
+        event.preventDefault();
         setOpen(false);
+        triggerRef.current?.focus();
       }
     }
 
@@ -296,9 +324,33 @@ function CreateMenu({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    menuItems(menuRef.current)[0]?.focus();
+  }, [open]);
+
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const items = menuItems(menuRef.current);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+    if (event.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = items.length - 1;
+    if (event.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
+    if (next === null) return;
+    event.preventDefault();
+    items[next]?.focus();
+  }
+
   return (
     <div ref={containerRef} className="relative ml-auto">
       <Button
+        ref={triggerRef}
         variant="ghost"
         className="px-1.5 py-1 text-xs"
         aria-label="New item in the workspace"
@@ -324,26 +376,35 @@ function CreateMenu({
 
       {open ? (
         <div
+          ref={menuRef}
           role="menu"
+          tabIndex={-1}
           aria-label="New item"
-          className="absolute right-0 z-20 mt-1 w-[180px] border border-divider bg-background shadow-md"
+          onKeyDown={handleMenuKeyDown}
+          className="absolute right-0 z-20 mt-1 max-h-[calc(100dvh-var(--spacing)*8)] w-[180px] overflow-y-auto border border-divider bg-background shadow-md"
         >
           {childDestination === null ? (
             <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
               Workspace root
             </span>
           ) : (
-            <label className="flex items-center gap-2 px-3 py-2 text-base hover:bg-accent/10">
-              <input
-                type="checkbox"
-                checked={insideSelected}
-                onChange={(event) => {
-                  setInsideSelected(event.target.checked);
-                }}
-                className={`size-4 shrink-0 ${focusRing}`}
-              />
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={insideSelected}
+              onClick={() => {
+                setInsideSelected((selected) => !selected);
+              }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 ${focusRing}`}
+            >
+              <span
+                aria-hidden="true"
+                className="flex size-4 shrink-0 items-center justify-center border border-divider bg-background"
+              >
+                {insideSelected ? <Icon icon={Check} size="sm" /> : null}
+              </span>
               <span className="min-w-0 truncate">Create inside {childDestination.name}</span>
-            </label>
+            </button>
           )}
 
           <div role="separator" className="border-t border-divider" />
@@ -404,34 +465,66 @@ function CreateMenu({
           <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
             Templates
           </span>
-          {STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'template').map((recipe) => (
+          {templates.slice(0, 3).map((template) => (
             <button
-              key={recipe.id}
+              key={template.id}
               type="button"
               role="menuitem"
               aria-label={
                 insideSelected && childDestination !== null
-                  ? `New ${recipe.label} inside ${childDestination.name}`
-                  : `New ${recipe.label} in the workspace`
+                  ? `New ${template.title} inside ${childDestination.name}`
+                  : `New ${template.title} in the workspace`
               }
-              title={recipe.detail}
+              title={template.description ?? undefined}
               onClick={() => {
                 setOpen(false);
-                onStartStructured(
+                onStartTemplate(
                   insideSelected && childDestination !== null ? childDestination.id : null,
-                  recipe.id,
+                  template.id,
                 );
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
               <Icon icon={LayoutTemplate} size="sm" />
-              {recipe.label}
+              {template.title}
             </button>
           ))}
+          {templateStatus === 'loading' && templates.length === 0 ? (
+            <Text variant="caption" tone="muted" className="block px-3 py-2">
+              Loading templates…
+            </Text>
+          ) : null}
+          {templateStatus === 'error' && templates.length === 0 ? (
+            <Text variant="caption" tone="muted" className="block px-3 py-2">
+              Templates are unavailable.
+            </Text>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onBrowseTemplates(
+                insideSelected && childDestination !== null ? childDestination.id : null,
+              );
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <Icon icon={LayoutTemplate} size="sm" />
+            Browse all templates
+          </button>
         </div>
       ) : null}
     </div>
   );
+}
+
+function menuItems(root: HTMLElement | null): HTMLButtonElement[] {
+  return root === null
+    ? []
+    : Array.from(
+        root.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]'),
+      );
 }
 
 interface TreeBodyProps {

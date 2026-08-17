@@ -1,5 +1,12 @@
 import { Icon, focusRing } from '@nix/ui';
-import { Bookmark, CalendarDays, Network, NotebookText, type LucideIcon } from 'lucide-react';
+import {
+  Bookmark,
+  CalendarDays,
+  LayoutTemplate,
+  Network,
+  NotebookText,
+  type LucideIcon,
+} from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 
@@ -63,7 +70,7 @@ interface RailDestination {
 /**
  * The destinations, in the order they appear.
  *
- * **Notes is first, and it is the only one of the four that is not a different kind of view.**
+ * **Notes is first, and it is the only destination that is not a different kind of workspace view.**
  * Calendar, Graph and Bookmarks each collapse the whole workspace into one picture drawn a
  * different way; Notes is the tree itself - the one destination that is not really "elsewhere",
  * only home. Placing it first, rather than leaving `/` reachable only through the logo, is what
@@ -79,6 +86,7 @@ const DESTINATIONS: readonly RailDestination[] = [
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/graph', label: 'Graph', icon: Network },
   { to: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
+  { to: '/templates', label: 'Templates', icon: LayoutTemplate },
 ];
 
 export interface NavRailProps {
@@ -102,7 +110,11 @@ export function NavRail({ onNavigate }: NavRailProps): ReactNode {
   // filling this in must not re-render.
   const linkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
-  const currentIndex = DESTINATIONS.findIndex((destination) => destination.to === pathname);
+  const currentIndex = DESTINATIONS.findIndex((destination) =>
+    destination.to === '/templates'
+      ? pathname === destination.to || pathname.startsWith(`${destination.to}/`)
+      : destination.to === pathname,
+  );
   const entryIndex = focusedIndex ?? Math.max(currentIndex, 0);
 
   // Handled on the link rather than on the list around it: a key press acts from wherever focus
