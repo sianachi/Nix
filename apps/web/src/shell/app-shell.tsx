@@ -23,6 +23,8 @@ import { SidebarDrawer } from '../layout/sidebar-drawer';
 import { useNarrowViewport } from '../layout/viewport';
 import { useSidebar } from '../layout/use-sidebar';
 import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
+import { useTemplates } from '../templates/use-templates';
+import { TemplateLibraryProvider } from '../templates/template-library-context';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -107,6 +109,7 @@ export function AppShell(): ReactNode {
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
   const narrow = useNarrowViewport();
+  const templateLibrary = useTemplates();
 
   // The shelf is loaded once, here, because four places read it at the same time - this page's
   // rail, the tree's rows, the open document's control and the palette. See use-bookmarks.ts.
@@ -162,6 +165,18 @@ export function AppShell(): ReactNode {
     if (narrow && sidebar.visible) {
       sidebar.toggle();
     }
+  }
+
+  function startTemplate(parentId: string | null, templateId: string): void {
+    const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
+    void navigate(`/templates/${templateId}/create${search}`);
+    if (narrow && sidebar.visible) sidebar.toggle();
+  }
+
+  function browseTemplates(parentId: string | null): void {
+    const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
+    void navigate(`/templates${search}`);
+    if (narrow && sidebar.visible) sidebar.toggle();
   }
 
   // Where focus goes once a delete toast's undo window closes, by any path. The row that opened it
@@ -452,6 +467,12 @@ export function AppShell(): ReactNode {
                     void requestDelete(item);
                   }}
                   onStartStructured={startStructured}
+                  templates={templateLibrary.templates.filter(
+                    (template) => template.capabilities.canApply,
+                  )}
+                  templateStatus={templateLibrary.status}
+                  onStartTemplate={startTemplate}
+                  onBrowseTemplates={browseTemplates}
                   treeRegionRef={treeRegionRef}
                 />
               </SidebarDrawer>
@@ -474,6 +495,12 @@ export function AppShell(): ReactNode {
                       void requestDelete(item);
                     }}
                     onStartStructured={startStructured}
+                    templates={templateLibrary.templates.filter(
+                      (template) => template.capabilities.canApply,
+                    )}
+                    templateStatus={templateLibrary.status}
+                    onStartTemplate={startTemplate}
+                    onBrowseTemplates={browseTemplates}
                     treeRegionRef={treeRegionRef}
                   />
                 </div>
@@ -516,12 +543,13 @@ export function AppShell(): ReactNode {
               inert={narrow && sidebar.visible}
               className={`isolate flex flex-1 ${paneClip}`}
             >
-              {/* `satisfies` rather than a bare object: the screens below read this back through
-                  `useOutletContext<ShellContext>()`, which is an unchecked assertion on their
-                  side. Naming the type here is what makes the two halves one contract, so
-                  dropping a field fails this file rather than surfacing as `undefined` in a
-                  screen that trusted the annotation. */}
-              <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+              {/* Mutable server-owned template state has its own subscribed context. Router
+                  Outlet context is retained for shell-owned navigation state only, so an async
+                  catalog response cannot leave a mounted screen holding the initial capability
+                  snapshot. */}
+              <TemplateLibraryProvider library={templateLibrary}>
+                <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+              </TemplateLibraryProvider>
             </main>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { Text, blueprintFrame, cn, focusRing } from '@nix/ui';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
 import {
@@ -13,8 +13,12 @@ import { CreateItemControl } from '../core/create-item-control';
 import { propertyTypeLabel } from '../core/property-types';
 import type { ContainerData } from '../core/use-container';
 import type { ViewRendererProps } from '../core/view-kinds';
-import { drawable, resolveViewChrome } from '../core/view-chrome';
+import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const GALLERY_ROW_GAP = 12;
 
 /**
  * The gallery: a container's children as a grid of cards, each optionally showing a cover picture.
@@ -130,7 +134,7 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
   const cover = resolveCover(container, view);
   const size = resolveCardSize(view.cardSize);
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this gallery',
@@ -179,12 +183,6 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
         <PartialNotice pending={describeLostCover(resolved)} />
       ) : null}
 
-      {/* Not virtualized, and that is only safe because the grid is bounded: `useContainer` asks
-          for one page and ignores the cursor, so this draws at most the server's page of children.
-          A gallery cares about that bound more than the list does - every card here may pull a
-          remote picture, and the browser decodes each at its own resolution rather than at the
-          card's - so a goal that teaches the container to follow the cursor and append has to
-          bring virtualization with it rather than after it. */}
       {/* `role="list"` is not redundant. Tailwind's preflight sets `list-style: none` on every
           `ul`, and WebKit drops the list and listitem roles when it sees that - so on Safari with
           VoiceOver this grid would stop announcing "list, 24 items" and become an undifferentiated
@@ -193,23 +191,15 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
           this attribute is what keeps the promise on the platform where it breaks.
 
           Named after the view, so a switcher tab and the region it opens agree on what they are. */}
-      {/* eslint-disable-next-line jsx-a11y/no-redundant-roles --
-          Justification: the rule is right about the specification and wrong about the platform.
-          The role is implicit until `list-style: none` removes it in WebKit, which preflight does
-          to every `ul` in this application, so here it restores a role rather than repeating one. */}
-      <ul role="list" aria-label={view.name} className={CARD_SIZE_GRID[size]}>
-        {chrome.items.map((item) => (
-          <GalleryCard
-            key={item.id}
-            item={item}
-            cover={resolved}
-            size={size}
-            secondary={secondary}
-            schema={schema}
-            onOpen={onOpen}
-          />
-        ))}
-      </ul>
+      <GalleryGrid
+        items={chrome.items}
+        label={view.name}
+        cover={resolved}
+        size={size}
+        secondary={secondary}
+        schema={schema}
+        onOpen={onOpen}
+      />
 
       <CreateItemControl
         label="Add an item"
@@ -218,6 +208,145 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
       />
     </div>
   );
+}
+
+interface GalleryGridProps {
+  readonly items: readonly Item[];
+  readonly label: string;
+  readonly cover: Cover;
+  readonly size: CardSize;
+  readonly secondary: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly onOpen: (itemId: string) => void;
+}
+
+function GalleryGrid(props: GalleryGridProps): ReactNode {
+  const { items, label, cover, size, secondary, schema, onOpen } = props;
+  const [failedCovers, setFailedCovers] = useState<ReadonlySet<string>>(() => new Set());
+
+  const card = (item: Item, index: number, virtualIndex?: number): ReactNode => {
+    const src = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
+    const failureKey = `${item.id}\u0000${src}`;
+    return (
+      <GalleryCard
+        key={item.id}
+        item={item}
+        cover={cover}
+        size={size}
+        secondary={secondary}
+        schema={schema}
+        onOpen={onOpen}
+        coverFailed={failedCovers.has(failureKey)}
+        onCoverFailure={() => {
+          setFailedCovers((current) => new Set(current).add(failureKey));
+        }}
+        position={index + 1}
+        setSize={items.length}
+        {...(virtualIndex === undefined ? {} : { virtualIndex })}
+      />
+    );
+  };
+
+  if (items.length <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      // eslint-disable-next-line jsx-a11y/no-redundant-roles -- Tailwind removes the list style, and with it this implicit role in WebKit.
+      <ul role="list" aria-label={label} className={CARD_SIZE_GRID[size]}>
+        {items.map((item, index) => card(item, index))}
+      </ul>
+    );
+  }
+
+  return <VirtualGalleryGrid {...props} renderCard={card} />;
+}
+
+function VirtualGalleryGrid(
+  props: GalleryGridProps & {
+    readonly renderCard: (item: Item, index: number, virtualIndex: number) => ReactNode;
+  },
+): ReactNode {
+  const { items, label, size, renderCard } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const viewportWidth = useViewportWidth();
+  const columns = galleryColumnCount(size, viewportWidth);
+  const rowCount = Math.ceil(items.length / columns);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(
+    () =>
+      Array.from({ length: rowCount }, (_unused, row) => {
+        const first = row * columns;
+        return `${String(columns)}:${items
+          .slice(first, first + columns)
+          .map((item) => item.id)
+          .join(',')}`;
+      }),
+    [columns, items, rowCount],
+  );
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: galleryRowEstimate(size),
+    measurementGap: GALLERY_ROW_GAP,
+    // Five rows above and below the viewport leaves room for one separately retained focused row
+    // while keeping even the six-column card size below the 100-card stress ceiling at 900px.
+    overscan: galleryRowEstimate(size) * 5,
+  });
+
+  return (
+    <div
+      ref={rootRef}
+      role="list"
+      aria-label={label}
+      className="relative"
+      style={{ height: windowed.totalSize }} // design-token-exempt: virtual content height is derived from measured gallery rows at runtime and cannot be represented by a design token
+    >
+      {windowed.segments.map((segment) => {
+        const firstItem = segment.first * columns;
+        const afterLastItem = Math.min(items.length, (segment.last + 1) * columns);
+        return (
+          <ul
+            key={`${String(segment.first)}-${String(segment.last)}`}
+            role="presentation"
+            className={cn(CARD_SIZE_GRID[size], 'absolute inset-x-0')}
+            style={{ top: windowed.offsets[segment.first] ?? 0 }} // design-token-exempt: virtual segment position is calculated from measured gallery-row offsets at runtime
+          >
+            {items
+              .slice(firstItem, afterLastItem)
+              .map((item, offset) =>
+                renderCard(item, firstItem + offset, Math.floor((firstItem + offset) / columns)),
+              )}
+          </ul>
+        );
+      })}
+    </div>
+  );
+}
+
+function useViewportWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const update = (): void => {
+      setWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', update, { passive: true });
+    return () => {
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  return width;
+}
+
+export function galleryColumnCount(size: CardSize, viewportWidth: number): number {
+  if (size === 'small') {
+    return viewportWidth >= 1280 ? 6 : viewportWidth >= 1024 ? 4 : viewportWidth >= 640 ? 3 : 2;
+  }
+  if (size === 'medium') {
+    return viewportWidth >= 1280 ? 4 : viewportWidth >= 1024 ? 3 : viewportWidth >= 640 ? 2 : 1;
+  }
+  return viewportWidth >= 1280 ? 3 : viewportWidth >= 1024 ? 2 : 1;
+}
+
+function galleryRowEstimate(size: CardSize): number {
+  return size === 'small' ? 260 : size === 'large' ? 420 : 320;
 }
 
 /**
@@ -288,10 +417,27 @@ interface GalleryCardProps {
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
+  readonly coverFailed: boolean;
+  readonly onCoverFailure: () => void;
+  readonly position: number;
+  readonly setSize: number;
+  readonly virtualIndex?: number;
 }
 
 function GalleryCard(props: GalleryCardProps): ReactNode {
-  const { item, cover, size, secondary, schema, onOpen } = props;
+  const {
+    item,
+    cover,
+    size,
+    secondary,
+    schema,
+    onOpen,
+    coverFailed,
+    onCoverFailure,
+    position,
+    setSize,
+    virtualIndex,
+  } = props;
 
   // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
   // of blank labels tells nobody anything.
@@ -309,7 +455,13 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     //
     // `relative` is load-bearing - it is what the title button's stretched hit area is measured
     // against - and `shadow-sm` is the resting elevation every other card in the product has.
-    <li className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}>
+    <li
+      {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+      aria-posinset={position}
+      aria-setsize={setSize}
+      data-virtual-index={virtualIndex}
+      className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}
+    >
       {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
           which item that was about - the status arriving ahead of its subject. `order-first` puts
@@ -348,6 +500,8 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
             src={readPropertyText(item, cover.property.key)}
             label={cover.property.label}
             size={size}
+            failed={coverFailed}
+            onFailure={onCoverFailure}
           />
         </div>
       ) : null}
@@ -375,22 +529,15 @@ function CoverPane({
   src,
   label,
   size,
+  failed,
+  onFailure,
 }: {
   readonly src: string;
   readonly label: string;
   readonly size: CardSize;
+  readonly failed: boolean;
+  readonly onFailure: () => void;
 }): ReactNode {
-  // **The state is the address that failed, not a flag plus a copy of the address.** Holding a
-  // boolean would need a mirrored `src` beside it to know when to clear, which is a prop copied
-  // into state by hand - the thing the state ladder exists to avoid - and it would need a
-  // render-phase write to reconcile the two. Storing the URL makes the answer derived: a corrected
-  // address simply is not the failed one, so it self-corrects with nothing to reconcile.
-  //
-  // In an effect this would render once showing a failure that belonged to the previous URL, so
-  // somebody who fixed a typo would be told they had not.
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const failed = failedSrc === src;
-
   if (src.length === 0) {
     // In words, not as an empty box. An empty box is indistinguishable from a cover that failed to
     // load and from a picture that happens to be white.
@@ -454,9 +601,7 @@ function CoverPane({
         // duplicate of adjacent text is exactly what an empty alt is for.
         alt=""
         className="absolute inset-0 size-full object-cover"
-        onError={() => {
-          setFailedSrc(src);
-        }}
+        onError={onFailure}
       />
     </CoverFrame>
   );

@@ -39,7 +39,7 @@ public sealed class InternalBoundaryMiddleware
     public const string NotFoundCode = "internal.not_found";
 
     private readonly RequestDelegate _next;
-    private readonly byte[]? _secret;
+    private readonly byte[]? _secretDigest;
 
     /// <summary>Initializes a new instance of the <see cref="InternalBoundaryMiddleware"/> class.</summary>
     /// <param name="next">The rest of the pipeline, reached only past the boundary.</param>
@@ -52,11 +52,13 @@ public sealed class InternalBoundaryMiddleware
         _next = next;
 
         var secret = configuration[SecretConfigurationKey];
-        _secret = string.IsNullOrWhiteSpace(secret) ? null : Encoding.UTF8.GetBytes(secret);
+        _secretDigest = string.IsNullOrWhiteSpace(secret)
+            ? null
+            : SHA256.HashData(Encoding.UTF8.GetBytes(secret));
     }
 
     /// <summary>Whether the internal surface is enabled at all.</summary>
-    public bool Enabled => _secret is not null;
+    public bool Enabled => _secretDigest is not null;
 
     /// <summary>Lets the request through only when it carries the shared secret.</summary>
     /// <param name="context">The request.</param>
@@ -65,7 +67,7 @@ public sealed class InternalBoundaryMiddleware
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (_secret is not null && PresentsSecret(context.Request))
+        if (_secretDigest is not null && PresentsSecret(context.Request))
         {
             await _next(context).ConfigureAwait(false);
             return;
@@ -90,13 +92,8 @@ public sealed class InternalBoundaryMiddleware
 
     private bool PresentsSecret(HttpRequest request)
     {
-        var presented = request.Headers[SecretHeaderName].ToString();
-        if (presented.Length == 0)
-        {
-            return false;
-        }
-
-        var presentedBytes = Encoding.UTF8.GetBytes(presented);
-        return CryptographicOperations.FixedTimeEquals(presentedBytes, _secret);
+        var presentedDigest = SHA256.HashData(
+            Encoding.UTF8.GetBytes(request.Headers[SecretHeaderName].ToString()));
+        return CryptographicOperations.FixedTimeEquals(presentedDigest, _secretDigest!);
     }
 }

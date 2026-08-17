@@ -183,7 +183,9 @@ describe('body-kind dispatch', () => {
     editor.getMap('sheet-cells').set('B1', { raw: '=A1*2' });
     const goodUpdate = Y.encodeStateAsUpdate(editor, Y.encodeStateVector(resident));
 
-    expect(judgeCandidate(resident, goodUpdate, { strategy: sheetStrategy })).toMatchObject({ ok: true });
+    expect(judgeCandidate(resident, goodUpdate, { strategy: sheetStrategy })).toMatchObject({
+      ok: true,
+    });
     // The same update judged as prose would be refused: the map is not a fragment. That
     // asymmetry is the whole reason dispatch exists.
     expect(judgeCandidate(resident, goodUpdate, { strategy: noteStrategy })).toMatchObject({

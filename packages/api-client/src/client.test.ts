@@ -2,7 +2,7 @@ import { HttpResponse, delay, http } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInMemoryTokenStore } from './auth.js';
 import { createNixClient, type NixClient } from './client.js';
-import { defineCommand, definePagedQuery, defineQuery } from './endpoints.js';
+import { defineBinaryQuery, defineCommand, definePagedQuery, defineQuery } from './endpoints.js';
 import { NixErrorCode, NixErrorKind } from './errors.js';
 import { itemSchema, noContentSchema, type Item } from './schemas/index.js';
 import { captureFailure } from './testing/failure.js';
@@ -230,7 +230,87 @@ describe('cursor pagination', () => {
   });
 });
 
+describe('downloading a binary resource', () => {
+  it('keeps authentication, cancellation, and response metadata on the typed client path', async () => {
+    server.use(
+      http.get(testUrl('/templates/export'), ({ request }) => {
+        expect(request.headers.get('authorization')).toBe('Bearer token');
+        return new HttpResponse(new Blob(['template bytes']), {
+          headers: {
+            'content-type': 'application/zip',
+            'content-disposition': 'attachment; filename="planning.nix"',
+          },
+        });
+      }),
+    );
+
+    const result = await client.download(
+      defineBinaryQuery({
+        operation: 'templates.export',
+        path: '/templates/export',
+      }),
+    );
+
+    expect(await result.blob.text()).toBe('template bytes');
+    expect(result.headers['content-disposition']).toContain('planning.nix');
+  });
+
+  it('keeps problem details when a refused download arrived through the blob transport', async () => {
+    server.use(
+      http.get(testUrl('/templates/export'), () =>
+        HttpResponse.json(
+          {
+            title: 'Template export unavailable',
+            status: 403,
+            detail: 'You cannot download this template.',
+            code: 'template.export_forbidden',
+          },
+          { status: 403, headers: { 'content-type': 'application/problem+json' } },
+        ),
+      ),
+    );
+
+    const error = await captureFailure(
+      client.download(
+        defineBinaryQuery({
+          operation: 'templates.export',
+          path: '/templates/export',
+        }),
+      ),
+    );
+
+    expect(error.kind).toBe(NixErrorKind.Problem);
+    expect(error.code).toBe('template.export_forbidden');
+    expect(error.detail).toBe('You cannot download this template.');
+  });
+});
+
 describe('commands', () => {
+  it('forwards endpoint headers without losing JSON serialization or authentication', async () => {
+    server.use(
+      http.post(testUrl('/templates/import'), async ({ request }) => {
+        expect(request.headers.get('authorization')).toBe('Bearer token');
+        expect(request.headers.get('x-nix-template-digest')).toBe('abc123');
+        expect(request.headers.get('content-type')).toContain('application/json');
+        expect(await request.json()).toEqual({ stableKey: 'planning' });
+        return HttpResponse.json({ id: ITEM_ID });
+      }),
+    );
+
+    const result = await client.execute(
+      defineCommand({
+        operation: 'templates.import',
+        method: 'POST',
+        path: '/templates/import',
+        body: { stableKey: 'planning' },
+        headers: { 'x-nix-template-digest': 'abc123' },
+        schema: itemSchema.pick({ id: true }).transform(({ id }) => ({ templateId: id })),
+      }),
+    );
+
+    expect(result.templateId).toBe(ITEM_ID);
+  });
+
   it('marks the cache keys a successful command declares as stale', async () => {
     server.use(
       http.get(testUrl(`/items/${ITEM_ID}`), () => HttpResponse.json(itemPayload('Plan'))),

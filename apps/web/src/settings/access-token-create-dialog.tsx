@@ -29,9 +29,9 @@ const ACCESS_TOKEN_SCOPES = ['read', 'write', 'admin'] as const;
  * and says which is missing.
  *
  * **Every close path reports whether a token was minted**, so the owner knows to refresh the
- * list. Escape, the backdrop, the corner control and the Done button all funnel through one
- * dismissal; a dialog that only refreshed on its happy-path button would leave a freshly minted
- * token invisible after an Escape.
+ * list. Escape, the backdrop, the corner close control and the primary Done button all funnel
+ * through one dismissal; a dialog that only refreshed on its happy-path button would leave a
+ * freshly minted token invisible after an Escape.
  */
 
 /** What each scope lets a client do, said next to the box that grants it. */
@@ -207,7 +207,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
       open={open}
       title={minted === null ? 'Create an access token' : 'Copy your new token now'}
       onClose={dismiss}
-      closeLabel={minted === null ? 'Close without creating a token' : 'Done'}
+      closeLabel={minted === null ? 'Close without creating a token' : 'Close'}
       initialFocus={nameFieldRef}
     >
       {minted === null ? (
@@ -317,9 +317,10 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
                 </Text>
               </label>
               {expiry === 'custom' ? (
-                <label className="flex items-center gap-1.5">
+                <label htmlFor="token-custom-expiry-days" className="flex items-center gap-1.5">
                   <span className="sr-only">Custom expiry in days</span>
                   <Input
+                    id="token-custom-expiry-days"
                     type="number"
                     min={1}
                     max={365}

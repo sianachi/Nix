@@ -17,6 +17,7 @@ using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.Templates;
 using Nix.Features.Tokens;
 using Nix.Features.Views;
 using Nix.Features.Workspaces;
@@ -60,6 +61,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(QueryJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
 });
 
@@ -197,6 +199,7 @@ builder.Services.AddRateLimiter(options =>
             cancellationToken));
     };
 });
+builder.Services.AddSingleton(_ => new InternalWriteRateLimiter(writesPerMinute, writesWindow));
 
 // Failed-authentication backpressure for the unit-of-work middleware. Registered unconditionally -
 // it holds no connection and costs a dictionary - even though only the persistence-configured
@@ -341,6 +344,7 @@ app.UseWhen(
         if (persistenceConfigured)
         {
             branch.UseMiddleware<NixUnitOfWorkMiddleware>();
+            branch.UseMiddleware<InternalWriteRateLimitMiddleware>();
         }
     });
 if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBoundaryMiddleware.SecretConfigurationKey]))
@@ -364,6 +368,7 @@ app.MapCalendarEndpoints();
 app.MapQueryEndpoints();
 app.MapBookmarkEndpoints();
 app.MapPublicFormEndpoints();
+app.MapTemplateEndpoints();
 app.MapTokenEndpoints();
 app.MapTokenExchangeEndpoints();
 

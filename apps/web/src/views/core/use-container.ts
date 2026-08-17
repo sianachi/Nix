@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ZodType } from 'zod';
 
 import { useAuth } from '../../auth/auth-provider';
@@ -235,6 +235,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const [views, storeViews] = useState<ContainerViews | null>(null);
   const [children, setChildren] = useState<readonly Item[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const defaultViewWrite = useRef(0);
+  const activeLoad = useRef<AbortController | null>(null);
 
   const request = useCallback(
     async (path: string, init?: RequestInit): Promise<Response> => {
@@ -251,6 +253,9 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   );
 
   const load = useCallback(async (): Promise<void> => {
+    activeLoad.current?.abort();
+    const controller = new AbortController();
+    activeLoad.current = controller;
     setStatus('loading');
     setError(null);
 
@@ -264,13 +269,13 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       // anything. Sequencing them would make opening an item three round trips deep. The children
       // read is only the first page here; the rest are paged in below.
       const [childrenResponse, schemaResponse, viewsResponse] = await Promise.all([
-        request(basePath),
+        request(basePath, { signal: controller.signal }),
         containerId === null
           ? Promise.resolve(null)
-          : request(`/api/v1/items/${containerId}/schema`),
+          : request(`/api/v1/items/${containerId}/schema`, { signal: controller.signal }),
         containerId === null
           ? Promise.resolve(null)
-          : request(`/api/v1/items/${containerId}/views`),
+          : request(`/api/v1/items/${containerId}/views`, { signal: controller.signal }),
       ]);
 
       // Paged until exhausted rather than one default page. The endpoint answers 50 items unless
@@ -320,8 +325,12 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           break;
         }
 
-        response = await request(`${basePath}&cursor=${encodeURIComponent(cursor)}`);
+        response = await request(`${basePath}&cursor=${encodeURIComponent(cursor)}`, {
+          signal: controller.signal,
+        });
       }
+
+      if (controller.signal.aborted) return;
 
       setChildren(loaded);
       setTruncated(partial);
@@ -334,15 +343,23 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
 
       setStatus('ready');
     } catch {
+      if (controller.signal.aborted) return;
       setError('Core could not be reached.');
       setStatus('error');
+    } finally {
+      if (activeLoad.current === controller) activeLoad.current = null;
     }
   }, [containerId, request]);
 
   useEffect(() => {
+    let disposed = false;
     queueMicrotask(() => {
-      void load();
+      if (!disposed) void load();
     });
+    return () => {
+      disposed = true;
+      activeLoad.current?.abort();
+    };
   }, [load]);
 
   const setProperties = useCallback(
@@ -685,9 +702,49 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         return null;
       }
 
-      return await setViews(views.views, viewId);
+      const previous = views;
+      const write = defaultViewWrite.current + 1;
+      defaultViewWrite.current = write;
+
+      // Switching views must not reload every child just to remember one identifier. Large
+      // containers take several pages to load, and coupling this preference write to `load()`
+      // made each switch discard the data already on screen and start that walk again. Optimistic
+      // local state also makes a second quick switch compare against the choice the person just
+      // made rather than a stale server response.
+      storeViews({ ...views, default: viewId });
+
+      try {
+        const response = await request(`/api/v1/items/${containerId}/views`, {
+          method: 'PUT',
+          body: JSON.stringify({ views: views.views, default: viewId }),
+        });
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => null)) as {
+            detail?: string;
+          } | null;
+          if (defaultViewWrite.current === write) {
+            storeViews(previous);
+          }
+          return problem?.detail ?? 'That view could not be remembered.';
+        }
+
+        const parsed = ContainerViewsSchema.safeParse(await response.json());
+        if (!parsed.success) {
+          console.warn('The saved views did not match the contract:', parsed.error.message);
+          return 'The view was saved, but Core returned an unreadable response.';
+        }
+        if (defaultViewWrite.current === write) {
+          storeViews(parsed.data);
+        }
+        return null;
+      } catch {
+        if (defaultViewWrite.current === write) {
+          storeViews(previous);
+        }
+        return 'That view could not be remembered. Check the connection and try again.';
+      }
     },
-    [containerId, setViews, views],
+    [containerId, request, views],
   );
 
   const create = useCallback(

@@ -361,6 +361,37 @@ describe('the bundle stream', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  it('answers the same not-found for missing and wrong secrets of any length', async () => {
+    const app = track(server({ authorizer: granting }));
+    const responses = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: `/documents/${ITEM}/bundles`,
+        headers: { authorization: 'Bearer token' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/documents/${ITEM}/bundles`,
+        headers: { authorization: 'Bearer token', 'x-nix-internal-secret': 'x' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/documents/${ITEM}/bundles`,
+        headers: {
+          authorization: 'Bearer token',
+          'x-nix-internal-secret': 'x'.repeat(INTERNAL_SECRET.length),
+        },
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404]);
+    expect(responses.map((response) => response.body)).toEqual([
+      responses[0].body,
+      responses[0].body,
+      responses[0].body,
+    ]);
+  });
+
   it('still needs the caller own token, so a service cannot export on nobody behalf', async () => {
     const response = await track(server({ authorizer: granting })).inject({
       method: 'GET',

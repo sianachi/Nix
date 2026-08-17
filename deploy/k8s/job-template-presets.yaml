@@ -1,0 +1,43 @@
+# Rendered and launched by deploy.sh only after both migration Jobs complete. The
+# preset SQL needs the template schema, and it deliberately runs separately from
+# the schema-independent database seed so a fresh workspace seed is reconciled.
+apiVersion: batch/v1
+kind: Job
+metadata: { name: nix-template-presets-${TAG}, namespace: nix }
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: { labels: { app: nix-template-presets } }
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: presets
+          image: pgvector/pgvector:pg16
+          env:
+            - { name: PGHOST, value: postgres }
+            - { name: PGDATABASE, value: nix }
+            - { name: PGUSER, value: nix_migrator }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: nix-db, key: migrator-password } }
+          command: ["psql"]
+          args: ["-v", "ON_ERROR_STOP=1", "-f", "/seed/seed_template_presets.sql"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+      volumes:
+        - name: seed
+          configMap: { name: nix-template-presets }
