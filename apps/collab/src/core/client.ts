@@ -41,6 +41,7 @@ export interface CoreClient {
     workspaceId: string,
     parentId: string,
     cursor: string | null,
+    limit?: number,
   ): Promise<ChildPage | null>;
   getSchema(token: string, itemId: string): Promise<SchemaSnapshot | null>;
   getViews(token: string, itemId: string): Promise<ViewsSnapshot | null>;
@@ -81,8 +82,8 @@ export function createCoreClient(options: CoreClientOptions): CoreClient {
       return toItem(await read(token, `/api/v1/items/${itemId}`));
     },
 
-    async listChildren(token, workspaceId, parentId, cursor) {
-      const query = new URLSearchParams({ parentId, limit: '200' });
+    async listChildren(token, workspaceId, parentId, cursor, limit = 200) {
+      const query = new URLSearchParams({ parentId, limit: String(Math.min(200, limit)) });
       if (cursor !== null) {
         query.set('cursor', cursor);
       }
@@ -144,6 +145,16 @@ export function createCoreClient(options: CoreClientOptions): CoreClient {
         coverProperty: nullableText(view.coverProperty),
         endDateProperty: nullableText(view.endDateProperty),
         cardSize: nullableText(view.cardSize),
+        filters: Array.isArray(view.filters)
+          ? view.filters.filter(isRecord).map((filter) => ({
+              property: text(filter.property),
+              operator: text(filter.operator),
+              value: text(filter.value),
+            }))
+          : [],
+        companionViewId: nullableText(view.companionViewId),
+        companionPlacement: toCompanionPlacement(view.companionPlacement),
+        interactiveForm: toInteractiveForm(view.interactiveForm),
       }));
 
       return { views, default: text(body.default) };
@@ -204,4 +215,53 @@ function text(value: unknown): string {
 
 function nullableText(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function toCompanionPlacement(value: unknown): 'below' | 'beside' | null {
+  return value === 'below' || value === 'beside' ? value : null;
+}
+
+function toInteractiveForm(
+  raw: unknown,
+): NonNullable<ViewsSnapshot['views'][number]['interactiveForm']> | null {
+  if (!isRecord(raw) || !Array.isArray(raw.pages)) {
+    return null;
+  }
+
+  return {
+    pages: raw.pages.filter(isRecord).map((page) => ({
+      id: text(page.id),
+      title: text(page.title),
+      description: nullableText(page.description),
+      visibleWhen: toConditions(page.visibleWhen),
+      blocks: Array.isArray(page.blocks)
+        ? page.blocks.filter(isRecord).map((block) => ({
+            id: text(block.id),
+            kind: text(block.kind),
+            propertyKey: nullableText(block.propertyKey),
+            text: text(block.text),
+            help: nullableText(block.help),
+            required: block.required === true,
+            identityRole: nullableText(block.identityRole),
+            visibleWhen: toConditions(block.visibleWhen),
+          }))
+        : [],
+    })),
+    titleMode: text(raw.titleMode),
+    titleFieldBlockId: nullableText(raw.titleFieldBlockId),
+    confirmationTitle: text(raw.confirmationTitle),
+    confirmationMessage: text(raw.confirmationMessage),
+  };
+}
+
+function toConditions(
+  raw: unknown,
+): NonNullable<ViewsSnapshot['views'][number]['interactiveForm']>['pages'][number]['visibleWhen'] {
+  return Array.isArray(raw)
+    ? raw.filter(isRecord).map((condition) => ({
+        fieldBlockId: text(condition.fieldBlockId),
+        operator: text(condition.operator),
+        value: nullableText(condition.value),
+      }))
+    : [];
 }

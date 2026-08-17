@@ -5,6 +5,8 @@ import { createTokenValidator } from './auth/token.ts';
 import { readConfig } from './config.ts';
 import { createCoreClient } from './core/client.ts';
 import { createTouchedNotifier } from './core/touched.ts';
+import { createCoreTemplateClient } from './templates/core.ts';
+import { createTemplateService } from './templates/service.ts';
 import { connectDocumentLocks } from './db/advisory-lock.ts';
 import { RateWindow } from './documents/limits.ts';
 import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
@@ -31,12 +33,25 @@ const pool = new Pool({
 
 const metrics = createMetrics();
 
+const coreTemplates = createCoreTemplateClient({
+  coreBaseUrl: config.coreBaseUrl,
+  internalSecret: config.internalSecret,
+});
+
 const sessions = createSessionAuthenticator({
   tokens: createTokenValidator({ issuers: config.oidcIssuers, audiences: config.oidcAudiences }),
   authorizer: createAuthorizer({
     coreBaseUrl: config.coreBaseUrl,
     internalSecret: config.internalSecret,
   }),
+  templateItems: {
+    authorize: (token, templateId, sourceId) =>
+      coreTemplates.authorizeTemplateItem(token, templateId, sourceId),
+  },
+  draftItems: {
+    authorize: (token, templateId, operationId, sourceId) =>
+      coreTemplates.authorizeDraftItem(token, templateId, operationId, sourceId),
+  },
 });
 
 // One dedicated connection carries every ownership claim. Losing it means every claim is
@@ -92,6 +107,21 @@ const app = createServer({
   metrics,
   hub: registry,
   rateWindow,
+  templates: createTemplateService({
+    pool,
+    core: coreTemplates,
+    sealItems: (itemIds) => registry.sealItems(itemIds),
+    invalidateItems: (itemIds) => registry.invalidateItems(itemIds),
+    blockDraftAuthorization: (operationId) => {
+      sessions.blockDraftOperation(operationId);
+    },
+    completeDraftAuthorization: (operationId) => {
+      sessions.completeDraftOperation(operationId);
+    },
+    releaseDraftAuthorization: (operationId) => {
+      sessions.releaseDraftOperation(operationId);
+    },
+  }),
 });
 
 logHolder.write = (message) => {

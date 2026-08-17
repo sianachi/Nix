@@ -372,6 +372,7 @@ export function fakeSocketSession(
     sent,
     closedWith,
     itemId: tenant.itemId,
+    authorizationKey: tenant.itemId,
     clientSchemaVersion: SCHEMA_VERSION,
     token: 'a-token',
     authorization: {
