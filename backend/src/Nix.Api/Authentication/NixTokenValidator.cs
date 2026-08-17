@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using Nix.Abstractions;
+using Nix.Domain.Tenancy;
 
 namespace Nix.Authentication;
 
@@ -25,38 +25,34 @@ namespace Nix.Authentication;
 /// token is believed until the signature checks out.
 /// </para>
 /// <para>
-/// Signing keys are fetched from the issuer's JWKS endpoint and cached per issuer, with refresh and
-/// key rollover handled here rather than by a configuration manager: the registration stores the
-/// JWKS endpoint directly, so there is no discovery document to manage. See <see cref="KeyLifetime"/>
-/// for how long a key set is trusted and <see cref="MinimumRefetchInterval"/> for the floor that
-/// keeps a rotation refetch from becoming a fetch storm. Without the cache every request would fetch
-/// a key set, which is both slow and a way to have the identity provider rate-limit us out of
-/// service.
+/// Signing keys are fetched from the registered provider's JWKS endpoint and cached per immutable
+/// registration identity, with refresh and key rollover handled here rather than by a configuration
+/// manager: the registration stores the JWKS endpoint directly, so there is no discovery document
+/// to manage. See <see cref="KeyLifetime"/> for how long a key set is trusted and
+/// <see cref="MinimumRefetchInterval"/> for the floor that keeps a rotation refetch from becoming a
+/// fetch storm. Without the cache every request would fetch a key set, which is both slow and a way
+/// to have the identity provider rate-limit us out of service.
 /// </para>
 /// </remarks>
-[SuppressMessage(
-    "Performance",
-    "CA1812:Avoid uninstantiated internal classes",
-    // Justification: DI-activated. The analyser sees no `new`, because there is none to see - the
-    // container builds it. Making it public to dodge the rule would widen the assembly's surface
-    // for a diagnostic that is simply wrong here.
-    Justification = "Constructed by the framework, not by application code.")]
-internal sealed class NixTokenValidator
+public sealed class NixTokenValidator
 {
+    private const int MaximumAudiences = 16;
+
     private readonly IIdentityDirectory _directory;
+    private readonly HttpClient _keyFetcher;
+    private readonly TimeProvider _clock;
     // MapInboundClaims off, deliberately. The handler's legacy default rewrites standard JWT claim
     // names into WS-Federation URIs - `sub` becomes ...claims/nameidentifier - so a lookup for
     // "sub" silently finds nothing and every token is refused with no error to explain it.
     private readonly JwtSecurityTokenHandler _handler = new() { MapInboundClaims = false };
 
-    // Keyed by issuer. The registration stores the JWKS endpoint directly, so the key set is
-    // fetched from it rather than discovered - pointing an OpenID discovery retriever at a JWKS URL
-    // yields a document with no signing keys, which presents as every token being refused with
-    // nothing logged, because there is no error to log.
-    private static readonly ConcurrentDictionary<string, CachedKeySet> KeyCache =
-        new(StringComparer.Ordinal);
+    // Keyed by the complete immutable provider registration identity, not issuer alone. One issuer
+    // can legitimately register separate audiences and JWKS sets for separate tenants. Reusing one
+    // audience's set for another would become a cross-tenant acceptance bug when both sets contain
+    // the same kid.
+    private static readonly ConcurrentDictionary<ProviderCacheKey, ProviderCacheState> KeyCache = [];
 
-    private static readonly HttpClient KeyFetcher = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly HttpClient DefaultKeyFetcher = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     /// <summary>How long a key set is trusted before it is fetched again.</summary>
     /// <remarks>
@@ -81,12 +77,50 @@ internal sealed class NixTokenValidator
 
     private sealed record CachedKeySet(JsonWebKeySet Keys, DateTimeOffset FetchedAt);
 
+    private sealed class ProviderCacheState
+    {
+        internal object Sync { get; } = new();
+
+        internal SemaphoreSlim Refresh { get; } = new(1, 1);
+
+        internal CachedKeySet? Cached { get; set; }
+
+        internal DateTimeOffset LastAttempt { get; set; } = DateTimeOffset.MinValue;
+    }
+
+    private readonly record struct ProviderCacheKey(
+        TenantId TenantId,
+        string Issuer,
+        string Audience,
+        Uri JwksUri);
+
     /// <summary>Initializes a new instance of the <see cref="NixTokenValidator"/> class.</summary>
     /// <param name="directory">The pre-authentication lookups.</param>
     public NixTokenValidator(IIdentityDirectory directory)
+        : this(directory, DefaultKeyFetcher, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Initializes a validator with a specific signing-key client.</summary>
+    /// <param name="directory">The pre-authentication lookups.</param>
+    /// <param name="keyFetcher">The client used to retrieve registered JWKS documents.</param>
+    public NixTokenValidator(IIdentityDirectory directory, HttpClient keyFetcher)
+        : this(directory, keyFetcher, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Initializes a validator with explicit signing-key I/O and time.</summary>
+    /// <param name="directory">The pre-authentication lookups.</param>
+    /// <param name="keyFetcher">The client used to retrieve registered JWKS documents.</param>
+    /// <param name="clock">The time source used for refresh and failure backoff.</param>
+    public NixTokenValidator(IIdentityDirectory directory, HttpClient keyFetcher, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(keyFetcher);
+        ArgumentNullException.ThrowIfNull(clock);
         _directory = directory;
+        _keyFetcher = keyFetcher;
+        _clock = clock;
     }
 
     /// <summary>
@@ -112,16 +146,41 @@ internal sealed class NixTokenValidator
         // Unvalidated, and used only to choose an issuer to validate against. See the note above.
         var unverified = _handler.ReadJwtToken(token);
         var issuer = unverified.Issuer;
-        var audience = unverified.Audiences.FirstOrDefault();
+        var audiences = unverified.Audiences
+            .Where(static audience => !string.IsNullOrWhiteSpace(audience))
+            .Distinct(StringComparer.Ordinal)
+            .Take(MaximumAudiences + 1)
+            .ToArray();
 
-        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience))
+        if (string.IsNullOrWhiteSpace(issuer)
+            || audiences.Length is 0 or > MaximumAudiences)
         {
             return null;
         }
 
-        var registration = await _directory
-            .ResolveProviderAsync(issuer, audience, cancellationToken)
-            .ConfigureAwait(false);
+        IdentityProviderRegistration? registration = null;
+        foreach (var audience in audiences)
+        {
+            var candidate = await _directory
+                .ResolveProviderAsync(issuer, audience, cancellationToken)
+                .ConfigureAwait(false);
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            // A token can legitimately carry both the web-client and project audiences. They are
+            // one provider match when every validation-policy field is identical; the selected
+            // audience only gives TokenValidationParameters one of the token's accepted values.
+            // Different tenants, key sets, or algorithms remain ambiguous and fail closed, so
+            // attacker-controlled audience order can never select a different validation policy.
+            if (registration is not null && !SameProviderPolicy(registration, candidate))
+            {
+                return null;
+            }
+
+            registration ??= candidate;
+        }
 
         if (registration is null)
         {
@@ -175,14 +234,37 @@ internal sealed class NixTokenValidator
         }
     }
 
-    private static async ValueTask<ICollection<SecurityKey>?> ResolveSigningKeysAsync(
+    private static bool SameProviderPolicy(
+        IdentityProviderRegistration first,
+        IdentityProviderRegistration second) =>
+        first.TenantId == second.TenantId
+        && string.Equals(first.Issuer, second.Issuer, StringComparison.Ordinal)
+        && first.JwksUri == second.JwksUri
+        && first.AllowedAlgorithms.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(second.AllowedAlgorithms);
+
+    private async ValueTask<ICollection<SecurityKey>?> ResolveSigningKeysAsync(
         IdentityProviderRegistration registration,
         string? keyId,
         CancellationToken cancellationToken)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _clock.GetUtcNow();
+        var cacheKey = new ProviderCacheKey(
+            registration.TenantId,
+            registration.Issuer,
+            registration.Audience,
+            registration.JwksUri);
 
-        if (KeyCache.TryGetValue(registration.Issuer, out var cached))
+        var state = KeyCache.GetOrAdd(cacheKey, static _ => new ProviderCacheState());
+        CachedKeySet? cached;
+        DateTimeOffset lastAttempt;
+        lock (state.Sync)
+        {
+            cached = state.Cached;
+            lastAttempt = state.LastAttempt;
+        }
+
+        if (cached is not null)
         {
             var age = now - cached.FetchedAt;
             var knowsKey = keyId is null
@@ -197,20 +279,56 @@ internal sealed class NixTokenValidator
             // An unknown key id usually means the issuer rotated. Refetch - but not more often
             // than the floor, so forged tokens carrying random key ids cannot become a fetch
             // storm against the identity provider.
-            if (!knowsKey && age < MinimumRefetchInterval)
+            if (!knowsKey && now - lastAttempt < MinimumRefetchInterval)
             {
                 return cached.Keys.GetSigningKeys();
             }
         }
 
+        await state.Refresh.WaitAsync(cancellationToken).ConfigureAwait(false);
+
         try
         {
-            var json = await KeyFetcher
+            // Another request may have completed the refresh while this one waited. Re-evaluate
+            // both success freshness and failure backoff under the provider's single-flight gate.
+            now = _clock.GetUtcNow();
+            lock (state.Sync)
+            {
+                cached = state.Cached;
+                lastAttempt = state.LastAttempt;
+            }
+            if (cached is not null)
+            {
+                var knowsKey = keyId is null
+                    || cached.Keys.Keys.Any(key => string.Equals(key.Kid, keyId, StringComparison.Ordinal));
+                if (now - cached.FetchedAt < KeyLifetime && knowsKey)
+                {
+                    return cached.Keys.GetSigningKeys();
+                }
+
+                if (!knowsKey && now - lastAttempt < MinimumRefetchInterval)
+                {
+                    return cached.Keys.GetSigningKeys();
+                }
+            }
+            else if (now - lastAttempt < MinimumRefetchInterval)
+            {
+                return null;
+            }
+
+            lock (state.Sync)
+            {
+                state.LastAttempt = now;
+            }
+            var json = await _keyFetcher
                 .GetStringAsync(registration.JwksUri, cancellationToken)
                 .ConfigureAwait(false);
 
             var keySet = new JsonWebKeySet(json);
-            KeyCache[registration.Issuer] = new CachedKeySet(keySet, now);
+            lock (state.Sync)
+            {
+                state.Cached = new CachedKeySet(keySet, now);
+            }
             return keySet.GetSigningKeys();
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or ArgumentException)
@@ -225,10 +343,14 @@ internal sealed class NixTokenValidator
                 ? cached.Keys.GetSigningKeys()
                 : null;
         }
+        finally
+        {
+            state.Refresh.Release();
+        }
     }
 }
 
 /// <summary>A token that validated, and what it says.</summary>
 /// <param name="Registration">The issuer registration it validated against.</param>
 /// <param name="Subject">The issuer's stable subject claim.</param>
-internal sealed record ValidatedToken(IdentityProviderRegistration Registration, string Subject);
+public sealed record ValidatedToken(IdentityProviderRegistration Registration, string Subject);

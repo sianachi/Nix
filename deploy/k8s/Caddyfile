@@ -22,6 +22,7 @@
 
 	# Collab's own routes are /documents/...; the prefix is stripped.
 	# WebSocket upgrades proxy transparently.
+	# This also exposes service routes; Collab's internal-secret check is the boundary.
 	handle_path /collab/* {
 		reverse_proxy nix-collab:8100
 	}
