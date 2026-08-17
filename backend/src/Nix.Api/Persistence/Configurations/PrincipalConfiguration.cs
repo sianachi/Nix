@@ -38,6 +38,9 @@ internal sealed class PrincipalConfiguration : IEntityTypeConfiguration<Principa
             .IsRequired();
 
         builder.Property(principal => principal.DeprovisionedAt).HasColumnName("deprovisioned_at");
+        builder.Property(principal => principal.CanManageTemplates)
+            .HasColumnName("can_manage_templates")
+            .HasDefaultValue(false);
 
         // The target of every composite tenant-scoped reference to a principal.
         builder.HasAlternateKey(principal => new { principal.TenantId, principal.Id });

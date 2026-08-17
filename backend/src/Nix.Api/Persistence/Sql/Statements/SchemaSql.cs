@@ -48,6 +48,8 @@ public static class SchemaSql
         WHERE edge.tenant_id = @tenant_id
           AND edge.descendant_id = @item_id
           AND ancestor.schema IS NOT NULL
+          AND ancestor.template_id IS NULL
+          AND ancestor.lifecycle_state = 'active'
         ORDER BY edge.depth
         """;
 }

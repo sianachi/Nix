@@ -97,9 +97,9 @@ public sealed class SetItemSchemaHandler : ICommandHandler<SetItemSchema, Proper
             return Result.Success(PropertySchema.Empty);
         }
 
-        if (Refuse(schema) is { } refusal)
+        if (PropertySchemaRules.Refuse(schema) is { } refusal)
         {
-            return Result.Failure<PropertySchema>(refusal);
+            return Result.Failure<PropertySchema>(PropertyErrors.InvalidSchema(refusal));
         }
 
         var json = PropertySchemaJson.Write(schema);
@@ -132,50 +132,11 @@ public sealed class SetItemSchemaHandler : ICommandHandler<SetItemSchema, Proper
     public static NixError? Validate(PropertySchema schema)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        return Refuse(schema);
+        return PropertySchemaRules.Refuse(schema) is { } reason
+            ? PropertyErrors.InvalidSchema(reason)
+            : null;
     }
 
-    private static NixError? Refuse(PropertySchema schema)
-    {
-        var keys = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var property in schema.Properties)
-        {
-            if (property.Key.Length == 0)
-            {
-                return PropertyErrors.InvalidSchema("Every property needs a key.");
-            }
-
-            if (!keys.Add(property.Key))
-            {
-                return PropertyErrors.InvalidSchema(
-                    $"'{property.Key}' is declared more than once; a property cannot mean two things.");
-            }
-
-            if (string.Equals(property.Key, ItemProperties.TitleKey, StringComparison.Ordinal))
-            {
-                // The title is promoted to a first-class field by the API and written by the
-                // rename path. A schema redeclaring it would give one value two owners with
-                // different rules.
-                return PropertyErrors.InvalidSchema(
-                    "'title' is managed by the item itself and cannot be redeclared.");
-            }
-
-            if (property.Type.HasOptions() && property.Options.IsEmpty)
-            {
-                return PropertyErrors.InvalidSchema(
-                    $"'{property.Label}' is a select and needs at least one option.");
-            }
-
-            if (!property.Type.HasOptions() && !property.Options.IsEmpty)
-            {
-                return PropertyErrors.InvalidSchema(
-                    $"'{property.Label}' is not a select, so it cannot carry options.");
-            }
-        }
-
-        return null;
-    }
 }
 
 /// <summary>

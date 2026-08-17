@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Nix.Domain.Authorization;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
+using Nix.Domain.Templates;
 
 namespace Nix.Persistence.Conversion;
 
@@ -95,6 +96,7 @@ internal static class EnumConverters
             ItemLifecycleState.Active => "active",
             ItemLifecycleState.Deleted => "deleted",
             ItemLifecycleState.Purged => "purged",
+            ItemLifecycleState.Provisioning => "provisioning",
             _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown lifecycle state."),
         };
 
@@ -103,9 +105,138 @@ internal static class EnumConverters
             "active" => ItemLifecycleState.Active,
             "deleted" => ItemLifecycleState.Deleted,
             "purged" => ItemLifecycleState.Purged,
+            "provisioning" => ItemLifecycleState.Provisioning,
             _ => throw new InvalidOperationException(
                 $"The database holds '{text}' as an item lifecycle state, which this build does " +
                 "not recognise. Refusing to guess: the alternative is showing purged content."),
+        };
+    }
+
+    /// <summary>Maps <see cref="TemplateOrigin"/> to storage text.</summary>
+    internal sealed class TemplateOriginConverter : ValueConverter<TemplateOrigin, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public TemplateOriginConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(TemplateOrigin value) => value switch
+        {
+            TemplateOrigin.Seed => "seed",
+            TemplateOrigin.User => "user",
+            TemplateOrigin.Managed => "managed",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown template origin."),
+        };
+
+        private static TemplateOrigin FromText(string text) => text switch
+        {
+            "seed" => TemplateOrigin.Seed,
+            "user" => TemplateOrigin.User,
+            "managed" => TemplateOrigin.Managed,
+            _ => throw new InvalidOperationException($"Unknown template origin '{text}'."),
+        };
+    }
+
+    /// <summary>Maps <see cref="TemplateState"/> to storage text.</summary>
+    internal sealed class TemplateStateConverter : ValueConverter<TemplateState, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public TemplateStateConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(TemplateState value) => value switch
+        {
+            TemplateState.Active => "active",
+            TemplateState.Provisioning => "provisioning",
+            TemplateState.Inactive => "inactive",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown template state."),
+        };
+
+        private static TemplateState FromText(string text) => text switch
+        {
+            "active" => TemplateState.Active,
+            "provisioning" => TemplateState.Provisioning,
+            "inactive" => TemplateState.Inactive,
+            _ => throw new InvalidOperationException($"Unknown template state '{text}'."),
+        };
+    }
+
+    /// <summary>Maps <see cref="TemplateOperationKind"/> to storage text.</summary>
+    internal sealed class TemplateOperationKindConverter : ValueConverter<TemplateOperationKind, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public TemplateOperationKindConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(TemplateOperationKind value) => value switch
+        {
+            TemplateOperationKind.Capture => "capture",
+            TemplateOperationKind.Import => "import",
+            TemplateOperationKind.Edit => "edit",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown template operation kind."),
+        };
+
+        private static TemplateOperationKind FromText(string text) => text switch
+        {
+            "capture" => TemplateOperationKind.Capture,
+            "import" => TemplateOperationKind.Import,
+            "edit" => TemplateOperationKind.Edit,
+            _ => throw new InvalidOperationException($"Unknown template operation kind '{text}'."),
+        };
+    }
+
+    /// <summary>Maps <see cref="TemplateOperationState"/> to storage text.</summary>
+    internal sealed class TemplateOperationStateConverter : ValueConverter<TemplateOperationState, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public TemplateOperationStateConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(TemplateOperationState value) => value switch
+        {
+            TemplateOperationState.Provisioning => "provisioning",
+            TemplateOperationState.Active => "active",
+            TemplateOperationState.Aborted => "aborted",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown template operation state."),
+        };
+
+        private static TemplateOperationState FromText(string text) => text switch
+        {
+            "provisioning" => TemplateOperationState.Provisioning,
+            "active" => TemplateOperationState.Active,
+            "aborted" => TemplateOperationState.Aborted,
+            _ => throw new InvalidOperationException($"Unknown template operation state '{text}'."),
+        };
+    }
+
+    /// <summary>Maps <see cref="TemplateApplicationMode"/> to storage text.</summary>
+    internal sealed class TemplateApplicationModeConverter : ValueConverter<TemplateApplicationMode, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public TemplateApplicationModeConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(TemplateApplicationMode value) => value switch
+        {
+            TemplateApplicationMode.Merge => "merge",
+            TemplateApplicationMode.Create => "create",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown template application mode."),
+        };
+
+        private static TemplateApplicationMode FromText(string text) => text switch
+        {
+            "merge" => TemplateApplicationMode.Merge,
+            "create" => TemplateApplicationMode.Create,
+            _ => throw new InvalidOperationException($"Unknown template application mode '{text}'."),
         };
     }
 
