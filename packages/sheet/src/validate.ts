@@ -2,7 +2,7 @@ import type * as Y from 'yjs';
 
 import { evaluateSheet, type SheetEvaluation } from './engine.js';
 import { SHEET_LIMITS, type SheetLimits } from './limits.js';
-import { readCellEntry, readCells, readMeta, sheetCellsMap } from './model.js';
+import { SHEET_COLUMN_WIDTH, readCellEntry, readCells, readMeta, sheetCellsMap } from './model.js';
 import { formatCellValue, isSheetError } from './values.js';
 import { parseCellKey } from './refs.js';
 
@@ -50,6 +50,74 @@ export interface SheetRejection {
   readonly message: string;
 }
 
+export interface SheetSnapshotInput {
+  readonly body: 'sheet';
+  readonly cells: Readonly<Record<string, string>>;
+  readonly meta: {
+    readonly rows: number;
+    readonly cols: number;
+    readonly colWidths: Readonly<Record<string, number>>;
+  };
+}
+
+/** Validates an archive/materialized sheet with the same structural and evaluation budgets. */
+export function checkSheetSnapshot(
+  snapshot: SheetSnapshotInput,
+  limits: SheetLimits = SHEET_LIMITS,
+): SheetRejection | null {
+  if (
+    !positiveInteger(snapshot.meta.rows) ||
+    snapshot.meta.rows > limits.maxRows ||
+    !positiveInteger(snapshot.meta.cols) ||
+    snapshot.meta.cols > limits.maxCols
+  ) {
+    return { code: 'sheet_invalid', message: 'The sheet extents are outside the supported grid.' };
+  }
+  const entries = Object.entries(snapshot.cells);
+  if (entries.length > limits.maxCells) {
+    return {
+      code: 'sheet_too_many_cells',
+      message: `The sheet holds ${String(entries.length)} cells; the bound is ${String(limits.maxCells)}.`,
+    };
+  }
+  const cells = new Map<string, string>();
+  for (const [key, raw] of entries) {
+    const rejected = checkRawCell(key, raw, limits);
+    if (rejected !== null) return rejected;
+    const ref = parseCellKey(key);
+    if (ref === null || ref.row >= snapshot.meta.rows || ref.col >= snapshot.meta.cols) {
+      return {
+        code: 'sheet_invalid',
+        message: `Cell ${key} lies outside the declared sheet extents.`,
+      };
+    }
+    cells.set(key, raw);
+  }
+  const widths = Object.entries(snapshot.meta.colWidths);
+  if (widths.length > limits.maxCols) {
+    return { code: 'sheet_invalid', message: 'The sheet declares too many column widths.' };
+  }
+  for (const [letters, width] of widths) {
+    const ref = parseCellKey(`${letters}1`);
+    if (
+      ref === null ||
+      ref.col >= snapshot.meta.cols ||
+      !Number.isInteger(width) ||
+      width < SHEET_COLUMN_WIDTH.min ||
+      width > SHEET_COLUMN_WIDTH.max
+    ) {
+      return { code: 'sheet_invalid', message: `Column ${letters} has an invalid width.` };
+    }
+  }
+  if (evaluateSheet({ cells }, limits).budget.exceeded) {
+    return {
+      code: 'sheet_budget_exceeded',
+      message: 'The sheet cannot be evaluated within its op budget.',
+    };
+  }
+  return null;
+}
+
 export function checkSheetDocument(
   state: Y.Doc,
   limits: SheetLimits = SHEET_LIMITS,
@@ -62,26 +130,12 @@ export function checkSheetDocument(
     };
   }
   for (const [key, value] of cells) {
-    const ref = parseCellKey(key);
-    if (ref === null || !isRefInBounds(ref.row, ref.col, limits)) {
-      return { code: 'sheet_invalid', message: `"${key}" is not a cell address on this sheet.` };
-    }
     const entry = readCellEntry(value);
     if (entry === null) {
       return { code: 'sheet_invalid', message: `Cell ${key} does not hold { raw: string }.` };
     }
-    if (entry.raw.length === 0) {
-      return {
-        code: 'sheet_invalid',
-        message: `Cell ${key} stores empty text; an empty cell is an absent key.`,
-      };
-    }
-    if (entry.raw.length > limits.maxRawLength) {
-      return {
-        code: 'sheet_invalid',
-        message: `Cell ${key} holds ${String(entry.raw.length)} characters; the bound is ${String(limits.maxRawLength)}.`,
-      };
-    }
+    const rejected = checkRawCell(key, entry.raw, limits);
+    if (rejected !== null) return rejected;
   }
   const { evaluation } = readAndEvaluate(state, limits);
   if (evaluation.budget.exceeded) {
@@ -93,6 +147,30 @@ export function checkSheetDocument(
   return null;
 }
 
+function checkRawCell(key: string, raw: string, limits: SheetLimits): SheetRejection | null {
+  const ref = parseCellKey(key);
+  if (ref === null || !isRefInBounds(ref.row, ref.col, limits)) {
+    return { code: 'sheet_invalid', message: `"${key}" is not a cell address on this sheet.` };
+  }
+  if (raw.length === 0) {
+    return {
+      code: 'sheet_invalid',
+      message: `Cell ${key} stores empty text; an empty cell is an absent key.`,
+    };
+  }
+  if (raw.length > limits.maxRawLength) {
+    return {
+      code: 'sheet_invalid',
+      message: `Cell ${key} holds ${String(raw.length)} characters; the bound is ${String(limits.maxRawLength)}.`,
+    };
+  }
+  return null;
+}
+
+function positiveInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
 function isRefInBounds(row: number, col: number, limits: SheetLimits): boolean {
   return row >= 0 && row < limits.maxRows && col >= 0 && col < limits.maxCols;
 }
@@ -101,7 +179,11 @@ export interface SheetSnapshot {
   readonly json: {
     readonly body: 'sheet';
     readonly cells: Readonly<Record<string, string>>;
-    readonly meta: { readonly rows: number; readonly cols: number };
+    readonly meta: {
+      readonly rows: number;
+      readonly cols: number;
+      readonly colWidths: Readonly<Record<string, number>>;
+    };
   };
   /** The evaluated grid as tab-separated text, for search and export. */
   readonly plaintext: string;
@@ -120,6 +202,21 @@ export function sheetSnapshot(state: Y.Doc, limits: SheetLimits = SHEET_LIMITS):
   const cellsJson: Record<string, string> = {};
   for (const [key, raw] of cells) {
     cellsJson[key] = raw;
+  }
+  const colWidths: Record<string, number> = {};
+  let widthCount = 0;
+  for (const letters of Object.keys(meta.colWidths).sort()) {
+    const ref = parseCellKey(`${letters}1`);
+    const width = meta.colWidths[letters];
+    if (
+      ref !== null &&
+      ref.col < limits.maxCols &&
+      width !== undefined &&
+      widthCount < limits.maxCols
+    ) {
+      colWidths[letters] = width;
+      widthCount += 1;
+    }
   }
 
   let maxRow = -1;
@@ -162,7 +259,7 @@ export function sheetSnapshot(state: Y.Doc, limits: SheetLimits = SHEET_LIMITS):
     json: {
       body: 'sheet',
       cells: cellsJson,
-      meta: { rows: meta.rows, cols: meta.cols },
+      meta: { rows: meta.rows, cols: meta.cols, colWidths },
     },
     plaintext,
   };

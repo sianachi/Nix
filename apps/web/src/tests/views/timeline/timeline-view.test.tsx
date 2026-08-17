@@ -206,6 +206,21 @@ afterEach(() => {
 });
 
 describe('drawing the axis', () => {
+  it('keeps a 3,200-row timeline DOM bounded while exposing the complete row count', () => {
+    const many = Array.from({ length: 3_200 }, (_unused, index) =>
+      itemOf(`item-${String(index)}`, `Item ${String(index + 1)}`, {
+        starts: '2026-03-03',
+        ends: '2026-03-06',
+      }),
+    );
+
+    render({ children: many });
+
+    const timeline = screen.getByRole('region', { name: 'Delivery, March 2026' });
+    expect(within(timeline).getByRole('table')).toHaveAttribute('aria-rowcount', '3201');
+    expect(timeline.querySelectorAll('[data-virtual-index]').length).toBeLessThanOrEqual(100);
+  });
+
   it('opens on the month containing today', () => {
     render();
 

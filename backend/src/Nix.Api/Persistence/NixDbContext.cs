@@ -6,6 +6,7 @@ using Nix.Domain.Content;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
 using Nix.Persistence.Configurations;
@@ -143,6 +144,21 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the credentials principals issued for non-browser clients.</summary>
     public DbSet<PersonalAccessToken> PersonalAccessTokens => Set<PersonalAccessToken>();
 
+    /// <summary>Gets workspace template catalog entries.</summary>
+    public DbSet<WorkspaceTemplate> WorkspaceTemplates => Set<WorkspaceTemplate>();
+
+    /// <summary>Gets staged template capture/import operations.</summary>
+    public DbSet<TemplateOperation> TemplateOperations => Set<TemplateOperation>();
+
+    /// <summary>Gets complete mappings for capture/import staging.</summary>
+    public DbSet<TemplateOperationItem> TemplateOperationItems => Set<TemplateOperationItem>();
+
+    /// <summary>Gets idempotent template applications.</summary>
+    public DbSet<TemplateApplication> TemplateApplications => Set<TemplateApplication>();
+
+    /// <summary>Gets source-to-target item mappings for template applications.</summary>
+    public DbSet<TemplateApplicationItem> TemplateApplicationItems => Set<TemplateApplicationItem>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -180,6 +196,9 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<AuditEventId>().HaveConversion<NixIdConverter<AuditEventId>>();
         configurationBuilder.Properties<ContentDocId>().HaveConversion<NixIdConverter<ContentDocId>>();
         configurationBuilder.Properties<PersonalAccessTokenId>().HaveConversion<NixIdConverter<PersonalAccessTokenId>>();
+        configurationBuilder.Properties<TemplateId>().HaveConversion<NixIdConverter<TemplateId>>();
+        configurationBuilder.Properties<TemplateOperationId>().HaveConversion<NixIdConverter<TemplateOperationId>>();
+        configurationBuilder.Properties<TemplateApplicationId>().HaveConversion<NixIdConverter<TemplateApplicationId>>();
     }
 
     /// <inheritdoc />
@@ -221,5 +240,16 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
         modelBuilder.ApplyConfiguration(new PersonalAccessTokenConfiguration());
+        modelBuilder.ApplyConfiguration(new WorkspaceTemplateConfiguration());
+        modelBuilder.ApplyConfiguration(new TemplateOperationConfiguration());
+        modelBuilder.ApplyConfiguration(new TemplateOperationItemConfiguration());
+        modelBuilder.ApplyConfiguration(new TemplateApplicationConfiguration());
+        modelBuilder.ApplyConfiguration(new TemplateApplicationItemConfiguration());
+
+        // Template trees and half-hydrated regular items are implementation state, not workspace
+        // content. Special template/application paths opt out explicitly; every ordinary EF item
+        // query is safe by default. RLS remains the tenant boundary beneath this ergonomic filter.
+        modelBuilder.Entity<Item>().HasQueryFilter(
+            item => item.TemplateId == null && item.LifecycleState != ItemLifecycleState.Provisioning);
     }
 }

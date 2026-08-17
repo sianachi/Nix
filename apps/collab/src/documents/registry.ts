@@ -9,7 +9,7 @@ import type { CollabMetrics } from '../metrics.ts';
 import { CLOSE_CODES } from '../ws/protocol.ts';
 import type { JoinResult, SessionHub, SocketSession } from '../ws/server.ts';
 import { strategyFor } from './body-kinds.ts';
-import type { RateWindow } from './limits.ts';
+import { LIMITS, type RateWindow } from './limits.ts';
 import { openDocument } from './service.ts';
 import { DocumentSession, type SessionConfig } from './session.ts';
 
@@ -31,6 +31,9 @@ export interface DocumentHub extends SessionHub {
   /** Documents currently resident. For tests and gauges. */
   readonly size: number;
 
+  /** Current accounted Yjs state plus pending update bytes. For capacity evidence. */
+  readonly residentBytes: number;
+
   /** Drains everything: final flushes, snapshots, released claims. For shutdown. */
   shutdown(): Promise<void>;
 
@@ -40,6 +43,15 @@ export interface DocumentHub extends SessionHub {
    * Best-effort flush, then sockets close with `ownedElsewhere` so clients re-route.
    */
   dropAll(): Promise<void>;
+
+  /** Flushes resident documents from a staged operation before its atomic metadata swap. */
+  flushItems(itemIds: readonly string[]): Promise<void>;
+
+  /** Drains and closes staged documents so no socket can write after their atomic activation. */
+  sealItems(itemIds: readonly string[]): Promise<void>;
+
+  /** Evicts bodies Core already deleted, without flushing their abandoned pending state. */
+  invalidateItems(itemIds: readonly string[]): Promise<void>;
 }
 
 /**
@@ -61,7 +73,13 @@ export function createDocumentRegistry(deps: {
   log?: ((message: string) => void) | undefined;
 }): DocumentHub {
   const sessions = new Map<string, DocumentSession>();
-  const loading = new Map<string, Promise<DocumentSession | null>>();
+  const sessionGenerations = new Map<string, number>();
+  const generations = new Map<string, number>();
+  const loading = new Map<string, LoadSlot>();
+  let reservedDocuments = 0;
+  let reservedBytes = 0;
+  let residentBytes = 0;
+  const accountedBytes = new Map<string, number>();
   const newDocId = deps.newDocId ?? randomUUID;
 
   const sweeper = setInterval(() => {
@@ -70,16 +88,42 @@ export function createDocumentRegistry(deps: {
   sweeper.unref();
 
   function totalEstimatedBytes(): number {
-    let total = 0;
-    for (const session of sessions.values()) {
-      total += session.estimatedBytes;
-    }
-    return total;
+    return residentBytes;
   }
 
   function publishGauges(): void {
     deps.metrics?.loadedDocuments.set(sessions.size);
     deps.metrics?.residentBytes.set(totalEstimatedBytes());
+  }
+
+  function addResident(session: DocumentSession): void {
+    const bytes = session.estimatedBytes;
+    residentBytes += bytes;
+    accountedBytes.set(session.itemId, bytes);
+  }
+
+  function removeResident(itemId: string): void {
+    residentBytes -= accountedBytes.get(itemId) ?? 0;
+    accountedBytes.delete(itemId);
+  }
+
+  function resizeResident(session: DocumentSession, nextEstimatedBytes: number): boolean {
+    const current = accountedBytes.get(session.itemId);
+    if (current === undefined) {
+      // Loads cannot receive frames before publication. A direct DocumentSession test has no
+      // registry account at all, so there is likewise nothing process-wide to move.
+      return true;
+    }
+
+    const nextTotal = residentBytes - current + nextEstimatedBytes;
+    if (nextEstimatedBytes > current && nextTotal + reservedBytes > deps.config.maxResidentBytes) {
+      return false;
+    }
+
+    residentBytes = nextTotal;
+    accountedBytes.set(session.itemId, nextEstimatedBytes);
+    publishGauges();
+    return true;
   }
 
   async function sweep(): Promise<void> {
@@ -93,6 +137,8 @@ export function createDocumentRegistry(deps: {
       const unloaded = await session.drain();
       if (unloaded) {
         sessions.delete(itemId);
+        sessionGenerations.delete(itemId);
+        removeResident(itemId);
         await deps.locks.release(session.docRow.doc_id);
       }
     }
@@ -100,113 +146,126 @@ export function createDocumentRegistry(deps: {
   }
 
   async function acquire(socket: SocketSession): Promise<DocumentSession | JoinResult> {
-    const existing = sessions.get(socket.itemId);
-    if (existing !== undefined && existing.state !== 'unloaded') {
-      return existing;
-    }
+    for (;;) {
+      const generation = generations.get(socket.itemId) ?? 0;
+      const existing = sessions.get(socket.itemId);
+      if (existing !== undefined && existing.state !== 'unloaded') {
+        return existing;
+      }
 
-    const inFlight = loading.get(socket.itemId);
-    if (inFlight !== undefined) {
-      const settled = await inFlight;
-      return (
-        settled ?? {
-          ok: false,
-          closeCode: CLOSE_CODES.notFound,
-          reason: 'No document body is visible.',
+      const inFlight = loading.get(socket.itemId);
+      if (inFlight !== undefined) {
+        // A reconnect authorized after a draft-save fence must not share the stale load. It waits
+        // for that load to release its ownership claim, then starts under the new generation.
+        if (inFlight.generation !== generation) {
+          await inFlight.promise.catch(() => undefined);
+          continue;
         }
-      );
-    }
-
-    // Both capacity walls are checked before any work is spent on the load, and the
-    // refusal is loud: §17's honest-degradation rule is that at capacity the interface
-    // says so rather than silently degrading everyone already here.
-    if (sessions.size >= deps.config.maxDocs) {
-      return {
-        ok: false,
-        closeCode: CLOSE_CODES.atCapacity,
-        reason: 'This server is at its resident-document capacity. Retry shortly.',
-      };
-    }
-    if (totalEstimatedBytes() >= deps.config.maxResidentBytes) {
-      return {
-        ok: false,
-        closeCode: CLOSE_CODES.atCapacity,
-        reason: 'This server is at its resident-memory capacity. Retry shortly.',
-      };
-    }
-
-    const load = (async (): Promise<DocumentSession | null> => {
-      const { authorization } = socket;
-      const scope = { tenantId: authorization.tenantId, principalId: authorization.principalId };
-
-      const docRow = await withTenantScope(deps.pool, scope, (sql) =>
-        openDocument(sql, scope.tenantId, socket.itemId, authorization.workspaceId, newDocId),
-      );
-      if (docRow === null) {
-        return null;
+        try {
+          const settled = await inFlight.promise;
+          return settled ?? notFound();
+        } catch (cause) {
+          return loadRefusal(cause);
+        }
       }
 
-      const claimed = await deps.locks.acquire(docRow.doc_id);
-      if (!claimed) {
-        throw new OwnedElsewhere(docRow.doc_id);
+      // Reserve both walls before the first await. Otherwise a burst of cold loads all observes
+      // the same empty registry and can publish far beyond either configured capacity.
+      const byteReservation = Math.min(LIMITS.documentBytes, deps.config.maxResidentBytes);
+      if (sessions.size + reservedDocuments >= deps.config.maxDocs) {
+        return documentCapacity();
       }
+      if (
+        byteReservation <= 0 ||
+        totalEstimatedBytes() + reservedBytes + byteReservation > deps.config.maxResidentBytes
+      ) {
+        return memoryCapacity();
+      }
+      reservedDocuments += 1;
+      reservedBytes += byteReservation;
 
-      try {
-        const session = await DocumentSession.load(
-          socket.itemId,
-          docRow,
-          scope,
-          {
-            pool: deps.pool,
-            config: deps.config,
-            metrics: deps.metrics,
-            onFlushed: deps.onFlushed,
-            rateWindow: deps.rateWindow,
-            log: deps.log,
-          },
-          // The body kind is Core's answer about the item, resolved once per load: how
-          // this document is validated and materialised for as long as it is resident.
-          strategyFor(socket.authorization.bodyKind),
+      const slot: LoadSlot = {
+        generation,
+        promise: Promise.resolve(null),
+        cancelled: false,
+      };
+      const load = (async (): Promise<DocumentSession | null> => {
+        const { authorization } = socket;
+        const scope = { tenantId: authorization.tenantId, principalId: authorization.principalId };
+        const docRow = await withTenantScope(deps.pool, scope, (sql) =>
+          openDocument(sql, scope.tenantId, socket.itemId, authorization.workspaceId, newDocId),
         );
-        sessions.set(socket.itemId, session);
-        return session;
-      } catch (cause) {
-        await deps.locks.release(docRow.doc_id);
-        throw cause;
-      }
-    })();
+        if (docRow === null) return null;
 
-    loading.set(
-      socket.itemId,
-      load.catch(() => null),
-    );
-    try {
-      const session = await load;
-      if (session === null) {
-        return {
-          ok: false,
-          closeCode: CLOSE_CODES.notFound,
-          reason: 'No document body is visible.',
-        };
+        const claimed = await deps.locks.acquire(docRow.doc_id);
+        if (!claimed) throw new OwnedElsewhere(docRow.doc_id);
+
+        try {
+          const session = await DocumentSession.load(
+            socket.itemId,
+            docRow,
+            scope,
+            {
+              pool: deps.pool,
+              config: deps.config,
+              metrics: deps.metrics,
+              onFlushed: deps.onFlushed,
+              resizeResident,
+              rateWindow: deps.rateWindow,
+              log: deps.log,
+            },
+            strategyFor(socket.authorization.bodyKind),
+          );
+          if (slot.cancelled || (generations.get(socket.itemId) ?? 0) !== generation) {
+            session.invalidate();
+            throw new LoadCancelled();
+          }
+          // Reservations are pessimistic; actual state is authoritative immediately before the
+          // session becomes reachable from message dispatch.
+          if (sessions.size >= deps.config.maxDocs) {
+            session.invalidate();
+            throw new AtCapacity('documents');
+          }
+          if (
+            totalEstimatedBytes() + reservedBytes - byteReservation + session.estimatedBytes >
+            deps.config.maxResidentBytes
+          ) {
+            session.invalidate();
+            throw new AtCapacity('memory');
+          }
+          sessions.set(socket.itemId, session);
+          sessionGenerations.set(socket.itemId, generation);
+          addResident(session);
+          return session;
+        } catch (cause) {
+          await deps.locks.release(docRow.doc_id);
+          throw cause;
+        }
+      })();
+
+      slot.promise = load;
+      loading.set(socket.itemId, slot);
+      try {
+        const session = await load;
+        return session ?? notFound();
+      } catch (cause) {
+        return loadRefusal(cause);
+      } finally {
+        reservedDocuments -= 1;
+        reservedBytes -= byteReservation;
+        if (loading.get(socket.itemId) === slot) loading.delete(socket.itemId);
+        publishGauges();
       }
-      return session;
-    } catch (cause) {
-      if (cause instanceof OwnedElsewhere) {
-        return {
-          ok: false,
-          closeCode: CLOSE_CODES.ownedElsewhere,
-          reason: 'Another instance owns this document.',
-        };
-      }
-      throw cause;
-    } finally {
-      loading.delete(socket.itemId);
     }
   }
 
   return {
     get size(): number {
       return sessions.size;
+    },
+
+    get residentBytes(): number {
+      return residentBytes;
     },
 
     async join(socket: SocketSession): Promise<JoinResult> {
@@ -267,6 +326,8 @@ export function createDocumentRegistry(deps: {
         session.closeSockets(CLOSE_CODES.draining, 'The server is shutting down.');
         await session.drain();
         sessions.delete(itemId);
+        sessionGenerations.delete(itemId);
+        removeResident(itemId);
         await deps.locks.release(session.docRow.doc_id);
       }
       publishGauges();
@@ -276,6 +337,8 @@ export function createDocumentRegistry(deps: {
       clearInterval(sweeper);
       for (const [itemId, session] of [...sessions]) {
         sessions.delete(itemId);
+        sessionGenerations.delete(itemId);
+        removeResident(itemId);
         // Flushing is still safe - sequence allocation serialises on the head_seq row
         // lock whoever owns the document - and it is the last chance these updates get.
         await session.flush().catch(() => undefined);
@@ -283,7 +346,108 @@ export function createDocumentRegistry(deps: {
       }
       publishGauges();
     },
+
+    async flushItems(itemIds): Promise<void> {
+      for (const itemId of itemIds) {
+        await sessions.get(itemId)?.flush();
+      }
+    },
+
+    async sealItems(itemIds): Promise<void> {
+      for (const itemId of new Set(itemIds)) {
+        const generation = (generations.get(itemId) ?? 0) + 1;
+        generations.set(itemId, generation);
+        const inFlight = loading.get(itemId);
+        if (inFlight !== undefined && inFlight.generation < generation) {
+          inFlight.cancelled = true;
+          await inFlight.promise.catch(() => undefined);
+        }
+        const session = sessions.get(itemId);
+        if (session === undefined || (sessionGenerations.get(itemId) ?? 0) >= generation) continue;
+        // Remove the dispatch target first: a frame already queued behind this request cannot
+        // enter the document while the close handshake and final drain are in progress.
+        sessions.delete(itemId);
+        sessionGenerations.delete(itemId);
+        removeResident(itemId);
+        session.closeSockets(CLOSE_CODES.revoked, 'This template draft is being saved.');
+        await session.drain();
+        await deps.locks.release(session.docRow.doc_id);
+      }
+      publishGauges();
+    },
+
+    async invalidateItems(itemIds): Promise<void> {
+      for (const itemId of new Set(itemIds)) {
+        generations.set(itemId, (generations.get(itemId) ?? 0) + 1);
+        const inFlight = loading.get(itemId);
+        if (inFlight !== undefined) {
+          inFlight.cancelled = true;
+          await inFlight.promise.catch(() => undefined);
+        }
+        const session = sessions.get(itemId);
+        if (session === undefined) continue;
+        sessions.delete(itemId);
+        sessionGenerations.delete(itemId);
+        removeResident(itemId);
+        session.closeSockets(CLOSE_CODES.revoked, 'This template draft expired.');
+        session.invalidate();
+        await deps.locks.release(session.docRow.doc_id);
+      }
+      publishGauges();
+    },
   };
+}
+
+interface LoadSlot {
+  readonly generation: number;
+  promise: Promise<DocumentSession | null>;
+  cancelled: boolean;
+}
+
+function notFound(): JoinResult {
+  return { ok: false, closeCode: CLOSE_CODES.notFound, reason: 'No document body is visible.' };
+}
+
+function documentCapacity(): JoinResult {
+  return {
+    ok: false,
+    closeCode: CLOSE_CODES.atCapacity,
+    reason: 'This server is at its resident-document capacity. Retry shortly.',
+  };
+}
+
+function memoryCapacity(): JoinResult {
+  return {
+    ok: false,
+    closeCode: CLOSE_CODES.atCapacity,
+    reason: 'This server is at its resident-memory capacity. Retry shortly.',
+  };
+}
+
+function loadRefusal(cause: unknown): JoinResult {
+  if (cause instanceof OwnedElsewhere) {
+    return {
+      ok: false,
+      closeCode: CLOSE_CODES.ownedElsewhere,
+      reason: 'Another instance owns this document.',
+    };
+  }
+  if (cause instanceof AtCapacity) {
+    return cause.wall === 'documents' ? documentCapacity() : memoryCapacity();
+  }
+  if (cause instanceof LoadCancelled) return notFound();
+  throw cause;
+}
+
+class LoadCancelled extends Error {}
+
+class AtCapacity extends Error {
+  readonly wall: 'documents' | 'memory';
+
+  constructor(wall: 'documents' | 'memory') {
+    super(`The ${wall} capacity changed while this document was loading.`);
+    this.wall = wall;
+  }
 }
 
 class OwnedElsewhere extends Error {

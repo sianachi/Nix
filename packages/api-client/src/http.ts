@@ -36,6 +36,7 @@ export interface HttpRequest {
   readonly query?: Readonly<Record<string, QueryValue | undefined>> | undefined;
   readonly body?: unknown;
   readonly headers?: Readonly<Record<string, string>> | undefined;
+  readonly responseType?: 'json' | 'blob' | undefined;
   /** Cancellation is plumbed through every layer; nothing is unabortable. */
   readonly signal?: AbortSignal | undefined;
 }
@@ -63,6 +64,7 @@ export interface HttpTransportOptions {
 const DEFAULT_TIMEOUT_MS = 15_000;
 const JSON_CONTENT_TYPE = 'application/json';
 const PROBLEM_CONTENT_TYPE = 'application/problem+json';
+const MAX_PROBLEM_DETAILS_BYTES = 64 * 1024;
 
 function headerValue(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
@@ -118,6 +120,14 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const instance: AxiosInstance = axios.create({
     baseURL: options.baseUrl,
+    // Fetch is the browser's native cancellable transport and keeps the application test seam at
+    // the same request boundary as the older resource hooks. Axios still owns serialization,
+    // response parsing, and error normalization here; no caller gains a direct-fetch escape hatch.
+    adapter: 'fetch',
+    // Passing the URL and init to fetch avoids an unnecessary Request clone. It also preserves the
+    // host's AbortSignal implementation instead of asking a second realm to validate it, which
+    // matters for embedded hosts and jsdom without changing browser behaviour.
+    env: { Request: null as never },
     timeout: timeoutMs,
     // Bearer tokens only; the client never relies on ambient cookies.
     withCredentials: false,
@@ -136,7 +146,19 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
         );
       }
       const headers: Record<string, string> = { ...options.defaultHeaders, ...request.headers };
-      if (request.body !== undefined) headers['Content-Type'] = JSON_CONTENT_TYPE;
+      if (request.body !== undefined) {
+        const isForm =
+          typeof FormData !== 'undefined' && request.body instanceof globalThis.FormData;
+        const isBlob = typeof Blob !== 'undefined' && request.body instanceof globalThis.Blob;
+        // Axios otherwise installs application/x-www-form-urlencoded for a headerless POST. Its
+        // fetch adapter removes this boundary-free marker for FormData and lets fetch add the real
+        // multipart boundary, so the server never sees either JSON or a made-up boundary.
+        headers['Content-Type'] = isForm
+          ? 'multipart/form-data'
+          : isBlob
+            ? request.body.type || 'application/octet-stream'
+            : JSON_CONTENT_TYPE;
+      }
 
       try {
         const response = await instance.request({
@@ -145,6 +167,7 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
           params: toParams(request.query),
           data: request.body,
           headers,
+          responseType: request.responseType ?? 'json',
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         });
         return {
@@ -192,7 +215,7 @@ export function withErrorMapping(
 
       if (response.status >= 200 && response.status < 300) return response;
 
-      const error = toResponseError(request, response, telemetry);
+      const error = await toResponseError(request, response, telemetry);
       report(telemetry?.onRequestError, {
         method: request.method,
         path: request.path,
@@ -205,15 +228,28 @@ export function withErrorMapping(
   };
 }
 
-function toResponseError(
+async function toResponseError(
   request: HttpRequest,
   response: HttpResponse,
   telemetry: NixTelemetry | undefined,
-): NixApiError {
+): Promise<NixApiError> {
   const contentType = response.headers['content-type'] ?? '';
   if (!contentType.includes(PROBLEM_CONTENT_TYPE)) return NixApiError.fromStatus(response.status);
   try {
-    const problem = parseAtBoundary(problemDetailsSchema, response.body, {
+    let problemBody = response.body;
+    if (typeof Blob !== 'undefined' && problemBody instanceof globalThis.Blob) {
+      if (problemBody.size > MAX_PROBLEM_DETAILS_BYTES) {
+        return NixApiError.fromStatus(response.status);
+      }
+      const text = await problemBody.text();
+      try {
+        problemBody = JSON.parse(text) as unknown;
+      } catch {
+        // Let the normal schema boundary report malformed problem details through telemetry.
+        problemBody = text;
+      }
+    }
+    const problem = parseAtBoundary(problemDetailsSchema, problemBody, {
       operation: `${request.method} ${request.path} (problem details)`,
       status: response.status,
       telemetry,

@@ -31,6 +31,10 @@ internal static class M0SchemaSeed
         AclEntryId: new Guid("1f1f1f1f-1111-4111-8111-1f1f1f1f1f1f"),
         AuditEventId: new Guid("19191919-1111-4111-8111-191919191919"),
         ContentDocId: new Guid("1d0c1d0c-1111-4111-8111-1d0c1d0c1d0c"),
+        TemplateId: new Guid("1a1a1a1a-1111-4111-8111-1a1a1a1a1a1a"),
+        TemplateOperationId: new Guid("1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b"),
+        TemplateApplicationId: new Guid("18181818-1111-4111-8111-181818181818"),
+        TemplateSourceId: new Guid("17171717-1111-4111-8111-171717171717"),
         Slug: "alpha");
 
     /// <summary>The rows belonging to the second tenant - the ones that must never be visible.</summary>
@@ -44,6 +48,10 @@ internal static class M0SchemaSeed
         AclEntryId: new Guid("2f2f2f2f-2222-4222-8222-2f2f2f2f2f2f"),
         AuditEventId: new Guid("29292929-2222-4222-8222-292929292929"),
         ContentDocId: new Guid("2d0c2d0c-2222-4222-8222-2d0c2d0c2d0c"),
+        TemplateId: new Guid("2a2a2a2a-2222-4222-8222-2a2a2a2a2a2a"),
+        TemplateOperationId: new Guid("2b2b2b2b-2222-4222-8222-2b2b2b2b2b2b"),
+        TemplateApplicationId: new Guid("28282828-2222-4222-8222-282828282828"),
+        TemplateSourceId: new Guid("27272727-2222-4222-8222-272727272727"),
         Slug: "beta");
 
     /// <summary>
@@ -76,6 +84,10 @@ internal static class M0SchemaSeed
         var acl = Literal(rows.AclEntryId);
         var auditEvent = Literal(rows.AuditEventId);
         var contentDoc = Literal(rows.ContentDocId);
+        var template = Literal(rows.TemplateId);
+        var templateOperation = Literal(rows.TemplateOperationId);
+        var templateApplication = Literal(rows.TemplateApplicationId);
+        var templateSource = Literal(rows.TemplateSourceId);
         var slug = rows.Slug;
 
         return $"""
@@ -193,6 +205,47 @@ internal static class M0SchemaSeed
             VALUES ({group}, {tenant}, {principal}, '{slug} seeded token', 'seed{slug}0000',
                     '\\x0304'::bytea, ARRAY['read']::text[], now(), now() + interval '30 days',
                     NULL, NULL);
+
+            -- A provisioning catalog and its operation/application mappings exercise the five
+            -- template tables without adding a second item to this deliberately one-row seed.
+            INSERT INTO workspace_template
+                (template_id, tenant_id, workspace_id, root_item_id, pending_root_item_id,
+                 stable_key, profile_key, origin, title, description, include_body,
+                 include_children, managed_source, source_digest, state, revision, created_by,
+                 last_modified_by, created_at, last_modified_at)
+            VALUES ({template}, {tenant}, {workspace}, NULL, NULL,
+                    '{slug}-template', '{slug}-template', 'user', '{slug} template', NULL,
+                    false, false, NULL, NULL, 'provisioning', 1, {principal}, {principal},
+                    now(), now());
+
+            INSERT INTO template_operation
+                (operation_id, tenant_id, workspace_id, template_id, kind, idempotency_key,
+                 source_item_id, actor_id, draft_title, draft_description, managed_source,
+                 source_digest, state, created_at, expires_at, finalized_at)
+            VALUES ({templateOperation}, {tenant}, {workspace}, {template}, 'capture',
+                    '{slug}-operation', {item}, {principal}, '{slug} template', NULL, NULL, NULL,
+                    'provisioning', now(), now() + interval '1 hour', NULL);
+
+            INSERT INTO template_operation_item
+                (operation_id, template_source_id, tenant_id, source_item_id, target_item_id,
+                 item_type, body_required)
+            VALUES ({templateOperation}, {templateSource}, {tenant}, {item}, {item}, 'folder',
+                    false);
+
+            INSERT INTO template_application
+                (application_id, tenant_id, workspace_id, template_id, target_item_id,
+                 parent_item_id, requested_title, mode, idempotency_key, actor_id, state,
+                 created_at, expires_at, finalized_at)
+            VALUES ({templateApplication}, {tenant}, {workspace}, {template}, {item}, NULL, NULL,
+                    'merge', '{slug}-application', {principal}, 'provisioning', now(),
+                    now() + interval '1 hour', NULL);
+
+            INSERT INTO template_application_item
+                (application_id, template_source_id, tenant_id, source_item_id, item_type,
+                 target_item_id, is_root, created, body_required)
+            VALUES ({templateApplication}, {templateSource}, {tenant}, {item}, 'folder', {item},
+                    true, false, false);
+
             """;
     }
 
@@ -212,6 +265,10 @@ internal static class M0SchemaSeed
 /// <param name="AclEntryId">The access control entry on that item.</param>
 /// <param name="AuditEventId">The audit event recording the item's creation.</param>
 /// <param name="ContentDocId">The document body of that item.</param>
+/// <param name="TemplateId">The tenant's template catalog row.</param>
+/// <param name="TemplateOperationId">The tenant's staged template operation.</param>
+/// <param name="TemplateApplicationId">The tenant's staged template application.</param>
+/// <param name="TemplateSourceId">The stable source identity used by both mappings.</param>
 /// <param name="Slug">A short name, used to make seeded text distinguishable in failures.</param>
 internal sealed record M0TenantRows(
     Guid TenantId,
@@ -223,4 +280,8 @@ internal sealed record M0TenantRows(
     Guid AclEntryId,
     Guid AuditEventId,
     Guid ContentDocId,
+    Guid TemplateId,
+    Guid TemplateOperationId,
+    Guid TemplateApplicationId,
+    Guid TemplateSourceId,
     string Slug);

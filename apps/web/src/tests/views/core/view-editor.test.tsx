@@ -39,7 +39,7 @@ describe('the view editor', () => {
   it('keeps templates out of the Views panel', () => {
     render(<ViewEditor container={containerOf([])} open onClose={vi.fn()} />);
 
-    expect(screen.getByText(/no views yet/i)).toBeVisible();
+    expect(screen.getByText(/no child-item views yet/i)).toBeVisible();
     expect(screen.queryByText(/start from a template/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /kanban board/i })).not.toBeInTheDocument();
   });
@@ -146,5 +146,39 @@ describe('the view editor', () => {
     await user.click(screen.getByRole('button', { name: /save views/i }));
 
     expect(setViews).toHaveBeenCalledWith([]);
+  });
+
+  it('clears a primary composition in the same save that removes its companion', async () => {
+    const user = userEvent.setup();
+    const setViews = vi.fn(() => Promise.resolve(null));
+    render(
+      <ViewEditor
+        container={containerOf(
+          [
+            viewOf({
+              id: 'primary',
+              name: 'Primary',
+              companionViewId: 'companion',
+              companionPlacement: 'beside',
+            }),
+            viewOf({ id: 'companion', name: 'Companion' }),
+          ],
+          setViews,
+        )}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /remove companion/i }));
+    await user.click(screen.getByRole('button', { name: /save views/i }));
+
+    expect(setViews).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'primary',
+        companionViewId: null,
+        companionPlacement: null,
+      }),
+    ]);
   });
 });

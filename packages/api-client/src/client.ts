@@ -24,6 +24,7 @@ import {
   type ServerCacheOptions,
 } from './cache.js';
 import {
+  type BinaryQueryEndpoint,
   type CommandEndpoint,
   type PagedQueryEndpoint,
   type QueryEndpoint,
@@ -40,7 +41,7 @@ import { parseAtBoundary } from './parse.js';
 import { CURSOR_PARAM, PAGE_SIZE_PARAM, cursorPageSchema } from './schemas/pagination.js';
 import type { NixTelemetry } from './telemetry.js';
 import type { CursorPage } from './schemas/pagination.js';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 export interface NixClientConfig {
   /** Absolute base URL of Core. Comes from validated boot configuration. */
@@ -70,6 +71,11 @@ export interface QueryResult<TData> {
   readonly revalidation: Promise<void> | null;
 }
 
+export interface BinaryResult {
+  readonly blob: Blob;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
 export interface NixClient {
   /** Server state, for subscription and for the invalidation channel. */
   readonly cache: ServerCache;
@@ -82,6 +88,8 @@ export interface NixClient {
   ): Promise<QueryResult<TResult>>;
   /** Executes a write and applies its declared invalidations on success. */
   execute<TResult>(endpoint: CommandEndpoint<TResult>, options?: CallOptions): Promise<TResult>;
+  /** Downloads an authenticated binary response through the same refusal and cancellation path. */
+  download(endpoint: BinaryQueryEndpoint, options?: CallOptions): Promise<BinaryResult>;
   /** Walks a cursor-paginated collection item by item. */
   paginate<TItem>(
     endpoint: PagedQueryEndpoint<TItem>,
@@ -128,8 +136,9 @@ export function createNixClient(config: NixClientConfig): NixClient {
     schema: z.ZodType<TResult>,
     operation: string,
     signal: AbortSignal | undefined,
+    headers: Readonly<Record<string, string>> | undefined,
   ): Promise<TResult> {
-    const response = await transport.send({ method, path, query, body, signal });
+    const response = await transport.send({ method, path, query, body, signal, headers });
     return parseAtBoundary(schema, response.body, {
       operation,
       status: response.status,
@@ -154,6 +163,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
           endpoint.schema,
           endpoint.operation,
           signal,
+          undefined,
         ),
       {
         signal: options.signal,
@@ -188,9 +198,29 @@ export function createNixClient(config: NixClientConfig): NixClient {
         endpoint.schema,
         endpoint.operation,
         options.signal,
+        endpoint.headers,
       );
       for (const prefix of endpoint.invalidates) cache.invalidatePrefix(prefix);
       return result;
+    },
+
+    async download(
+      endpoint: BinaryQueryEndpoint,
+      options: CallOptions = {},
+    ): Promise<BinaryResult> {
+      const response = await transport.send({
+        method: 'GET',
+        path: endpoint.path,
+        query: endpoint.query,
+        responseType: 'blob',
+        signal: options.signal,
+      });
+      const blob = parseAtBoundary(z.instanceof(Blob), response.body, {
+        operation: endpoint.operation,
+        status: response.status,
+        telemetry,
+      });
+      return { blob, headers: response.headers };
     },
 
     async *paginate<TItem>(
@@ -214,6 +244,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
           pageSchema,
           endpoint.operation,
           options.signal,
+          undefined,
         );
         yield* page.items;
         cursor = page.nextCursor;

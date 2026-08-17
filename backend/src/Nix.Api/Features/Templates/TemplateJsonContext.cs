@@ -1,0 +1,30 @@
+using System.Text.Json.Serialization;
+
+namespace Nix.Features.Templates;
+
+[JsonSerializable(typeof(TemplateCatalogResponse))]
+[JsonSerializable(typeof(TemplateDetailResponse))]
+[JsonSerializable(typeof(TemplateItemResponse))]
+[JsonSerializable(typeof(UpdateTemplateItemRequest))]
+[JsonSerializable(typeof(TemplatePreflightRequest))]
+[JsonSerializable(typeof(TemplatePreflightResponse))]
+[JsonSerializable(typeof(BeginTemplateCaptureRequest))]
+[JsonSerializable(typeof(BeginTemplateCaptureResponse))]
+[JsonSerializable(typeof(BeginTemplateImportRequest))]
+[JsonSerializable(typeof(BeginTemplateImportResponse))]
+[JsonSerializable(typeof(BeginTemplateApplicationRequest))]
+[JsonSerializable(typeof(BeginTemplateApplicationResponse))]
+[JsonSerializable(typeof(FinalizeTemplateBodiesRequest))]
+[JsonSerializable(typeof(FinalizeTemplateResponse))]
+[JsonSerializable(typeof(FinalizeTemplateApplicationResponse))]
+[JsonSerializable(typeof(BeginTemplateDraftRequest))]
+[JsonSerializable(typeof(UpdateTemplateDraftRequest))]
+[JsonSerializable(typeof(TemplateDraftResponse))]
+[JsonSerializable(typeof(FinalizeManagedTemplatesRequest))]
+[JsonSerializable(typeof(FinalizeManagedTemplatesResponse))]
+[JsonSerializable(typeof(SweepExpiredTemplateStagesResponse))]
+[JsonSerializable(typeof(TemplateImportAuthorizationResponse))]
+[JsonSerializable(typeof(TemplateOperationAuthorizationResponse))]
+[JsonSerializable(typeof(TemplateItemAuthorizationResponse))]
+[JsonSerializable(typeof(TemplateExportResponse))]
+internal sealed partial class TemplateJsonContext : JsonSerializerContext;

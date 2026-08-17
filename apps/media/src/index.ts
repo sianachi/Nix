@@ -1,4 +1,5 @@
 import { createBundleReader } from './collab/bundles.ts';
+import { createTemplateImporter } from './collab/templates.ts';
 import { readConfig } from './config.ts';
 import { createAdmission } from './export/admission.ts';
 import { createConverters } from './export/converters.ts';
@@ -31,8 +32,13 @@ const app = createServer({
   }),
   converters: createConverters(),
   admission: createAdmission(config.maxConcurrentExports),
+  templateAdmission: createAdmission(config.maxConcurrentTemplateParses),
   jobTimeoutMs: config.jobTimeoutMs,
   maxOutputBytes: config.maxOutputBytes,
+  templates: createTemplateImporter({
+    collabBaseUrl: config.collabBaseUrl,
+    internalSecret: config.internalSecret,
+  }),
   metrics,
   logLevel: config.logLevel,
 });

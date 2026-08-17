@@ -76,7 +76,7 @@ describe('the members section', () => {
     stubCoreApi({ membersFail: true });
     renderAt(<App />, '/settings');
 
-    expect(await screen.findByText(/the members could not be loaded/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /the members could not be loaded/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(screen.queryByText(/nobody holds a role/i)).not.toBeInTheDocument();
   });

@@ -21,6 +21,28 @@ export const ARCHIVE_FORMAT_VERSION = 1;
 /** The manifest's entry name. Always the first entry written, so a reader can stream. */
 export const MANIFEST_ENTRY = 'manifest.json';
 
+/** The first file-backed template profile. Kept independent from the archive format version. */
+export const TEMPLATE_PROFILE_VERSION = 1;
+
+/**
+ * Marks an ordinary `.nix` archive as a reusable template.
+ *
+ * Optional on the manifest so every archive written before templates remains a valid v1 archive.
+ * The flags state what the author chose to capture; a reader never infers that choice from an
+ * absent body or a one-item spine, because either can also mean the source simply had none.
+ */
+export interface TemplateArchiveProfile {
+  readonly kind: 'template';
+  readonly version: typeof TEMPLATE_PROFILE_VERSION;
+  /** Portable identity metadata; authoritative only for a managed boot directory. */
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  /** Whether the template root's own body was captured; descendants retain their selected bodies. */
+  readonly includeBody: boolean;
+  readonly includeChildren: boolean;
+}
+
 /** Where an item's payload lives, given its identifier in the source workspace. */
 export function itemEntryName(sourceId: string): string {
   return `items/${sourceId}.json`;
@@ -112,6 +134,57 @@ export interface ViewSnapshot {
   readonly coverProperty: string | null;
   readonly endDateProperty: string | null;
   readonly cardSize: string | null;
+
+  /** Added after archive v1 shipped; absent readers treat it as no filters. */
+  readonly filters?: readonly FilterRuleSnapshot[];
+
+  /** Added after archive v1 shipped; absent means this view is not composed. */
+  readonly companionViewId?: string | null;
+
+  /** Added after archive v1 shipped; absent means this view is not composed. */
+  readonly companionPlacement?: 'below' | 'beside' | null;
+
+  /** Added after archive v1 shipped; present only for an Interactive Form view. */
+  readonly interactiveForm?: InteractiveFormSnapshot | null;
+}
+
+export interface FilterRuleSnapshot {
+  readonly property: string;
+  readonly operator: string;
+  readonly value: string;
+}
+
+export interface FormConditionSnapshot {
+  readonly fieldBlockId: string;
+  readonly operator: string;
+  readonly value: string | null;
+}
+
+export interface FormBlockSnapshot {
+  readonly id: string;
+  readonly kind: string;
+  readonly propertyKey: string | null;
+  readonly text: string;
+  readonly help: string | null;
+  readonly required: boolean;
+  readonly identityRole: string | null;
+  readonly visibleWhen: readonly FormConditionSnapshot[];
+}
+
+export interface FormPageSnapshot {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly visibleWhen: readonly FormConditionSnapshot[];
+  readonly blocks: readonly FormBlockSnapshot[];
+}
+
+export interface InteractiveFormSnapshot {
+  readonly pages: readonly FormPageSnapshot[];
+  readonly titleMode: string;
+  readonly titleFieldBlockId: string | null;
+  readonly confirmationTitle: string;
+  readonly confirmationMessage: string;
 }
 
 /**
@@ -146,6 +219,9 @@ export interface ArchiveManifest {
 
   /** The `editor-schema` version the bodies in this archive were written against. */
   readonly schemaVersion: number;
+
+  /** Present only when this archive is intended to be installed as a reusable template. */
+  readonly profile?: TemplateArchiveProfile;
 
   readonly exportedAt: string;
 
@@ -264,5 +340,5 @@ export interface CanvasBody {
  * built rather than in the reasoning of whoever calls it.
  */
 export function isArchiveSafeId(value: string): boolean {
-  return /^[0-9a-fA-F-]{36}$/.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }

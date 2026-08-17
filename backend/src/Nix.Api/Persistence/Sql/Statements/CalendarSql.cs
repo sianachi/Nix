@@ -80,6 +80,7 @@ public static class CalendarSql
               AND container.workspace_id = @workspace_id
               AND container.workspace_id = ANY(@workspace_ids)
               AND container.lifecycle_state = 'active'
+              AND container.template_id IS NULL
               AND container.views IS NOT NULL
               AND entry.value ->> 'kind' = 'calendar'
         ),
@@ -103,6 +104,7 @@ public static class CalendarSql
              AND child.workspace_id = @workspace_id
              AND child.workspace_id = ANY(@workspace_ids)
              AND child.lifecycle_state = 'active'
+             AND child.template_id IS NULL
             WHERE chosen.date_property IS NOT NULL
               AND child.properties ->> chosen.date_property IS NOT NULL
               AND left(child.properties ->> chosen.date_property, 10) >= @from

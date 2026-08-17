@@ -1,6 +1,6 @@
 import { Blueprint, Button, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
 import { PropertyInput } from '../../properties/property-input';
@@ -28,9 +28,15 @@ import {
   type TimelineWindow,
 } from './timeline-scale';
 import { readerZone } from '../core/timestamps';
-import { drawable, resolveViewChrome, undrawable } from '../core/view-chrome';
+import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { useViewState } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+import { virtualSpacers } from '../core/virtual-window';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const ESTIMATED_TIMELINE_ROW_HEIGHT = 45;
+const MAXIMUM_COLLAPSED_OFF_AXIS_ITEMS = 20;
 
 /**
  * A container's children as bars across a time axis, placed by a start date and an optional end.
@@ -105,7 +111,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
 
   const reason = describeUndrawable(view, container.schema, container.views);
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this timeline',
@@ -294,50 +300,13 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
           tabIndex={0}
           className={cn('overflow-x-auto', focusRing)}
         >
-          <table className="w-full border-collapse">
-            <Text as="caption" variant="caption" className="sr-only">
-              {`${view.name}: ${axis.label}, each item drawn across the days between its start and its end`}
-            </Text>
-
-            <thead>
-              <tr>
-                <th scope="col" className={cn(LABEL_COLUMN, 'bg-surface p-1 text-left')}>
-                  <Text variant="kicker" as="span" tone="muted">
-                    Item
-                  </Text>
-                </th>
-
-                {axis.columns.map((column) => (
-                  <ColumnHeading
-                    key={column.fromText}
-                    column={column}
-                    isToday={column.fromText <= todayText && todayText <= column.toText}
-                  />
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={axis.columns.length + 1} className="p-3">
-                    <Text variant="caption" tone="muted">
-                      {`Nothing falls inside ${axis.label}. Every item this holds is listed below.`}
-                    </Text>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((entry) => (
-                  <TimelineRow
-                    key={entry.item.id}
-                    placed={entry}
-                    columns={axis.columns.length}
-                    aside={aside}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
+          <TimelineTable
+            name={view.name}
+            axis={axis}
+            rows={rows}
+            todayText={todayText}
+            aside={aside}
+          />
         </div>
       </Blueprint>
 
@@ -678,9 +647,10 @@ interface TimelineRowProps {
   /** How many columns the axis has, for the spanning cells either side of the bar. */
   readonly columns: number;
   readonly aside: AsideContext;
+  readonly virtualIndex?: number;
 }
 
-function TimelineRow({ placed, columns, aside }: TimelineRowProps): ReactNode {
+function TimelineRow({ placed, columns, aside, virtualIndex }: TimelineRowProps): ReactNode {
   const { item, placement } = placed;
 
   // Every branch that reaches here is a span or a milestone; the other three are lists, not rows.
@@ -692,7 +662,11 @@ function TimelineRow({ placed, columns, aside }: TimelineRowProps): ReactNode {
   const last = placement.kind === 'span' ? placement.last : placement.column;
 
   return (
-    <tr className="align-middle">
+    <tr
+      className="align-middle"
+      data-virtual-index={virtualIndex}
+      aria-rowindex={virtualIndex === undefined ? undefined : virtualIndex + 2}
+    >
       <th
         scope="row"
         className={cn(LABEL_COLUMN, 'border-b border-divider bg-surface p-1 text-left font-normal')}
@@ -732,6 +706,128 @@ function TimelineRow({ placed, columns, aside }: TimelineRowProps): ReactNode {
         <td colSpan={columns - last - 1} className="border-b border-divider p-0" />
       )}
     </tr>
+  );
+}
+
+interface TimelineTableProps {
+  readonly name: string;
+  readonly axis: TimelineWindow;
+  readonly rows: readonly Placed[];
+  readonly todayText: string;
+  readonly aside: AsideContext;
+}
+
+function TimelineTable(props: TimelineTableProps): ReactNode {
+  const { rows } = props;
+  if (rows.length <= VIRTUALIZATION_THRESHOLD) {
+    return <TimelineTableContent {...props} indexes={rows.map((_entry, index) => index)} />;
+  }
+  return <VirtualTimelineTable {...props} />;
+}
+
+function VirtualTimelineTable(props: TimelineTableProps): ReactNode {
+  const { rows } = props;
+  const rootRef = useRef<HTMLTableElement>(null);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(() => rows.map((entry) => entry.item.id), [rows]);
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: ESTIMATED_TIMELINE_ROW_HEIGHT,
+  });
+  return (
+    <TimelineTableContent
+      {...props}
+      rootRef={rootRef}
+      indexes={windowed.indexes}
+      offsets={windowed.offsets}
+    />
+  );
+}
+
+function TimelineTableContent(
+  props: TimelineTableProps & {
+    readonly indexes: readonly number[];
+    readonly rootRef?: RefObject<HTMLTableElement | null>;
+    readonly offsets?: readonly number[];
+  },
+): ReactNode {
+  const { name, axis, rows, todayText, aside, indexes, rootRef, offsets } = props;
+  const spacers = offsets === undefined ? [] : virtualSpacers(offsets, indexes);
+  return (
+    <table
+      ref={rootRef}
+      aria-rowcount={offsets === undefined ? undefined : rows.length + 1}
+      className="w-full border-collapse"
+    >
+      <Text as="caption" variant="caption" className="sr-only">
+        {`${name}: ${axis.label}, each item drawn across the days between its start and its end`}
+      </Text>
+
+      <thead>
+        <tr>
+          <th scope="col" className={cn(LABEL_COLUMN, 'bg-surface p-1 text-left')}>
+            <Text variant="kicker" as="span" tone="muted">
+              Item
+            </Text>
+          </th>
+          {axis.columns.map((column) => (
+            <ColumnHeading
+              key={column.fromText}
+              column={column}
+              isToday={column.fromText <= todayText && todayText <= column.toText}
+            />
+          ))}
+        </tr>
+      </thead>
+
+      <tbody>
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={axis.columns.length + 1} className="p-3">
+              <Text variant="caption" tone="muted">
+                {`Nothing falls inside ${axis.label}. Every item this holds is listed below.`}
+              </Text>
+            </td>
+          </tr>
+        ) : (
+          indexes.flatMap((index, offset) => {
+            const entry = rows[index];
+            const before = spacers[offset] ?? 0;
+            if (entry === undefined) {
+              return [];
+            }
+            return [
+              before > 0 ? (
+                <tr key={`spacer-before-${String(index)}`} aria-hidden="true">
+                  <td
+                    colSpan={axis.columns.length + 1}
+                    className="border-0 p-0"
+                    style={{ height: before }} // design-token-exempt: the spacer height is measured runtime geometry from the shared virtual window, not a design value
+                  />
+                </tr>
+              ) : null,
+              <TimelineRow
+                key={entry.item.id}
+                placed={entry}
+                columns={axis.columns.length}
+                aside={aside}
+                {...(offsets === undefined ? {} : { virtualIndex: index })}
+              />,
+              offset === indexes.length - 1 && (spacers[indexes.length] ?? 0) > 0 ? (
+                <tr key="spacer-after" aria-hidden="true">
+                  <td
+                    colSpan={axis.columns.length + 1}
+                    className="border-0 p-0"
+                    style={{ height: spacers[indexes.length] }} // design-token-exempt: the spacer height is measured runtime geometry from the shared virtual window, not a design value
+                  />
+                </tr>
+              ) : null,
+            ];
+          })
+        )}
+      </tbody>
+    </table>
   );
 }
 
@@ -938,6 +1034,9 @@ function OffAxisList({
   empty,
 }: OffAxisListProps): ReactNode {
   const headingId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? placed : placed.slice(0, MAXIMUM_COLLAPSED_OFF_AXIS_ITEMS);
+  const hidden = placed.length - visible.length;
 
   if (placed.length === 0 && !showWhenEmpty) {
     return null;
@@ -955,10 +1054,23 @@ function OffAxisList({
 
       {placed.length === 0 ? null : (
         <ul className="flex flex-col gap-2">
-          {placed.map((entry) => (
+          {visible.map((entry) => (
             <OffAxisEntry key={entry.item.id} placed={entry} aside={aside} />
           ))}
         </ul>
+      )}
+
+      {placed.length <= MAXIMUM_COLLAPSED_OFF_AXIS_ITEMS ? null : (
+        <Button
+          variant="ghost"
+          className="self-start py-1 text-sm"
+          aria-expanded={expanded}
+          onClick={() => {
+            setExpanded((current) => !current);
+          }}
+        >
+          {expanded ? 'Show fewer' : `Show ${String(hidden)} more`}
+        </Button>
       )}
     </section>
   );

@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Messaging;
 using Nix.Persistence;
@@ -86,6 +87,56 @@ public sealed class CompositionRootTests
             var handler = scope.ServiceProvider.GetRequiredService(serviceType);
             Assert.NotNull(handler);
         }
+    }
+
+    [Fact]
+    public void Every_template_operation_has_a_resolvable_handler()
+    {
+        var templateHandlers = DiscoverHandlerTypes()
+            .Where(type => string.Equals(
+                type.Namespace,
+                "Nix.Features.Templates",
+                StringComparison.Ordinal))
+            .ToHashSet();
+        Assert.Equal(25, templateHandlers.Count);
+
+        var services = new ServiceCollection();
+        services.AddNixPersistence(RuntimeConnectionString);
+        var handlerServices = services
+            .Where(descriptor => descriptor.ImplementationType is { } implementation
+                && templateHandlers.Contains(implementation))
+            .Select(descriptor => descriptor.ServiceType)
+            .ToArray();
+        Assert.Equal(templateHandlers.Count, handlerServices.Length);
+
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = provider.CreateScope();
+        foreach (var serviceType in handlerServices)
+        {
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService(serviceType));
+        }
+    }
+
+    [Fact]
+    public void Template_endpoints_depend_only_on_the_dispatcher()
+    {
+        var assembly = typeof(NixPersistenceServiceCollectionExtensions).Assembly;
+        var endpointType = assembly.GetType("Nix.Features.Templates.TemplateEndpoints");
+        var concreteStore = assembly.GetType("Nix.Persistence.Templates.TemplateStore");
+        Assert.NotNull(endpointType);
+        Assert.NotNull(concreteStore);
+        var routeMethods = endpointType
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Where(method => method.ReturnType == typeof(Task<IResult>))
+            .ToArray();
+
+        Assert.Equal(25, routeMethods.Length);
+        Assert.All(routeMethods, method =>
+        {
+            var dependencies = method.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+            Assert.Contains(typeof(NixDispatcher), dependencies);
+            Assert.DoesNotContain(concreteStore, dependencies);
+        });
     }
 
     private static List<Type> DiscoverHandlerTypes() =>

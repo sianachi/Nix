@@ -21,12 +21,25 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     public void Every_mutating_endpoint_requires_its_expected_rate_limit_policy()
     {
         var unlimited = MutatingEndpoints()
+            .Where(endpoint => !IsInternal(endpoint))
             .Where(endpoint => endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName
                 != ExpectedPolicy(endpoint.RoutePattern.RawText))
             .Select(endpoint => endpoint.DisplayName)
             .ToList();
 
         Assert.Empty(unlimited);
+    }
+
+    [Fact]
+    public void Internal_mutations_do_not_use_the_pre_authentication_address_partition()
+    {
+        var addressPartitioned = MutatingEndpoints()
+            .Where(IsInternal)
+            .Where(endpoint => endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>() is not null)
+            .Select(endpoint => endpoint.DisplayName)
+            .ToList();
+
+        Assert.Empty(addressPartitioned);
     }
 
     [Fact]
@@ -78,4 +91,7 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
         var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods;
         return methods is not null && methods.Any(MutatingMethods.Contains);
     }
+
+    private static bool IsInternal(RouteEndpoint endpoint) =>
+        endpoint.RoutePattern.RawText?.StartsWith("/internal", StringComparison.Ordinal) is true;
 }

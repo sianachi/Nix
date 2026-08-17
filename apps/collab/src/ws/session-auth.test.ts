@@ -10,6 +10,9 @@ import { createSessionAuthenticator } from './session-auth.ts';
  */
 
 const ITEM = 'c1000000-0000-4000-8000-000000000031';
+const TEMPLATE = 'c1000000-0000-4000-8000-000000000041';
+const SOURCE = 'c1000000-0000-4000-8000-000000000042';
+const OPERATION = 'c1000000-0000-4000-8000-000000000043';
 
 const GRANTED: ItemAuthorization = {
   tenantId: 'c1000000-0000-4000-8000-000000000001',
@@ -167,5 +170,194 @@ describe('session authentication', () => {
     sessions.sweep();
 
     expect(sessions.size).toBe(0);
+  });
+
+  it('resolves an active template source read-only so edits cannot bypass a staged draft', async () => {
+    const hiddenItem = 'c1000000-0000-4000-8000-000000000099';
+    const sessions = createSessionAuthenticator({
+      tokens: { validate: () => Promise.resolve({ subject: 's', expiresAt: null }) },
+      authorizer: { authorize: () => Promise.reject(new Error('Ordinary auth must not run.')) },
+      templateItems: {
+        authorize: () =>
+          Promise.resolve({
+            itemId: hiddenItem,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          }),
+      },
+    });
+
+    const answer = await sessions.authenticate('token', `template:${TEMPLATE}:${SOURCE}`);
+
+    expect(answer).toMatchObject({
+      ok: true,
+      value: { resolvedItemId: hiddenItem, bodyKind: 'note', canWrite: false },
+    });
+  });
+
+  it('resolves a portable draft source to its provisioning document', async () => {
+    const hiddenItem = 'c1000000-0000-4000-8000-000000000098';
+    const sessions = createSessionAuthenticator({
+      tokens: { validate: () => Promise.resolve({ subject: 's', expiresAt: null }) },
+      authorizer: { authorize: () => Promise.reject(new Error('Ordinary auth must not run.')) },
+      draftItems: {
+        authorize: () =>
+          Promise.resolve({
+            itemId: hiddenItem,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          }),
+      },
+    });
+
+    const answer = await sessions.authenticate('token', `draft:${TEMPLATE}:${OPERATION}:${SOURCE}`);
+
+    expect(answer).toMatchObject({
+      ok: true,
+      value: { resolvedItemId: hiddenItem, bodyKind: 'note', canWrite: true },
+    });
+  });
+
+  it('blocks only cached answers belonging to the saved draft operation', async () => {
+    let authorizations = 0;
+    const sessions = createSessionAuthenticator({
+      tokens: { validate: () => Promise.resolve({ subject: 's', expiresAt: null }) },
+      authorizer: { authorize: () => Promise.resolve(GRANTED) },
+      draftItems: {
+        authorize: () => {
+          authorizations += 1;
+          return Promise.resolve({
+            itemId: ITEM,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          });
+        },
+      },
+    });
+    const otherOperation = 'c1000000-0000-4000-8000-000000000044';
+    const savedKey = `draft:${TEMPLATE}:${OPERATION}:${SOURCE}`;
+    const otherKey = `draft:${TEMPLATE}:${otherOperation}:${SOURCE}`;
+
+    const stale = await sessions.authenticate('token', savedKey);
+    await sessions.authenticate('token', otherKey);
+    sessions.blockDraftOperation(OPERATION);
+    if (!stale.ok) throw new Error('The draft authorization fixture was refused.');
+    expect(sessions.isCurrent(savedKey, stale.value)).toBe(false);
+    await expect(sessions.authenticate('token', savedKey)).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+    await sessions.authenticate('token', otherKey);
+
+    expect(authorizations).toBe(2);
+
+    sessions.releaseDraftOperation(OPERATION);
+    expect(sessions.isCurrent(savedKey, stale.value)).toBe(false);
+    await sessions.authenticate('token', savedKey);
+    expect(authorizations).toBe(3);
+  });
+
+  it('refuses an authorize result that returns after the draft operation was blocked', async () => {
+    let authorizeCalls = 0;
+    let enterAuthorize: (() => void) | undefined;
+    const enteredAuthorize = new Promise<void>((resolve) => {
+      enterAuthorize = resolve;
+    });
+    let finishAuthorize: (() => void) | undefined;
+    const authorizationReleased = new Promise<void>((resolve) => {
+      finishAuthorize = resolve;
+    });
+    const sessions = createSessionAuthenticator({
+      tokens: { validate: () => Promise.resolve({ subject: 's', expiresAt: null }) },
+      authorizer: { authorize: () => Promise.resolve(GRANTED) },
+      draftItems: {
+        authorize: async () => {
+          authorizeCalls += 1;
+          enterAuthorize?.();
+          await authorizationReleased;
+          return {
+            itemId: ITEM,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          };
+        },
+      },
+    });
+    const savedKey = `draft:${TEMPLATE}:${OPERATION}:${SOURCE}`;
+
+    const staleAuthorization = sessions.authenticate('token', savedKey);
+    await enteredAuthorize;
+    sessions.blockDraftOperation(OPERATION);
+
+    await expect(sessions.authenticate('token', savedKey)).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+    expect(authorizeCalls).toBe(1);
+
+    finishAuthorize?.();
+    await expect(staleAuthorization).resolves.toEqual({ ok: false, reason: 'refused' });
+    expect(sessions.size).toBe(0);
+
+    sessions.releaseDraftOperation(OPERATION);
+    await expect(sessions.authenticate('token', savedKey)).resolves.toMatchObject({ ok: true });
+    expect(authorizeCalls).toBe(2);
+  });
+
+  it('does not expire a pending operation fence before Save completes', async () => {
+    let clock = 0;
+    let authorizations = 0;
+    const sessions = createSessionAuthenticator({
+      tokens: { validate: () => Promise.resolve({ subject: 's', expiresAt: null }) },
+      authorizer: { authorize: () => Promise.resolve(GRANTED) },
+      draftItems: {
+        authorize: () => {
+          authorizations += 1;
+          return Promise.resolve({
+            itemId: ITEM,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          });
+        },
+      },
+      cacheTtlMs: 10,
+      now: () => clock,
+    });
+    const savedKey = `draft:${TEMPLATE}:${OPERATION}:${SOURCE}`;
+
+    sessions.blockDraftOperation(OPERATION);
+    clock = 100;
+    sessions.sweep();
+    await expect(sessions.authenticate('token', savedKey)).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+    expect(authorizations).toBe(0);
+
+    sessions.completeDraftOperation(OPERATION);
+    clock = 111;
+    sessions.sweep();
+    await sessions.authenticate('token', savedKey);
+    expect(authorizations).toBe(1);
   });
 });

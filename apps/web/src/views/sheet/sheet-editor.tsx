@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 
 import { useAuth } from '../../auth/auth-provider';
 import { useSessionStore } from '../../auth/session-store';
-import { startCollabSync, type SyncState } from '../../editor/collab-sync';
+import { startCollabSync, type CollabSync, type SyncState } from '../../editor/collab-sync';
 import { PresenceList } from '../../editor/presence-list';
 import { SyncFooter } from '../../editor/sync-footer';
 import { SheetGrid } from './sheet-grid';
@@ -31,6 +31,8 @@ import { useSheet } from './use-sheet';
 
 export interface SheetEditorProps {
   readonly itemId: string;
+  readonly documentPath?: string | undefined;
+  readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
 }
 
 /**
@@ -48,7 +50,7 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
     'This sheet cannot be saved as written - a cell holds something the sheet format cannot store, or a formula is too expensive to finish recalculating.',
 };
 
-export function SheetEditor({ itemId }: SheetEditorProps): ReactNode {
+export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
@@ -65,6 +67,7 @@ export function SheetEditor({ itemId }: SheetEditorProps): ReactNode {
   useEffect(() => {
     const sync = startCollabSync({
       itemId,
+      documentPath,
       doc,
       awareness,
       fragmentName: SHEET_CELLS_KEY,
@@ -84,10 +87,12 @@ export function SheetEditor({ itemId }: SheetEditorProps): ReactNode {
         }
       },
     });
+    onSync?.(sync);
     return () => {
+      onSync?.(null);
       sync.destroy();
     };
-  }, [awareness, doc, getAccessToken, itemId]);
+  }, [awareness, doc, documentPath, getAccessToken, itemId, onSync]);
 
   useEffect(() => {
     awareness.setLocalStateField('user', {
