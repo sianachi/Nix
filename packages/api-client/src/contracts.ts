@@ -31,3 +31,21 @@ export type CurrentPrincipalContract = components['schemas']['CurrentPrincipalRe
 
 /** The caller's own canvas library, as `GET /api/v1/me/canvas-library` returns it. */
 export type CanvasLibraryContract = components['schemas']['CanvasLibraryResponse'];
+
+/** One template card in the workspace template catalog. */
+export type TemplateSummaryContract = components['schemas']['TemplateSummaryResponse'];
+
+/** The workspace template catalog and the caller's catalog-wide capabilities. */
+export type TemplateCatalogContract = components['schemas']['TemplateCatalogResponse'];
+
+/** One item in a captured template tree. */
+export type TemplateItemContract = components['schemas']['TemplateItemResponse'];
+
+/** A template catalog entry together with its captured root tree. */
+export type TemplateDetailContract = components['schemas']['TemplateDetailResponse'];
+
+/** The wire request used to validate a template application before mutation. */
+export type TemplatePreflightRequestContract = components['schemas']['TemplatePreflightRequest'];
+
+/** The additions and conflicts found while validating a template application. */
+export type TemplatePreflightContract = components['schemas']['TemplatePreflightResponse'];

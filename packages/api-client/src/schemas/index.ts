@@ -49,6 +49,23 @@ export {
   type ItemQueryResults,
   type QueryResultRow,
 } from './item-query.js';
+export {
+  templateCapabilitiesSchema,
+  templateCatalogSchema,
+  templateDetailSchema,
+  templateItemSchema,
+  templateOriginSchema,
+  templatePreflightInputSchema,
+  templatePreflightRequestSchema,
+  templatePreflightSchema,
+  templateSummarySchema,
+  type TemplateCatalog,
+  type TemplateDetail,
+  type TemplateItem,
+  type TemplatePreflight,
+  type TemplatePreflightInput,
+  type TemplateSummary,
+} from './templates.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport
