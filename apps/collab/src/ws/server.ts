@@ -17,6 +17,7 @@ import type { SessionAuthenticator, SessionAuthorization } from './session-auth.
 export interface SocketSession {
   readonly socket: WebSocket;
   readonly itemId: string;
+  readonly authorizationKey: string;
   readonly clientSchemaVersion: number;
 
   /**
@@ -71,6 +72,10 @@ export interface WebSocketOptions {
 
 const WS_PATH =
   /^\/documents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/ws$/i;
+const TEMPLATE_WS_PATH =
+  /^\/templates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/items\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/document(?:\/ws)?$/i;
+const DRAFT_WS_PATH =
+  /^\/templates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/drafts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/items\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/ws)?$/i;
 
 /**
  * Attaches the WebSocket endpoint to an HTTP server: `GET /documents/:itemId/ws`, upgraded.
@@ -90,8 +95,11 @@ export function attachWebSocketServer(
   const pingMs = options.pingMs ?? 30_000;
 
   httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const match = WS_PATH.exec(new URL(request.url ?? '/', 'http://placeholder').pathname);
-    if (match === null) {
+    const path = new URL(request.url ?? '/', 'http://placeholder').pathname;
+    const match = WS_PATH.exec(path);
+    const templateMatch = TEMPLATE_WS_PATH.exec(path);
+    const draftMatch = DRAFT_WS_PATH.exec(path);
+    if (match === null && templateMatch === null && draftMatch === null) {
       // Refused before the upgrade completes: a path that is not the endpoint gets HTTP's
       // answer, not a WebSocket close code on a connection that should never have opened.
       socket.write('HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n');
@@ -99,9 +107,14 @@ export function attachWebSocketServer(
       return;
     }
 
-    const itemId = (match[1] ?? '').toLowerCase();
+    const authorizationKey =
+      match !== null
+        ? (match[1] ?? '').toLowerCase()
+        : draftMatch !== null
+          ? `draft:${draftMatch[1] ?? ''}:${draftMatch[2] ?? ''}:${draftMatch[3] ?? ''}`.toLowerCase()
+          : `template:${templateMatch?.[1] ?? ''}:${templateMatch?.[2] ?? ''}`.toLowerCase();
     wss.handleUpgrade(request, socket, head, (ws) => {
-      handleConnection(ws, itemId, options, authTimeoutMs, pingMs);
+      handleConnection(ws, authorizationKey, options, authTimeoutMs, pingMs);
     });
   });
 
@@ -110,7 +123,7 @@ export function attachWebSocketServer(
 
 function handleConnection(
   socket: WebSocket,
-  itemId: string,
+  authorizationKey: string,
   options: WebSocketOptions,
   authTimeoutMs: number,
   pingMs: number,
@@ -160,8 +173,7 @@ function handleConnection(
       return;
     }
 
-    //console.log("recieved note from editor");
-      hub.handleMessage(session, toUint8Array(data));
+    hub.handleMessage(session, toUint8Array(data));
   });
 
   socket.on('close', () => {
@@ -188,7 +200,7 @@ function handleConnection(
       return;
     }
 
-    const result = await sessions.authenticate(frame.token, itemId);
+    const result = await sessions.authenticate(frame.token, authorizationKey);
     if (!result.ok) {
       if (result.reason === 'unauthenticated') {
         close(CLOSE_CODES.unauthenticated, 'The token could not be validated.');
@@ -201,12 +213,21 @@ function handleConnection(
     const authorization = result.value;
     const candidate: SocketSession = {
       socket,
-      itemId,
+      itemId: authorization.resolvedItemId ?? authorizationKey,
+      authorizationKey,
       clientSchemaVersion: frame.schemaVersion,
       token: frame.token,
       authorization,
       mode: authorization.canWrite ? 'write' : 'read',
     };
+
+    // Authorization and room loading are separate awaits. Recheck the synchronous operation
+    // generation between them so a Save fence cannot be crossed by a result delivered just before
+    // the block; once join starts, the registry generation cancels a concurrent seal.
+    if (!sessions.isCurrent(authorizationKey, authorization)) {
+      close(CLOSE_CODES.notFound, 'No such document.');
+      return;
+    }
 
     const joined = await hub.join(candidate);
     if (!joined.ok) {
@@ -247,7 +268,7 @@ function handleConnection(
       return;
     }
 
-    const rechecked = await sessions.authenticate(token, current.itemId);
+    const rechecked = await sessions.authenticate(token, current.authorizationKey);
     if (socket.readyState !== WebSocket.OPEN) {
       // The socket closed while the re-check was in flight; there is nothing left to
       // downgrade or revoke.
@@ -260,6 +281,13 @@ function handleConnection(
     }
 
     const fresh = rechecked.value;
+    if (fresh.resolvedItemId !== undefined && fresh.resolvedItemId !== current.itemId) {
+      close(
+        CLOSE_CODES.revoked,
+        'This template revision changed. Reconnect to the current revision.',
+      );
+      return;
+    }
     current.authorization = fresh;
 
     if (!fresh.canWrite && current.mode === 'write') {
