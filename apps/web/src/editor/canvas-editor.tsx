@@ -6,7 +6,7 @@ import * as Y from 'yjs';
 import { useAuth } from '../auth/auth-provider';
 import { useSessionStore } from '../auth/session-store';
 import { createCanvasBinding, type CanvasElement } from './canvas-binding';
-import { startCollabSync, type SyncState } from './collab-sync';
+import { startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
 import { useCanvasLibrary } from './use-canvas-library';
@@ -32,6 +32,8 @@ import '@excalidraw/excalidraw/index.css';
 
 export interface CanvasEditorProps {
   readonly itemId: string;
+  readonly documentPath?: string | undefined;
+  readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
 }
 
 /** The slice of Excalidraw's imperative API this editor needs. */
@@ -43,7 +45,7 @@ interface SceneApi {
   }): Promise<readonly unknown[]>;
 }
 
-export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
+export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
@@ -71,19 +73,22 @@ export function CanvasEditor({ itemId }: CanvasEditorProps): ReactNode {
 
     const sync = startCollabSync({
       itemId,
+      documentPath,
       doc,
       awareness,
       fragmentName: 'elements',
       getAccessToken,
       onState: setSyncState,
     });
+    onSync?.(sync);
 
     return () => {
+      onSync?.(null);
       bindingRef.current = null;
       binding.destroy();
       sync.destroy();
     };
-  }, [awareness, doc, getAccessToken, itemId]);
+  }, [awareness, doc, documentPath, getAccessToken, itemId, onSync]);
 
   useEffect(() => {
     awareness.setLocalStateField('user', {

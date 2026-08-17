@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
 
 import { connectDocumentLocks } from '../db/advisory-lock.ts';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../db/testing.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { createDocumentRegistry } from './registry.ts';
+import { LIMITS } from './limits.ts';
 import { openDocument } from './service.ts';
 import { DocumentSession } from './session.ts';
 import {
@@ -25,6 +27,7 @@ import {
   textOf,
   typeParagraph,
   until,
+  updateFrame,
   type LiveHarness,
   type TestClient,
 } from './testing-live.ts';
@@ -288,6 +291,100 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     const joined = await harness.registry.join(fakeSocketSession(TENANTS.alpha));
 
     expect(joined).toMatchObject({ ok: false, closeCode: 4413 });
+  });
+
+  it('reserves a document slot across concurrent cold loads', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha, { maxDocs: 1 }));
+    const first = fakeSocketSession(TENANTS.alpha);
+    const second = { ...fakeSocketSession(TENANTS.alpha), itemId: TENANTS.alpha.targetItemId };
+
+    const answers = await Promise.all([
+      harness.registry.join(first),
+      harness.registry.join(second),
+    ]);
+
+    expect(answers.filter((answer) => answer.ok)).toHaveLength(1);
+    expect(answers.filter((answer) => !answer.ok && answer.closeCode === 4413)).toHaveLength(1);
+    expect(harness.registry.size).toBe(1);
+  });
+
+  it('reserves the document ceiling in bytes across concurrent cold loads', async () => {
+    const harness = track(
+      await startLiveServer(TENANTS.alpha, {
+        maxDocs: 2,
+        maxResidentBytes: LIMITS.documentBytes,
+      }),
+    );
+    const first = fakeSocketSession(TENANTS.alpha);
+    const second = { ...fakeSocketSession(TENANTS.alpha), itemId: TENANTS.alpha.targetItemId };
+
+    const answers = await Promise.all([
+      harness.registry.join(first),
+      harness.registry.join(second),
+    ]);
+
+    expect(answers.filter((answer) => answer.ok)).toHaveLength(1);
+    expect(answers.filter((answer) => !answer.ok && answer.closeCode === 4413)).toHaveLength(1);
+  });
+
+  it('refuses live aggregate growth before it can cross the resident-byte wall', async () => {
+    const maximumResidentBytes = 64 * 1024;
+    const harness = track(
+      await startLiveServer(TENANTS.alpha, {
+        maxResidentBytes: maximumResidentBytes,
+        flushMs: 60_000,
+      }),
+    );
+    const first = fakeSocketSession(TENANTS.alpha);
+    const second = fakeSocketSession(TENANTS.alpha, { principalId: SECOND_PRINCIPAL });
+    expect((await harness.registry.join(first)).ok).toBe(true);
+    expect((await harness.registry.join(second)).ok).toBe(true);
+
+    function paragraphFrame(text: string): Uint8Array {
+      const document = new Y.Doc();
+      try {
+        typeParagraph(document, text);
+        return updateFrame(Y.encodeStateAsUpdate(document));
+      } finally {
+        document.destroy();
+      }
+    }
+
+    // Each accepted update contributes both its encoded Yjs state and its pending log bytes.
+    // Either edit fits alone; accepting both would cross the one process-wide wall. Delivering
+    // the independent writer frames directly makes this a capacity test rather than a test of
+    // whether two browser-side Yjs providers happened to finish their initial sync first.
+    const beforeGrowth = harness.registry.residentBytes;
+    harness.registry.handleMessage(first, paragraphFrame(`First ${'a'.repeat(20_000)}`));
+    expect(first.closedWith).toEqual([]);
+    expect(harness.registry.residentBytes).toBeGreaterThan(beforeGrowth);
+    expect(harness.registry.residentBytes).toBeLessThan(maximumResidentBytes);
+
+    harness.registry.handleMessage(second, paragraphFrame(`Second ${'b'.repeat(20_000)}`));
+
+    expect(second.closedWith).toEqual([
+      {
+        code: 4413,
+        reason: 'This server is at its resident-memory capacity. Retry shortly.',
+      },
+    ]);
+    expect(harness.registry.residentBytes).toBeLessThanOrEqual(maximumResidentBytes);
+
+    await harness.registry.flushItems([TENANTS.alpha.itemId]);
+    expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(1);
+  });
+
+  it('cancels a matching cold load during draft save and lets a newly authorized reconnect load', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const stale = fakeSocketSession(TENANTS.alpha);
+    const joining = harness.registry.join(stale);
+
+    await harness.registry.sealItems([TENANTS.alpha.itemId]);
+    const refused = await joining;
+    const reconnected = await harness.registry.join(fakeSocketSession(TENANTS.alpha));
+
+    expect(refused).toMatchObject({ ok: false, closeCode: 4404 });
+    expect(reconnected.ok).toBe(true);
   });
 
   it('refuses a document another instance owns, instead of serving it twice', async () => {

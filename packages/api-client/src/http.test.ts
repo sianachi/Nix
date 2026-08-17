@@ -28,6 +28,39 @@ describe('the http transport', () => {
     expect(response.body).toEqual({ echoed: { title: 'Kickoff' } });
   });
 
+  it('lets the runtime set a multipart boundary while preserving a file body', async () => {
+    server.use(
+      http.post(testUrl('/imports'), async ({ request }) => {
+        expect(request.headers.get('content-type')).toContain('multipart/form-data; boundary=');
+        const form = await request.formData();
+        expect(await (form.get('template') as File).text()).toBe('template bytes');
+        return HttpResponse.json({ accepted: true });
+      }),
+    );
+    const form = new FormData();
+    form.set('template', new File(['template bytes'], 'planning.nix'));
+
+    const response = await transport().send({ method: 'POST', path: '/imports', body: form });
+
+    expect(response.body).toEqual({ accepted: true });
+  });
+
+  it('uses a Blob media type instead of labelling binary bytes as JSON', async () => {
+    server.use(
+      http.post(testUrl('/binary'), async ({ request }) => {
+        expect(request.headers.get('content-type')).toBe('application/x-nix-template');
+        expect(await request.text()).toBe('template bytes');
+        return HttpResponse.json({ accepted: true });
+      }),
+    );
+
+    await transport().send({
+      method: 'POST',
+      path: '/binary',
+      body: new Blob(['template bytes'], { type: 'application/x-nix-template' }),
+    });
+  });
+
   it('serialises query parameters and drops the ones that are undefined', async () => {
     const seen: string[] = [];
     server.use(
@@ -141,6 +174,35 @@ describe('error mapping', () => {
     expect(error.title).toBe('Item not found');
     expect(error.detail).toBe('No item with that id exists in this workspace.');
     expect(error.traceId).toBe('00-abc-def-01');
+  });
+
+  it('decodes problem details when a binary download requested a blob response', async () => {
+    server.use(
+      http.get(testUrl('/templates/restricted/export'), () =>
+        HttpResponse.json(
+          {
+            title: 'Template export unavailable',
+            status: 403,
+            detail: 'You cannot download this template.',
+            code: 'template.export_forbidden',
+          },
+          { status: 403, headers: { 'content-type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    const client = withErrorMapping(transport(), undefined);
+
+    const error = await captureFailure(
+      client.send({
+        method: 'GET',
+        path: '/templates/restricted/export',
+        responseType: 'blob',
+      }),
+    );
+
+    expect(error.kind).toBe(NixErrorKind.Problem);
+    expect(error.code).toBe('template.export_forbidden');
+    expect(error.detail).toBe('You cannot download this template.');
   });
 
   it('carries validation errors from a problem details response onto the typed error', async () => {

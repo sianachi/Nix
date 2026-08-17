@@ -131,7 +131,7 @@ export const SIDEBAR_MINIMUM_WIDTH = 200;
 export const SIDEBAR_MAXIMUM_WIDTH = 480;
 
 /**
- * The settings panel's width.
+ * The settings panel's preferred width, capped by the space its viewport can provide.
  *
  * **A class literal, not a number, and this is the one place being clever breaks the build.**
  * Tailwind's extractor matches class names in source text, so `w-[${String(WIDTH)}px]` emits no
@@ -139,7 +139,7 @@ export const SIDEBAR_MAXIMUM_WIDTH = 480;
  * would put two spellings of one value back in the file, which is what this consolidation exists
  * to remove, so there is one export and it is the literal.
  */
-export const settingsPanelWidth = 'w-[340px]';
+export const settingsPanelWidth = 'w-[340px] max-w-full';
 
 /**
  * The narrowest window this shell will lay two panes out in.

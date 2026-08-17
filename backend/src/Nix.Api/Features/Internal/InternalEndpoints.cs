@@ -34,8 +34,7 @@ internal static class InternalEndpoints
         var group = endpoints.MapGroup("/internal").ExcludeFromDescription();
 
         group.MapGet("/authz/items/{itemId:guid}", GetItemAuthorizationEndpoint.Handle);
-        group.MapPost("/items/{itemId:guid}/touched", TouchItemEndpoint.Handle)
-            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        group.MapPost("/items/{itemId:guid}/touched", TouchItemEndpoint.Handle);
 
         return endpoints;
     }

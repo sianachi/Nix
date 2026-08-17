@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
-import { type ReactNode } from 'react';
+import { type ReactNode, type Ref } from 'react';
 
 import { cn } from '../lib/cn';
 import { Icon } from '../primitives/Icon';
@@ -98,6 +98,16 @@ export interface TableProps<Row> {
 
   /** Layout only - margin, width, grid placement. Never a restyle of the table. */
   readonly className?: string;
+
+  /** Sparse row geometry when the caller renders only a measured window of a larger table. */
+  readonly virtualization?: {
+    readonly totalRows: number;
+    readonly rowIndexes: readonly number[];
+    readonly spacerHeights: readonly number[];
+  };
+
+  /** The semantic table element, used by pane-aware virtualizers as their measured root. */
+  readonly tableRef?: Ref<HTMLTableElement>;
 }
 
 const cellPadding = 'px-3 py-2';
@@ -148,6 +158,8 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     sort,
     onSortChange,
     className,
+    virtualization,
+    tableRef,
   } = props;
 
   const message = loading ? loadingMessage : rows.length === 0 ? emptyMessage : null;
@@ -157,7 +169,9 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     // header's hairline into the first row's, which on a 1px divider means one of the two rules
     // silently disappears.
     <table
+      ref={tableRef}
       aria-busy={loading || undefined}
+      aria-rowcount={virtualization === undefined ? undefined : virtualization.totalRows + 1}
       className={cn('w-full border-separate border-spacing-0 text-left', className)}
     >
       <Text as="caption" variant="h6" tone="muted" className="pb-2 text-left">
@@ -214,27 +228,54 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
 
       <tbody>
         {message === null ? (
-          rows.map((row) => (
-            <tr key={rowKey(row)}>
-              {columns.map((column) => {
-                const cellClass = cn(
-                  'border-b border-divider font-body text-md text-foreground',
-                  cellPadding,
-                  column.align === 'end' ? 'text-right' : 'text-left',
-                );
+          rows.flatMap((row, rowOffset) => {
+            const dataIndex = virtualization?.rowIndexes[rowOffset] ?? rowOffset;
+            const before = virtualization?.spacerHeights[rowOffset] ?? 0;
+            return [
+              before > 0 ? (
+                <tr key={`spacer-before-${String(dataIndex)}`} aria-hidden="true">
+                  <td
+                    colSpan={columns.length}
+                    className="border-0 p-0"
+                    style={{ height: before }} // design-token-exempt: the spacer height is measured runtime geometry from the shared virtual window, not a design value
+                  />
+                </tr>
+              ) : null,
+              <tr
+                key={rowKey(row)}
+                aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
+                data-virtual-index={virtualization === undefined ? undefined : dataIndex}
+              >
+                {columns.map((column) => {
+                  const cellClass = cn(
+                    'border-b border-divider font-body text-md text-foreground',
+                    cellPadding,
+                    column.align === 'end' ? 'text-right' : 'text-left',
+                  );
 
-                return column.rowHeader === true ? (
-                  <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
-                    {column.cell(row)}
-                  </th>
-                ) : (
-                  <td key={column.key} className={cellClass}>
-                    {column.cell(row)}
-                  </td>
-                );
-              })}
-            </tr>
-          ))
+                  return column.rowHeader === true ? (
+                    <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
+                      {column.cell(row)}
+                    </th>
+                  ) : (
+                    <td key={column.key} className={cellClass}>
+                      {column.cell(row)}
+                    </td>
+                  );
+                })}
+              </tr>,
+              rowOffset === rows.length - 1 &&
+              (virtualization?.spacerHeights[rows.length] ?? 0) > 0 ? (
+                <tr key="spacer-after" aria-hidden="true">
+                  <td
+                    colSpan={columns.length}
+                    className="border-0 p-0"
+                    style={{ height: virtualization?.spacerHeights[rows.length] }} // design-token-exempt: the spacer height is measured runtime geometry from the shared virtual window, not a design value
+                  />
+                </tr>
+              ) : null,
+            ];
+          })
         ) : (
           <tr>
             {/* One cell across the table rather than an empty body: a table with a header and no

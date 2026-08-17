@@ -114,7 +114,7 @@ export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode 
         unhealthy && 'bg-surface',
       )}
     >
-      <span className={cn( 'inline-flex shrink-0 items-center gap-1', )} >
+      <span className="inline-flex shrink-0 items-center gap-1">
         {/* Decorative: no label, so the words alone carry the state for assistive technology.
             The base accent is fine on a glyph - a graphical object, not body-size text. */}
         <Icon
@@ -123,16 +123,25 @@ export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode 
           className={cn(unhealthy && 'text-accent', spins === true && 'motion-safe:animate-spin')}
         />
 
-        <span className={cn('font-heading font-semibold tracking-wider uppercase',
-          unhealthy ? 'text-foreground' : 'text-muted'
-        )}>
+        <span
+          className={cn(
+            'font-heading font-semibold tracking-wider uppercase',
+            unhealthy ? 'text-foreground' : 'text-muted',
+          )}
+        >
           {term}
         </span>
 
         {/* The title restores whatever the truncation cuts in a narrow pane; assistive tech
           already receives the full string, so this is for the sighted hover only. */}
-        <Text variant="caption" as="span" tone="muted" title={detail} className="min-w-0 truncate text-xs text-muted">
-          - ({detail})
+        <Text
+          variant="caption"
+          as="span"
+          tone="muted"
+          title={detail}
+          className="min-w-0 truncate text-xs text-muted"
+        >
+          {detail}
         </Text>
       </span>
     </footer>

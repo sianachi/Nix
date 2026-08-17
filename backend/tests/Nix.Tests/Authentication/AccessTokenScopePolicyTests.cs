@@ -56,6 +56,9 @@ public sealed class AccessTokenScopePolicyTests
         ["ListWorkspaceMembers"] = Requirement.Read,
         ["GetAccessTokenSigningKeys"] = Requirement.Read,
         ["GetPublicForm"] = Requirement.Read,
+        ["ListTemplates"] = Requirement.Read,
+        ["GetTemplate"] = Requirement.Read,
+        ["GetTemplateItem"] = Requirement.Read,
 
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
@@ -74,6 +77,12 @@ public sealed class AccessTokenScopePolicyTests
         ["CreateStructuredItem"] = Requirement.Write,
         ["SubmitPublicForm"] = Requirement.Write,
         ["ExchangeAccessToken"] = Requirement.Write,
+        ["DeleteTemplate"] = Requirement.Write,
+
+        // A POST that only previews an application; classified Write because it is not a GET, which
+        // over-restricts a read-only token from previewing rather than under-restricting - the
+        // policy's deliberate one-sided failure mode.
+        ["PreflightTemplateApplication"] = Requirement.Write,
 
         // Admin: the writes that change who can see what - permission entries, and publishing a
         // view to the anonymous internet.

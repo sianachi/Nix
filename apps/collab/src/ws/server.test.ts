@@ -23,6 +23,9 @@ import { createSessionAuthenticator } from './session-auth.ts';
  */
 
 const ITEM = 'c1000000-0000-4000-8000-000000000031';
+const TEMPLATE = 'c1000000-0000-4000-8000-000000000032';
+const OPERATION = 'c1000000-0000-4000-8000-000000000033';
+const DRAFT_ITEM = 'c1000000-0000-4000-8000-000000000034';
 
 const GRANTED: ItemAuthorization = {
   tenantId: 'c1000000-0000-4000-8000-000000000001',
@@ -75,6 +78,22 @@ async function listen(options: {
   reauthMs?: number;
   authTimeoutMs?: number;
   cacheTtlMs?: number;
+  draftItems?: {
+    authorize(
+      token: string,
+      templateId: string,
+      operationId: string,
+      sourceId: string,
+    ): Promise<{
+      itemId: string;
+      tenantId: string;
+      principalId: string;
+      workspaceId: string;
+      itemType: string;
+      canRead: boolean;
+      canWrite: boolean;
+    }>;
+  };
 }): Promise<Harness> {
   const server = createHttpServer();
   servers.push(server);
@@ -83,6 +102,7 @@ async function listen(options: {
     sessions: createSessionAuthenticator({
       tokens: options.tokens ?? VALID_TOKENS,
       authorizer: options.authorizer ?? { authorize: () => Promise.resolve(GRANTED) },
+      draftItems: options.draftItems,
       cacheTtlMs: options.cacheTtlMs ?? 1,
     }),
     hub: options.hub ?? acceptingHub(),
@@ -291,6 +311,47 @@ describe('the websocket handshake', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(hub.messages).toEqual([new Uint8Array([7, 8, 9])]);
+  });
+
+  it('resolves the draft WebSocket alias to its hidden provisioning body', async () => {
+    const asked: string[] = [];
+    const hub = acceptingHub();
+    const { url } = await listen({
+      hub,
+      draftItems: {
+        authorize: (token, templateId, operationId, sourceId) => {
+          asked.push(token, templateId, operationId, sourceId);
+          return Promise.resolve({
+            itemId: DRAFT_ITEM,
+            tenantId: GRANTED.tenantId,
+            principalId: GRANTED.principalId,
+            workspaceId: GRANTED.workspaceId,
+            itemType: 'note',
+            canRead: true,
+            canWrite: true,
+          });
+        },
+      },
+    });
+    const socket = new WebSocket(
+      `${url}/templates/${TEMPLATE}/drafts/${OPERATION}/items/${ITEM}/ws`,
+    );
+    sockets.push(socket);
+    socket.on('open', () => {
+      socket.send(authFrame('draft-editor-token'));
+    });
+
+    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+
+    expect(asked).toEqual(['draft-editor-token', TEMPLATE, OPERATION, ITEM]);
+    expect(ready).toMatchObject({ type: 'ready', mode: 'write', bodyKind: 'note' });
+    expect(hub.joined[0]).toMatchObject({
+      itemId: DRAFT_ITEM,
+      authorizationKey: `draft:${TEMPLATE}:${OPERATION}:${ITEM}`,
+    });
   });
 
   it('closes a live socket whose authorization was revoked, within the re-check bound', async () => {

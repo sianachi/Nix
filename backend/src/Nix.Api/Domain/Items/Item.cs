@@ -1,4 +1,5 @@
 using Nix.Domain.Identity;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Domain.Items;
@@ -98,6 +99,18 @@ public sealed class Item
     /// application. <c>Nix.Domain.Views.ViewDefinitionsJson</c> owns the typed representation.
     /// </remarks>
     public string? Views { get; init; }
+
+    /// <summary>
+    /// Gets the catalog template this hidden item belongs to, or <see langword="null"/> for an
+    /// ordinary workspace item.
+    /// </summary>
+    public TemplateId? TemplateId { get; init; }
+
+    /// <summary>
+    /// Gets this node's stable identity inside a template, preserved when a managed revision is
+    /// replaced so applications never match children by title.
+    /// </summary>
+    public Guid? TemplateSourceId { get; init; }
 
     /// <summary>Gets where the item sits in the deletion lifecycle.</summary>
     public required ItemLifecycleState LifecycleState { get; init; }

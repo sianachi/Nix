@@ -131,7 +131,7 @@ export function ViewEditor({
 
         {draft.length === 0 ? (
           <Text variant="bodySmall" tone="muted">
-            No views yet. Without one, this item shows a plain list.
+            No child-item views yet. The item still opens its document.
           </Text>
         ) : null}
 
@@ -189,7 +189,19 @@ export function ViewEditor({
                 variant="icon"
                 aria-label={`Remove ${view.name}`}
                 onClick={() => {
-                  setDraft((current) => current.filter((_, position) => position !== index));
+                  setDraft((current) =>
+                    current
+                      .filter((_, position) => position !== index)
+                      .map((candidate) =>
+                        candidate.companionViewId === view.id
+                          ? {
+                              ...candidate,
+                              companionViewId: null,
+                              companionPlacement: null,
+                            }
+                          : candidate,
+                      ),
+                  );
                 }}
               >
                 <Icon icon={Trash2} size="sm" />

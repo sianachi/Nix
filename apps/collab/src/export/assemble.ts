@@ -71,6 +71,8 @@ export async function enumerateSubtree(
 ): Promise<EnumeratedTree> {
   const items: CoreItem[] = [request.root];
   const omitted: Omission[] = [];
+  let remainingListings = EXPORT_LIMITS.maxItems - 1;
+  let limitReported = false;
 
   if (request.scope === 'item') {
     return { items, omitted };
@@ -82,7 +84,7 @@ export async function enumerateSubtree(
   // children either way, but it reads as scrambled to anybody opening the archive. Recursion depth
   // is bounded by `maxDepth`.
   async function visit(parent: CoreItem, depth: number): Promise<void> {
-    if (!parent.hasChildren) {
+    if (!parent.hasChildren || limitReported) {
       return;
     }
 
@@ -96,9 +98,20 @@ export async function enumerateSubtree(
       return;
     }
 
-    const children = await listAllChildren(core, request.token, parent, omitted);
+    if (remainingListings <= 0) {
+      reportLimit(parent.id);
+      return;
+    }
+    const listing = await listChildrenWithinBudget(
+      core,
+      request.token,
+      parent,
+      omitted,
+      remainingListings,
+    );
+    remainingListings -= listing.read;
 
-    for (const child of children) {
+    for (const child of listing.children) {
       if (child.lifecycleState !== 'active' && !request.includeDeleted) {
         omitted.push({
           id: child.id,
@@ -110,18 +123,31 @@ export async function enumerateSubtree(
       }
 
       if (items.length >= EXPORT_LIMITS.maxItems) {
-        omitted.push({
-          id: child.id,
-          parentId: parent.id,
-          reason: 'limit-reached',
-          detail: `This export stops at ${String(EXPORT_LIMITS.maxItems)} items.`,
-        });
-        continue;
+        reportLimit(parent.id);
+        return;
       }
 
       items.push(child);
       await visit(child, depth + 1);
+      if (hasReachedItemLimit()) return;
     }
+
+    if (listing.truncated) reportLimit(parent.id);
+  }
+
+  function reportLimit(parentId: string): void {
+    if (limitReported) return;
+    limitReported = true;
+    omitted.push({
+      id: null,
+      parentId,
+      reason: 'limit-reached',
+      detail: `This export stops after reading ${String(EXPORT_LIMITS.maxItems)} items.`,
+    });
+  }
+
+  function hasReachedItemLimit(): boolean {
+    return limitReported;
   }
 
   await visit(request.root, 0);
@@ -130,17 +156,25 @@ export async function enumerateSubtree(
 }
 
 /** Every page of one item's children, or as many as could be read. */
-async function listAllChildren(
+async function listChildrenWithinBudget(
   core: CoreClient,
   token: string,
   parent: CoreItem,
   omitted: Omission[],
-): Promise<CoreItem[]> {
+  budget: number,
+): Promise<{ children: CoreItem[]; read: number; truncated: boolean }> {
   const children: CoreItem[] = [];
   let cursor: string | null = null;
+  let remaining = budget;
 
   for (;;) {
-    const page = await core.listChildren(token, parent.workspaceId, parent.id, cursor);
+    const page = await core.listChildren(
+      token,
+      parent.workspaceId,
+      parent.id,
+      cursor,
+      Math.min(200, remaining),
+    );
 
     if (page === null) {
       omitted.push({
@@ -149,14 +183,23 @@ async function listAllChildren(
         reason: 'not-readable',
         detail: 'The children of this item could not be listed.',
       });
-      return children;
+      return { children, read: budget - remaining, truncated: false };
     }
 
-    children.push(...page.items);
+    const accepted = page.items.slice(0, remaining);
+    children.push(...accepted);
+    remaining -= accepted.length;
     cursor = page.nextCursor;
 
     if (cursor === null) {
-      return children;
+      return {
+        children,
+        read: budget - remaining,
+        truncated: page.items.length > accepted.length,
+      };
+    }
+    if (remaining === 0) {
+      return { children, read: budget, truncated: true };
     }
   }
 }
@@ -275,21 +318,26 @@ export async function gatherViewRows(
 async function readRows(core: CoreClient, token: string, parent: CoreItem): Promise<ViewRows> {
   const rows: ViewRowSnapshot[] = [];
   let cursor: string | null = null;
+  let remainingReads = VIEW_ROW_LIMIT;
 
   for (;;) {
-    const page = await core.listChildren(token, parent.workspaceId, parent.id, cursor);
+    const page = await core.listChildren(
+      token,
+      parent.workspaceId,
+      parent.id,
+      cursor,
+      remainingReads,
+    );
 
     if (page === null) {
       return { rows, truncated: true };
     }
 
-    for (const child of page.items) {
+    const accepted = page.items.slice(0, remainingReads);
+    remainingReads -= accepted.length;
+    for (const child of accepted) {
       if (child.lifecycleState !== 'active') {
         continue;
-      }
-
-      if (rows.length >= VIEW_ROW_LIMIT) {
-        return { rows, truncated: true };
       }
 
       rows.push({ id: child.id, title: child.title, properties: child.properties });
@@ -298,7 +346,10 @@ async function readRows(core: CoreClient, token: string, parent: CoreItem): Prom
     cursor = page.nextCursor;
 
     if (cursor === null) {
-      return { rows, truncated: false };
+      return { rows, truncated: page.items.length > accepted.length };
+    }
+    if (remainingReads === 0) {
+      return { rows, truncated: true };
     }
   }
 }

@@ -17,7 +17,7 @@ import { ColumnControls } from './column-controls';
 import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
 import { EditorToolbar } from './toolbar';
-import { FRAGMENT_NAME, startCollabSync, type SyncState } from './collab-sync';
+import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
@@ -45,6 +45,8 @@ import { renderToggleButton, toggleSummaryView } from './toggle-button';
 
 export interface NoteEditorProps {
   readonly itemId: string;
+  readonly documentPath?: string | undefined;
+  readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
 }
 
 /**
@@ -266,7 +268,7 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
  */
 const RESTORE_ORIGIN = Symbol('nix.editor.restore');
 
-export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
+export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const [syncState, setSyncState] = useState<SyncState>('connecting');
@@ -417,6 +419,7 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
   useEffect(() => {
     const sync = startCollabSync({
       itemId,
+      documentPath,
       doc,
       awareness,
       fragmentName: FRAGMENT_NAME,
@@ -436,11 +439,13 @@ export function NoteEditor({ itemId }: NoteEditorProps): ReactNode {
         }
       },
     });
+    onSync?.(sync);
 
     return () => {
+      onSync?.(null);
       sync.destroy();
     };
-  }, [awareness, doc, getAccessToken, itemId]);
+  }, [awareness, doc, documentPath, getAccessToken, itemId, onSync]);
 
   // Who this cursor belongs to, told to everyone else. The color is picked by client
   // identifier so two tabs of the same person still read as two cursors.

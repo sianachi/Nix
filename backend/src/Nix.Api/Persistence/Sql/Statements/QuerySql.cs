@@ -74,9 +74,12 @@ public static class QuerySql
             LEFT JOIN item AS parent
                    ON parent.id = item.parent_id
                   AND parent.tenant_id = @tenant_id
+                  AND parent.template_id IS NULL
+                  AND parent.lifecycle_state = 'active'
             WHERE item.tenant_id = @tenant_id
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
+              AND item.template_id IS NULL
               AND item.id <> @query_item_id
             """);
 

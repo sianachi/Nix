@@ -26,6 +26,7 @@ deploy_dir="$(cd "$script_dir/.." && pwd)"
 compose_file="$deploy_dir/compose.dev.yml"
 out_dir="$deploy_dir/.zitadel"
 out_file="$out_dir/oidc.generated.env"
+source "$script_dir/zitadel-machine.sh"
 
 zitadel_port="${ZITADEL_PORT:-8300}"
 base_url="http://localhost:${zitadel_port}"
@@ -39,6 +40,9 @@ dev_password="${NIX_ZITADEL_DEV_PASSWORD:-NixDev-Password1!}"
 dev_given_name="${NIX_ZITADEL_DEV_GIVEN_NAME:-Nix}"
 dev_family_name="${NIX_ZITADEL_DEV_FAMILY_NAME:-Developer}"
 dev_email="${NIX_ZITADEL_DEV_EMAIL:-dev@nix.localhost}"
+template_boot_username="${NIX_ZITADEL_TEMPLATE_BOOT_USERNAME:-template-boot@nix.localhost}"
+template_boot_name="${NIX_ZITADEL_TEMPLATE_BOOT_NAME:-Nix Template Boot}"
+rotate_template_boot_key="${NIX_ZITADEL_ROTATE_TEMPLATE_BOOT_KEY:-false}"
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -91,6 +95,39 @@ api() {
       -H "Authorization: Bearer $pat" \
       -H 'Content-Type: application/json'
   fi
+}
+
+# Idempotent deletion is required by rotation recovery: a crash can happen after Zitadel deleted
+# the old key but before the local journal advanced. A retrying 404 therefore means converged.
+delete_machine_key_if_present() {
+  local user_id="$1" key_id="$2" response_file http_code
+  response_file="$(mktemp)"
+  if ! http_code="$(curl -sS -o "$response_file" -w '%{http_code}' -X DELETE \
+    "$base_url/v2/users/$user_id/keys/$key_id" \
+    -H "Authorization: Bearer $pat" \
+    -H 'Content-Type: application/json')"; then
+    rm -f "$response_file"
+    return 1
+  fi
+  rm -f "$response_file"
+  case "$http_code" in
+    200|204|404) return ;;
+    *) return 1 ;;
+  esac
+}
+
+list_machine_key_ids() {
+  local user_id="$1" response total returned
+  response="$(api POST /v2/users/keys/search '{"pagination":{"limit":1000}}')"
+  total="$(jq -r '(.pagination.totalResult // 0) | tonumber' <<<"$response")"
+  returned="$(jq -r '(.result // []) | length' <<<"$response")"
+  if [ "$returned" -lt "$total" ]; then
+    echo "zitadel-configure: refusing incomplete service-account key reconciliation" >&2
+    return 1
+  fi
+  jq -r --arg user_id "$user_id" \
+    '(.result // [])[]? | select(.userId == $user_id) | (.id // empty)' \
+    <<<"$response"
 }
 
 # ── Instance features ───────────────────────────────────────────────────────
@@ -223,8 +260,141 @@ else
   echo "zitadel-configure: created developer user '$dev_username' ($user_id)"
 fi
 
-# ── Write the generated configuration ───────────────────────────────────────
+# ── Managed-template service account and JWT-profile key ────────────────────
+template_boot_user_json="$(api POST /v2/users \
+  "$(jq -nc --arg u "$template_boot_username" \
+    '{query:{offset:"0",limit:100},queries:[{userNameQuery:{userName:$u,method:"TEXT_QUERY_METHOD_EQUALS"}}]}')" \
+  | jq -c --arg u "$template_boot_username" \
+      'first(.result[]? | select((.username == $u) and (.machine != null))) // empty')"
+template_boot_user_id="$(jq -r '.userId // empty' <<<"$template_boot_user_json")"
+
+if [ -n "$template_boot_user_id" ]; then
+  echo "zitadel-configure: template boot service account already present ($template_boot_user_id)"
+  ensure_machine_jwt_access_token "$template_boot_user_json" "$template_boot_user_id"
+else
+  template_boot_user_id="$(api POST /management/v1/users/machine \
+    "$(jq -nc \
+      --arg u "$template_boot_username" \
+      --arg n "$template_boot_name" \
+      '{userName:$u,name:$n,description:"Imports repository-managed Nix templates",accessTokenType:"ACCESS_TOKEN_TYPE_JWT"}')" \
+    | jq -r '.userId')"
+  echo "zitadel-configure: created template boot service account ($template_boot_user_id)"
+fi
+
 mkdir -p "$out_dir"
+template_boot_key_file="$out_dir/template-boot-service-account-key.json"
+previous_template_boot_key_file="$out_dir/template-boot-service-account-key.previous"
+template_boot_rotation_journal="$out_dir/template-boot-service-account-key.rotation.json"
+pending_key_file="$out_dir/.template-boot-service-account-key.pending"
+cleanup_key_tempfiles() {
+  if [ -n "${pending_key_file:-}" ]; then
+    rm -f "$pending_key_file"
+  fi
+  rm -f "${pending_key_file}.tmp" \
+    "${template_boot_rotation_journal}.tmp" \
+    "${template_boot_key_file}.tmp"
+}
+trap cleanup_key_tempfiles EXIT
+trap 'exit 1' HUP INT TERM
+
+existing_key_user=""
+existing_key_id=""
+if [ -f "$template_boot_key_file" ]; then
+  existing_key_user="$(jq -r '.userId // empty' "$template_boot_key_file" 2>/dev/null || true)"
+  existing_key_id="$(jq -r '.keyId // empty' "$template_boot_key_file" 2>/dev/null || true)"
+fi
+recovered_key_rotation=false
+resume_key_action=""
+journal_phase="$(jq -r '.phase // empty' "$template_boot_rotation_journal" 2>/dev/null || true)"
+if [ -f "$pending_key_file" ]; then
+  if jq -e --arg u "$template_boot_user_id" \
+    '.type == "serviceaccount" and .userId == $u and (.keyId | type == "string") and (.key | type == "string")' \
+    "$pending_key_file" >/dev/null 2>&1; then
+    if [ "$journal_phase" = create-intent ]; then
+      record_machine_key_creation "$template_boot_rotation_journal" "$pending_key_file"
+    elif [ ! -f "$template_boot_rotation_journal" ]; then
+      begin_machine_key_rotation \
+        "$template_boot_rotation_journal" \
+        "$template_boot_user_id" \
+        "$existing_key_id" \
+        "$pending_key_file"
+    fi
+  fi
+  rm -f "$pending_key_file"
+fi
+if [ -f "$previous_template_boot_key_file" ] && [ ! -f "$template_boot_rotation_journal" ]; then
+  previous_key_id="$(tr -d '\r\n' < "$previous_template_boot_key_file")"
+  begin_machine_key_rotation \
+    "$template_boot_rotation_journal" \
+    "$template_boot_user_id" \
+    "$previous_key_id" \
+    "$template_boot_key_file"
+  rm -f "$previous_template_boot_key_file"
+fi
+journal_phase="$(jq -r '.phase // empty' "$template_boot_rotation_journal" 2>/dev/null || true)"
+tracked_key_id=""
+if [ "$journal_phase" != create-intent ]; then
+  tracked_key_id="$(jq -r '.newKeyId // empty' "$template_boot_rotation_journal" 2>/dev/null || true)"
+fi
+reconcile_machine_remote_keys "$template_boot_user_id" "$existing_key_id" "$tracked_key_id"
+if [ "$journal_phase" = create-intent ]; then
+  intent_old_key_id="$(jq -r '.oldKeyId // empty' "$template_boot_rotation_journal")"
+  if [ -n "$intent_old_key_id" ]; then
+    resume_key_action=rotate
+  else
+    resume_key_action=create
+  fi
+  rm -f "$template_boot_rotation_journal" "${template_boot_rotation_journal}.tmp"
+elif [ -f "$template_boot_rotation_journal" ]; then
+  converge_machine_key_rotation "$template_boot_rotation_journal" "$template_boot_key_file"
+  rm -f "$previous_template_boot_key_file"
+  recovered_key_rotation=true
+fi
+existing_key_user="$(jq -r '.userId // empty' "$template_boot_key_file" 2>/dev/null || true)"
+existing_key_id="$(jq -r '.keyId // empty' "$template_boot_key_file" 2>/dev/null || true)"
+key_action="$(template_boot_key_action \
+  "$existing_key_user" \
+  "$template_boot_user_id" \
+  "$rotate_template_boot_key")"
+if [ -n "$resume_key_action" ]; then
+  key_action="$resume_key_action"
+elif [ "$recovered_key_rotation" = true ] && [ "$key_action" = rotate ]; then
+  # The prior run already created and installed the replacement. This run completed that same
+  # rotation by revoking its predecessor; rotating again would create a new predecessor forever.
+  key_action=reuse
+fi
+
+if [ "$key_action" = reuse ]; then
+  echo "zitadel-configure: template boot service-account key already present"
+else
+  begin_machine_key_creation_intent \
+    "$template_boot_rotation_journal" \
+    "$template_boot_user_id" \
+    "$existing_key_id"
+  key_response="$(api POST "/v2/users/$template_boot_user_id/keys" '{}')"
+  key_content="$(jq -r '.keyContent // empty' <<<"$key_response")"
+  if [ -z "$key_content" ]; then
+    echo "zitadel-configure: Zitadel did not return the new service-account key" >&2
+    exit 1
+  fi
+  rm -f "$pending_key_file" "${pending_key_file}.tmp"
+  jq -r '.keyContent | @base64d' <<<"$key_response" > "${pending_key_file}.tmp"
+  chmod 600 "${pending_key_file}.tmp"
+  mv "${pending_key_file}.tmp" "$pending_key_file"
+  if ! jq -e --arg u "$template_boot_user_id" \
+    '.type == "serviceaccount" and .userId == $u and (.keyId | type == "string") and (.key | type == "string")' \
+    "$pending_key_file" >/dev/null; then
+    rm -f "$pending_key_file"
+    echo "zitadel-configure: the returned service-account key was invalid" >&2
+    exit 1
+  fi
+  record_machine_key_creation "$template_boot_rotation_journal" "$pending_key_file"
+  rm -f "$pending_key_file"
+  converge_machine_key_rotation "$template_boot_rotation_journal" "$template_boot_key_file"
+  echo "zitadel-configure: wrote a $key_action template boot service-account key"
+fi
+
+# ── Write the generated configuration ───────────────────────────────────────
 cat > "$out_file" <<EOF
 # Generated by deploy/seed/zitadel-configure.sh. Do not edit; re-run instead.
 # Machine-specific state, not source: this file is gitignored.
@@ -232,6 +402,9 @@ NIX_OIDC_ISSUER=$base_url
 NIX_OIDC_DISCOVERY=$base_url/.well-known/openid-configuration
 NIX_OIDC_CLIENT_ID=$client_id
 NIX_OIDC_PROJECT_ID=$project_id
+NIX_TEMPLATE_BOOT_SERVICE_USER_ID=$template_boot_user_id
+NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE=$template_boot_key_file
+NIX_TEMPLATE_BOOT_OIDC_SCOPE=openid urn:zitadel:iam:org:project:id:$project_id:aud
 NIX_OIDC_REDIRECT_URI=$web_origin/auth/callback
 NIX_OIDC_POST_LOGOUT_REDIRECT_URI=$web_origin
 NIX_DEV_USERNAME=$dev_username
