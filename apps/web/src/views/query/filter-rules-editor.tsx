@@ -39,10 +39,13 @@ export interface FilterRulesEditorProps {
   readonly schema: readonly PropertyDefinition[];
 
   readonly onChange: (rules: readonly ViewFilterRule[]) => void;
+
+  /** Query views span readable containers; ordinary views filter only their own children. */
+  readonly scope?: 'query' | 'container';
 }
 
 export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
-  const { rules, schema, onChange } = props;
+  const { rules, schema, onChange, scope = 'query' } = props;
   const listId = useId();
 
   function replace(index: number, changes: Partial<ViewFilterRule>): void {
@@ -52,8 +55,9 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
   return (
     <div className="flex flex-col gap-2">
       <Text variant="note" tone="muted" as="p">
-        Filters run across every container you can read, joined with AND. A property here is a key
-        that may live in other containers, so it is typed rather than picked.
+        {scope === 'query'
+          ? 'Filters run across every container you can read, joined with AND. A property here is a key that may live in other containers, so it is typed rather than picked.'
+          : 'Filters are joined with AND and hide children from this view only. Other views keep their own filters.'}
       </Text>
 
       <datalist id={listId}>
@@ -70,8 +74,8 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
         return (
           // The index is the identity here: rules have no ids, and reordering is not offered, so
           // position is stable for the life of the row.
-          <div key={index} className="flex items-end gap-2">
-            <Field label="Property" className="flex-1">
+          <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+            <Field label="Property">
               {(control) => (
                 <Input
                   {...control}
@@ -84,7 +88,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
               )}
             </Field>
 
-            <Field label="Condition" className="flex-1">
+            <Field label="Condition">
               {(control) => (
                 <select
                   {...control}
@@ -109,7 +113,6 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
 
             <Field
               label="Value"
-              className="flex-1"
               {...(DAY_OPERATORS.has(rule.operator)
                 ? { hint: "'today', or a date written 2026-08-15" }
                 : rule.operator === 'within-next'

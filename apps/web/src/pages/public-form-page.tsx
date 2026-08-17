@@ -1,55 +1,22 @@
 import { Button, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
-import { z } from 'zod';
 
+import { isCanceledError } from '@nix/api-client';
+
+import { useApiClient } from '../api/api-client-provider';
 import { PropertyInput, isKnownPropertyType } from '../properties/property-input';
 import { type PropertyValue } from '../views/core/container-model';
-
-const PublicConditionSchema = z.object({
-  fieldBlockId: z.string(),
-  operator: z.string(),
-  value: z.string().nullable(),
-});
-
-const PublicBlockSchema = z.object({
-  id: z.string(),
-  kind: z.string(),
-  text: z.string(),
-  help: z.string().nullable(),
-  required: z.boolean(),
-  identityRole: z.string().nullable(),
-  visibleWhen: z.array(PublicConditionSchema),
-});
-
-const PublicPageSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string().nullable(),
-  visibleWhen: z.array(PublicConditionSchema),
-  blocks: z.array(PublicBlockSchema),
-});
-
-const PublicFieldSchema = z.object({
-  blockId: z.string(),
-  type: z.string(),
-  options: z.array(z.string()),
-});
-
-const PublicFormSchema = z.object({
-  name: z.string(),
-  form: z.object({
-    pages: z.array(PublicPageSchema),
-    confirmationTitle: z.string(),
-    confirmationMessage: z.string(),
-  }),
-  fields: z.array(PublicFieldSchema),
-});
-
-type PublicForm = z.infer<typeof PublicFormSchema>;
+import {
+  publicFormByToken,
+  submitPublicForm,
+  type PublicForm,
+  type PublicFormCondition,
+  type PublicFormPage as PublicFormPageContract,
+} from './public-form-api';
 
 function matches(
-  condition: z.infer<typeof PublicConditionSchema>,
+  condition: PublicFormCondition,
   answers: Readonly<Record<string, PropertyValue>>,
 ): boolean {
   const answer = answers[condition.fieldBlockId];
@@ -66,7 +33,7 @@ function matches(
 }
 
 function visible(
-  block: { readonly visibleWhen: readonly z.infer<typeof PublicConditionSchema>[] },
+  block: { readonly visibleWhen: readonly PublicFormCondition[] },
   answers: Readonly<Record<string, PropertyValue>>,
 ): boolean {
   return block.visibleWhen.every((condition) => matches(condition, answers));
@@ -82,11 +49,11 @@ function empty(value: PropertyValue | undefined): boolean {
 }
 
 function resolveFlow(
-  pages: readonly z.infer<typeof PublicPageSchema>[],
+  pages: readonly PublicFormPageContract[],
   answers: Readonly<Record<string, PropertyValue>>,
-): { pages: z.infer<typeof PublicPageSchema>[]; answers: Record<string, PropertyValue> } {
+): { pages: PublicFormPageContract[]; answers: Record<string, PropertyValue> } {
   const effective: Record<string, PropertyValue> = {};
-  const shown: z.infer<typeof PublicPageSchema>[] = [];
+  const shown: PublicFormPageContract[] = [];
   for (const page of pages) {
     if (!visible(page, effective)) continue;
     const blocks = page.blocks.filter((block) => {
@@ -103,6 +70,7 @@ function resolveFlow(
 
 export function PublicFormPage(): ReactNode {
   const { token = '' } = useParams();
+  const client = useApiClient();
   const [form, setForm] = useState<PublicForm | null>(null);
   const [failed, setFailed] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
@@ -111,25 +79,23 @@ export function PublicFormPage(): ReactNode {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [complete, setComplete] = useState(false);
+  const pendingSubmit = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let current = true;
-    void fetch(`/public/v1/forms/${encodeURIComponent(token)}`)
-      .then(async (response) =>
-        response.ok ? PublicFormSchema.safeParse(await response.json()) : null,
-      )
-      .then((result) => {
-        if (!current) return;
-        if (result?.success === true) setForm(result.data);
-        else setFailed(true);
+    const controller = new AbortController();
+    void client
+      .query(publicFormByToken(token), { signal: controller.signal, forceRefresh: true })
+      .then((loaded) => {
+        setForm(loaded);
       })
-      .catch(() => {
-        if (current) setFailed(true);
+      .catch((reason: unknown) => {
+        if (!isCanceledError(reason)) setFailed(true);
       });
     return () => {
-      current = false;
+      controller.abort();
+      pendingSubmit.current?.abort();
     };
-  }, [token]);
+  }, [client, token]);
 
   const fields = new Map((form?.fields ?? []).map((field) => [field.blockId, field]));
 
@@ -171,7 +137,7 @@ export function PublicFormPage(): ReactNode {
   const blocks = page.blocks.filter((block) => visible(block, answers));
   const last = pageIndex >= pages.length - 1;
 
-  function validate(candidates: readonly z.infer<typeof PublicBlockSchema>[]): boolean {
+  function validate(candidates: readonly PublicFormPageContract['blocks'][number][]): boolean {
     const currentAnswers = answersRef.current;
     const next = Object.fromEntries(
       candidates
@@ -190,15 +156,19 @@ export function PublicFormPage(): ReactNode {
     const flow = resolveFlow(form.form.pages, currentAnswers);
     const shown = flow.pages.flatMap((candidate) => candidate.blocks);
     if (!validate(shown)) return;
+    pendingSubmit.current?.abort();
+    const controller = new AbortController();
+    pendingSubmit.current = controller;
     setSubmitting(true);
-    const response = await fetch(`/public/v1/forms/${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ answers: flow.answers, website: '' }),
-    }).catch(() => null);
-    setSubmitting(false);
-    if (response?.ok === true) setComplete(true);
-    else setFailed(true);
+    try {
+      await client.execute(submitPublicForm(token, flow.answers), { signal: controller.signal });
+      setComplete(true);
+    } catch (reason) {
+      if (!isCanceledError(reason)) setFailed(true);
+    } finally {
+      if (pendingSubmit.current === controller) pendingSubmit.current = null;
+      setSubmitting(false);
+    }
   }
 
   return (

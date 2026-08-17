@@ -60,7 +60,7 @@ describe('creating an item', () => {
     await screen.findByRole('button', { name: 'Engineering' });
 
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(screen.getByRole('checkbox', { name: /create inside engineering/i }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i }));
     await user.click(await screen.findByRole('menuitem', { name: /new note inside engineering/i }));
 
     // A creation you cannot see reads as a creation that failed.
@@ -118,6 +118,30 @@ describe('creating an item', () => {
 });
 
 describe('the new-item menu', () => {
+  it('supports menu arrow keys and returns focus to New on Escape', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />, `/?item=${PARENT.id}`);
+
+    await screen.findByRole('button', { name: 'Engineering' });
+    const trigger = screen.getByRole('button', { name: /new item in the workspace/i });
+    await user.click(trigger);
+
+    const destination = screen.getByRole('menuitemcheckbox', {
+      name: /create inside engineering/i,
+    });
+    expect(destination).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(destination).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('offers every kind the client can draw, and closes once one is chosen', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
@@ -132,12 +156,17 @@ describe('the new-item menu', () => {
     expect(
       screen.getByRole('menuitem', { name: /new spreadsheet in the workspace/i }),
     ).toBeVisible();
-    expect(screen.getByRole('checkbox', { name: /create inside engineering/i })).not.toBeChecked();
-    expect(screen.getByText('Templates')).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /new kanban in the workspace/i })).toBeVisible();
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i }),
+    ).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('menu')).toHaveTextContent('Templates');
+    expect(
+      await screen.findByRole('menuitem', { name: /new kanban in the workspace/i }),
+    ).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /new calendar in the workspace/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /new list in the workspace/i })).toBeVisible();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(13);
+    expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toBeVisible();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(14);
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
     expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
@@ -150,28 +179,27 @@ describe('the new-item menu', () => {
     });
   });
 
-  it('creates a template through an editable prefilled wizard', async () => {
+  it('creates from a library template through a reviewable wizard', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(screen.getByRole('menuitem', { name: /new kanban in the workspace/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /new kanban in the workspace/i }));
 
-    expect(await screen.findByRole('heading', { name: /new kanban/i })).toBeVisible();
-    expect(screen.getByText(/creating in workspace root/i)).toBeVisible();
-    expect(screen.getByRole('navigation', { name: /creation steps/i })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue('Untitled kanban');
+    expect(await screen.findByRole('heading', { name: /create from kanban/i })).toBeVisible();
+    expect(screen.getByText(/destination: workspace root/i)).toBeVisible();
+    expect(screen.getByRole('navigation', { name: /template steps/i })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue('Kanban');
 
     await user.click(screen.getByRole('button', { name: /continue/i }));
-    expect(screen.getByRole('combobox', { name: /columns field/i })).toHaveValue('status');
+    expect(screen.getByRole('heading', { name: /what this template adds/i })).toBeVisible();
     await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /create kanban/i }));
+    expect(screen.getByRole('heading', { name: /review/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /create item/i }));
 
-    const switcher = await screen.findByRole('navigation', { name: /views/i });
-    expect(switcher).toHaveTextContent('Board');
+    expect(await screen.findByDisplayValue('Kanban')).toBeVisible();
   });
 
   it('closes on Escape without creating anything', async () => {

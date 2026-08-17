@@ -8,7 +8,7 @@ import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
 
 /**
- * The navigation rail: the four ways into the workspace, Notes among them.
+ * The navigation rail: the workspace-level destinations, Notes among them.
  *
  * Driven through the whole application rather than the component in isolation, because half of
  * what the rail promises is only true in a router - which link the URL makes current, and what
@@ -30,7 +30,7 @@ function rail(): HTMLElement {
 }
 
 describe('the navigation rail', () => {
-  it('offers four named destinations, so an icon is never the only thing a link says', async () => {
+  it('offers every named destination, so an icon is never the only thing a link says', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
@@ -42,6 +42,7 @@ describe('the navigation rail', () => {
       'Calendar',
       'Graph',
       'Bookmarks',
+      'Templates',
     ]);
     expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute('href', '/');
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
@@ -61,14 +62,16 @@ describe('the navigation rail', () => {
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
+    const templates = within(rail()).getByRole('link', { name: 'Templates' });
 
-    // Only the entry point is in the tab order; the other three are reachable by arrow key alone.
+    // Only the entry point is in the tab order; the others are reachable by arrow key alone.
     expect(notes).toHaveAttribute('tabindex', '-1');
     expect(calendar).toHaveAttribute('tabindex', '0');
     expect(graph).toHaveAttribute('tabindex', '-1');
     expect(bookmarks).toHaveAttribute('tabindex', '-1');
+    expect(templates).toHaveAttribute('tabindex', '-1');
 
-    // Tab reaches the skip link, then the rail, then leaves it - four destinations, one stop.
+    // Tab reaches the skip link, then the rail, then leaves it - every destination, one stop.
     await user.tab();
     await user.tab();
     expect(calendar).toHaveFocus();
@@ -87,7 +90,7 @@ describe('the navigation rail', () => {
     const notes = within(rail()).getByRole('link', { name: 'Notes' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
-    const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
+    const templates = within(rail()).getByRole('link', { name: 'Templates' });
 
     calendar.focus();
 
@@ -105,10 +108,10 @@ describe('the navigation rail', () => {
     expect(graph).toHaveFocus();
 
     await user.keyboard('{End}');
-    expect(bookmarks).toHaveFocus();
+    expect(templates).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
-    expect(bookmarks).toHaveFocus();
+    expect(templates).toHaveFocus();
 
     await user.keyboard('{Home}');
     expect(notes).toHaveFocus();
@@ -147,6 +150,19 @@ describe('the navigation rail', () => {
     );
   });
 
+  it('uses Templates as the current roving entry throughout its nested routes', async () => {
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />, '/templates/import');
+
+    await screen.findByRole('heading', { name: 'Import template' });
+
+    const notes = within(rail()).getByRole('link', { name: 'Notes' });
+    const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    expect(templates).toHaveAttribute('aria-current', 'page');
+    expect(templates).toHaveAttribute('tabindex', '0');
+    expect(notes).toHaveAttribute('tabindex', '-1');
+  });
+
   it('marks Notes as current while a document is open, because that is what it now is', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
@@ -157,7 +173,7 @@ describe('the navigation rail', () => {
       'aria-current',
       'page',
     );
-    for (const label of ['Calendar', 'Graph', 'Bookmarks']) {
+    for (const label of ['Calendar', 'Graph', 'Bookmarks', 'Templates']) {
       expect(within(rail()).getByRole('link', { name: label })).not.toHaveAttribute('aria-current');
     }
   });
@@ -198,7 +214,7 @@ describe('the navigation rail on a narrow screen', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
-    expect(within(rail()).getAllByRole('link')).toHaveLength(4);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(5);
   });
 
   it('dismisses the tree drawer on the way to a destination, rather than leaving it over the top', async () => {

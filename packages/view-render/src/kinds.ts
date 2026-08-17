@@ -78,6 +78,134 @@ export function drawList(request: RenderRequest): Drawing {
   };
 }
 
+/** A property-backed spreadsheet uses the same row data as a list, but owns a grid presentation. */
+export function drawSheet(request: RenderRequest): Drawing {
+  return drawList(request);
+}
+
+/** Smart-list results are rows after the server has applied the stored filter rules. */
+export function drawQuery(request: RenderRequest): Drawing {
+  return drawList(request);
+}
+
+export function drawForm(request: RenderRequest): Drawing {
+  const { view, schema, palette, width } = request;
+  const keys = view.columns.filter((key) => key !== 'title').slice(0, 8);
+  const fields =
+    keys.length > 0 ? keys : (schema?.properties.map((property) => property.key).slice(0, 8) ?? []);
+  const parts: string[] = [
+    text('New response', { x: 0, y: 14, size: 11, fill: palette.ink, bold: true }),
+  ];
+  let y = 28;
+  for (const key of fields) {
+    parts.push(
+      text(truncate(labelOf(schema, key), 9, width), {
+        x: 0,
+        y: y + 9,
+        size: 9,
+        fill: palette.ink,
+      }),
+      rect({
+        x: 0,
+        y: y + 14,
+        width,
+        height: 24,
+        fill: palette.surface,
+        stroke: palette.divider,
+        radius: 3,
+      }),
+    );
+    y += 48;
+  }
+  parts.push(
+    rect({ x: 0, y, width: 82, height: 24, fill: palette.accentFill, radius: 3 }),
+    text('Add response', { x: 41, y: y + 16, size: 8, fill: palette.accentText, anchor: 'middle' }),
+  );
+  return { body: parts.join(''), height: y + 24, notes: [] };
+}
+
+export function drawInteractiveForm(request: RenderRequest): Drawing {
+  const { view, palette, width } = request;
+  const form = view.interactiveForm;
+  const page = form?.pages[0];
+  if (form == null || page === undefined) {
+    return {
+      body: text('This interactive form has no pages.', {
+        x: 0,
+        y: 14,
+        size: 9,
+        fill: palette.muted,
+      }),
+      height: 24,
+      notes: [],
+    };
+  }
+
+  const parts: string[] = [
+    text(truncate(page.title, 12, width), {
+      x: 0,
+      y: 15,
+      size: 12,
+      fill: palette.ink,
+      bold: true,
+    }),
+  ];
+  if (form.pages.length > 1) {
+    parts.push(
+      text(`Page 1 of ${String(form.pages.length)}`, {
+        x: width,
+        y: 14,
+        size: 8,
+        fill: palette.muted,
+        anchor: 'end',
+      }),
+    );
+  }
+  let y = 28;
+  if (page.description !== null) {
+    parts.push(
+      text(truncate(page.description, 8, width), { x: 0, y: y + 8, size: 8, fill: palette.muted }),
+    );
+    y += 18;
+  }
+  for (const block of page.blocks.slice(0, 8)) {
+    const label = block.required && block.kind === 'field' ? `${block.text} *` : block.text;
+    parts.push(
+      text(truncate(label, block.kind === 'heading' ? 10 : 9, width), {
+        x: 0,
+        y: y + 10,
+        size: block.kind === 'heading' ? 10 : 9,
+        fill: block.kind === 'paragraph' ? palette.muted : palette.ink,
+        bold: block.kind === 'heading',
+      }),
+    );
+    y += block.kind === 'field' ? 42 : 20;
+    if (block.kind === 'field') {
+      parts.push(
+        rect({
+          x: 0,
+          y: y - 26,
+          width,
+          height: 24,
+          fill: palette.surface,
+          stroke: palette.divider,
+          radius: 3,
+        }),
+      );
+    }
+  }
+  const action = form.pages.length > 1 ? 'Continue' : 'Submit';
+  parts.push(
+    rect({ x: 0, y, width: 70, height: 24, fill: palette.accentFill, radius: 3 }),
+    text(action, { x: 35, y: y + 16, size: 8, fill: palette.accentText, anchor: 'middle' }),
+  );
+  return {
+    body: parts.join(''),
+    height: y + 24,
+    notes: overflowNote(page.blocks.length, 8),
+  };
+}
+
 export function drawBoard(request: RenderRequest): Drawing {
   const { view, rows, schema, palette, width } = request;
   const groups = groupRows(rows, view.groupBy, view.groupOrder);
