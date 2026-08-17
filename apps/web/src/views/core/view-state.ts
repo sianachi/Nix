@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 
@@ -187,7 +187,10 @@ export function parseViewState(params: URLSearchParams, pane = 0): ViewState {
 export function useViewState(): ViewStateControl {
   const pane = usePaneIndex();
   const [searchParams, setSearchParams] = useSearchParams();
-  const state = parseViewState(searchParams, pane);
+  // The parsed filter array is an input to the full-container filter/sort and virtualization
+  // pipeline. Stable identity prevents interaction-only renders from repeating that work and
+  // replacing the virtualizer's key sequence when the address has not changed.
+  const state = useMemo(() => parseViewState(searchParams, pane), [pane, searchParams]);
 
   const write = useCallback(
     (mutate: (next: URLSearchParams) => void, push: boolean): void => {

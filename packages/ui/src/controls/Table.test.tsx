@@ -163,4 +163,28 @@ describe('Table', () => {
     expect(className).toContain('mt-4');
     expect(className).toContain('w-full');
   });
+
+  it('announces sparse virtual rows in the complete table and preserves their geometry', () => {
+    const { container } = renderTable({
+      virtualization: {
+        totalRows: 100,
+        rowIndexes: [10, 11],
+        spacerHeights: [450, 0, 3_960],
+      },
+    });
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-rowcount', '101');
+    expect(screen.getByRole('rowheader', { name: 'Onboarding' }).parentElement).toHaveAttribute(
+      'aria-rowindex',
+      '12',
+    );
+    expect(
+      screen.getByRole('rowheader', { name: 'Retention policy' }).parentElement,
+    ).toHaveAttribute('aria-rowindex', '13');
+    expect(
+      [...container.querySelectorAll('tr[aria-hidden="true"] td')].map(
+        (cell) => (cell as HTMLElement).style.height,
+      ),
+    ).toEqual(['450px', '3960px']);
+  });
 });

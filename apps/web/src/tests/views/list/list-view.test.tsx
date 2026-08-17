@@ -125,6 +125,19 @@ function titles(): (string | null)[] {
 }
 
 describe('ListView', () => {
+  it('keeps a 3,200-item list DOM bounded while exposing the complete row count', () => {
+    const many = Array.from({ length: 3_200 }, (_unused, index) =>
+      item(`item-${String(index)}`, `Item ${String(index + 1)}`, index),
+    );
+
+    renderAt(
+      <ListView container={containerData({ children: many })} view={null} onOpen={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-rowcount', '3201');
+    expect(screen.getAllByRole('rowheader').length).toBeLessThanOrEqual(100);
+  });
+
   it('takes its columns from the schema, in the schema order, behind the title', () => {
     renderAt(
       <ListView

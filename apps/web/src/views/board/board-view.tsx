@@ -1,6 +1,6 @@
 import { Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
 import {
@@ -14,8 +14,13 @@ import {
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import type { ContainerData } from '../core/use-container';
-import { drawable, resolveViewChrome, undrawable } from '../core/view-chrome';
+import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const ESTIMATED_CARD_HEIGHT = 150;
+const BOARD_CARD_GAP = 8;
 
 /**
  * The board: a container's children as cards, in columns, grouped by one select property.
@@ -68,7 +73,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
 
   // The URL's sort wins over the view's own, because it is the more specific statement - somebody
   // chose it just now, possibly in a link they were handed.
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this board',
@@ -270,22 +275,18 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
           {column.value === null ? `Nothing without a ${property.label.toLowerCase()}.` : 'Empty.'}
         </Text>
       ) : (
-        <ul className="flex min-h-0 flex-col gap-2">
-          {column.items.map((item) => (
-            <BoardCard
-              key={item.id}
-              item={item}
-              columns={columns}
-              property={property}
-              cardProperties={cardProperties}
-              schema={schema}
-              dragging={dragged === item.id}
-              setDragged={setDragged}
-              onMove={onMove}
-              onOpen={onOpen}
-            />
-          ))}
-        </ul>
+        <BoardCardList
+          items={column.items}
+          label={column.label}
+          columns={columns}
+          property={property}
+          cardProperties={cardProperties}
+          schema={schema}
+          dragged={dragged}
+          setDragged={setDragged}
+          onMove={onMove}
+          onOpen={onOpen}
+        />
       )}
 
       {/* Created already in this column, rather than created loose and then dragged. The value the
@@ -305,6 +306,97 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
   );
 }
 
+interface BoardCardListProps {
+  readonly items: readonly Item[];
+  readonly label: string;
+  readonly columns: readonly BoardColumn[];
+  readonly property: PropertyDefinition;
+  readonly cardProperties: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly dragged: string | null;
+  readonly setDragged: (itemId: string | null) => void;
+  readonly onMove: (item: Item, value: string | null) => void;
+  readonly onOpen: (itemId: string) => void;
+}
+
+function BoardCardList(props: BoardCardListProps): ReactNode {
+  const { items } = props;
+  if (items.length <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      <ul className="flex min-h-0 flex-col gap-2">
+        {items.map((item, index) => boardCard(props, item, index))}
+      </ul>
+    );
+  }
+  return <VirtualBoardCardList {...props} />;
+}
+
+function VirtualBoardCardList(props: BoardCardListProps): ReactNode {
+  const { items, label, dragged } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(() => items.map((item) => item.id), [items]);
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: ESTIMATED_CARD_HEIGHT,
+    measurementGap: BOARD_CARD_GAP,
+    overscan: 500,
+    retainedIndexes:
+      dragged === null ? [] : [items.findIndex((candidate) => candidate.id === dragged)],
+  });
+
+  return (
+    <div
+      ref={rootRef}
+      role="list"
+      aria-label={`${label} cards`}
+      className="relative min-h-0"
+      style={{ height: windowed.totalSize }} // design-token-exempt: virtual content height is derived from measured cards at runtime and cannot be represented by a design token
+    >
+      {windowed.segments.map((segment) => (
+        <ul
+          key={`${String(segment.first)}-${String(segment.last)}`}
+          role="presentation"
+          className="absolute inset-x-0 flex flex-col gap-2"
+          style={{ top: windowed.offsets[segment.first] ?? 0 }} // design-token-exempt: virtual segment position is calculated from measured card offsets at runtime
+        >
+          {items
+            .slice(segment.first, segment.last + 1)
+            .map((item, offset) =>
+              boardCard(props, item, segment.first + offset, segment.first + offset),
+            )}
+        </ul>
+      ))}
+    </div>
+  );
+}
+
+function boardCard(
+  props: BoardCardListProps,
+  item: Item,
+  index: number,
+  virtualIndex?: number,
+): ReactNode {
+  return (
+    <BoardCard
+      key={item.id}
+      item={item}
+      columns={props.columns}
+      property={props.property}
+      cardProperties={props.cardProperties}
+      schema={props.schema}
+      dragging={props.dragged === item.id}
+      setDragged={props.setDragged}
+      onMove={props.onMove}
+      onOpen={props.onOpen}
+      position={index + 1}
+      setSize={props.items.length}
+      {...(virtualIndex === undefined ? {} : { virtualIndex })}
+    />
+  );
+}
+
 interface BoardCardProps {
   readonly item: Item;
   readonly columns: readonly BoardColumn[];
@@ -315,11 +407,26 @@ interface BoardCardProps {
   readonly setDragged: (itemId: string | null) => void;
   readonly onMove: (item: Item, value: string | null) => void;
   readonly onOpen: (itemId: string) => void;
+  readonly position: number;
+  readonly setSize: number;
+  readonly virtualIndex?: number;
 }
 
 function BoardCard(props: BoardCardProps): ReactNode {
-  const { item, columns, property, cardProperties, schema, dragging, setDragged, onMove, onOpen } =
-    props;
+  const {
+    item,
+    columns,
+    property,
+    cardProperties,
+    schema,
+    dragging,
+    setDragged,
+    onMove,
+    onOpen,
+    position,
+    setSize,
+    virtualIndex,
+  } = props;
 
   const current = readSelectValue(item, property.key);
 
@@ -333,96 +440,102 @@ function BoardCard(props: BoardCardProps): ReactNode {
   });
 
   return (
-    <Blueprint
-      as="li"
-      className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
+    <li
+      {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+      aria-posinset={position}
+      aria-setsize={setSize}
+      data-virtual-index={virtualIndex}
     >
-      <div
-        draggable
-        onDragStart={(event) => {
-          setDragged(item.id);
-          event.dataTransfer.effectAllowed = 'move';
-          // Set, though the drop handler prefers its own state: without data attached, Firefox
-          // refuses to start the drag at all.
-          event.dataTransfer.setData('text/plain', item.id);
-        }}
-        onDragEnd={() => {
-          setDragged(null);
-        }}
+      <Blueprint
+        className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
       >
-        <button
-          type="button"
-          onClick={() => {
-            onOpen(item.id);
+        <div
+          draggable
+          onDragStart={(event) => {
+            setDragged(item.id);
+            event.dataTransfer.effectAllowed = 'move';
+            // Set, though the drop handler prefers its own state: without data attached, Firefox
+            // refuses to start the drag at all.
+            event.dataTransfer.setData('text/plain', item.id);
           }}
-          className={cn('w-full text-left', focusRing)}
+          onDragEnd={() => {
+            setDragged(null);
+          }}
         >
-          <Text variant="h5" as="span">
-            {item.title || 'Untitled'}
-          </Text>
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => {
+              onOpen(item.id);
+            }}
+            className={cn('w-full text-left', focusRing)}
+          >
+            <Text variant="h5" as="span">
+              {item.title || 'Untitled'}
+            </Text>
+          </button>
+        </div>
 
-      {fields.length === 0 ? null : (
-        <dl className="flex flex-col gap-0.5">
-          {fields.map((field) => (
-            <div key={field.definition.key} className="flex gap-2">
-              <Text variant="caption" tone="muted" as="dt">
-                {field.definition.label}
-              </Text>
-              <Text variant="caption" as="dd">
-                {field.text}
-              </Text>
-            </div>
-          ))}
-        </dl>
-      )}
+        {fields.length === 0 ? null : (
+          <dl className="flex flex-col gap-0.5">
+            {fields.map((field) => (
+              <div key={field.definition.key} className="flex gap-2">
+                <Text variant="caption" tone="muted" as="dt">
+                  {field.definition.label}
+                </Text>
+                <Text variant="caption" as="dd">
+                  {field.text}
+                </Text>
+              </div>
+            ))}
+          </dl>
+        )}
 
-      {/*
+        {/*
         Drag is not the only way to move a card, and it never can be: a keyboard user, a screen
         reader user and anyone on a touch device with assistive technology all need this control.
         It carries the same meaning as the drag - it writes the grouping property - so the two
         gestures cannot drift apart.
       */}
-      <label className="flex flex-col gap-0.5">
-        <Text variant="kicker" tone="muted" as="span">
-          {property.label}
-        </Text>
-        <select
-          // Named per card, not per property: a board of twelve cards would otherwise offer twelve
-          // controls all called "Status", and neither a screen reader user nor a test could say
-          // which one they were operating.
-          aria-label={`${property.label} for ${item.title || 'Untitled'}`}
-          value={current ?? UNSET_VALUE}
-          onChange={(event) => {
-            const next = event.target.value;
-            onMove(item, next === UNSET_VALUE ? null : next);
-          }}
-          className={cn(
-            blueprintFrame,
-            // One step below the body copy around it, so a control repeated once per card does
-            // not out-weigh the card's own title. The line height is the step's own.
-            'w-full bg-background px-2 py-1 font-body text-base text-foreground',
-            focusRing,
-          )}
-        >
-          {/*
+        <label className="flex flex-col gap-0.5">
+          <Text variant="kicker" tone="muted" as="span">
+            {property.label}
+          </Text>
+          <select
+            // Named per card, not per property: a board of twelve cards would otherwise offer twelve
+            // controls all called "Status", and neither a screen reader user nor a test could say
+            // which one they were operating.
+            aria-label={`${property.label} for ${item.title || 'Untitled'}`}
+            value={current ?? UNSET_VALUE}
+            onChange={(event) => {
+              const next = event.target.value;
+              onMove(item, next === UNSET_VALUE ? null : next);
+            }}
+            className={cn(
+              blueprintFrame,
+              // One step below the body copy around it, so a control repeated once per card does
+              // not out-weigh the card's own title. The line height is the step's own.
+              'w-full bg-background px-2 py-1 font-body text-base text-foreground',
+              focusRing,
+            )}
+          >
+            {/*
             The card's current value is offered even when it is not one of the board's columns, so
             a card that arrived here with a value this board does not show can still be read
             without the control silently reporting some other column.
           */}
-          {current !== null && !columns.some((column) => column.value === current) ? (
-            <option value={current}>{current}</option>
-          ) : null}
+            {current !== null && !columns.some((column) => column.value === current) ? (
+              <option value={current}>{current}</option>
+            ) : null}
 
-          {columns.map((column) => (
-            <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
-              {column.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    </Blueprint>
+            {columns.map((column) => (
+              <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
+                {column.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </Blueprint>
+    </li>
   );
 }
 
