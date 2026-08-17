@@ -145,6 +145,27 @@ const DONE = itemOf({
 const UNSET = itemOf({ id: 'i3', title: 'Retention policy', seq: 3000 });
 
 describe('the board view', () => {
+  it('keeps a 3,200-card board DOM bounded across its columns', () => {
+    const statuses = ['Backlog', 'Doing', 'Done'] as const;
+    const many = Array.from({ length: 3_200 }, (_unused, index) =>
+      itemOf({
+        id: `item-${String(index)}`,
+        title: `Item ${String(index + 1)}`,
+        seq: index,
+        properties: { status: statuses[index % statuses.length] },
+      }),
+    );
+
+    renderAt(
+      boardWith({
+        items: many,
+        view: viewOf({ groupOrder: [...statuses] }),
+      }),
+    );
+
+    expect(screen.getAllByRole('listitem').length).toBeLessThanOrEqual(100);
+  });
+
   it('draws its columns in the order the view names, not the order the property declares', () => {
     renderAt(
       boardWith({

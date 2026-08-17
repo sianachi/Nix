@@ -12,10 +12,10 @@ import type { Item, PropertyDefinition, PropertyValue } from '../core/container-
  * which is also why the list does not draw the container's `writeError`: the cell has already
  * reported it, and drawing both is two banners for one failure.
  *
- * **Held here rather than in the hook for the same reason.** A refusal in `useContainer` would be
- * state the hook has to decide when to clear, which is server data mirrored into hand-managed
- * state. Here the answer arrives as the return value of the write that caused it, and the next
- * attempt replaces it.
+ * **Held at the nearest durable UI boundary.** A standalone cell owns the refusal locally. A
+ * virtualized list supplies the optional controlled value so unmounting an off-screen row does not
+ * erase its refusal. It still stays outside `useContainer`: this is the answer to one edit attempt,
+ * not server data for the container to mirror and clear.
  *
  * The control itself is `PropertyInput`, unchanged in behaviour: it already commits typed values on
  * blur or Enter and discrete ones on the choice, so a cell writes once per completed edit and never
@@ -28,10 +28,22 @@ export interface ListCellProps {
 
   /** Writes the value and answers with the reason it was refused, or null when it was stored. */
   readonly onWrite: (value: PropertyValue) => Promise<string | null>;
+
+  /** Optional lifted refusal state, retained when virtualization unmounts this cell. */
+  readonly refusal?: string | null;
+  readonly onRefusalChange?: (refusal: string | null) => void;
 }
 
-export function ListCell({ item, property, onWrite }: ListCellProps): ReactNode {
-  const [refusal, setRefusal] = useState<string | null>(null);
+export function ListCell({
+  item,
+  property,
+  onWrite,
+  refusal: controlledRefusal,
+  onRefusalChange,
+}: ListCellProps): ReactNode {
+  const [localRefusal, setLocalRefusal] = useState<string | null>(null);
+  const refusal = onRefusalChange === undefined ? localRefusal : (controlledRefusal ?? null);
+  const setRefusal = onRefusalChange ?? setLocalRefusal;
 
   return (
     <PropertyInput

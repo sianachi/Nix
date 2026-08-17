@@ -1,5 +1,5 @@
 import { Button } from '@nix/ui';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
 import {
   EmptyPanel,
@@ -20,7 +20,7 @@ import type { ViewStateControl } from './view-state';
  * quietly drop a branch - and the branch a view drops is always the same one, because "the filters
  * are hiding everything" is the only one of the five that never happens while you are building it.
  *
- * **A function, not a component.** What comes back is a node to render or the items to draw, and
+ * **A hook, not a component.** What comes back is a node to render or the items to draw, and
  * nothing wraps the caller. A component here would put a landmark of its own inside every view, and
  * the board asserts its region inventory exactly - shared chrome must be invisible in the accessible
  * tree, not merely tidy in the source.
@@ -112,7 +112,7 @@ export interface ViewChromeArgs<TValue> {
  * The two states every view answers before its subject even exists: still loading, and could not
  * be read.
  *
- * Split out of {@link resolveViewChrome} for the one view whose subject is not the children - the
+ * Split out of {@link useViewChrome} for the one view whose subject is not the children - the
  * form draws no items, so the chrome's empty and filtered branches are statements about data it
  * does not show, but a container that has not loaded or could not be read is still a fact it must
  * not paper over. One copy, so a change to how a failed read reports cannot silently miss a view.
@@ -144,8 +144,20 @@ export function resolveLoadState(container: ContainerData, subject: string): Rea
   return null;
 }
 
-export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<TValue> {
+export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<TValue> {
   const { container, viewState } = args;
+
+  // Sorting 3,200 children is measured work, and the returned array's identity is the
+  // virtualizer's subscription boundary. Keep both stable across local interaction renders;
+  // children, URL filters or the chosen ordering are the only facts that can change the result.
+  const visible = useMemo(
+    () => applyFilters(container.children, viewState.filters),
+    [container.children, viewState.filters],
+  );
+  const sorted = useMemo(
+    () => sortItems(visible, args.sortBy, args.descending),
+    [args.descending, args.sortBy, visible],
+  );
 
   const loadState = resolveLoadState(container, args.subject);
   if (loadState !== null) {
@@ -175,8 +187,6 @@ export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChr
       ),
     };
   }
-
-  const visible = applyFilters(container.children, viewState.filters);
 
   if (visible.length === 0) {
     // Emptiness we caused rather than emptiness we found, and told apart from it deliberately:
@@ -216,7 +226,7 @@ export function resolveViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChr
 
   return {
     kind: 'items',
-    items: sortItems(visible, args.sortBy, args.descending),
+    items: sorted,
     drawable: args.drawable.value,
     notice: partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />,
   };

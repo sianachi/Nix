@@ -9,8 +9,8 @@ import type { Item } from '../../../views/core/container-model';
 import type { ContainerData } from '../../../views/core/use-container';
 import {
   drawable,
-  resolveViewChrome,
   undrawable,
+  useViewChrome,
   type Drawable,
 } from '../../../views/core/view-chrome';
 import { useViewState } from '../../../views/core/view-state';
@@ -53,7 +53,7 @@ function Subject(props: {
 }): ReactNode {
   const viewState = useViewState();
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container: props.container,
     viewState,
     subject: 'this list',
