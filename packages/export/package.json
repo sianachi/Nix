@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@nix/editor-schema": "workspace:*",
+    "@nix/sheet": "workspace:*",
     "fflate": "^0.8.2"
   },
   "devDependencies": {

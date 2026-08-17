@@ -146,8 +146,36 @@ describe('enumerateSubtree', () => {
     });
 
     expect(tree.items).toHaveLength(EXPORT_LIMITS.maxItems);
-    expect(tree.omitted).toHaveLength(6);
-    expect(tree.omitted.every((each) => each.reason === 'limit-reached')).toBe(true);
+    expect(tree.omitted).toEqual([
+      expect.objectContaining({ id: null, parentId: 'root', reason: 'limit-reached' }),
+    ]);
+  });
+
+  it('does not request another child page after the shared item-read budget is spent', async () => {
+    let calls = 0;
+    const core: CoreClient = {
+      ...coreWith({}),
+      listChildren: (_token, _workspace, _parent, _cursor, limit) => {
+        calls += 1;
+        return Promise.resolve({
+          items: Array.from({ length: limit ?? 200 }, (_unused, index) =>
+            item(`row-${String(index)}`),
+          ),
+          nextCursor: 'more',
+        });
+      },
+    };
+
+    const tree = await enumerateSubtree(core, {
+      token: 't',
+      root,
+      scope: 'subtree',
+      includeDeleted: false,
+    });
+
+    expect(calls).toBe(1);
+    expect(tree.items).toHaveLength(EXPORT_LIMITS.maxItems);
+    expect(tree.omitted).toHaveLength(1);
   });
 });
 
@@ -268,6 +296,28 @@ describe('gatherViewRows', () => {
 
     expect(rows.get('root')?.rows).toHaveLength(VIEW_ROW_LIMIT);
     expect(rows.get('root')?.truncated).toBe(true);
+  });
+
+  it('does not fetch another view-row page after its two-hundred-item read budget', async () => {
+    let calls = 0;
+    const core: CoreClient = {
+      ...coreWith({}),
+      listChildren: (_token, _workspace, _parent, _cursor, limit) => {
+        calls += 1;
+        return Promise.resolve({
+          items: Array.from({ length: limit ?? VIEW_ROW_LIMIT }, (_unused, index) =>
+            item(`row-${String(index)}`),
+          ),
+          nextCursor: 'more',
+        });
+      },
+    };
+
+    const rows = await gatherViewRows(core, 't', [root], new Map([['root', VIEWS]]));
+
+    expect(calls).toBe(1);
+    expect(rows.get('root')).toMatchObject({ truncated: true });
+    expect(rows.get('root')?.rows).toHaveLength(VIEW_ROW_LIMIT);
   });
 
   it('draws an empty view rather than failing the export when a listing is refused', async () => {
