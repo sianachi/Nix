@@ -18,10 +18,18 @@
  */
 
 export { createNixClient } from './client.js';
-export type { CallOptions, NixClient, NixClientConfig, QueryResult } from './client.js';
-
-export { defineCommand, definePagedQuery, defineQuery } from './endpoints.js';
 export type {
+  BinaryResult,
+  CallOptions,
+  NixClient,
+  NixClientConfig,
+  QueryResult,
+} from './client.js';
+
+export { defineBinaryQuery, defineCommand, definePagedQuery, defineQuery } from './endpoints.js';
+export type {
+  BinaryQueryEndpoint,
+  BinaryQuerySpec,
   CommandEndpoint,
   CommandMethod,
   CommandSpec,
@@ -79,6 +87,15 @@ export {
   graphNodeSchema,
   graphLinkSchema,
   shelfSchema,
+  templateCapabilitiesSchema,
+  templateCatalogSchema,
+  templateDetailSchema,
+  templateItemSchema,
+  templateOriginSchema,
+  templatePreflightInputSchema,
+  templatePreflightRequestSchema,
+  templatePreflightSchema,
+  templateSummarySchema,
   workspaceCalendarSchema,
   workspaceGraphSchema,
 } from './schemas/index.js';
@@ -95,6 +112,12 @@ export type {
   KnownItemType,
   ProblemDetails,
   Shelf,
+  TemplateCatalog,
+  TemplateDetail,
+  TemplateItem,
+  TemplatePreflight,
+  TemplatePreflightInput,
+  TemplateSummary,
   UnplaceableCalendar,
   WorkspaceCalendar,
   WorkspaceGraph,
@@ -120,6 +143,12 @@ export type {
   CurrentPrincipalContract,
   EffectiveSchemaContract,
   PropertyDefinitionContract,
+  TemplateCatalogContract,
+  TemplateDetailContract,
+  TemplateItemContract,
+  TemplatePreflightContract,
+  TemplatePreflightRequestContract,
+  TemplateSummaryContract,
   ViewContract,
 } from './contracts.js';
 
@@ -132,3 +161,4 @@ export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
+export * as templates from './resources/templates.js';
