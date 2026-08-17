@@ -24,11 +24,14 @@ namespace Nix.Authentication;
 /// provider, keys served from <c>/public/v1/auth/jwks</c>.
 /// </para>
 /// <para>
-/// <b>What bounds the ten minutes.</b> Revocation does not wait for expiry: Core re-checks the
-/// token row on every request it authenticates, and the collaboration service authorizes every
-/// document operation through Core. The JWT lifetime only bounds how long a client goes between
-/// exchanges, so it is short enough that a revoked token's tail is minutes, and long enough that
-/// an agent session is not spending a database read per request on re-exchanging.
+/// <b>What bounds the ten minutes.</b> Revocation does not wait for expiry on Core's own surface:
+/// Core re-checks the token row on every request it authenticates, so a revoked token is refused
+/// on its next call. The collaboration service is looser by design - it caches Core's
+/// authorization answer per document and re-checks it on a timer (<c>NIX_COLLAB_REAUTH_SECONDS</c>,
+/// ~60s by default), so a revoked token already holding a document open keeps write access to it
+/// for up to that window. The JWT lifetime bounds how long a client goes between exchanges: short
+/// enough that a revoked token's tail is minutes, long enough that an agent session is not
+/// spending a database read per request on re-exchanging.
 /// </para>
 /// <para>
 /// <b>ES256, only.</b> One asymmetric algorithm, chosen rather than negotiated: the validator

@@ -24,6 +24,11 @@ namespace Nix.Persistence.Tokens;
 /// </remarks>
 public sealed class PersonalAccessTokenStore : IPersonalAccessTokens
 {
+    // The window last_used_at is coarsened to. Matches the caller's own granularity in the
+    // unit-of-work middleware; the two must agree, because the statement's guard and the caller's
+    // skip are the same decision made in two places.
+    private static readonly TimeSpan LastUsedTouchInterval = TimeSpan.FromMinutes(5);
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly NixDbContext _context;
     private readonly INixSessionContextAccessor _session;
@@ -176,8 +181,20 @@ public sealed class PersonalAccessTokenStore : IPersonalAccessTokens
         DateTimeOffset at,
         CancellationToken cancellationToken)
     {
+        var principal = Principal;
+
+        // The staleness guard is in the statement, not only in the caller. The middleware already
+        // skips the touch when last_used_at is fresh, but many requests on one hot token read the
+        // same stale value at the start of their transactions and would all queue on the row.
+        // With the guard, a waiter that wakes to find the column already advanced re-checks under
+        // EvalPlanQual and proceeds without writing - which is what keeps a burst of parallel
+        // requests on one token from serialising. The principal predicate makes the ownership the
+        // statement enforces visible at the call site, the standard this file sets elsewhere.
+        var threshold = at - LastUsedTouchInterval;
         await _context.PersonalAccessTokens
-            .Where(token => token.Id == id)
+            .Where(token => token.Id == id
+                && token.PrincipalId == principal
+                && (token.LastUsedAt == null || token.LastUsedAt < threshold))
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(token => token.LastUsedAt, (DateTimeOffset?)at),
                 cancellationToken)

@@ -41,7 +41,6 @@ public sealed class AccessTokenScopePolicyTests
         ["RunItemQuery"] = Requirement.Read,
         ["GetEffectiveSchema"] = Requirement.Read,
         ["GetContainerViews"] = Requirement.Read,
-        ["GetPublicFormStatus"] = Requirement.Read,
         ["GetCurrentPrincipal"] = Requirement.Read,
         ["GetBookmarks"] = Requirement.Read,
         ["GetCanvasLibrary"] = Requirement.Read,
@@ -65,7 +64,6 @@ public sealed class AccessTokenScopePolicyTests
         ["DeleteItem"] = Requirement.Write,
         ["KeepItem"] = Requirement.Write,
         ["ReleaseItem"] = Requirement.Write,
-        ["MoveItem"] = Requirement.Write,
         ["SetItemProperties"] = Requirement.Write,
         ["RestoreItem"] = Requirement.Write,
         ["SetItemSchema"] = Requirement.Write,
@@ -84,12 +82,15 @@ public sealed class AccessTokenScopePolicyTests
         // policy's deliberate one-sided failure mode.
         ["PreflightTemplateApplication"] = Requirement.Write,
 
-        // Admin: the writes that change who can see what - permission entries, and publishing a
-        // view to the anonymous internet.
+        // Admin: what changes or exposes who can see what - permission entries, the public-link
+        // surface whichever method reaches it (its GET reads back a live anonymous-write URL), and
+        // a move, which re-parents an item into another audience through inheritance.
         ["UpsertAclEntry"] = Requirement.Admin,
         ["DeleteAclEntry"] = Requirement.Admin,
+        ["GetPublicFormStatus"] = Requirement.Admin,
         ["PublishPublicForm"] = Requirement.Admin,
         ["RevokePublicForm"] = Requirement.Admin,
+        ["MoveItem"] = Requirement.Admin,
 
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,

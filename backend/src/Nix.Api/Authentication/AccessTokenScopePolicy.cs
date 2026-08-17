@@ -60,17 +60,31 @@ public static class AccessTokenScopePolicy
             return Requirement.InteractiveOnly;
         }
 
+        var value = path.Value ?? string.Empty;
+
+        // Admin surfaces, whichever method reaches them, because each changes or exposes who can
+        // see what rather than what there is to see:
+        //  - `/public-link` publishes a view to the anonymous internet, and its GET reads back a
+        //    live submission URL - a write capability, not data - so the read is admin too;
+        //  - `/move` re-parents an item, which through closure inheritance can hand its contents
+        //    to everyone who can see the new parent.
+        // These are matched before the read shortcut precisely so a GET does not slip through as
+        // a plain read.
+        if (value.Contains("/public-link", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("/move", StringComparison.OrdinalIgnoreCase))
+        {
+            return Requirement.Admin;
+        }
+
         if (IsRead(method))
         {
             return Requirement.Read;
         }
 
-        // Writes that change who can see what, rather than what there is to see: permission
-        // entries, and the publication of a view to the anonymous internet. Matched on the path
-        // segment because both surfaces hang under items and nothing else uses these segments.
-        var value = path.Value ?? string.Empty;
-        if (value.Contains("/permissions", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("/public-link", StringComparison.OrdinalIgnoreCase))
+        // Permission entries are the remaining admin write: they name who may act, and reading
+        // the ACL (a GET, already returned as Read above) is data disclosure rather than a
+        // capability, so only the writes land here.
+        if (value.Contains("/permissions", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }
