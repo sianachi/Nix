@@ -1,0 +1,60 @@
+# Rendered and launched once per release by deploy.sh after Core, Collab and Media are ready.
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: nix-template-boot, namespace: nix }
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: nix-template-boot-${TAG}, namespace: nix }
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: { labels: { app: nix-template-boot } }
+    spec:
+      serviceAccountName: nix-template-boot
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: sync
+          image: ${REGISTRY}/media:${TAG}
+          command: ["node", "/sync/sync-managed-templates.mjs"]
+          env:
+            - { name: NIX_TEMPLATE_BOOT_DIRECTORY, value: /templates }
+            - { name: NIX_TEMPLATE_BOOT_WORKSPACE_ID, value: "${TEMPLATE_BOOT_WORKSPACE_ID}" }
+            - { name: NIX_TEMPLATE_BOOT_MEDIA_URL, value: http://nix-media:8200 }
+            - { name: NIX_TEMPLATE_BOOT_OIDC_ISSUER, value: "${OIDC_ISSUER}" }
+            - { name: NIX_TEMPLATE_BOOT_OIDC_AUDIENCE, value: "${TEMPLATE_BOOT_OIDC_AUDIENCE}" }
+            - { name: NIX_TEMPLATE_BOOT_OIDC_SCOPE, value: "${TEMPLATE_BOOT_OIDC_SCOPE}" }
+            - { name: NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE, value: /var/run/secrets/nix/service-account-key.json }
+            - name: NIX_TEMPLATE_BOOT_HEALTH_URLS
+              value: http://nix-api:8080/healthz,http://nix-collab:8100/healthz,http://nix-media:8200/healthz
+            - { name: NIX_TEMPLATE_BOOT_HEALTH_TIMEOUT_MS, value: "180000" }
+          volumeMounts:
+            - { name: script, mountPath: /sync, readOnly: true }
+            - { name: templates, mountPath: /templates, readOnly: true }
+            - { name: service-key, mountPath: /var/run/secrets/nix, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+      volumes:
+        - name: script
+          configMap: { name: nix-template-boot-script }
+        - name: templates
+          persistentVolumeClaim: { claimName: "${TEMPLATE_BOOT_PVC}" }
+        - name: service-key
+          secret:
+            secretName: "${TEMPLATE_BOOT_SERVICE_KEY_SECRET}"
+            items:
+              - { key: service-account-key.json, path: service-account-key.json, mode: 0440 }
