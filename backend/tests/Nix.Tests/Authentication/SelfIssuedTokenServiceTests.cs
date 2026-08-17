@@ -1,6 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
 using Nix.Authentication;
 using Nix.Domain.Identity;
 using Nix.Domain.Tenancy;
@@ -175,6 +178,84 @@ public sealed class SelfIssuedTokenServiceTests
 
         Assert.False(SelfIssuedTokenService.TryReadClaims(identity, out _, out _));
     }
+
+    // The three forgeries the service's own comment claims immunity to: algorithm confusion has
+    // "no algorithm confusion to have". The reviewer proved these refuse by hand; these keep the
+    // claim honest across a library upgrade, which is the one thing that could silently break it.
+
+    [Fact]
+    public async Task An_alg_none_token_carrying_genuine_claims_does_not_validate()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var service = Service(Configuration(key.ExportECPrivateKeyPem()));
+
+        // header {"alg":"none"}, real payload, empty signature.
+        var header = Base64Url("{\"alg\":\"none\",\"typ\":\"JWT\"}");
+        var payload = Base64Url(
+            $"{{\"iss\":\"{Issuer}\",\"aud\":\"{Audience}\",\"sub\":\"s\","
+            + "\"exp\":9999999999,\"nbf\":1000000000}");
+        var forged = $"{header}.{payload}.";
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var result = await handler.ValidateTokenAsync(forged, service.CreateValidationParameters());
+
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public async Task An_hmac_token_keyed_with_the_public_point_does_not_validate()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var service = Service(Configuration(key.ExportECPrivateKeyPem()));
+
+        // The classic asymmetric-to-symmetric confusion: sign HS256 with the server's own public
+        // key bytes as the shared secret. A validator that inferred the algorithm from the token
+        // would accept it; one pinned to ES256 cannot.
+        var publicPoint = key.ExportSubjectPublicKeyInfo();
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var forged = handler.CreateEncodedJwt(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = Audience,
+            Subject = new ClaimsIdentity([new Claim("sub", "s")]),
+            Expires = DateTime.UtcNow.AddMinutes(5),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(publicPoint),
+                SecurityAlgorithms.HmacSha256),
+        });
+
+        var result = await handler.ValidateTokenAsync(forged, service.CreateValidationParameters());
+
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public async Task A_genuinely_signed_token_for_the_wrong_audience_does_not_validate()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var service = Service(Configuration(key.ExportECPrivateKeyPem()));
+
+        using var signingKey = ECDsa.Create();
+        signingKey.ImportECPrivateKey(key.ExportECPrivateKey(), out _);
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var forged = handler.CreateEncodedJwt(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = "some-other-service",
+            Subject = new ClaimsIdentity([new Claim("sub", "s")]),
+            Expires = DateTime.UtcNow.AddMinutes(5),
+            SigningCredentials = new SigningCredentials(
+                new ECDsaSecurityKey(signingKey) { KeyId = KeyId },
+                SecurityAlgorithms.EcdsaSha256),
+        });
+
+        var result = await handler.ValidateTokenAsync(forged, service.CreateValidationParameters());
+
+        Assert.False(result.IsValid);
+    }
+
+    private static string Base64Url(string text) =>
+        Microsoft.AspNetCore.WebUtilities.Base64UrlTextEncoder.Encode(Encoding.UTF8.GetBytes(text));
 
     private static string FreshKeyPem()
     {

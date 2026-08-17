@@ -23,8 +23,11 @@ public sealed record CreateAccessTokenRequest(
 /// <param name="ExpiresAt">When it stops working.</param>
 /// <param name="RevokedAt">When it was revoked, or null while it stands.</param>
 /// <param name="LastUsedAt">
-/// When it last authenticated a request, coarsened to a few minutes; null until first use. This
-/// is the column that answers "is anything still using this" before revoking it.
+/// When it last authenticated a request that then <i>succeeded</i>, coarsened to a few minutes;
+/// null until the first such use. Recorded inside the request transaction, so a request that
+/// fails after authenticating (a 404, a scope refusal) rolls the timestamp back with it - a token
+/// probing endpoints it may not reach can therefore still read as null here. Treat it as "last
+/// seen working", not proof a null token is dead.
 /// </param>
 public sealed record AccessTokenResponse(
     Guid Id,
