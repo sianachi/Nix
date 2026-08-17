@@ -3,7 +3,7 @@ import * as Y from 'yjs';
 
 import { SHEET_LIMITS } from './limits.js';
 import { sheetCellsMap, sheetMetaMap, writeCell } from './model.js';
-import { checkSheetDocument, sheetSnapshot } from './validate.js';
+import { checkSheetDocument, checkSheetSnapshot, sheetSnapshot } from './validate.js';
 
 function sheetDoc(cells: Record<string, string>): Y.Doc {
   const doc = new Y.Doc();
@@ -77,6 +77,53 @@ describe('structural validation', () => {
 });
 
 describe('snapshots', () => {
+  it('validates materialized sheets with the collaboration budgets', () => {
+    expect(
+      checkSheetSnapshot({
+        body: 'sheet',
+        cells: { A1: '1', B2: '=A1*2' },
+        meta: { rows: 100, cols: 26, colWidths: { A: 240 } },
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses malformed and over-budget materialized sheets', () => {
+    expect(
+      checkSheetSnapshot({
+        body: 'sheet',
+        cells: { a1: '1' },
+        meta: { rows: 100, cols: 26, colWidths: {} },
+      })?.code,
+    ).toBe('sheet_invalid');
+    expect(
+      checkSheetSnapshot(
+        {
+          body: 'sheet',
+          cells: { A1: '=SUM(B1:B100)' },
+          meta: { rows: 100, cols: 26, colWidths: {} },
+        },
+        { ...SHEET_LIMITS, maxOps: 10 },
+      )?.code,
+    ).toBe('sheet_budget_exceeded');
+  });
+
+  it('refuses cells and widths outside the snapshot extents', () => {
+    expect(
+      checkSheetSnapshot({
+        body: 'sheet',
+        cells: { B1: 'hidden' },
+        meta: { rows: 1, cols: 1, colWidths: {} },
+      })?.code,
+    ).toBe('sheet_invalid');
+    expect(
+      checkSheetSnapshot({
+        body: 'sheet',
+        cells: {},
+        meta: { rows: 1, cols: 1, colWidths: { B: 240 } },
+      })?.code,
+    ).toBe('sheet_invalid');
+  });
+
   it('materializes raw cells as json and evaluated values as tab-separated text', () => {
     const snapshot = sheetSnapshot(sheetDoc({ A1: '2', B1: '=A1*3', A2: 'label' }));
     expect(snapshot.json.body).toBe('sheet');
@@ -100,6 +147,13 @@ describe('snapshots', () => {
     const snapshot = sheetSnapshot(new Y.Doc());
     expect(snapshot.plaintext).toBe('');
     expect(snapshot.json.cells).toEqual({});
+  });
+
+  it('preserves bounded resized column widths in the materialized body', () => {
+    const doc = sheetDoc({ A1: 'value' });
+    sheetMetaMap(doc).set('colWidths', { A: 240, B: 300 });
+
+    expect(sheetSnapshot(doc).json.meta.colWidths).toEqual({ A: 240, B: 300 });
   });
 });
 
