@@ -34,6 +34,9 @@ export interface MediaConfig {
   /** How many conversions may run at once. A CPU-bound renderer with no gate is how this dies. */
   readonly maxConcurrentExports: number;
 
+  /** How many untrusted template archives may be parsed and retained at once. */
+  readonly maxConcurrentTemplateParses: number;
+
   readonly logLevel: string;
 }
 
@@ -86,6 +89,7 @@ export function readConfig(env: NodeJS.ProcessEnv): MediaConfig {
     maxOutputBytes: Number(env.NIX_MEDIA_MAX_OUTPUT_MB ?? 64) * 1024 * 1024,
     maxBundleBytes: Number(env.NIX_MEDIA_MAX_BUNDLE_MB ?? 64) * 1024 * 1024,
     maxConcurrentExports: Number(env.NIX_MEDIA_MAX_CONCURRENT_EXPORTS ?? 4),
+    maxConcurrentTemplateParses: Number(env.NIX_MEDIA_MAX_CONCURRENT_TEMPLATE_PARSES ?? 2),
     logLevel: env.NIX_MEDIA_LOG_LEVEL ?? 'info',
   };
 }
