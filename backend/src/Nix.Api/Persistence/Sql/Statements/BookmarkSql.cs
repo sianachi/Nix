@@ -53,6 +53,7 @@ public static class BookmarkSql
         WHERE bookmark.tenant_id = @tenant_id
           AND bookmark.principal_id = @principal_id
           AND item.lifecycle_state = 'active'
+          AND item.template_id IS NULL
           AND item.workspace_id = ANY(@workspace_ids)
         ORDER BY bookmark.seq DESC
         """;
@@ -108,6 +109,7 @@ public static class BookmarkSql
         WHERE item.id = @item_id
           AND item.tenant_id = @tenant_id
           AND item.lifecycle_state = 'active'
+          AND item.template_id IS NULL
           AND item.workspace_id = ANY(@workspace_ids)
         ON CONFLICT (principal_id, item_id) DO NOTHING
         """;

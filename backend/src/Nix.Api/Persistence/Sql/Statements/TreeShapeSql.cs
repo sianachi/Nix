@@ -54,6 +54,7 @@ public static class TreeShapeSql
             WHERE c.tenant_id = @tenant_id
               AND c.workspace_id = @workspace_id
               AND c.parent_id = p.id
-              AND c.lifecycle_state = 'active')
+              AND c.lifecycle_state = 'active'
+              AND c.template_id IS NULL)
         """;
 }

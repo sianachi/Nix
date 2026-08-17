@@ -45,6 +45,8 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
 
         builder.Property(item => item.Schema).HasColumnName("schema").HasColumnType("jsonb");
         builder.Property(item => item.Views).HasColumnName("views").HasColumnType("jsonb");
+        builder.Property(item => item.TemplateId).HasColumnName("template_id");
+        builder.Property(item => item.TemplateSourceId).HasColumnName("template_source_id");
 
         builder.Property(item => item.Properties)
             .HasColumnName("properties")
@@ -79,6 +81,16 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             // is a deliberate, audited operation; a database cascade would delete them silently
             // and take the audit trail's subject with it.
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Nix.Domain.Templates.WorkspaceTemplate>()
+            .WithMany()
+            .HasForeignKey(item => new { item.TenantId, item.TemplateId })
+            .HasPrincipalKey(template => new { template.TenantId, template.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // A managed replacement stages the new revision while the previous one remains active, so
+        // the stable source identity deliberately appears in both trees during that short window.
+        builder.HasIndex(item => new { item.TenantId, item.TemplateId, item.TemplateSourceId });
 
         // Listing an item's children in order - the single most common tree read.
         //
