@@ -189,6 +189,8 @@ public static class ClosureSql
         WHERE tenant_id = @tenant_id
           AND workspace_id = @workspace_id
           AND parent_id IS NOT DISTINCT FROM @parent_id
+          AND template_id IS NULL
+          AND lifecycle_state = 'active'
         """;
 
     /// <summary>
@@ -216,7 +218,10 @@ public static class ClosureSql
         WITH anchor AS (
             SELECT seq
             FROM item
-            WHERE tenant_id = @tenant_id AND id = @after_id
+            WHERE tenant_id = @tenant_id
+              AND id = @after_id
+              AND template_id IS NULL
+              AND lifecycle_state = 'active'
         ),
         successor AS (
             SELECT min(sibling.seq) AS seq
@@ -226,6 +231,8 @@ public static class ClosureSql
               AND sibling.parent_id IS NOT DISTINCT FROM @parent_id
               AND sibling.id <> @item_id
               AND sibling.seq > anchor.seq
+              AND sibling.template_id IS NULL
+              AND sibling.lifecycle_state = 'active'
         )
         SELECT CASE
                    WHEN successor.seq IS NULL THEN anchor.seq + 1000
@@ -267,6 +274,8 @@ public static class ClosureSql
           AND sibling.workspace_id = @workspace_id
           AND sibling.parent_id IS NOT DISTINCT FROM @parent_id
           AND sibling.id <> @item_id
+          AND sibling.template_id IS NULL
+          AND sibling.lifecycle_state = 'active'
         """;
 
     /// <summary>
@@ -296,8 +305,12 @@ public static class ClosureSql
             WHERE tenant_id = @tenant_id
               AND workspace_id = @workspace_id
               AND parent_id IS NOT DISTINCT FROM @parent_id
+              AND template_id IS NULL
+              AND lifecycle_state = 'active'
         ) AS renumbered
         WHERE item.id = renumbered.id
           AND item.tenant_id = @tenant_id
+          AND item.template_id IS NULL
+          AND item.lifecycle_state = 'active'
         """;
 }
