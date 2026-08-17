@@ -99,6 +99,7 @@ internal sealed class NixUnitOfWorkMiddleware
         NixDbContext dbContext,
         FailedAuthenticationThrottle throttle,
         IPersonalAccessTokens accessTokens,
+        AccessTokenSessionContext scopeContext,
         TimeProvider clock,
         ILogger<NixUnitOfWorkMiddleware> logger)
     {
@@ -109,6 +110,7 @@ internal sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(throttle);
         ArgumentNullException.ThrowIfNull(accessTokens);
+        ArgumentNullException.ThrowIfNull(scopeContext);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -216,6 +218,7 @@ internal sealed class NixUnitOfWorkMiddleware
                 var admitted = await EnforceAccessTokenAsync(
                     context,
                     accessTokens,
+                    scopeContext,
                     clock,
                     accessTokenId,
                     principal.Id)
@@ -253,6 +256,7 @@ internal sealed class NixUnitOfWorkMiddleware
     private static async Task<bool> EnforceAccessTokenAsync(
         HttpContext context,
         IPersonalAccessTokens accessTokens,
+        AccessTokenSessionContext scopeContext,
         TimeProvider clock,
         PersonalAccessTokenId accessTokenId,
         PrincipalId principalId)
@@ -319,6 +323,14 @@ internal sealed class NixUnitOfWorkMiddleware
                 .ConfigureAwait(false);
             return false;
         }
+
+        // Record the ceiling for the surfaces Core reports about rather than acts for. The
+        // route-level check above closed every endpoint Core owns; this is what carries the same
+        // ceiling into GetItemAuthorization's CanWrite, so a read-only token cannot have the
+        // collaboration service write a body on its behalf.
+        scopeContext.SetTokenCeiling(
+            mayWrite: AccessTokenScopePolicy.Satisfies(state.Scopes, AccessTokenScopePolicy.Requirement.Write),
+            mayAdminister: AccessTokenScopePolicy.Satisfies(state.Scopes, AccessTokenScopePolicy.Requirement.Admin));
 
         if (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity)
         {

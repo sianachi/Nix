@@ -111,6 +111,11 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<INixSessionContextAccessor>(
             static provider => provider.GetRequiredService<ScopedNixSessionContextAccessor>());
 
+        // The scope ceiling of a token-authenticated request, set by the unit-of-work middleware
+        // and read by the one handler that reports a write capability to the collaboration
+        // service. Interactive sessions never set it and it stays permissive.
+        services.AddScoped<AccessTokenSessionContext>();
+
         services.AddScoped<RlsSessionContextInterceptor>();
         services.AddSingleton<RlsTransactionGuardInterceptor>();
 

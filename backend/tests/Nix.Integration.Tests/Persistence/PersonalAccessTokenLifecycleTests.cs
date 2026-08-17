@@ -35,6 +35,8 @@ namespace Nix.Integration.Tests.Persistence;
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class PersonalAccessTokenLifecycleTests : IAsyncLifetime
 {
+    private const string InternalSecret = "lifecycle-internal-secret-value";
+
     private readonly NixPostgresFixture _fixture;
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _client = null!;
@@ -57,6 +59,7 @@ public sealed class PersonalAccessTokenLifecycleTests : IAsyncLifetime
         _factory = new ConfiguredApplicationFactory(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Nix"] = _fixture.ApplicationConnectionString,
+            ["Nix:InternalSecret"] = InternalSecret,
             [SelfIssuedTokenService.IssuerConfigurationKey] = "https://core.nix.test",
             [SelfIssuedTokenService.AudienceConfigurationKey] = "nix",
             [SelfIssuedTokenService.KeyIdConfigurationKey] = "lifecycle-test-key",
@@ -212,6 +215,39 @@ public sealed class PersonalAccessTokenLifecycleTests : IAsyncLifetime
         Assert.Equal(
             M0SchemaSeed.Alpha.PrincipalId.ToString("D"),
             document.RootElement.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task A_read_scoped_session_cannot_have_the_collaboration_service_write_its_body()
+    {
+        // The blocker the security review found: collab writes bodies on the strength of
+        // GetItemAuthorization.CanWrite and never re-asks Core, so the scope ceiling has to reach
+        // that answer. Both tokens act as the same editor principal; only the scope differs.
+        var readOnly = await MintAsync("read-agent", [AccessTokenScopes.Read], days: 30);
+        var writer = await MintAsync("write-agent", [AccessTokenScopes.Read, AccessTokenScopes.Write], days: 30);
+
+        var readOnlyAnswer = await AuthorizeAsync(readOnly.Secret, M0SchemaSeed.Alpha.ItemId);
+        var writerAnswer = await AuthorizeAsync(writer.Secret, M0SchemaSeed.Alpha.ItemId);
+
+        // Both may open the item; only the write-scoped token may write it, even though the
+        // principal behind both is an editor of the workspace.
+        Assert.True(readOnlyAnswer.GetProperty("canRead").GetBoolean());
+        Assert.False(readOnlyAnswer.GetProperty("canWrite").GetBoolean());
+        Assert.True(writerAnswer.GetProperty("canRead").GetBoolean());
+        Assert.True(writerAnswer.GetProperty("canWrite").GetBoolean());
+    }
+
+    private async Task<JsonElement> AuthorizeAsync(string secret, Guid itemId)
+    {
+        var jwt = await ExchangeAsync(secret);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/internal/authz/items/{itemId:D}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+        request.Headers.Add("x-nix-internal-secret", InternalSecret);
+
+        var response = await _client.SendAsync(request, Cancellation);
+        var body = await response.Content.ReadAsStringAsync(Cancellation);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"authz answered {(int)response.StatusCode}: {body}");
+        return JsonDocument.Parse(body).RootElement.Clone();
     }
 
     private async Task<IssuedAccessToken> MintAsync(string name, IReadOnlyList<string> scopes, int days)
