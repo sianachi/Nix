@@ -3,9 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
+using Nix.Abstractions.Templates;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
+using Nix.Domain.Templates;
 using Nix.Domain.Views;
 using Nix.Features.Bookmarks;
 using Nix.Features.Calendar;
@@ -17,6 +19,7 @@ using Nix.Features.Me;
 using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Search;
+using Nix.Features.Templates;
 using Nix.Features.Views;
 using Nix.Messaging;
 using Nix.Persistence.Authorization;
@@ -32,6 +35,7 @@ using Nix.Persistence.Query;
 using Nix.Persistence.Rls;
 using Nix.Persistence.Search;
 using Nix.Persistence.Sql;
+using Nix.Persistence.Templates;
 using Npgsql;
 
 namespace Nix.Persistence;
@@ -155,6 +159,15 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IPublicFormStore, PublicFormStore>();
+        services.AddSingleton<TemplateDefinitionValidator>();
+        services.AddSingleton<TemplateMergePlanner>();
+        services.AddScoped<TemplateStore>();
+        services.AddScoped<ITemplateCatalogStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateDraftStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateStagingStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateApplicationStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateManagedStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateAuthorizationStore>(provider => provider.GetRequiredService<TemplateStore>());
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
@@ -211,6 +224,32 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetShelf, Result<ShelfResults>>, GetShelfHandler>();
         services.AddScoped<ICommandHandler<KeepItem, bool>, KeepItemHandler>();
         services.AddScoped<ICommandHandler<ReleaseItem, bool>, ReleaseItemHandler>();
+
+        services.AddScoped<IQueryHandler<ListTemplates, Result<TemplateLibrarySnapshot>>, ListTemplatesHandler>();
+        services.AddScoped<IQueryHandler<GetTemplate, Result<TemplateDetailSnapshot>>, GetTemplateHandler>();
+        services.AddScoped<IQueryHandler<GetTemplateItem, Result<TemplateItemSnapshot>>, GetTemplateItemHandler>();
+        services.AddScoped<ICommandHandler<DeleteTemplate, bool>, DeleteTemplateHandler>();
+        services.AddScoped<IQueryHandler<PreflightTemplateApplication, Result<TemplatePreflight>>, PreflightTemplateApplicationHandler>();
+        services.AddScoped<IQueryHandler<ExportTemplate, Result<TemplateExportSnapshot>>, ExportTemplateHandler>();
+        services.AddScoped<ICommandHandler<BeginTemplateDraft, TemplateDraftPlan>, BeginTemplateDraftHandler>();
+        services.AddScoped<IQueryHandler<GetTemplateDraft, Result<TemplateDraftPlan>>, GetTemplateDraftHandler>();
+        services.AddScoped<ICommandHandler<UpdateTemplateDraft, TemplateDraftPlan>, UpdateTemplateDraftHandler>();
+        services.AddScoped<ICommandHandler<UpdateTemplateDraftItem, TemplateItemSnapshot>, UpdateTemplateDraftItemHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateDraftItem, Result<TemplateItemAuthorization>>, AuthorizeTemplateDraftItemHandler>();
+        services.AddScoped<ICommandHandler<SaveTemplateDraft, TemplateId>, SaveTemplateDraftHandler>();
+        services.AddScoped<ICommandHandler<DiscardTemplateDraft, bool>, DiscardTemplateDraftHandler>();
+        services.AddScoped<ICommandHandler<BeginTemplateCapture, TemplateCapturePlan>, BeginTemplateCaptureHandler>();
+        services.AddScoped<ICommandHandler<BeginTemplateImport, TemplateImportPlan>, BeginTemplateImportHandler>();
+        services.AddScoped<ICommandHandler<FinalizeTemplateOperation, TemplateId>, FinalizeTemplateOperationHandler>();
+        services.AddScoped<ICommandHandler<AbortTemplateOperation, bool>, AbortTemplateOperationHandler>();
+        services.AddScoped<ICommandHandler<BeginTemplateApplication, TemplateApplicationPlan>, BeginTemplateApplicationHandler>();
+        services.AddScoped<ICommandHandler<FinalizeTemplateApplication, ItemId>, FinalizeTemplateApplicationHandler>();
+        services.AddScoped<ICommandHandler<AbortTemplateApplication, bool>, AbortTemplateApplicationHandler>();
+        services.AddScoped<ICommandHandler<FinalizeManagedTemplates, ManagedTemplateBatchResult>, FinalizeManagedTemplatesHandler>();
+        services.AddScoped<ICommandHandler<SweepExpiredTemplateStages, TemplateStageSweepResult>, SweepExpiredTemplateStagesHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateImport, Result<TemplateWorkspaceAuthorization>>, AuthorizeTemplateImportHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateOperationItem, Result<TemplateOperationAuthorization>>, AuthorizeTemplateOperationItemHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateItem, Result<TemplateItemAuthorization>>, AuthorizeTemplateItemHandler>();
 
         return services;
     }

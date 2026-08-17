@@ -81,6 +81,7 @@ public static class GraphSql
               AND item.workspace_id = @workspace_id
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
+              AND item.template_id IS NULL
             ORDER BY item.seq, item.id
             LIMIT @node_limit
         ),

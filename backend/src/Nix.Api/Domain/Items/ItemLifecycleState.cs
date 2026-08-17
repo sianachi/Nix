@@ -24,4 +24,10 @@ public enum ItemLifecycleState
 
     /// <summary>Content destroyed. Terminal.</summary>
     Purged = 2,
+
+    /// <summary>
+    /// Hidden staging state used while collaboration bodies are being hydrated. It is never
+    /// returned by ordinary item reads.
+    /// </summary>
+    Provisioning = 3,
 }

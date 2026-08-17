@@ -57,6 +57,9 @@ public sealed class Principal
     /// <summary>Gets whether the principal may currently act.</summary>
     public required PrincipalStatus Status { get; init; }
 
+    /// <summary>Gets whether this service identity may reconcile deployment-managed templates.</summary>
+    public bool CanManageTemplates { get; init; }
+
     /// <summary>
     /// Gets when deprovisioning was recorded, or <see langword="null"/> if it has not been.
     /// </summary>
