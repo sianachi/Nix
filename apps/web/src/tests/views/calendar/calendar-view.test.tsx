@@ -107,6 +107,22 @@ function user() {
 }
 
 describe('the calendar view', () => {
+  it('collapses a busy day until its accessible overflow control is opened', async () => {
+    const busy = Array.from({ length: 8 }, (_unused, index) =>
+      itemOf(`busy-${String(index)}`, `Busy ${String(index + 1)}`, { due: '2026-03-17' }),
+    );
+    renderCalendar({ children: busy });
+    const day = screen.getByRole('cell', { name: 'Tuesday 17 March 2026' });
+
+    expect(within(day).getAllByRole('listitem')).toHaveLength(6);
+    await user().click(within(day).getByRole('button', { name: 'Show 2 more' }));
+    expect(within(day).getAllByRole('listitem')).toHaveLength(8);
+    expect(within(day).getByRole('button', { name: 'Show fewer' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
   it('places an item on the day its date property names', () => {
     renderCalendar({ children: [KICKOFF] });
 

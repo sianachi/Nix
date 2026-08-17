@@ -16,7 +16,7 @@ import { useQueryResults } from './use-query-results';
  *
  * The second kind whose data is not the container's children - its rows come from
  * `GET /items/{id}/query`, which compiles the view's stored filters over every container the
- * reader may see. `container.children` is deliberately ignored, and so is `resolveViewChrome`,
+ * reader may see. `container.children` is deliberately ignored, and so is `useViewChrome`,
  * whose filter/sort/empty branches are statements about children this view does not draw; the
  * five states are answered here instead, from the run's own honesty fields.
  *

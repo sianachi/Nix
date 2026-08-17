@@ -58,11 +58,12 @@ describe('creating an item', () => {
 
     // Root is the stable default. One checkbox changes the destination of the existing actions;
     // it does not repeat the complete list of body kinds underneath a second heading.
-    const inside = screen.getByRole('checkbox', { name: /create inside engineering/i });
+    const inside = screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i });
     expect(inside).not.toBeChecked();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(13);
+    const rootActionCount = screen.getAllByRole('menuitem').length;
 
     await user.click(inside);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(rootActionCount);
     expect(screen.getByRole('menuitem', { name: /new note inside engineering/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /new kanban inside engineering/i })).toBeVisible();
   });
@@ -75,7 +76,7 @@ describe('creating an item', () => {
     await screen.findByRole('button', { name: 'Roadmap' });
 
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(screen.getByRole('checkbox', { name: /create inside roadmap/i }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside roadmap/i }));
     expect(screen.getByRole('menuitem', { name: /new note inside roadmap/i })).toBeVisible();
   });
 });

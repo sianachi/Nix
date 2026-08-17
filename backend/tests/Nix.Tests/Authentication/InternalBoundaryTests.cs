@@ -55,6 +55,28 @@ public sealed class InternalBoundaryTests
         Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("short")]
+    [InlineData("b-long-shared-secret-for-tests")]
+    public async Task Missing_short_and_same_length_wrong_secrets_receive_the_uniform_refusal(string? presented)
+    {
+        var middleware = Middleware(ConfiguredSecret, NextMustNotRun);
+        var context = ContextWithHeader(presented);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        var body = await JsonNode.ParseAsync(
+            context.Response.Body,
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+        Assert.Equal("application/problem+json", context.Response.ContentType);
+        Assert.Equal("internal.not_found", (string?)body?["code"]);
+        Assert.Equal("Not found", (string?)body?["title"]);
+        Assert.Equal("The requested resource does not exist.", (string?)body?["detail"]);
+    }
+
     [Fact]
     public async Task An_unconfigured_secret_fails_closed_even_for_a_caller_presenting_one()
     {
@@ -157,6 +179,18 @@ public sealed class InternalSurfaceContractTests(ContractHostFactory factory)
             ?? throw new InvalidOperationException($"The OpenAPI document at {contract} has no paths object.");
 
         Assert.DoesNotContain(paths, path => path.Key.StartsWith("/internal", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Template_metadata_has_no_direct_public_patch_bypass()
+    {
+        var document = await File.ReadAllTextAsync(
+            PublishedContract.Path(),
+            TestContext.Current.CancellationToken);
+        var templatePath = JsonNode.Parse(document)?["paths"]?["/api/v1/templates/{templateId}"]?.AsObject()
+            ?? throw new InvalidOperationException("The published template resource path is missing.");
+
+        Assert.False(templatePath.ContainsKey("patch"));
     }
 
     [Fact]

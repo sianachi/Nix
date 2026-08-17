@@ -25,7 +25,9 @@
 -- token and looks like it should.
 \if :{?oidc_issuer} \else \set oidc_issuer '' \endif
 \if :{?oidc_client_id} \else \set oidc_client_id '' \endif
+\if :{?oidc_project_id} \else \set oidc_project_id '' \endif
 \if :{?dev_user_id} \else \set dev_user_id '' \endif
+\if :{?template_boot_service_user_id} \else \set template_boot_service_user_id '' \endif
 
 DO $$
 BEGIN
@@ -75,6 +77,30 @@ VALUES
     ('b2000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002',
      'umbrella-admin', 'user', 'Uma Admin', 'uma@umbrella.test',  'active', NULL)
 ON CONFLICT (principal_id) DO NOTHING;
+
+-- The boot template reconciler mints short-lived JWT-profile access tokens. Its
+-- subject is provisioned explicitly, because Core never creates a principal from
+-- token claims. Keeping it a service principal makes audit records distinguish a
+-- deployment reconciliation from an administrator's interactive changes.
+INSERT INTO principal
+    (principal_id, tenant_id, external_subject, kind, display_name, email, status, deprovisioned_at,
+     can_manage_templates)
+SELECT
+    'a2000000-0000-4000-8000-000000000004'::uuid,
+    'a0000000-0000-4000-8000-000000000001'::uuid,
+    :'template_boot_service_user_id',
+    'service',
+    'Nix Template Boot',
+    NULL,
+    'active',
+    NULL,
+    true
+WHERE :'template_boot_service_user_id' <> ''
+ON CONFLICT (principal_id) DO UPDATE
+SET external_subject = EXCLUDED.external_subject,
+    status = 'active',
+    deprovisioned_at = NULL,
+    can_manage_templates = true;
 
 -- Map the administrator onto the identity provider's real subject.
 --
@@ -137,6 +163,21 @@ VALUES
      'owner',  'b2000000-0000-4000-8000-000000000001', now())
 ON CONFLICT (workspace_id, subject_type, subject_id) DO NOTHING;
 
+INSERT INTO workspace_member
+    (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
+SELECT workspace.workspace_id,
+       'principal',
+       'a2000000-0000-4000-8000-000000000004'::uuid,
+       workspace.tenant_id,
+       'editor',
+       'a2000000-0000-4000-8000-000000000001'::uuid,
+       now()
+  FROM workspace
+ WHERE workspace.workspace_id = 'a1000000-0000-4000-8000-000000000001'::uuid
+   AND workspace.tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid
+   AND :'template_boot_service_user_id' <> ''
+ON CONFLICT (workspace_id, subject_type, subject_id) DO NOTHING;
+
 -- ── Identity provider registration ─────────────────────────────────────────
 -- Only when seed.sh supplied a real issuer. Registered against the first tenant,
 -- which is the one the dev Zitadel instance is configured for.
@@ -153,8 +194,34 @@ SELECT
     :'oidc_issuer' || '/oauth/v2/keys',
     ARRAY['RS256']::text[],
     true
-WHERE :'oidc_issuer' <> ''
-ON CONFLICT (provider_id) DO NOTHING;
+WHERE :'oidc_issuer' <> '' AND :'oidc_client_id' <> ''
+ON CONFLICT (provider_id) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    audience = EXCLUDED.audience,
+    jwks_uri = EXCLUDED.jwks_uri,
+    allowed_algorithms = EXCLUDED.allowed_algorithms,
+    enabled = true;
+
+-- Zitadel JWT-profile service-account tokens name the project as their API
+-- audience rather than the SPA client. Registering it through the same exact
+-- issuer/audience resolver keeps machine and browser authentication on one path.
+INSERT INTO identity_provider
+    (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled)
+SELECT
+    'a4000000-0000-4000-8000-000000000002'::uuid,
+    'a0000000-0000-4000-8000-000000000001'::uuid,
+    :'oidc_issuer',
+    :'oidc_project_id',
+    :'oidc_issuer' || '/oauth/v2/keys',
+    ARRAY['RS256']::text[],
+    true
+WHERE :'oidc_issuer' <> '' AND :'oidc_project_id' <> ''
+ON CONFLICT (provider_id) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    audience = EXCLUDED.audience,
+    jwks_uri = EXCLUDED.jwks_uri,
+    allowed_algorithms = EXCLUDED.allowed_algorithms,
+    enabled = true;
 
 DO $$
 BEGIN

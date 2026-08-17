@@ -86,6 +86,21 @@ public static class NixTables
     /// <summary>One credential a principal issued for a non-browser client.</summary>
     public const string PersonalAccessToken = "personal_access_token";
 
+    /// <summary>Workspace-visible catalog entries backed by hidden item trees.</summary>
+    public const string WorkspaceTemplate = "workspace_template";
+
+    /// <summary>Staged capture/import protocols.</summary>
+    public const string TemplateOperation = "template_operation";
+
+    /// <summary>Complete mappings for staged capture/import bodies.</summary>
+    public const string TemplateOperationItem = "template_operation_item";
+
+    /// <summary>Idempotent template applications.</summary>
+    public const string TemplateApplication = "template_application";
+
+    /// <summary>Stable source-to-target mappings for applications.</summary>
+    public const string TemplateApplicationItem = "template_application_item";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -113,6 +128,11 @@ public static class NixTables
         Bookmark,
         PublicFormLink,
         PersonalAccessToken,
+        WorkspaceTemplate,
+        TemplateOperation,
+        TemplateOperationItem,
+        TemplateApplication,
+        TemplateApplicationItem,
     ];
 
     /// <summary>
@@ -164,6 +184,11 @@ public static class NixTables
             // behalf: keeping one is the whole feature, and there is no other service that owns it.
             [Bookmark] = FullDml,
             [PublicFormLink] = FullDml,
+            [WorkspaceTemplate] = FullDml,
+            [TemplateOperation] = FullDml,
+            [TemplateOperationItem] = FullDml,
+            [TemplateApplication] = FullDml,
+            [TemplateApplicationItem] = FullDml,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 

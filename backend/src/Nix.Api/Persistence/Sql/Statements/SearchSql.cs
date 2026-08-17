@@ -90,6 +90,7 @@ public static class SearchSql
             WHERE item.tenant_id = @tenant_id
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
+              AND item.template_id IS NULL
               AND (item.properties ->> 'title') ILIKE @title_pattern ESCAPE '\'
 
             UNION ALL
@@ -105,6 +106,7 @@ public static class SearchSql
               AND search.body_vector @@ websearch_to_tsquery('english', @query)
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
+              AND item.template_id IS NULL
         ),
         ranked AS (
             SELECT item_id,
@@ -121,6 +123,8 @@ public static class SearchSql
         JOIN item
           ON item.tenant_id = @tenant_id
          AND item.id = ranked.item_id
+         AND item.template_id IS NULL
+         AND item.lifecycle_state = 'active'
         ORDER BY ranked.title_matched DESC, ranked.rank DESC, item.id
         LIMIT @limit
         """;
@@ -157,6 +161,7 @@ public static class SearchSql
           AND item.id = ANY(@item_ids)
           AND item.workspace_id = ANY(@workspace_ids)
           AND item.lifecycle_state = 'active'
+          AND item.template_id IS NULL
         """;
 
     /// <summary>
@@ -194,6 +199,7 @@ public static class SearchSql
           AND link.target_item_id = @target_item_id
           AND source.workspace_id = ANY(@workspace_ids)
           AND source.lifecycle_state = 'active'
+          AND source.template_id IS NULL
         ORDER BY link.occurrences DESC, title, source.id
         LIMIT @limit
         """;

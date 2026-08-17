@@ -78,6 +78,7 @@ describe('reading the configuration', () => {
     expect(config.port).toBe(8200);
     expect(config.jobTimeoutMs).toBeGreaterThan(0);
     expect(config.maxConcurrentExports).toBeGreaterThan(0);
+    expect(config.maxConcurrentTemplateParses).toBeGreaterThan(0);
     expect(config.maxOutputBytes).toBeGreaterThan(0);
   });
 });

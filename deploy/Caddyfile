@@ -36,6 +36,7 @@
 	# The collaboration service does not know it lives under a path: its own routes are
 	# /documents/..., so the /collab prefix is stripped (handle_path strips its matcher prefix),
 	# mirroring the rewrite the Vite proxy performs. WebSocket upgrades proxy transparently.
+	# This also exposes Collab's service routes; their internal-secret check is the boundary.
 	handle_path /collab/* {
 		reverse_proxy localhost:8100
 	}

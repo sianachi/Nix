@@ -72,14 +72,18 @@ psql_super -d "$db_name" -v db_name="$db_name" -f /nix-seed/seed_database.sql
 # a first run into an error for no reason.
 oidc_issuer=""
 oidc_client_id=""
+oidc_project_id=""
 dev_user_id=""
+template_boot_service_user_id=""
 oidc_env="$(cd "$script_dir/.." && pwd)/.zitadel/oidc.generated.env"
 if [ -f "$oidc_env" ]; then
   # shellcheck disable=SC1090
   . "$oidc_env"
   oidc_issuer="${NIX_OIDC_ISSUER:-}"
   oidc_client_id="${NIX_OIDC_CLIENT_ID:-}"
+  oidc_project_id="${NIX_OIDC_PROJECT_ID:-}"
   dev_user_id="${NIX_DEV_USER_ID:-}"
+  template_boot_service_user_id="${NIX_TEMPLATE_BOOT_SERVICE_USER_ID:-}"
 fi
 
 if [ "$(psql_super -d "$db_name" -tAc "SELECT to_regclass('public.tenant') IS NOT NULL")" = "t" ]; then
@@ -87,8 +91,12 @@ if [ "$(psql_super -d "$db_name" -tAc "SELECT to_regclass('public.tenant') IS NO
   psql_super -d "$db_name" \
     -v oidc_issuer="$oidc_issuer" \
     -v oidc_client_id="$oidc_client_id" \
+    -v oidc_project_id="$oidc_project_id" \
     -v dev_user_id="$dev_user_id" \
+    -v template_boot_service_user_id="$template_boot_service_user_id" \
     -f /nix-seed/seed_application_data.sql
+  echo "seed: provisioning shipped template presets"
+  psql_super -d "$db_name" -f /nix-seed/seed_template_presets.sql
   if [ -z "$oidc_issuer" ]; then
     echo "seed: no OIDC issuer yet; run deploy/seed/zitadel-configure.sh then re-run this script"
   fi

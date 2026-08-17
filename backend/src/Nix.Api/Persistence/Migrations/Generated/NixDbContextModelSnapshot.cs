@@ -453,6 +453,12 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("principal_id");
 
+                    b.Property<bool>("CanManageTemplates")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_manage_templates");
+
                     b.Property<DateTimeOffset?>("DeprovisionedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deprovisioned_at");
@@ -640,6 +646,14 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("bigint")
                         .HasColumnName("seq");
 
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid?>("TemplateSourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_source_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -662,6 +676,8 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasIndex("TenantId", "ParentId");
 
                     b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.HasIndex("TenantId", "TemplateId", "TemplateSourceId");
 
                     b.HasIndex("WorkspaceId", "ParentId", "Seq");
 
@@ -750,6 +766,365 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasKey("TenantId", "ItemId");
 
                     b.ToTable("item_search", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateApplication", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("FinalizedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finalized_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("mode");
+
+                    b.Property<Guid?>("ParentItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_item_id");
+
+                    b.Property<string>("RequestedTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("requested_title");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId", "TargetItemId");
+
+                    b.HasIndex("TenantId", "TemplateId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "State", "ExpiresAt");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("template_application", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateApplicationItem", b =>
+                {
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<Guid>("TemplateSourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_source_id");
+
+                    b.Property<bool>("BodyRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("body_required");
+
+                    b.Property<bool>("Created")
+                        .HasColumnType("boolean")
+                        .HasColumnName("created");
+
+                    b.Property<bool>("IsRoot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_root");
+
+                    b.Property<string>("ItemType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("item_type");
+
+                    b.Property<Guid>("SourceItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ApplicationId", "TemplateSourceId");
+
+                    b.HasIndex("TenantId", "ApplicationId");
+
+                    b.HasIndex("TenantId", "TargetItemId");
+
+                    b.ToTable("template_application_item", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DraftDescription")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("draft_description");
+
+                    b.Property<string>("DraftTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("draft_title");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("FinalizedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finalized_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ManagedSource")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("managed_source");
+
+                    b.Property<string>("SourceDigest")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_digest");
+
+                    b.Property<Guid?>("SourceItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "TemplateId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "State", "ExpiresAt");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("template_operation", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateOperationItem", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<Guid>("TemplateSourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_source_id");
+
+                    b.Property<bool>("BodyRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("body_required");
+
+                    b.Property<string>("ItemType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("item_type");
+
+                    b.Property<Guid?>("SourceItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("OperationId", "TemplateSourceId");
+
+                    b.HasIndex("TenantId", "OperationId");
+
+                    b.HasIndex("TenantId", "SourceItemId");
+
+                    b.HasIndex("TenantId", "TargetItemId")
+                        .IsUnique();
+
+                    b.ToTable("template_operation_item", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.WorkspaceTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IncludeBody")
+                        .HasColumnType("boolean")
+                        .HasColumnName("include_body");
+
+                    b.Property<bool>("IncludeChildren")
+                        .HasColumnType("boolean")
+                        .HasColumnName("include_children");
+
+                    b.Property<DateTimeOffset>("LastModifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified_at");
+
+                    b.Property<Guid>("LastModifiedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("ManagedSource")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("managed_source");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("origin");
+
+                    b.Property<Guid?>("PendingRootItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pending_root_item_id");
+
+                    b.Property<string>("ProfileKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("profile_key");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer")
+                        .HasColumnName("revision");
+
+                    b.Property<Guid?>("RootItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("root_item_id");
+
+                    b.Property<string>("SourceDigest")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_digest");
+
+                    b.Property<string>("StableKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("stable_key");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "StableKey")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId", "State", "LastModifiedAt");
+
+                    b.ToTable("workspace_template", (string)null);
                 });
 
             modelBuilder.Entity("Nix.Domain.Tenancy.Tenant", b =>
@@ -1030,6 +1405,12 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Nix.Domain.Templates.WorkspaceTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TemplateId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Nix.Domain.Tenancy.Workspace", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "WorkspaceId")
@@ -1077,6 +1458,70 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasOne("Nix.Domain.Items.Item", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateApplication", b =>
+                {
+                    b.HasOne("Nix.Domain.Templates.WorkspaceTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TemplateId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateApplicationItem", b =>
+                {
+                    b.HasOne("Nix.Domain.Templates.TemplateApplication", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApplicationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateOperation", b =>
+                {
+                    b.HasOne("Nix.Domain.Templates.WorkspaceTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TemplateId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateOperationItem", b =>
+                {
+                    b.HasOne("Nix.Domain.Templates.TemplateOperation", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OperationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.WorkspaceTemplate", b =>
+                {
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

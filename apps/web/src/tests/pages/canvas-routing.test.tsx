@@ -19,6 +19,12 @@ vi.mock('../../editor/canvas-editor', () => ({
   ),
 }));
 
+vi.mock('../../views/sheet/sheet-editor', () => ({
+  SheetEditor: ({ itemId }: { itemId: string }) => (
+    <div aria-label="Spreadsheet body">spreadsheet {itemId}</div>
+  ),
+}));
+
 beforeEach(() => {
   signedIn();
 });
@@ -34,13 +40,31 @@ const NOTE = item({
   title: 'Plain words',
 });
 
+const SPREADSHEET = item({
+  id: '3e3e3e3e-3333-4333-8333-3e3e3e3e3e3e',
+  title: 'Capacity plan',
+  type: 'spreadsheet',
+});
+
 describe('opening a canvas item', () => {
   it('draws the canvas editor for a canvas body, not the prose one', async () => {
     stubCoreApi({ items: [DRAWING] });
     renderAt(<App />, `/?item=${DRAWING.id}`);
 
     expect(await screen.findByLabelText('Canvas body')).toHaveTextContent(DRAWING.id);
+    expect(screen.getByRole('textbox', { name: 'Canvas title' })).toHaveValue(DRAWING.title);
     expect(screen.queryByLabelText('Note body')).toBeNull();
+  });
+
+  it('labels a spreadsheet body and its title by the item kind', async () => {
+    stubCoreApi({ items: [SPREADSHEET] });
+    renderAt(<App />, `/?item=${SPREADSHEET.id}`);
+
+    expect(await screen.findByLabelText('Spreadsheet body')).toHaveTextContent(SPREADSHEET.id);
+    expect(screen.getByRole('textbox', { name: 'Spreadsheet title' })).toHaveValue(
+      SPREADSHEET.title,
+    );
+    expect(screen.queryByRole('textbox', { name: 'Note title' })).not.toBeInTheDocument();
   });
 
   it('still opens a note as prose, and an unknown kind as prose too', async () => {

@@ -22,15 +22,25 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
+import { PRINT_PALETTE } from '@nix/design-tokens/print';
+import { renderView } from '@nix/view-render';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
+import { z } from 'zod';
 
 import { browserSessionStorage } from '../../lib/browser-storage';
 import type { ShellContext } from '../../shell/shell-context';
-import type { PropertyDefinition, View } from '../core/container-model';
+import {
+  PropertyDefinitionSchema,
+  ViewSchema,
+  type PropertyDefinition,
+  type View,
+} from '../core/container-model';
 import { PROPERTY_TYPES } from '../core/property-types';
+import { StructuredViewConfiguration } from '../core/structured-view-configuration';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
-import { InteractiveFormEditor } from '../form/interactive-form-editor';
+import { InteractiveFormRespondentPreview } from '../form/interactive-form-editor';
+import { validateInteractiveForm } from '../form/interactive-form-rules';
 import { useContainer } from '../core/use-container';
 import {
   SMART_LIST_STARTERS,
@@ -45,11 +55,25 @@ interface StudioDraft {
   readonly title: string;
   readonly properties: readonly PropertyDefinition[];
   readonly view: View;
-  readonly companionKind: 'list' | 'sheet' | 'board' | 'calendar' | 'gallery' | null;
+  readonly companionKind: string | null;
+  readonly companionView: View | null;
   readonly companionViewId: string;
   readonly companionPlacement: 'below' | 'beside';
   readonly publish: boolean;
 }
+
+type StudioIntent = 'create' | 'add' | 'edit';
+
+const StudioDraftSchema = z.object({
+  title: z.string(),
+  properties: z.array(PropertyDefinitionSchema),
+  view: ViewSchema,
+  companionKind: z.string().nullable(),
+  companionView: ViewSchema.nullable().default(null),
+  companionViewId: z.string(),
+  companionPlacement: z.enum(['below', 'beside']),
+  publish: z.boolean(),
+});
 
 const STEPS = [
   { id: 'basics', label: 'Basics', detail: 'Name and destination' },
@@ -74,12 +98,15 @@ function draftFor(recipe: StructuredRecipe): StudioDraft {
     options: [...property.options],
   }));
   const view = viewForRecipe(recipe, properties);
+  const companionViewId = `${view.id}-companion`;
+  const companionKind = recipe.viewKind === 'interactive_form' ? 'list' : null;
   return {
     title: recipe.defaultTitle,
     properties,
     view,
-    companionKind: recipe.viewKind === 'interactive_form' ? 'list' : null,
-    companionViewId: `${view.id}-companion`,
+    companionKind,
+    companionView: null,
+    companionViewId,
     companionPlacement: 'below',
     publish: false,
   };
@@ -101,46 +128,48 @@ function readDraft(recipe: StructuredRecipe, parentId: string | null): StudioDra
   const raw = browserSessionStorage()?.getItem(draftKey(recipe, parentId));
   if (raw === null || raw === undefined) return fallback;
   try {
-    const parsed = JSON.parse(raw) as Partial<StudioDraft>;
-    return parsed.title && parsed.view && Array.isArray(parsed.properties)
-      ? {
-          ...fallback,
-          ...parsed,
-          companionViewId: parsed.companionViewId ?? fallback.companionViewId,
-        }
-      : fallback;
+    const parsed = StudioDraftSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : fallback;
   } catch {
     return fallback;
   }
 }
 
-function companionView(draft: StudioDraft): View | null {
-  if (draft.companionKind === null) return null;
-  const properties = draft.properties;
+function createCompanionView(
+  kind: string,
+  id: string,
+  properties: readonly PropertyDefinition[],
+): View {
   const firstSelect = properties.find((property) => property.type === 'select');
   const firstDate = properties.find(
     (property) => property.type === 'date' || property.type === 'timestamp',
   );
   const firstImage = properties.find((property) => property.type === 'image');
   return {
-    id: draft.companionViewId,
-    name: draft.companionKind === 'sheet' ? 'Responses' : 'Companion',
-    kind: draft.companionKind,
+    id,
+    name: kind === 'sheet' ? 'Responses' : 'Companion',
+    kind,
     columns: ['title', ...properties.map((property) => property.key)],
-    groupBy: draft.companionKind === 'board' ? (firstSelect?.key ?? null) : null,
-    groupOrder: draft.companionKind === 'board' ? [...(firstSelect?.options ?? [])] : [],
-    dateProperty: draft.companionKind === 'calendar' ? (firstDate?.key ?? null) : null,
+    groupBy: kind === 'board' ? (firstSelect?.key ?? null) : null,
+    groupOrder: kind === 'board' ? [...(firstSelect?.options ?? [])] : [],
+    dateProperty: kind === 'calendar' || kind === 'timeline' ? (firstDate?.key ?? null) : null,
     sortBy: null,
     sortDescending: false,
-    mode: draft.companionKind === 'calendar' ? 'week' : null,
-    coverProperty: draft.companionKind === 'gallery' ? (firstImage?.key ?? null) : null,
+    mode: kind === 'calendar' ? 'week' : kind === 'timeline' ? 'month' : null,
+    coverProperty: kind === 'gallery' ? (firstImage?.key ?? null) : null,
     endDateProperty: null,
-    cardSize: draft.companionKind === 'gallery' ? 'medium' : null,
+    cardSize: kind === 'gallery' ? 'medium' : null,
     filters: [],
     companionViewId: null,
     companionPlacement: null,
     interactiveForm: null,
   };
+}
+
+function companionView(draft: StudioDraft): View | null {
+  if (draft.companionKind === null) return null;
+  if (draft.companionView?.kind === draft.companionKind) return draft.companionView;
+  return createCompanionView(draft.companionKind, draft.companionViewId, draft.properties);
 }
 
 function compiledViews(draft: StudioDraft): readonly View[] {
@@ -178,6 +207,8 @@ function CreationStudio(): ReactNode {
     recipe === null ? draftFor(FALLBACK_RECIPE) : readDraft(recipe, draftScope),
   );
   const seededEdit = useRef<string | null>(null);
+  const stepMainRef = useRef<HTMLElement>(null);
+  const previousStep = useRef(step);
 
   useEffect(() => {
     if (itemId === undefined || targetContainer.status !== 'ready') return;
@@ -203,13 +234,15 @@ function CreationStudio(): ReactNode {
       const view = viewForRecipe(activeRecipe, properties);
       const id = uniqueIdentifier(view.id, takenViewIds);
       takenViewIds.add(id);
+      const companionViewId = uniqueIdentifier(`${id}-companion`, takenViewIds);
       queueMicrotask(() => {
         seededEdit.current = seedKey;
         setDraft({
           ...initial,
           properties,
           view: { ...view, id },
-          companionViewId: uniqueIdentifier(`${id}-companion`, takenViewIds),
+          companionView: null,
+          companionViewId,
         });
       });
       return;
@@ -220,14 +253,7 @@ function CreationStudio(): ReactNode {
     const companion = targetContainer.views?.views.find(
       (view) => view.id === stored.companionViewId,
     );
-    const companionKind =
-      companion?.kind === 'list' ||
-      companion?.kind === 'sheet' ||
-      companion?.kind === 'board' ||
-      companion?.kind === 'calendar' ||
-      companion?.kind === 'gallery'
-        ? companion.kind
-        : null;
+    const companionKind = companion?.kind ?? null;
     queueMicrotask(() => {
       seededEdit.current = seedKey;
       setDraft({
@@ -235,6 +261,7 @@ function CreationStudio(): ReactNode {
         properties: targetContainer.schema?.declared ?? [],
         view: stored,
         companionKind,
+        companionView: companion ?? null,
         companionViewId: companion?.id ?? uniqueIdentifier(`${stored.id}-companion`, takenViewIds),
         companionPlacement: stored.companionPlacement ?? 'below',
         publish: false,
@@ -269,6 +296,15 @@ function CreationStudio(): ReactNode {
     };
   }, []);
 
+  useEffect(() => {
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    const heading = stepMainRef.current?.querySelector<HTMLElement>('h2');
+    if (heading === null || heading === undefined) return;
+    heading.tabIndex = -1;
+    heading.focus();
+  }, [step]);
+
   if (recipe === null) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
@@ -285,14 +321,39 @@ function CreationStudio(): ReactNode {
       : parentId === null
         ? 'Workspace root'
         : (tree.find(parentId)?.title ?? 'Current item');
-  const refusal = validateStep(step, draft);
+  const intent: StudioIntent =
+    itemId === undefined ? 'create' : viewId === undefined ? 'add' : 'edit';
+  const existingProperties = targetContainer.schema?.properties ?? [];
 
-  function updateView(change: Partial<View>): void {
-    setDraft((current) => ({ ...current, view: { ...current.view, ...change } }));
+  function focusFirstField(): void {
+    queueMicrotask(() => {
+      stepMainRef.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus();
+    });
+  }
+
+  function goToStep(nextStep: number): void {
+    if (nextStep <= step) {
+      setError(null);
+      setStep(nextStep);
+      return;
+    }
+
+    for (let candidate = step; candidate < nextStep; candidate += 1) {
+      const reason = validateStep(candidate, draft, existingProperties);
+      if (reason !== null) {
+        setStep(candidate);
+        setError(reason);
+        focusFirstField();
+        return;
+      }
+    }
+
+    setError(null);
+    setStep(nextStep);
   }
 
   async function finish(): Promise<void> {
-    const finalRefusal = validateDraft(draft);
+    const finalRefusal = validateDraft(draft, existingProperties);
     if (finalRefusal !== null) {
       setError(finalRefusal);
       return;
@@ -370,7 +431,11 @@ function CreationStudio(): ReactNode {
                 : `Edit ${recipe.label}`}
           </Text>
           <Text variant="caption" tone="muted" className="truncate">
-            Creating in {destination}
+            {itemId === undefined
+              ? `Creating in ${destination}`
+              : viewId === undefined
+                ? `Adding to ${destination}`
+                : `Editing in ${destination}`}
           </Text>
         </div>
         <Button
@@ -395,8 +460,9 @@ function CreationStudio(): ReactNode {
                 <button
                   type="button"
                   aria-current={step === index ? 'step' : undefined}
+                  aria-label={`${entry.label}: ${entry.detail}`}
                   onClick={() => {
-                    setStep(index);
+                    goToStep(index);
                   }}
                   className={cn(
                     `flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${focusRing}`,
@@ -421,6 +487,7 @@ function CreationStudio(): ReactNode {
         </nav>
 
         <main
+          ref={stepMainRef}
           className={cn(
             'min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6',
             previewing ? 'hidden lg:block' : '',
@@ -438,14 +505,13 @@ function CreationStudio(): ReactNode {
             ) : step === 1 ? (
               <SetupStep
                 draft={draft}
-                existingProperties={targetContainer.schema?.properties ?? []}
+                existingProperties={existingProperties}
                 onChange={setDraft}
-                updateView={updateView}
               />
             ) : step === 2 ? (
               <CompanionStep draft={draft} onChange={setDraft} />
             ) : (
-              <ReviewStep draft={draft} destination={destination} />
+              <ReviewStep draft={draft} destination={destination} intent={intent} />
             )}
 
             {error === null ? null : (
@@ -459,32 +525,34 @@ function CreationStudio(): ReactNode {
                 variant="secondary"
                 disabled={step === 0 || saving}
                 onClick={() => {
-                  setStep((current) => Math.max(0, current - 1));
+                  goToStep(Math.max(0, step - 1));
                 }}
               >
                 Back
               </Button>
               {step < STEPS.length - 1 ? (
                 <Button
-                  disabled={refusal !== null}
+                  disabled={saving}
                   onClick={() => {
-                    setStep((current) => Math.min(STEPS.length - 1, current + 1));
+                    goToStep(Math.min(STEPS.length - 1, step + 1));
                   }}
                 >
                   Continue <Icon icon={ArrowRight} size="sm" />
                 </Button>
               ) : (
                 <Button
-                  disabled={saving || validateDraft(draft) !== null}
+                  disabled={saving || validateDraft(draft, existingProperties) !== null}
                   onClick={() => void finish()}
                 >
                   {saving
-                    ? itemId === undefined
+                    ? intent === 'create'
                       ? 'Creating…'
-                      : 'Adding…'
-                    : itemId === undefined
+                      : intent === 'add'
+                        ? 'Adding…'
+                        : 'Updating…'
+                    : intent === 'create'
                       ? `Create ${recipe.label}`
-                      : viewId === undefined
+                      : intent === 'add'
                         ? `Add ${recipe.label}`
                         : 'Save changes'}
                 </Button>
@@ -496,8 +564,8 @@ function CreationStudio(): ReactNode {
         <aside
           aria-label="Live preview"
           className={cn(
-            'min-h-0 overflow-y-auto border-l border-divider bg-surface p-4',
-            'shrink-0 lg:w-80 xl:w-96',
+            'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-t border-divider bg-surface p-4',
+            'lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0 lg:w-80 xl:w-96',
             previewing ? 'block' : 'hidden lg:block',
           )}
         >
@@ -534,7 +602,12 @@ function CreationStudio(): ReactNode {
         }
       >
         <Text variant="bodySmall">
-          The item has not been created yet. Discarding removes this tab&rsquo;s saved draft.
+          {itemId === undefined
+            ? 'The item has not been created yet.'
+            : viewId === undefined
+              ? 'The view has not been added yet.'
+              : 'The existing view has not been changed yet.'}{' '}
+          Discarding removes this tab&rsquo;s saved draft.
         </Text>
       </Dialog>
     </div>
@@ -589,13 +662,12 @@ function SetupStep({
   draft,
   existingProperties,
   onChange,
-  updateView,
 }: {
   readonly draft: StudioDraft;
   readonly existingProperties: readonly PropertyDefinition[];
   readonly onChange: (draft: StudioDraft) => void;
-  readonly updateView: (change: Partial<View>) => void;
 }): ReactNode {
+  const fields = mergedFields(draft.properties, existingProperties);
   return (
     <section className="flex flex-col gap-5">
       <div>
@@ -617,84 +689,18 @@ function SetupStep({
           }}
         />
       )}
-      <ConfiguredPropertyChoice
-        draft={draft}
-        existingProperties={existingProperties}
-        updateView={updateView}
-      />
-      {draft.view.kind === 'board' || draft.view.kind === 'list' || draft.view.kind === 'sheet' ? (
-        <VisibleFieldsChoice
-          draft={draft}
-          existingProperties={existingProperties}
-          updateView={updateView}
-        />
-      ) : null}
-      {draft.view.kind === 'list' || draft.view.kind === 'sheet' ? (
-        <SortChoice draft={draft} existingProperties={existingProperties} updateView={updateView} />
-      ) : null}
-      {draft.view.kind === 'calendar' ? (
-        <Field label="Initial calendar view">
-          {(control) => (
-            <Select
-              {...control}
-              value={draft.view.mode ?? 'week'}
-              onChange={(event) => {
-                updateView({ mode: event.target.value });
-              }}
-            >
-              <option value="day">Day</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-            </Select>
-          )}
-        </Field>
-      ) : null}
-      {draft.view.kind === 'timeline' ? (
-        <Field label="Initial time scale">
-          {(control) => (
-            <Select
-              {...control}
-              value={draft.view.mode ?? 'month'}
-              onChange={(event) => {
-                updateView({ mode: event.target.value });
-              }}
-            >
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-              <option value="quarter">Quarter</option>
-            </Select>
-          )}
-        </Field>
-      ) : null}
-      {draft.view.kind === 'gallery' ? (
-        <Field label="Card size">
-          {(control) => (
-            <Select
-              {...control}
-              value={draft.view.cardSize ?? 'medium'}
-              onChange={(event) => {
-                updateView({ cardSize: event.target.value });
-              }}
-            >
-              <option value="small">Small</option>
-              <option value="medium">Medium</option>
-              <option value="large">Large</option>
-            </Select>
-          )}
-        </Field>
-      ) : null}
-      {draft.view.kind === 'interactive_form' && draft.view.interactiveForm != null ? (
-        <InteractiveFormEditor
-          form={draft.view.interactiveForm}
-          schema={[...existingProperties, ...draft.properties]}
-          itemId={null}
-          viewId={draft.view.id}
-          showPublishing={false}
-          onChange={(interactiveForm) => {
-            updateView({ interactiveForm });
+      {draft.view.kind === 'query' ? null : (
+        <StructuredViewConfiguration
+          view={draft.view}
+          fields={fields}
+          showColumns={['board', 'list', 'sheet'].includes(draft.view.kind)}
+          showSortAndFilters={['list', 'sheet'].includes(draft.view.kind)}
+          showKindFilters={false}
+          onChange={(view) => {
+            onChange({ ...draft, view });
           }}
         />
-      ) : null}
+      )}
       {draft.view.kind === 'interactive_form' ? (
         <label className="flex items-center gap-2 text-base">
           <input
@@ -712,213 +718,12 @@ function SetupStep({
   );
 }
 
-function ConfiguredPropertyChoice({
-  draft,
-  existingProperties,
-  updateView,
-}: {
-  readonly draft: StudioDraft;
-  readonly existingProperties: readonly PropertyDefinition[];
-  readonly updateView: (change: Partial<View>) => void;
-}): ReactNode {
-  const all = [...existingProperties, ...draft.properties];
-  if (draft.view.kind === 'board') {
-    const usable = all.filter((property) => property.type === 'select');
-    return (
-      <Field label="Columns field" hint="Reuse a compatible field or create one above.">
-        {(control) => (
-          <Select
-            {...control}
-            value={draft.view.groupBy ?? ''}
-            onChange={(event) => {
-              const property = usable.find((entry) => entry.key === event.target.value);
-              updateView({
-                groupBy: property?.key ?? null,
-                groupOrder: [...(property?.options ?? [])],
-              });
-            }}
-          >
-            <option value="">Choose a select field</option>
-            {usable.map((property) => (
-              <option key={property.key} value={property.key}>
-                {property.label}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Field>
-    );
-  }
-
-  if (draft.view.kind === 'calendar' || draft.view.kind === 'timeline') {
-    const usable = all.filter(
-      (property) => property.type === 'date' || property.type === 'timestamp',
-    );
-    return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={draft.view.kind === 'timeline' ? 'Starts on' : 'Date field'}>
-          {(control) => (
-            <Select
-              {...control}
-              value={draft.view.dateProperty ?? ''}
-              onChange={(event) => {
-                const value = event.target.value;
-                updateView({ dateProperty: value.length === 0 ? null : value });
-              }}
-            >
-              <option value="">Choose a date field</option>
-              {usable.map((property) => (
-                <option key={property.key} value={property.key}>
-                  {property.label}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        {draft.view.kind === 'timeline' ? (
-          <Field label="Ends on">
-            {(control) => (
-              <Select
-                {...control}
-                value={draft.view.endDateProperty ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  updateView({ endDateProperty: value.length === 0 ? null : value });
-                }}
-              >
-                <option value="">None</option>
-                {usable.map((property) => (
-                  <option key={property.key} value={property.key}>
-                    {property.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (draft.view.kind === 'gallery') {
-    const usable = all.filter((property) => property.type === 'image');
-    return (
-      <Field label="Cover field">
-        {(control) => (
-          <Select
-            {...control}
-            value={draft.view.coverProperty ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              updateView({ coverProperty: value.length === 0 ? null : value });
-            }}
-          >
-            <option value="">No cover</option>
-            {usable.map((property) => (
-              <option key={property.key} value={property.key}>
-                {property.label}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Field>
-    );
-  }
-
-  return null;
-}
-
-function VisibleFieldsChoice({
-  draft,
-  existingProperties,
-  updateView,
-}: {
-  readonly draft: StudioDraft;
-  readonly existingProperties: readonly PropertyDefinition[];
-  readonly updateView: (change: Partial<View>) => void;
-}): ReactNode {
-  const available = [...existingProperties, ...draft.properties].filter(
-    (property, index, all) => all.findIndex((entry) => entry.key === property.key) === index,
-  );
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className={fieldLabel}>Visible fields</legend>
-      <label className="flex items-center gap-2 text-base">
-        <input type="checkbox" checked disabled className={focusRing} />
-        Title
-      </label>
-      {available.map((property) => {
-        const checked = draft.view.columns.includes(property.key);
-        return (
-          <label key={property.key} className="flex items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={checked}
-              className={focusRing}
-              onChange={(event) => {
-                updateView({
-                  columns: event.target.checked
-                    ? [...draft.view.columns, property.key]
-                    : draft.view.columns.filter((key) => key !== property.key),
-                });
-              }}
-            />
-            {property.label}
-          </label>
-        );
-      })}
-    </fieldset>
-  );
-}
-
-function SortChoice({
-  draft,
-  existingProperties,
-  updateView,
-}: {
-  readonly draft: StudioDraft;
-  readonly existingProperties: readonly PropertyDefinition[];
-  readonly updateView: (change: Partial<View>) => void;
-}): ReactNode {
-  const available = [...existingProperties, ...draft.properties].filter(
-    (property, index, all) => all.findIndex((entry) => entry.key === property.key) === index,
-  );
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <Field label="Sort by">
-        {(control) => (
-          <Select
-            {...control}
-            value={draft.view.sortBy ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              updateView({ sortBy: value.length === 0 ? null : value });
-            }}
-          >
-            <option value="">No sorting</option>
-            <option value="title">Title</option>
-            {available.map((property) => (
-              <option key={property.key} value={property.key}>
-                {property.label}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Field>
-      <label className="flex items-center gap-2 self-end py-2 text-base">
-        <input
-          type="checkbox"
-          className={focusRing}
-          checked={draft.view.sortDescending}
-          disabled={draft.view.sortBy === null}
-          onChange={(event) => {
-            updateView({ sortDescending: event.target.checked });
-          }}
-        />
-        Descending order
-      </label>
-    </div>
-  );
+function mergedFields(
+  nearer: readonly PropertyDefinition[],
+  farther: readonly PropertyDefinition[],
+): readonly PropertyDefinition[] {
+  const nearerKeys = new Set(nearer.map((field) => field.key));
+  return [...nearer, ...farther.filter((field) => !nearerKeys.has(field.key))];
 }
 
 function FieldsEditor({
@@ -935,9 +740,9 @@ function FieldsEditor({
           key={`${property.key}-${String(index)}`}
           className="flex flex-col gap-3 rounded-md bg-surface p-3"
         >
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <Icon icon={GripVertical} size="sm" />
-            <Field label="Field name" className="flex-1">
+            <Field label="Field name" className="min-w-full sm:min-w-0 sm:flex-1">
               {(control) => (
                 <Input
                   {...control}
@@ -955,7 +760,7 @@ function FieldsEditor({
                 />
               )}
             </Field>
-            <Field label="Type" className="w-48">
+            <Field label="Type" className="min-w-0 flex-1 sm:w-48 sm:flex-none">
               {(control) => (
                 <Select
                   {...control}
@@ -1149,6 +954,8 @@ function CompanionStep({
   const hasDate = draft.properties.some(
     (property) => property.type === 'date' || property.type === 'timestamp',
   );
+  const offeredKinds = new Set(['list', 'sheet', 'board', 'calendar', 'gallery']);
+  const configuredCompanion = companionView(draft);
   return (
     <section className="flex flex-col gap-4">
       <div>
@@ -1165,15 +972,25 @@ function CompanionStep({
             {...control}
             value={draft.companionKind ?? ''}
             onChange={(event) => {
+              const companionKind = event.target.value.length === 0 ? null : event.target.value;
               onChange({
                 ...draft,
-                companionKind: (event.target.value.length === 0
-                  ? null
-                  : event.target.value) as StudioDraft['companionKind'],
+                companionKind,
+                companionView:
+                  companionKind === null
+                    ? null
+                    : draft.companionView?.kind === companionKind
+                      ? draft.companionView
+                      : null,
               });
             }}
           >
             <option value="">None</option>
+            {draft.companionKind !== null && !offeredKinds.has(draft.companionKind) ? (
+              <option value={draft.companionKind}>
+                {configuredCompanion?.name ?? draft.companionKind}
+              </option>
+            ) : null}
             <option value="list">List</option>
             <option value="sheet">Spreadsheet</option>
             <option value="board" disabled={!hasSelect}>
@@ -1212,18 +1029,28 @@ function CompanionStep({
 function ReviewStep({
   draft,
   destination,
+  intent,
 }: {
   readonly draft: StudioDraft;
   readonly destination: string;
+  readonly intent: StudioIntent;
 }): ReactNode {
   return (
     <section className="flex flex-col gap-4">
       <div>
         <Text variant="h2" as="h2">
-          Ready to create
+          {intent === 'create'
+            ? 'Ready to create'
+            : intent === 'add'
+              ? 'Ready to add'
+              : 'Ready to save'}
         </Text>
         <Text variant="bodySmall" tone="muted">
-          Nothing is written until you press Create.
+          {intent === 'create'
+            ? 'Nothing is written until you press Create.'
+            : intent === 'add'
+              ? 'Nothing is added until you press Add.'
+              : 'Nothing changes until you press Save.'}
         </Text>
       </div>
       <Blueprint className="grid gap-3 p-4 sm:grid-cols-2">
@@ -1262,6 +1089,35 @@ function ReviewStep({
 
 function StudioPreview({ draft }: { readonly draft: StudioDraft }): ReactNode {
   const form = draft.view.interactiveForm;
+  if (form !== null && form !== undefined) {
+    return (
+      <div className="mt-3">
+        <InteractiveFormRespondentPreview form={form} schema={draft.properties} />
+      </div>
+    );
+  }
+
+  const rows = Array.from({ length: 6 }, (_unused, index) => ({
+    id: `preview-${String(index + 1)}`,
+    title: `Example ${String(index + 1)}`,
+    properties: Object.fromEntries(
+      draft.properties.map((property) => [property.key, previewValue(property, index)]),
+    ),
+  }));
+  const view = {
+    ...draft.view,
+    companionViewId: draft.view.companionViewId ?? null,
+    companionPlacement: draft.view.companionPlacement ?? null,
+    interactiveForm: null,
+  };
+  const rendered = renderView({
+    view,
+    rows,
+    schema: { properties: draft.properties, declared: draft.properties, inherit: false },
+    palette: PRINT_PALETTE,
+    width: 360,
+  });
+  const source = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(rendered.svg)}`;
   return (
     <Blueprint className="mt-3 flex flex-col gap-4 p-4">
       <div>
@@ -1272,62 +1128,29 @@ function StudioPreview({ draft }: { readonly draft: StudioDraft }): ReactNode {
           {draft.view.name}
         </Text>
       </div>
-      {form === null || form === undefined ? (
-        <div className="flex flex-col gap-2">
-          {draft.properties.length === 0 ? (
-            <Text variant="bodySmall" tone="muted">
-              Rules will determine which items appear.
-            </Text>
-          ) : (
-            draft.properties.map((property) => (
-              <div key={property.key} className="rounded-md bg-background px-3 py-2">
-                <Text variant="caption" tone="muted">
-                  {property.label}
-                </Text>
-                <Text variant="bodySmall">
-                  {property.type === 'select'
-                    ? property.options.join(' · ') || 'Add options'
-                    : 'Example value'}
-                </Text>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        form.pages.map((page, index) => (
-          <section
-            key={page.id}
-            className={cn('flex flex-col gap-3', index > 0 && 'border-t border-divider pt-3')}
-          >
-            <Text variant="caption" tone="muted">
-              Page {String(index + 1)}
-            </Text>
-            <Text variant="h4" as="h3">
-              {page.title}
-            </Text>
-            {page.blocks.map((block) => (
-              <div key={block.id}>
-                {block.kind === 'field' ? (
-                  <Field label={`${block.text}${block.required ? ' (required)' : ''}`}>
-                    {(control) => (
-                      <Input {...control} disabled placeholder={block.help ?? 'Response'} />
-                    )}
-                  </Field>
-                ) : (
-                  <Text
-                    variant={block.kind === 'heading' ? 'body' : 'bodySmall'}
-                    {...(block.kind === 'paragraph' ? { tone: 'muted' as const } : {})}
-                  >
-                    {block.text}
-                  </Text>
-                )}
-              </div>
-            ))}
-          </section>
-        ))
+      <img
+        src={source}
+        alt={`${draft.view.name} live preview`}
+        className="h-auto w-full rounded-md bg-background"
+      />
+      {rendered.notes.length === 0 ? null : (
+        <Text variant="caption" tone="muted">
+          {rendered.notes.join(' ')}
+        </Text>
       )}
     </Blueprint>
   );
+}
+
+function previewValue(property: PropertyDefinition, index: number): unknown {
+  if (property.type === 'checkbox') return index % 2 === 0;
+  if (property.type === 'number') return index + 1;
+  if (property.type === 'date' || property.type === 'timestamp')
+    return `2026-08-${String(index + 10).padStart(2, '0')}`;
+  if (property.type === 'multi_select') return property.options.slice(0, 2);
+  if (property.type === 'select')
+    return property.options[index % Math.max(1, property.options.length)] ?? '';
+  return `${property.label} ${String(index + 1)}`;
 }
 
 function refreshViewProperties(view: View, properties: readonly PropertyDefinition[]): View {
@@ -1350,13 +1173,20 @@ function refreshViewProperties(view: View, properties: readonly PropertyDefiniti
   };
 }
 
-function validateStep(step: number, draft: StudioDraft): string | null {
+function validateStep(
+  step: number,
+  draft: StudioDraft,
+  existingProperties: readonly PropertyDefinition[] = [],
+): string | null {
   if (step === 0 && draft.title.trim().length === 0) return 'Enter a name.';
-  if (step === 1) return validateDraft(draft);
+  if (step === 1) return validateDraft(draft, existingProperties);
   return null;
 }
 
-function validateDraft(draft: StudioDraft): string | null {
+function validateDraft(
+  draft: StudioDraft,
+  existingProperties: readonly PropertyDefinition[] = [],
+): string | null {
   if (draft.title.trim().length === 0) return 'Enter a name.';
   const keys = new Set<string>();
   for (const property of draft.properties) {
@@ -1378,11 +1208,15 @@ function validateDraft(draft: StudioDraft): string | null {
     draft.view.dateProperty === null
   )
     return `${draft.view.name} needs a date field.`;
-  if (
-    draft.view.kind === 'interactive_form' &&
-    (draft.view.interactiveForm?.pages.length ?? 0) === 0
-  )
-    return 'An interactive form needs at least one page.';
+  if (draft.view.kind === 'interactive_form') {
+    if (draft.view.interactiveForm === null || draft.view.interactiveForm === undefined)
+      return 'An interactive form needs a form definition.';
+    const formRefusal = validateInteractiveForm(draft.view.interactiveForm, [
+      ...existingProperties,
+      ...draft.properties,
+    ]);
+    if (formRefusal !== null) return formRefusal;
+  }
   const companion = companionView(draft);
   if (companion?.kind === 'board' && companion.groupBy === null)
     return 'Add a select field before using a Board companion.';

@@ -221,7 +221,7 @@ describe("the token list's own states", () => {
     stubCoreApi({ tokensFail: true });
     renderAt(<App />, '/settings');
 
-    const alert = await screen.findByText(/your tokens could not be loaded/i);
+    const alert = await screen.findByRole('heading', { name: /your tokens could not be loaded/i });
     expect(alert).toBeInTheDocument();
     expect(screen.queryByText(/you have no access tokens/i)).not.toBeInTheDocument();
   });
