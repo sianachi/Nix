@@ -139,6 +139,9 @@ importers:
       '@nix/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@nix/view-render':
+        specifier: workspace:*
+        version: link:../../packages/view-render
       '@tiptap/core':
         specifier: ^3.29.0
         version: 3.29.0(@tiptap/pm@3.29.0)
@@ -248,6 +251,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
+      playwright:
+        specifier: ^1.62.0
+        version: 1.62.0
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -419,6 +425,9 @@ importers:
       '@nix/editor-schema':
         specifier: workspace:*
         version: link:../editor-schema
+      '@nix/sheet':
+        specifier: workspace:*
+        version: link:../sheet
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
