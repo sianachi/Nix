@@ -37,23 +37,28 @@ public sealed class GetItemAuthorizationHandler : IQueryHandler<GetItemAuthoriza
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
+    private readonly AccessTokenSessionContext _scope;
 
     /// <summary>Initializes a new instance of the <see cref="GetItemAuthorizationHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the acting principal may do.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
+    /// <param name="scope">The scope ceiling, when a personal access token authenticated the call.</param>
     public GetItemAuthorizationHandler(
         IItemTree tree,
         IPermissionResolver permissions,
-        INixSessionContextAccessor session)
+        INixSessionContextAccessor session,
+        AccessTokenSessionContext scope)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(scope);
 
         _tree = tree;
         _permissions = permissions;
         _session = session;
+        _scope = scope;
     }
 
     /// <summary>Resolves the authorization.</summary>
@@ -89,12 +94,19 @@ public sealed class GetItemAuthorizationHandler : IQueryHandler<GetItemAuthoriza
             .CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken)
             .ConfigureAwait(false);
 
+        // The collaboration service writes bodies on the strength of this answer and never asks
+        // Core again, so the acting credential's ceiling has to be folded in here rather than only
+        // at the route the caller reached. A read-only personal access token authenticates this
+        // GET legitimately; intersecting with its ceiling is what stops it from writing through
+        // the service that trusts CanWrite. An interactive session leaves the ceiling permissive.
+        var mayWriteWithinScope = mayWrite && _scope.MayWrite;
+
         return Result.Success(
             new ItemAuthorization(
                 context.TenantId,
                 context.PrincipalId,
                 item.WorkspaceId,
-                CanWrite: mayWrite,
+                CanWrite: mayWriteWithinScope,
                 BodyKind: item.Type));
     }
 }
