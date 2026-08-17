@@ -1,5 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from '../../app';
@@ -73,6 +74,32 @@ describe('an item nobody has configured', () => {
     // things, which is the collision the rename settles.
     expect(await screen.findByRole('button', { name: /settings/i })).toBeVisible();
   });
+
+  it('updates item template actions when the shell catalog resolves after the editor mounts', async () => {
+    let releaseCatalog = (): void => undefined;
+    const templateCatalogGate = new Promise<void>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    stubCoreApi({ items: [NOTES, CHILD], canManageTemplates: true, templateCatalogGate });
+    renderAt(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+      `/?item=${NOTES.id}`,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Export' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Apply template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save as template' })).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseCatalog();
+      await templateCatalogGate;
+    });
+
+    expect(await screen.findByRole('button', { name: 'Apply template' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save as template' })).toBeVisible();
+  });
 });
 
 describe('an item with views', () => {
@@ -95,9 +122,35 @@ describe('an item with views', () => {
     const companionSlot = screen.getByRole('region', { name: 'Companion' });
     const composition = primarySlot.parentElement;
 
-    expect(composition).toHaveClass('flex-col', 'lg:flex-row');
-    expect(primarySlot).toHaveClass('flex-1');
-    expect(companionSlot).toHaveClass('flex-1');
+    expect(composition).toHaveClass(
+      'grid',
+      'min-h-full',
+      'grid-rows-2',
+      'lg:grid-cols-2',
+      'lg:grid-rows-1',
+    );
+    expect(primarySlot).toHaveClass('min-h-0', 'min-w-0');
+    expect(companionSlot).toHaveClass('min-h-0', 'min-w-0');
+  });
+
+  it('gives below companions equal stacked tracks', async () => {
+    const primary = {
+      ...BOARD,
+      id: 'primary',
+      name: 'Primary',
+      companionViewId: 'companion',
+      companionPlacement: 'below',
+    };
+    const companion = { ...BOARD, id: 'companion', name: 'Companion' };
+    stubCoreApi({
+      items: [NOTES, CHILD],
+      views: { [NOTES.id]: { views: [primary, companion], default: 'primary' } },
+    });
+    renderAt(<App />, `/?item=${NOTES.id}`);
+
+    const primarySlot = await screen.findByRole('region', { name: 'Primary' });
+    expect(primarySlot.parentElement).toHaveClass('grid', 'min-h-full', 'grid-rows-2');
+    expect(screen.getByRole('region', { name: 'Companion' })).toHaveClass('min-h-0', 'min-w-0');
   });
 
   it('offers its document alongside them', async () => {

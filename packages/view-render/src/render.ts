@@ -2,8 +2,12 @@ import type { RenderRequest, RenderedView } from './types.js';
 import {
   drawBoard,
   drawCalendar,
+  drawForm,
   drawGallery,
+  drawInteractiveForm,
   drawList,
+  drawQuery,
+  drawSheet,
   drawTimeline,
   type Drawing,
 } from './kinds.js';
@@ -24,6 +28,10 @@ const DRAWERS: Readonly<Record<string, (request: RenderRequest) => Drawing>> = {
   gallery: drawGallery,
   calendar: drawCalendar,
   timeline: drawTimeline,
+  sheet: drawSheet,
+  form: drawForm,
+  interactive_form: drawInteractiveForm,
+  query: drawQuery,
 };
 
 export const DRAWN_VIEW_KINDS: readonly string[] = Object.keys(DRAWERS);

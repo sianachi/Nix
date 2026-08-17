@@ -3,6 +3,7 @@ import { Suspense, lazy, type ReactElement } from 'react';
 import { Route, Routes } from 'react-router';
 
 import { AuthProvider } from './auth/auth-provider';
+import { ApiClientProvider } from './api/api-client-provider';
 import { AppErrorBoundary } from './components/error-boundary';
 import { AuthCallbackPage, SilentRenewPage } from './pages/auth-callback-page';
 import { BookmarksPage } from './pages/bookmarks-page';
@@ -11,6 +12,9 @@ import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { NotFoundPage } from './pages/not-found-page';
 import { PublicFormPage } from './pages/public-form-page';
+import { TemplateLibraryPage } from './templates/template-library-page';
+import { TemplateImportPage } from './templates/template-import-page';
+import { TemplateStudioPage } from './templates/template-studio-page';
 import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { AppShell } from './shell/app-shell';
 import { RequireSession } from './shell/require-session';
@@ -58,56 +62,67 @@ export function App(): ReactElement {
     <div className="min-h-dvh bg-background font-body text-foreground">
       <AppErrorBoundary>
         <AuthProvider>
-          <Routes>
-            {/* Outside the session gate: these two ARE the sign-in process. */}
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/auth/silent-renew" element={<SilentRenewPage />} />
-            <Route path="/forms/:token" element={<PublicFormPage />} />
+          <ApiClientProvider>
+            <Routes>
+              {/* Outside the session gate: these two ARE the sign-in process. */}
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              <Route path="/auth/silent-renew" element={<SilentRenewPage />} />
+              <Route path="/forms/:token" element={<PublicFormPage />} />
 
-            <Route element={<RequireSession />}>
-              <Route element={<AppShell />}>
-                {/* One workspace, one place to be. The board is a view of a container rather
+              <Route element={<RequireSession />}>
+                <Route element={<AppShell />}>
+                  {/* One workspace, one place to be. The board is a view of a container rather
                     than a destination, and search opens over whatever is on screen, so neither
                     has a route of its own. */}
-                <Route index element={<EditorPage />} />
-                <Route path="new/:recipe" element={<CreationStudioPage />} />
-                <Route path="items/:itemId/views/new/:recipe" element={<CreationStudioPage />} />
-                <Route
-                  path="items/:itemId/views/:viewId/edit/:recipe"
-                  element={<CreationStudioPage />}
-                />
+                  <Route index element={<EditorPage />} />
+                  <Route path="new/:recipe" element={<CreationStudioPage />} />
+                  <Route path="items/:itemId/views/new/:recipe" element={<CreationStudioPage />} />
+                  <Route
+                    path="items/:itemId/views/:viewId/edit/:recipe"
+                    element={<CreationStudioPage />}
+                  />
 
-                {/* The rail's three destinations. These *are* places, unlike a board or a
+                  {/* The rail's three destinations. These *are* places, unlike a board or a
                     search: each is a way of looking at the whole workspace rather than at one
                     container, so none of them has an item to hang off and each needs an address
                     of its own. Not lazy-loaded, unlike the token specimens: the placeholders are
                     a few lines each, and a Suspense boundary around nothing is a fallback that
                     can only ever flash. */}
-                <Route path="calendar" element={<CalendarPage />} />
-                <Route path="graph" element={<GraphPage />} />
-                <Route path="bookmarks" element={<BookmarksPage />} />
+                  <Route path="calendar" element={<CalendarPage />} />
+                  <Route path="graph" element={<GraphPage />} />
+                  <Route path="bookmarks" element={<BookmarksPage />} />
+                  <Route path="templates" element={<TemplateLibraryPage />} />
+                  <Route path="templates/new" element={<TemplateStudioPage />} />
+                  <Route path="templates/import" element={<TemplateImportPage />} />
+                  <Route path="templates/:templateId/create" element={<TemplateStudioPage />} />
+                  <Route path="templates/:templateId/edit" element={<TemplateStudioPage />} />
+                  <Route
+                    path="items/:itemId/templates/apply/:templateId"
+                    element={<TemplateStudioPage />}
+                  />
 
-                {/* The boundary is per-route rather than around the whole tree: a fallback over
+                  {/* The boundary is per-route rather than around the whole tree: a fallback over
                     `Routes` would blank the shell while a chunk arrives. The wording matches the
                     canvas's - what is loading, named, rather than a spinner claiming nothing. */}
-                <Route
-                  path="tokens"
-                  element={
-                    <Suspense
-                      fallback={
-                        <Text variant="note" as="div" tone="muted" className="p-8">
-                          Loading the token specimens…
-                        </Text>
-                      }
-                    >
-                      <TokensPage />
-                    </Suspense>
-                  }
-                />
-                <Route path="*" element={<NotFoundPage />} />
+                  <Route
+                    path="tokens"
+                    element={
+                      <Suspense
+                        fallback={
+                          <Text variant="note" as="div" tone="muted" className="p-8">
+                            Loading the token specimens…
+                          </Text>
+                        }
+                      >
+                        <TokensPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route path="*" element={<NotFoundPage />} />
+                </Route>
               </Route>
-            </Route>
-          </Routes>
+            </Routes>
+          </ApiClientProvider>
         </AuthProvider>
       </AppErrorBoundary>
     </div>
