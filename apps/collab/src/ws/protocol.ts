@@ -27,6 +27,19 @@ export const MESSAGE_AWARENESS = 1;
 export const MESSAGE_NOTICE = 2;
 
 /**
+ * A same-socket persistence barrier. The client sends a bounded identifier after its pending Yjs
+ * update; the server echoes it only after the resident document has flushed every earlier frame.
+ */
+export const MESSAGE_PERSISTED = 3;
+
+export function encodePersisted(barrierId: string): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, MESSAGE_PERSISTED);
+  encoding.writeVarString(encoder, barrierId);
+  return encoding.toUint8Array(encoder);
+}
+
+/**
  * Close codes, aligned with the HTTP status the same refusal would have carried.
  *
  * 4000-range codes are the application's to define; 1012 is the standard "service

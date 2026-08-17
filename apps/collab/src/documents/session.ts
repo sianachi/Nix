@@ -13,9 +13,11 @@ import { withTenantScope } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import {
   MESSAGE_AWARENESS,
+  MESSAGE_PERSISTED,
   MESSAGE_SYNC,
   CLOSE_CODES,
   encodeNotice,
+  encodePersisted,
   readBinaryFrame,
 } from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
@@ -58,6 +60,13 @@ export interface SessionContext {
    * wrong than a failed flush.
    */
   readonly onFlushed?: ((session: DocumentSession) => void) | undefined;
+
+  /**
+   * Atomically moves this session's contribution to the process-wide resident-byte account.
+   * Growth may be refused before the Yjs document is mutated; shrinkage is always accepted.
+   */
+  readonly resizeResident?:
+    ((session: DocumentSession, nextEstimatedBytes: number) => boolean) | undefined;
 
   readonly now?: (() => number) | undefined;
 }
@@ -102,6 +111,7 @@ export class DocumentSession {
 
   #pending: PendingUpdate[] = [];
   #pendingBytes = 0;
+  #flushingBytes = 0;
   #flushTimer: NodeJS.Timeout | null = null;
   #flushing: Promise<void> = Promise.resolve();
 
@@ -197,12 +207,13 @@ export class DocumentSession {
 
   /**
    * Roughly how many bytes this document holds resident: the encoded state at the last
-   * snapshot plus every update applied since. An estimate on purpose - counting real heap
-   * would cost more than the number is worth - and always an overestimate, which is the
+   * snapshot plus every update applied since, with pending or currently flushing log bytes
+   * counted separately because both copies remain resident. An estimate on purpose - counting
+   * real heap would cost more than the number is worth - and always an overestimate, which is the
    * safe direction for a capacity decision.
    */
   get estimatedBytes(): number {
-    return this.#encodedBase + this.#bytesSinceEncode + this.#pendingBytes;
+    return this.#encodedBase + this.#bytesSinceEncode + this.#pendingBytes + this.#flushingBytes;
   }
 
   /**
@@ -266,8 +277,25 @@ export class DocumentSession {
           // A malformed awareness payload costs its sender their cursor, nothing more.
         }
         return;
+      case MESSAGE_PERSISTED:
+        void this.#persistBarrier(socket, frame.decoder);
+        return;
       default:
         return;
+    }
+  }
+
+  async #persistBarrier(socket: SocketSession, decoder: decoding.Decoder): Promise<void> {
+    let barrierId: string;
+    try {
+      barrierId = decoding.readVarString(decoder);
+    } catch {
+      return;
+    }
+    if (barrierId.length === 0 || barrierId.length > 100) return;
+    await this.flush();
+    if (this.#sockets.has(socket) && socket.socket.readyState === 1) {
+      socket.socket.send(encodePersisted(barrierId));
     }
   }
 
@@ -367,12 +395,38 @@ export class DocumentSession {
       return;
     }
 
-    if (verdict.repair) {
-      this.#applyWithRepair(socket, update);
+    // An accepted update lives twice until it is flushed: once in Yjs's resident history and
+    // once in the pending persistence queue. This is the same deliberately conservative estimate
+    // exposed by `estimatedBytes`, projected before mutating the document.
+    const projectedBytes = this.estimatedBytes + verdict.persistedUpdateBytes * 2;
+    if (this.#context.resizeResident?.(this, projectedBytes) === false) {
+      this.#context.log?.(
+        `Refused an update from principal ${socket.authorization.principalId} on item ` +
+          `${this.itemId}: applying it would exceed this server's resident-memory capacity.`,
+      );
+      // The server has not applied the update, while the client still holds it locally. Closing
+      // with the capacity code makes reconnect-and-resend the recovery path; keeping the socket
+      // open would leave the two documents diverged with no honest acknowledgement available.
+      this.detach(socket);
+      socket.socket.close(
+        CLOSE_CODES.atCapacity,
+        'This server is at its resident-memory capacity. Retry shortly.',
+      );
       return;
     }
 
-    Y.applyUpdate(this.#doc, update, socket);
+    try {
+      if (verdict.repair) {
+        this.#applyWithRepair(socket, update);
+      } else {
+        Y.applyUpdate(this.#doc, update, socket);
+      }
+    } catch (cause) {
+      // A judged Yjs update is deterministic, so this is a bug path. Restore the byte account
+      // before surfacing it; otherwise one bad frame permanently consumes process capacity.
+      this.#context.resizeResident?.(this, this.estimatedBytes);
+      throw cause;
+    }
   }
 
   /**
@@ -610,7 +664,10 @@ export class DocumentSession {
         return;
       }
       this.#pending = [];
+      const queueBytes = this.#pendingBytes;
       this.#pendingBytes = 0;
+      this.#flushingBytes += queueBytes;
+      this.#context.resizeResident?.(this, this.estimatedBytes);
       if (this.#flushTimer !== null) {
         clearTimeout(this.#flushTimer);
         this.#flushTimer = null;
@@ -639,6 +696,12 @@ export class DocumentSession {
       this.#context.metrics?.flushSeconds.observe((this.now() - started) / 1000);
       this.#context.onFlushed?.(this);
     } finally {
+      // The local queue remains strongly referenced throughout the database append. It leaves the
+      // process-wide byte account only here, not when it moves out of `#pending` above.
+      if (this.#flushingBytes > 0) {
+        this.#flushingBytes = 0;
+        this.#context.resizeResident?.(this, this.estimatedBytes);
+      }
       release();
     }
   }
@@ -692,6 +755,7 @@ export class DocumentSession {
       this.#lastSnapshotAt = this.now();
       this.#encodedBase = Y.encodeStateAsUpdate(this.#doc).byteLength;
       this.#bytesSinceEncode = 0;
+      this.#context.resizeResident?.(this, this.estimatedBytes);
     }
   }
 
@@ -759,6 +823,28 @@ export class DocumentSession {
     return true;
   }
 
+  /**
+   * Forgets an envelope Core has already deleted. Nothing may be flushed: the database
+   * cascade is authoritative, and replaying pending draft updates would only create noise
+   * against a body that no longer exists.
+   */
+  invalidate(): void {
+    this.#state = 'unloaded';
+    this.#pending = [];
+    this.#pendingBytes = 0;
+    this.#flushingBytes = 0;
+    if (this.#awarenessTimer !== null) {
+      clearTimeout(this.#awarenessTimer);
+      this.#awarenessTimer = null;
+    }
+    if (this.#flushTimer !== null) {
+      clearTimeout(this.#flushTimer);
+      this.#flushTimer = null;
+    }
+    this.#awareness.destroy();
+    this.#doc.destroy();
+  }
+
   /** Closes every attached socket with a code, for shutdown and lost ownership. */
   closeSockets(code: number, reason: string): void {
     for (const socket of [...this.#sockets]) {
@@ -806,7 +892,11 @@ export interface CandidateJudgement {
  * everything it learns, it learns from throwaway forks.
  */
 export type CandidateVerdict =
-  | { readonly ok: true; readonly repair: boolean }
+  | {
+      readonly ok: true;
+      readonly repair: boolean;
+      readonly persistedUpdateBytes: number;
+    }
   | { readonly ok: false; readonly refusal: Rejection; readonly resync: boolean };
 
 /**
@@ -847,6 +937,7 @@ export function judgeCandidate(
     };
   }
 
+  let persistedUpdateBytes = update.byteLength;
   let after = strategy.measure(fork);
   fork.destroy();
 
@@ -878,10 +969,15 @@ export function judgeCandidate(
           // document this build could open again. Anything else - a fault the floor was not the
           // cause of, a repaired document now over its schema pin - falls through to the refusal
           // with the diagnosis intact, which is the outcome that tells an operator the truth.
+          const mendedPersistedUpdateBytes = Y.encodeStateAsUpdate(
+            mended,
+            Y.encodeStateVector(resident),
+          ).byteLength;
           const mendedMeasurement = strategy.measure(mended);
           if (mendedMeasurement !== null) {
             after = mendedMeasurement;
             repair = true;
+            persistedUpdateBytes = mendedPersistedUpdateBytes;
           }
         }
       } finally {
@@ -979,7 +1075,7 @@ export function judgeCandidate(
     }
   }
 
-  return { ok: true, repair };
+  return { ok: true, repair, persistedUpdateBytes };
 }
 
 /**
