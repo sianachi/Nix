@@ -29,7 +29,7 @@ import { MonthGrid, type DayCellSpec } from './month-grid';
 import { VIEW_GUTTER_BLEED } from '../core/view-gutter';
 import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from '../core/timestamps';
 import type { ContainerData } from '../core/use-container';
-import { drawable, resolveViewChrome, undrawable } from '../core/view-chrome';
+import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 
 /**
@@ -171,7 +171,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   const reason = describeUnrenderable(view, container.schema, container.views);
   const configured = view.dateProperty;
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this calendar',
@@ -533,9 +533,14 @@ interface DayCellProps {
   readonly card: CardContext;
 }
 
+const MAXIMUM_COLLAPSED_DAY_ITEMS = 6;
+
 function DayCell(props: DayCellProps): ReactNode {
   const { cell, name, isToday, items, dragged, card } = props;
   const [over, setOver] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
+  const hiddenItems = items.length - visibleItems.length;
 
   return (
     <td
@@ -572,12 +577,25 @@ function DayCell(props: DayCellProps): ReactNode {
 
         {items.length === 0 ? null : (
           <ul className="flex flex-col gap-1">
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <li key={item.id}>
                 <ItemCard item={item} card={card} />
               </li>
             ))}
           </ul>
+        )}
+
+        {items.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
+          <Button
+            variant="ghost"
+            className="self-start px-1 py-0.5 text-xs"
+            aria-expanded={expanded}
+            onClick={() => {
+              setExpanded((current) => !current);
+            }}
+          >
+            {expanded ? 'Show fewer' : `Show ${String(hiddenItems)} more`}
+          </Button>
         )}
 
         {/* Created already dated to this day - the same write a drop onto it makes. Revealed on

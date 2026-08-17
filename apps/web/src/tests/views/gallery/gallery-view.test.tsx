@@ -1,6 +1,6 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import { useState, type ReactElement, type ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
@@ -13,6 +13,10 @@ import type {
 } from '../../../views/core/container-model';
 import { GalleryView } from '../../../views/gallery/gallery-view';
 import type { ContainerData } from '../../../views/core/use-container';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /**
  * The gallery, and above all what it says when a cover is not there.
@@ -147,6 +151,20 @@ function coverFrame(title: string): HTMLElement {
 }
 
 describe('the gallery view', () => {
+  it('keeps a 3,200-card gallery DOM bounded and announces positions in the full set', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_440);
+    const many = Array.from({ length: 3_200 }, (_unused, index) =>
+      itemOf({ id: `item-${String(index)}`, title: `Item ${String(index + 1)}`, seq: index }),
+    );
+
+    renderAt(galleryOf({ items: many }));
+
+    const rendered = screen.getAllByRole('listitem');
+    expect(rendered.length).toBeLessThanOrEqual(100);
+    expect(rendered[0]).toHaveAttribute('aria-posinset', '1');
+    expect(rendered[0]).toHaveAttribute('aria-setsize', '3200');
+  });
+
   it('reflows to one column at the base width, widening only as the breakpoints allow', () => {
     renderAt(galleryOf({ items: [WITH_COVER, WITHOUT_COVER] }));
 

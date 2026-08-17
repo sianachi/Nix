@@ -1,5 +1,5 @@
 import { Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
-import { type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { isKnownPropertyType } from '../../properties/property-input';
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
@@ -14,8 +14,13 @@ import {
 import { CreateItemControl } from '../core/create-item-control';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
-import { drawable, resolveViewChrome } from '../core/view-chrome';
+import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState, type SortDirection } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+import { virtualSpacers } from '../core/virtual-window';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const ESTIMATED_ROW_HEIGHT = 45;
 
 /**
  * The list view: a container's children as a table, edited in place.
@@ -59,6 +64,7 @@ export interface ListViewProps {
 export function ListView(props: ListViewProps): ReactNode {
   const { container, view, onOpen } = props;
   const viewState = useViewState();
+  const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
 
   // The URL wins, the stored view is the starting point. A view configured to sort by owner is
   // what somebody arriving with no sort in the address should see; the moment they click a header
@@ -71,7 +77,7 @@ export function ListView(props: ListViewProps): ReactNode {
         ? 'descending'
         : 'ascending';
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this list',
@@ -99,6 +105,27 @@ export function ListView(props: ListViewProps): ReactNode {
     return container.setProperties(itemId, { [key]: value });
   }
 
+  const refusalStore: CellRefusalStore = {
+    read: (itemId, key) => refusals.get(cellRefusalKey(itemId, key)) ?? null,
+    write: (itemId, key, refusal) => {
+      setRefusals((current) => {
+        const next = new Map(current);
+        const cacheKey = cellRefusalKey(itemId, key);
+        if (refusal === null) {
+          next.delete(cacheKey);
+        } else {
+          next.set(cacheKey, refusal);
+        }
+        return next;
+      });
+    },
+  };
+  const columns = buildColumns(view, container.schema, onOpen, write, refusalStore);
+  const sort = sortBy === null ? undefined : { columnKey: sortBy, direction };
+  const onSortChange = (next: TableSort): void => {
+    viewState.setSort(next.columnKey, next.direction);
+  };
+
   return (
     // The table's own horizontal scroller. A `w-full` table is laid out `auto`, so it cannot render
     // narrower than its min-content width - enough property columns and it paints straight past a
@@ -107,29 +134,75 @@ export function ListView(props: ListViewProps): ReactNode {
     <div className="min-w-0 overflow-x-auto">
       {chrome.notice}
 
-      <Table<Item>
-        caption="Items in this one"
-        columns={buildColumns(view, container.schema, onOpen, write)}
-        rows={chrome.items}
-        rowKey={(item) => item.id}
-        // Never reached: the chrome above answers loading, empty and filtered-to-nothing before
-        // this renders, so the table only ever receives rows. Required by the prop, and worded so
-        // that it would still be true rather than alarming if it ever showed.
-        emptyMessage="Nothing in here yet."
-        {...(sortBy === null ? {} : { sort: { columnKey: sortBy, direction } })}
-        onSortChange={(next: TableSort) => {
-          // The table decides *what* the click asked for - reverse this column, start any other
-          // ascending - and this decides where that lives. Replacing rather than pushing, so a
-          // walk down a column of headers does not have to be walked back up.
-          viewState.setSort(next.columnKey, next.direction);
-        }}
-      />
+      <ListRows items={chrome.items} columns={columns} sort={sort} onSortChange={onSortChange} />
 
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
           enter the row-header inventory that eleven assertions compare against exactly - so it
           would be a create affordance that broke tests about columns. */}
       <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
     </div>
+  );
+}
+
+interface ListRowsProps {
+  readonly items: readonly Item[];
+  readonly columns: readonly TableColumn<Item>[];
+  readonly sort: TableSort | undefined;
+  readonly onSortChange: (sort: TableSort) => void;
+}
+
+function ListRows(props: ListRowsProps): ReactNode {
+  const { items, columns, sort, onSortChange } = props;
+  if (items.length <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      <Table<Item>
+        caption="Items in this one"
+        columns={columns}
+        rows={items}
+        rowKey={(item) => item.id}
+        emptyMessage="Nothing in here yet."
+        {...(sort === undefined ? {} : { sort })}
+        onSortChange={onSortChange}
+      />
+    );
+  }
+
+  return (
+    <VirtualListRows items={items} columns={columns} sort={sort} onSortChange={onSortChange} />
+  );
+}
+
+function VirtualListRows(props: ListRowsProps): ReactNode {
+  const { items, columns, sort, onSortChange } = props;
+  const rootRef = useRef<HTMLTableElement>(null);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(() => items.map((item) => item.id), [items]);
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: ESTIMATED_ROW_HEIGHT,
+  });
+  const rows = windowed.indexes.flatMap((index) => {
+    const item = items[index];
+    return item === undefined ? [] : [item];
+  });
+
+  return (
+    <Table<Item>
+      tableRef={rootRef}
+      caption="Items in this one"
+      columns={columns}
+      rows={rows}
+      rowKey={(item) => item.id}
+      emptyMessage="Nothing in here yet."
+      {...(sort === undefined ? {} : { sort })}
+      onSortChange={onSortChange}
+      virtualization={{
+        totalRows: items.length,
+        rowIndexes: windowed.indexes,
+        spacerHeights: virtualSpacers(windowed.offsets, windowed.indexes),
+      }}
+    />
   );
 }
 
@@ -163,6 +236,7 @@ function buildColumns(
   schema: EffectiveSchema | null,
   onOpen: (itemId: string) => void,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
+  refusals: CellRefusalStore,
 ): readonly TableColumn<Item>[] {
   const { keys, definitions } = resolveConfiguredColumns(view, schema);
 
@@ -198,7 +272,7 @@ function buildColumns(
         key,
         header: definition?.label ?? key,
         sortable: true,
-        cell: (item) => renderProperty(item, key, definition, write),
+        cell: (item) => renderProperty(item, key, definition, write, refusals),
 
         // Numbers read right-aligned so their digits line up; everything else keeps the table's
         // own default rather than restating it.
@@ -225,12 +299,30 @@ function renderProperty(
   key: string,
   definition: PropertyDefinition | undefined,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
+  refusals: CellRefusalStore,
 ): ReactNode {
   if (definition === undefined || !isKnownPropertyType(definition.type)) {
     return readPropertyText(item, key);
   }
 
   return (
-    <ListCell item={item} property={definition} onWrite={(value) => write(item.id, key, value)} />
+    <ListCell
+      item={item}
+      property={definition}
+      onWrite={(value) => write(item.id, key, value)}
+      refusal={refusals.read(item.id, key)}
+      onRefusalChange={(refusal) => {
+        refusals.write(item.id, key, refusal);
+      }}
+    />
   );
+}
+
+interface CellRefusalStore {
+  readonly read: (itemId: string, key: string) => string | null;
+  readonly write: (itemId: string, key: string, refusal: string | null) => void;
+}
+
+function cellRefusalKey(itemId: string, key: string): string {
+  return `${itemId}\u0000${key}`;
 }

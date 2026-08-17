@@ -14,7 +14,7 @@ import {
 import { type Item, type View } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import type { ContainerData, PlanOutcome, PlanWrite } from '../core/use-container';
-import { drawable, resolveViewChrome } from '../core/view-chrome';
+import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState, type SortDirection } from '../core/view-state';
 import { parseTsv, rangeToTsv } from '../sheet/clipboard';
 import { gridKeyAction } from '../sheet/grid-keys';
@@ -96,7 +96,7 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
         ? 'descending'
         : 'ascending';
 
-  const chrome = resolveViewChrome({
+  const chrome = useViewChrome({
     container,
     viewState,
     subject: 'this spreadsheet',
@@ -165,7 +165,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
 
   // Scroll and viewport state live HERE, in the grid, not in SpreadsheetView above. This is
-  // load-bearing: scrolling must not re-run resolveViewChrome's filter and sort over all children.
+  // load-bearing: scrolling must not re-run useViewChrome's filter and sort over all children.
   // Lifting either of these up would put a full-container sort on every scroll event.
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
