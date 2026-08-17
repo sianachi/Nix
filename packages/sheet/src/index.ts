@@ -49,7 +49,9 @@ export {
 export {
   type SheetRejection,
   type SheetSnapshot,
+  type SheetSnapshotInput,
   checkSheetDocument,
+  checkSheetSnapshot,
   sheetSnapshot,
 } from './validate.js';
 export {
