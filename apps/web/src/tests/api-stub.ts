@@ -42,6 +42,66 @@ const STUB_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 
 /** A container's views, keyed by the item that offers them. */
 export type StubViews = Readonly<Record<string, { views: readonly unknown[]; default: string }>>;
+export type StubSchemas = Readonly<
+  Record<
+    string,
+    {
+      properties: readonly unknown[];
+      declared: readonly unknown[];
+      inherit: boolean;
+    }
+  >
+>;
+
+export interface StubTemplate {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly origin: 'seed' | 'user' | 'managed';
+  readonly revision: number;
+  readonly includeBody: boolean;
+  readonly includeChildren: boolean;
+  readonly fieldCount: number;
+  readonly viewCount: number;
+  readonly childCount: number;
+  readonly viewKinds: readonly string[];
+  readonly capabilities: {
+    readonly canEdit: boolean;
+    readonly canDelete: boolean;
+    readonly canExport: boolean;
+    readonly canApply: boolean;
+  };
+  readonly updatedAt: string;
+  readonly root?: Readonly<Record<string, unknown>>;
+}
+
+const TEMPLATE_WORKSPACE_ID = 'a1000000-0000-4000-8000-000000000001';
+
+function seedTemplate(id: string, title: string, kind: string, fieldCount: number): StubTemplate {
+  return {
+    id,
+    workspaceId: TEMPLATE_WORKSPACE_ID,
+    title,
+    description: `A ready-to-use ${title.toLocaleLowerCase()} structure.`,
+    origin: 'seed',
+    revision: 1,
+    includeBody: false,
+    includeChildren: false,
+    fieldCount,
+    viewCount: 1,
+    childCount: 0,
+    viewKinds: [kind],
+    capabilities: { canEdit: false, canDelete: false, canExport: true, canApply: true },
+    updatedAt: '2026-08-16T09:00:00.000Z',
+  };
+}
+
+export const STUB_TEMPLATES: readonly StubTemplate[] = [
+  seedTemplate('a1111111-1111-4111-8111-111111111111', 'Kanban', 'board', 2),
+  seedTemplate('a2222222-2222-4222-8222-222222222222', 'Calendar', 'calendar', 2),
+  seedTemplate('a3333333-3333-4333-8333-333333333333', 'List', 'list', 1),
+];
 
 export interface StubOptions {
   readonly isTenantAdministrator?: boolean;
@@ -153,6 +213,32 @@ export interface StubOptions {
    * reports and therefore what most tests want.
    */
   readonly views?: StubViews;
+  /** Effective and declared property schemas per item. */
+  readonly schemas?: StubSchemas;
+  /** Workspace templates. The defaults are the three installed starter templates. */
+  readonly templates?: readonly StubTemplate[];
+  /** Makes the template library request fail. */
+  readonly templatesFail?: boolean;
+  /** Holds the template catalog response until a test releases it. */
+  readonly templateCatalogGate?: Promise<void>;
+  /** Makes the import commit report that its bytes no longer match the validated preview. */
+  readonly templateFileChanged?: boolean;
+  /** Makes template export refuse the archive used by the duplicate flow. */
+  readonly templateDuplicateFails?: boolean;
+  /** Makes duplicate import fail after the request identity has reached Media. */
+  readonly templateDuplicateCommitFails?: boolean;
+  /** Drops the first duplicate import response after the archive has reached Media. */
+  readonly templateDuplicateResponseLostOnce?: boolean;
+  /** Makes a recovered staged-edit draft report that it has expired or been replaced. */
+  readonly templateDraftUnavailable?: boolean;
+  /** Makes beginning a staged edit report that another draft is still active. */
+  readonly templateDraftConflict?: boolean;
+  /** Whether the caller may create, capture, import, apply, or manage workspace templates. */
+  readonly canManageTemplates?: boolean;
+  /** Whether template preflight permits the requested create or merge. */
+  readonly templatePreflightCanApply?: boolean;
+  /** Conflict explanations returned by template preflight. */
+  readonly templatePreflightConflicts?: readonly string[];
 }
 
 export function item(overrides: Partial<StubItem> & { id: string; title: string }): StubItem {
@@ -184,6 +270,26 @@ export interface StubWrites {
   readonly properties: readonly { itemId: string; properties: Record<string, unknown> }[];
   /** Every atomic structured-item request, in the order it was sent. */
   readonly structuredItems: readonly Record<string, unknown>[];
+  /** Every template-item PATCH, in the order it was sent. */
+  readonly templateItems: readonly {
+    templateId: string;
+    sourceId: string;
+    body: Record<string, unknown>;
+  }[];
+  /** Digest headers sent with template import commits. */
+  readonly templateImports: readonly string[];
+  /** Attempt identities sent with template import commits. */
+  readonly templateImportIdempotencyKeys: readonly string[];
+  /** Template IDs exported for duplication, in request order. */
+  readonly templateExports: readonly string[];
+  /** Exact archive objects sent to preview. */
+  readonly templatePreviewBodies: readonly Blob[];
+  /** Exact archive objects sent to import commit. */
+  readonly templateImportBodies: readonly Blob[];
+  /** Every template preflight request, in the order it was sent. */
+  readonly templatePreflights: readonly Record<string, unknown>[];
+  /** Every template application request, in the order it was sent. */
+  readonly templateApplications: readonly Record<string, unknown>[];
 }
 
 export function stubCoreApi(options: StubOptions = {}): StubWrites {
@@ -209,15 +315,39 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     calendarFails = false,
     calendarTruncated = false,
     views = {},
+    schemas = {},
     createRefusal,
     removeFails = false,
     restoreFails = false,
+    templates = STUB_TEMPLATES,
+    templatesFail = false,
+    templateCatalogGate,
+    templateFileChanged = false,
+    templateDuplicateFails = false,
+    templateDuplicateCommitFails = false,
+    templateDuplicateResponseLostOnce = false,
+    templateDraftUnavailable = false,
+    templateDraftConflict = false,
+    canManageTemplates = true,
+    templatePreflightCanApply = true,
+    templatePreflightConflicts = [],
   } = options;
 
   // The items the stub knows about. Mutable, because a create has to be visible to the reads that
   // follow it - a stub whose POST returns an item that the next GET has never heard of tests the
   // opposite of what a creation test means to.
   const known = [...items];
+  let knownTemplates = [...templates];
+  let exportedTemplate: StubTemplate | null = null;
+  const templateDrafts = new Map<
+    string,
+    {
+      templateId: string;
+      title: string;
+      description: string | null;
+      root: Readonly<Record<string, unknown>>;
+    }
+  >();
 
   // The shelf the stub holds. Mutable, because keeping something has to be visible to the read that
   // follows it - a stub whose PUT is forgotten by the next GET tests the opposite of what a
@@ -228,6 +358,18 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // sent rather than about what the view drew afterwards.
   const propertyWrites: { itemId: string; properties: Record<string, unknown> }[] = [];
   const structuredItemWrites: Record<string, unknown>[] = [];
+  const templateItemWrites: {
+    templateId: string;
+    sourceId: string;
+    body: Record<string, unknown>;
+  }[] = [];
+  const templateImportWrites: string[] = [];
+  const templateImportIdempotencyKeys: string[] = [];
+  const templateExportWrites: string[] = [];
+  const templatePreviewBodies: Blob[] = [];
+  const templateImportBodies: Blob[] = [];
+  const templatePreflightWrites: Record<string, unknown>[] = [];
+  const templateApplicationWrites: Record<string, unknown>[] = [];
 
   /** The four fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
@@ -264,7 +406,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       string,
       { properties: readonly unknown[]; declared: readonly unknown[]; inherit: boolean }
     >;
-  } = { views: { ...views }, schema: {} };
+  } = { views: { ...views }, schema: { ...schemas } };
 
   vi.stubGlobal(
     'fetch',
@@ -329,6 +471,406 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 email,
                 isTenantAdministrator,
               }),
+        );
+      }
+
+      if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/templates$/.test(url) && method === 'GET') {
+        const response = templatesFail
+          ? json({ detail: 'The template library could not be loaded.' }, 500)
+          : json({
+              templates: knownTemplates.map((template) => {
+                const summary: { root?: Readonly<Record<string, unknown>> } = { ...template };
+                Reflect.deleteProperty(summary, 'root');
+                return summary;
+              }),
+              capabilities: { canManage: canManageTemplates },
+            });
+        return templateCatalogGate === undefined
+          ? Promise.resolve(response)
+          : templateCatalogGate.then(() => response);
+      }
+
+      const templatePreflight = /\/api\/v1\/templates\/([0-9a-f-]{36})\/preflight$/.exec(url);
+      if (templatePreflight !== null && method === 'POST') {
+        const template = knownTemplates.find((candidate) => candidate.id === templatePreflight[1]);
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        > & { mode?: 'merge' | 'create' };
+        templatePreflightWrites.push(body);
+        return Promise.resolve(
+          template === undefined
+            ? json({}, 404)
+            : json({
+                templateId: template.id,
+                mode: body.mode ?? 'create',
+                additions: {
+                  fields: template.fieldCount,
+                  views: template.viewCount,
+                  items: template.childCount,
+                },
+                conflicts: templatePreflightConflicts,
+                canApply: templatePreflightCanApply,
+              }),
+        );
+      }
+
+      const templateDraftSave =
+        /\/collab\/templates\/([0-9a-f-]{36})\/drafts\/([0-9a-f-]{36})\/save$/.exec(url);
+      if (templateDraftSave !== null && method === 'POST') {
+        const operationId = templateDraftSave[2] ?? '';
+        const draft = templateDrafts.get(operationId);
+        if (draft === undefined) return Promise.resolve(json({}, 404));
+        knownTemplates = knownTemplates.map((candidate) =>
+          candidate.id === draft.templateId
+            ? {
+                ...candidate,
+                title: draft.title,
+                description: draft.description,
+                root: draft.root,
+                revision: candidate.revision + 1,
+              }
+            : candidate,
+        );
+        templateDrafts.delete(operationId);
+        return Promise.resolve(json({ templateId: draft.templateId }));
+      }
+
+      const templateDraftItem =
+        /\/collab\/templates\/([0-9a-f-]{36})\/drafts\/([0-9a-f-]{36})\/items\/([0-9a-f-]{36})$/.exec(
+          url,
+        );
+      if (templateDraftItem !== null && method === 'PATCH') {
+        const operationId = templateDraftItem[2] ?? '';
+        const draft = templateDrafts.get(operationId);
+        if (draft === undefined) return Promise.resolve(json({}, 404));
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >;
+        const sourceId = templateDraftItem[3] ?? '';
+        const root = updateTemplateRoot(draft.root, sourceId, body);
+        templateDrafts.set(operationId, { ...draft, root });
+        templateItemWrites.push({
+          templateId: draft.templateId,
+          sourceId,
+          body,
+        });
+        return Promise.resolve(json(findTemplateRootItem(root, sourceId) ?? root));
+      }
+
+      const templateDraft = /\/collab\/templates\/([0-9a-f-]{36})\/drafts\/([0-9a-f-]{36})$/.exec(
+        url,
+      );
+      if (templateDraft !== null) {
+        const operationId = templateDraft[2] ?? '';
+        if (method === 'GET' && templateDraftUnavailable) {
+          return Promise.resolve(
+            json(
+              {
+                code: 'template.operation_stale',
+                detail: 'The staged template draft is no longer available.',
+              },
+              409,
+            ),
+          );
+        }
+        const draft = templateDrafts.get(operationId);
+        if (draft === undefined) return Promise.resolve(json({}, 404));
+        if (method === 'DELETE') {
+          templateDrafts.delete(operationId);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        const next =
+          method === 'PATCH'
+            ? {
+                ...draft,
+                ...(JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+                  title?: string;
+                  description?: string | null;
+                }),
+              }
+            : draft;
+        templateDrafts.set(operationId, next);
+        return Promise.resolve(
+          json({
+            operationId,
+            templateId: next.templateId,
+            title: next.title,
+            description: next.description,
+            expiresAt: '2026-08-17T09:00:00.000Z',
+            root: next.root,
+          }),
+        );
+      }
+
+      const beginTemplateDraft = /\/collab\/templates\/([0-9a-f-]{36})\/drafts$/.exec(url);
+      if (beginTemplateDraft !== null && method === 'POST') {
+        if (templateDraftConflict) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                code: 'template.draft_pending',
+                detail: 'A draft opened in another tab must be finished or discarded first.',
+              }),
+              { status: 409, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
+        }
+        const template = knownTemplates.find((candidate) => candidate.id === beginTemplateDraft[1]);
+        if (template === undefined) return Promise.resolve(json({}, 404));
+        const operationId = 'a9999999-0000-4000-8000-000000000001';
+        const draft = {
+          templateId: template.id,
+          title: template.title,
+          description: template.description,
+          root: template.root ?? templateRoot(template),
+        };
+        templateDrafts.set(operationId, draft);
+        return Promise.resolve(
+          json(
+            {
+              operationId,
+              templateId: template.id,
+              title: draft.title,
+              description: draft.description,
+              expiresAt: '2026-08-17T09:00:00.000Z',
+              root: draft.root,
+            },
+            201,
+          ),
+        );
+      }
+
+      const templateById = /\/api\/v1\/templates\/([0-9a-f-]{36})$/.exec(url);
+      if (templateById !== null) {
+        const template = knownTemplates.find((candidate) => candidate.id === templateById[1]);
+        if (template === undefined) return Promise.resolve(json({}, 404));
+        if (method === 'DELETE') {
+          knownTemplates = knownTemplates.filter((candidate) => candidate.id !== template.id);
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (method === 'PATCH') {
+          return Promise.resolve(
+            json(
+              {
+                code: 'method_not_allowed',
+                detail: 'Template metadata changes use a staged draft.',
+              },
+              405,
+            ),
+          );
+        }
+        return Promise.resolve(
+          json({ ...template, root: template.root ?? templateRoot(template) }),
+        );
+      }
+
+      if (url.endsWith('/collab/templates/captures') && method === 'POST') {
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          title?: string;
+          description?: string | null;
+          workspaceId?: string;
+          includeBody?: boolean;
+          includeChildren?: boolean;
+        };
+        const captured: StubTemplate = {
+          id: 'a4444444-4444-4444-8444-444444444444',
+          workspaceId: body.workspaceId ?? TEMPLATE_WORKSPACE_ID,
+          title: body.title ?? 'Captured template',
+          description: body.description ?? null,
+          origin: 'user',
+          revision: 1,
+          includeBody: body.includeBody ?? false,
+          includeChildren: body.includeChildren ?? false,
+          fieldCount: 0,
+          viewCount: 0,
+          childCount: 0,
+          viewKinds: [],
+          capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+          updatedAt: '2026-08-16T09:00:00.000Z',
+        };
+        knownTemplates.push(captured);
+        return Promise.resolve(
+          json(
+            {
+              templateId: captured.id,
+              operationId: 'a5555555-5555-4555-8555-555555555555',
+              writtenTargetItemIds: [],
+            },
+            201,
+          ),
+        );
+      }
+
+      const templateExport = /\/collab\/templates\/([0-9a-f-]{36})\/export$/.exec(url);
+      if (templateExport !== null && method === 'GET') {
+        if (templateDuplicateFails) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Template unavailable',
+                status: 409,
+                code: 'templates.export_unavailable',
+                detail: 'This managed template is unavailable.',
+              }),
+              { status: 409, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
+        }
+        exportedTemplate =
+          knownTemplates.find((template) => template.id === templateExport[1]) ?? null;
+        templateExportWrites.push(templateExport[1] ?? '');
+        return Promise.resolve(
+          new Response(new Blob(['template archive']), {
+            headers: {
+              'content-type': 'application/zip',
+              'content-disposition': 'attachment; filename="template.nix"',
+            },
+          }),
+        );
+      }
+
+      if (url.endsWith('/collab/templates/applications') && method === 'POST') {
+        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        > & {
+          templateId?: string;
+          mode?: 'merge' | 'create';
+          targetItemId?: string;
+          parentItemId?: string | null;
+          title?: string;
+        };
+        templateApplicationWrites.push(body);
+        const targetItemId = body.targetItemId ?? createdId(known.length);
+        if (body.mode === 'create') {
+          known.push(
+            item({
+              id: targetItemId,
+              title: body.title ?? 'From template',
+              parentId: body.parentItemId ?? null,
+            }),
+          );
+        }
+        return Promise.resolve(
+          json(
+            {
+              applicationId: 'a6666666-6666-4666-8666-666666666666',
+              operationId: 'a6666666-6666-4666-8666-666666666666',
+              templateId: body.templateId ?? '',
+              targetItemId,
+              alreadyApplied: false,
+              createdItems: [],
+              writtenTargetItemIds: [],
+            },
+            201,
+          ),
+        );
+      }
+
+      if (url.includes('/media/templates/preview') && method === 'POST') {
+        if (init?.body instanceof Blob) templatePreviewBodies.push(init.body);
+        return Promise.resolve(
+          json({
+            profile: {
+              kind: 'template',
+              version: 1,
+              key: 'imported-template',
+              name: 'Imported template',
+              description: 'Validated from disk.',
+              includeBody: true,
+              includeChildren: true,
+            },
+            digest: 'abc123',
+            rootItemType: 'note',
+            itemCount: 3,
+            bodyCount: 3,
+            viewCount: 1,
+          }),
+        );
+      }
+
+      if (url.includes('/media/templates/commit') && method === 'POST') {
+        const expectedDigest = new Headers(init?.headers).get('x-nix-template-digest') ?? '';
+        const idempotencyKey = new Headers(init?.headers).get('x-idempotency-key') ?? '';
+        templateImportWrites.push(expectedDigest);
+        templateImportIdempotencyKeys.push(idempotencyKey);
+        if (init?.body instanceof Blob) templateImportBodies.push(init.body);
+        if (templateDuplicateResponseLostOnce && templateImportWrites.length === 1) {
+          return Promise.reject(new TypeError('The response was lost.'));
+        }
+        if (templateDuplicateCommitFails) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Template unavailable',
+                status: 409,
+                code: 'templates.import_unavailable',
+                detail: 'This managed template is unavailable.',
+              }),
+              { status: 409, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
+        }
+        if (templateFileChanged) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Template file changed',
+                status: 409,
+                code: 'template.file_changed',
+                detail:
+                  'The selected file changed after preview. Preview it again before importing.',
+              }),
+              { status: 409, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
+        }
+        const imported: StubTemplate = {
+          ...(exportedTemplate ?? {
+            id: 'a7777777-7777-4777-8777-777777777777',
+            workspaceId: TEMPLATE_WORKSPACE_ID,
+            title: 'Imported template',
+            description: 'Validated from disk.',
+            origin: 'user',
+            revision: 1,
+            includeBody: true,
+            includeChildren: true,
+            fieldCount: 0,
+            viewCount: 0,
+            childCount: 0,
+            viewKinds: [],
+            capabilities: {
+              canEdit: true,
+              canDelete: true,
+              canExport: true,
+              canApply: true,
+            },
+            updatedAt: '2026-08-16T09:00:00.000Z',
+          }),
+          id: 'a7777777-7777-4777-8777-777777777777',
+          title: exportedTemplate === null ? 'Imported template' : exportedTemplate.title,
+          origin: 'user',
+          revision: 1,
+          capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+          updatedAt: '2026-08-16T10:00:00.000Z',
+        };
+        knownTemplates = [
+          ...knownTemplates.filter((template) => template.id !== imported.id),
+          imported,
+        ];
+        exportedTemplate = null;
+        return Promise.resolve(
+          json(
+            {
+              templateId: imported.id,
+              stableKey: 'imported-template',
+              unchanged: false,
+              writtenTargetItemIds: [],
+            },
+            201,
+          ),
         );
       }
 
@@ -628,7 +1170,18 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     }),
   );
 
-  return { properties: propertyWrites, structuredItems: structuredItemWrites };
+  return {
+    properties: propertyWrites,
+    structuredItems: structuredItemWrites,
+    templateItems: templateItemWrites,
+    templateImports: templateImportWrites,
+    templateImportIdempotencyKeys,
+    templateExports: templateExportWrites,
+    templatePreviewBodies,
+    templateImportBodies,
+    templatePreflights: templatePreflightWrites,
+    templateApplications: templateApplicationWrites,
+  };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -636,4 +1189,71 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function templateRoot(template: StubTemplate): Readonly<Record<string, unknown>> {
+  const kind = template.viewKinds[0] ?? 'list';
+  return {
+    sourceId: `b${template.id.slice(1)}`,
+    itemType: 'note',
+    title: template.title,
+    seq: 1000,
+    properties: { title: template.title },
+    schema: { properties: [], declared: [], inherit: true },
+    views: {
+      default: 'primary',
+      views: [
+        {
+          id: 'primary',
+          name: template.title,
+          kind,
+          columns: [],
+          groupBy: null,
+          groupOrder: [],
+          dateProperty: null,
+          sortBy: null,
+          sortDescending: false,
+          mode: null,
+          coverProperty: null,
+          endDateProperty: null,
+          cardSize: null,
+          filters: [],
+          companionViewId: null,
+          companionPlacement: null,
+          interactiveForm: null,
+        },
+      ],
+    },
+    children: [],
+    hasBody: template.includeBody,
+  };
+}
+
+function updateTemplateRoot(
+  item: Readonly<Record<string, unknown>>,
+  sourceId: string,
+  change: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  if (item.sourceId === sourceId) return { ...item, ...change };
+  const sourceChildren = Array.isArray(item.children) ? (item.children as readonly unknown[]) : [];
+  const children = sourceChildren.map((child) =>
+    typeof child === 'object' && child !== null
+      ? updateTemplateRoot(child as Readonly<Record<string, unknown>>, sourceId, change)
+      : child,
+  );
+  return { ...item, children };
+}
+
+function findTemplateRootItem(
+  item: Readonly<Record<string, unknown>>,
+  sourceId: string,
+): Readonly<Record<string, unknown>> | null {
+  if (item.sourceId === sourceId) return item;
+  if (!Array.isArray(item.children)) return null;
+  for (const child of item.children) {
+    if (typeof child !== 'object' || child === null) continue;
+    const found = findTemplateRootItem(child as Readonly<Record<string, unknown>>, sourceId);
+    if (found !== null) return found;
+  }
+  return null;
 }

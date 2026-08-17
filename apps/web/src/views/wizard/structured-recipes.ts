@@ -14,14 +14,13 @@ export type StructuredRecipeId =
   | 'form'
   | 'interactive-form'
   | 'query'
-  | 'kanban'
   | 'list';
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
   readonly label: string;
   readonly detail: string;
-  readonly menu: 'structured' | 'template';
+  readonly menu: 'structured' | 'view';
   readonly viewKind: string;
   readonly defaultTitle: string;
   readonly defaultViewName: string;
@@ -131,20 +130,10 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     properties: [],
   },
   {
-    id: 'kanban',
-    label: 'Kanban',
-    detail: 'A ready-to-adjust To do, Doing, and Done workflow.',
-    menu: 'template',
-    viewKind: 'board',
-    defaultTitle: 'Untitled kanban',
-    defaultViewName: 'Board',
-    properties: [STATUS],
-  },
-  {
     id: 'calendar',
     label: 'Calendar',
-    detail: 'A date-and-time field with an initial week view.',
-    menu: 'template',
+    detail: 'Place child items on a day, week, or month calendar.',
+    menu: 'view',
     viewKind: 'calendar',
     defaultTitle: 'Untitled calendar',
     defaultViewName: 'Calendar',
@@ -153,8 +142,8 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
   {
     id: 'list',
     label: 'List',
-    detail: 'A checklist with Done and Owner fields.',
-    menu: 'template',
+    detail: 'Show child items and their fields in an ordered list.',
+    menu: 'view',
     viewKind: 'list',
     defaultTitle: 'Untitled list',
     defaultViewName: 'All',

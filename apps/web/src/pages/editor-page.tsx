@@ -1,5 +1,5 @@
 import { Button, Icon, Text, focusRing } from '@nix/ui';
-import { Download, PanelRightClose, Settings2 } from 'lucide-react';
+import { Download, LayoutTemplate, PanelRightClose, Save, Settings2 } from 'lucide-react';
 import {
   Suspense,
   lazy,
@@ -10,9 +10,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useOutletContext } from 'react-router';
+import { useNavigate, useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../shell/shell-context';
+import { PaneViewport } from '../layout/pane-viewport';
 import { paneClip, paneColumn, paneScroller } from '../layout/regions';
 import { useNarrowViewport } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
@@ -46,6 +47,7 @@ import { browserStorage } from '../lib/browser-storage';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
 import { ViewSwitcher } from '../views/core/view-switcher';
+import { useTemplateLibrary } from '../templates/template-library-context';
 
 /**
  * One item, open.
@@ -69,6 +71,7 @@ import { ViewSwitcher } from '../views/core/view-switcher';
  */
 export function EditorPage(): ReactNode {
   const { tree } = useOutletContext<ShellContext>();
+  const templateLibrary = useTemplateLibrary();
   const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
   const paneClosed = useTabStore((state) => state.paneClosed);
   const narrow = useNarrowViewport();
@@ -144,6 +147,11 @@ export function EditorPage(): ReactNode {
         <PaneContents
           pane={pane}
           tree={tree}
+          canManageTemplates={templateLibrary.capabilities.canManage}
+          canApplyTemplates={
+            templateLibrary.status === 'ready' &&
+            templateLibrary.templates.some((template) => template.capabilities.canApply)
+          }
           hiddenPanes={pane.index === 0 ? hidden : 0}
           paneLabel={
             paneCount > 1
@@ -180,6 +188,8 @@ interface PaneContentsProps {
 
   /** How many panes this address holds that this window is too narrow to draw. */
   readonly hiddenPanes: number;
+  readonly canManageTemplates: boolean;
+  readonly canApplyTemplates: boolean;
   readonly onClose: (() => void) | undefined;
   readonly paneLabel: string | undefined;
 }
@@ -201,6 +211,8 @@ function PaneContents({
   onClose,
   paneLabel,
   hiddenPanes,
+  canManageTemplates,
+  canApplyTemplates,
 }: PaneContentsProps): ReactNode {
   const { openPreview } = useOpenItem();
   const tabPinned = useTabStore((state) => state.tabPinned);
@@ -255,6 +267,8 @@ function PaneContents({
               itemId={item.id}
               title={item.title}
               bodyKind={item.type}
+              canManageTemplates={canManageTemplates}
+              canApplyTemplates={canApplyTemplates}
               onOpen={openPreview}
               onClose={onClose}
               onCommit={() => {
@@ -330,6 +344,8 @@ interface OpenItemProps {
 
   /** The item's `type`: how its own body is drawn. Never gates what it may contain. */
   readonly bodyKind: string;
+  readonly canManageTemplates: boolean;
+  readonly canApplyTemplates: boolean;
   readonly onOpen: (itemId: string) => void;
 
   /** Closes this pane, or absent when it is the only one and there is nothing to close to. */
@@ -345,10 +361,13 @@ function OpenItem({
   itemId,
   title,
   bodyKind,
+  canManageTemplates,
+  canApplyTemplates,
   onOpen,
   onClose,
   onCommit,
 }: OpenItemProps): ReactNode {
+  const navigate = useNavigate();
   // Creation goes through the tree, which is the only thing that knows how to put a new item into
   // the store the sidebar reads and expand its parent so it is visible. The container borrows it
   // rather than growing a second one.
@@ -404,12 +423,13 @@ function OpenItem({
         tree={tree}
         itemId={itemId}
         title={title}
+        bodyKind={bodyKind}
         onNavigate={onOpen}
         onCommit={onCommit}
       />
 
-      <div className="flex shrink-0 items-center">
-        <div className="min-w-0 flex-1">
+      <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1 overflow-x-auto">
           <ViewSwitcher
             views={views}
             unrenderable={unrenderable}
@@ -441,7 +461,7 @@ function OpenItem({
             focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
             box where every sibling row's box already is; the label sits a further `px-2` in from
             there, which is the same relationship the switcher's own tabs have to their nav. */}
-        <div className="flex shrink-0 items-center gap-1 py-1.5 pl-2 pr-8">
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-1 px-3 py-1.5 sm:w-auto sm:pl-2 sm:pr-8">
           {/* The thing you are reading is the thing you can keep. First in the row because it acts
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
@@ -459,6 +479,32 @@ function OpenItem({
             <Icon icon={Download} size="sm" />
             Export
           </Button>
+
+          {canApplyTemplates ? (
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-xs"
+              onClick={() => {
+                void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
+              }}
+            >
+              <Icon icon={LayoutTemplate} size="sm" />
+              Apply template
+            </Button>
+          ) : null}
+
+          {canManageTemplates ? (
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-xs"
+              onClick={() => {
+                void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
+              }}
+            >
+              <Icon icon={Save} size="sm" />
+              Save as template
+            </Button>
+          ) : null}
 
           <Button
             variant="ghost"
@@ -518,18 +564,18 @@ function OpenItem({
                   it a scroll container on both axes either way - what keeps the horizontal one
                   dormant is that the view inside brings its own and this can shrink to fit around
                   it. See `paneScroller`. */}
-              <div className={paneScroller}>
+              <PaneViewport className={paneScroller}>
                 {active.companionViewId === null || active.companionViewId === undefined ? (
                   <ContainerView container={container} view={active} onOpen={onOpen} />
                 ) : (
                   <div
                     className={
                       active.companionPlacement === 'beside'
-                        ? 'flex flex-col gap-4 lg:flex-row'
-                        : 'flex flex-col gap-4'
+                        ? 'grid min-h-full grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-1'
+                        : 'grid min-h-full grid-rows-2 gap-4'
                     }
                   >
-                    <section aria-label={active.name} className="min-w-0 flex-1">
+                    <section aria-label={active.name} className="min-h-0 min-w-0">
                       <ContainerView container={container} view={active} onOpen={onOpen} />
                     </section>
                     <section
@@ -539,8 +585,8 @@ function OpenItem({
                       }
                       className={
                         active.companionPlacement === 'beside'
-                          ? 'min-w-0 flex-1 border-t border-divider pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0'
-                          : 'min-w-0 flex-1 border-t border-divider pt-4'
+                          ? 'min-h-0 min-w-0 border-t border-divider pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0'
+                          : 'min-h-0 min-w-0 border-t border-divider pt-4'
                       }
                     >
                       {/* A distinct URL-state scope keeps filters and modes in one half from
@@ -558,7 +604,7 @@ function OpenItem({
                     </section>
                   </div>
                 )}
-              </div>
+              </PaneViewport>
             </section>
           )}
         </div>
@@ -589,13 +635,21 @@ interface ItemHeaderProps {
   readonly tree: ShellContext['tree'];
   readonly itemId: string;
   readonly title: string;
+  readonly bodyKind: string;
   readonly onNavigate: (itemId: string) => void;
 
   /** Editing the title is a commitment to this document. */
   readonly onCommit: () => void;
 }
 
-function ItemHeader({ tree, itemId, title, onNavigate, onCommit }: ItemHeaderProps): ReactNode {
+function ItemHeader({
+  tree,
+  itemId,
+  title,
+  bodyKind,
+  onNavigate,
+  onCommit,
+}: ItemHeaderProps): ReactNode {
   const trail = tree.breadcrumbs(itemId);
   // Keyed on the item by its caller, so the draft is rebuilt rather than carried. A title held in
   // state and not reset is the classic mirrored-prop bug: navigating from one note to another would
@@ -641,7 +695,7 @@ function ItemHeader({ tree, itemId, title, onNavigate, onCommit }: ItemHeaderPro
 
       <input
         ref={titleRef}
-        aria-label="Note title"
+        aria-label={`${bodyKind === 'canvas' ? 'Canvas' : bodyKind === 'spreadsheet' ? 'Spreadsheet' : 'Note'} title`}
         value={draft}
         onChange={(event) => {
           setDraft(event.target.value);

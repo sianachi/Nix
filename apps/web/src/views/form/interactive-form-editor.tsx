@@ -1,15 +1,21 @@
 import { Button, Field, Input, Select, Text } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { Icon } from '@nix/ui';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { useAuth } from '../../auth/auth-provider';
+import { isCanceledError, isNixApiError } from '@nix/api-client';
+
+import { useApiClient } from '../../api/api-client-provider';
+import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
 import type {
   FormBlock,
   FormCondition,
   InteractiveFormDefinition,
   PropertyDefinition,
+  PropertyValue,
 } from '../core/container-model';
+import { changePublicFormStatus, publicFormStatus } from './public-form-api';
+import { normalizeInteractiveForm } from './interactive-form-rules';
 
 export const EMPTY_INTERACTIVE_FORM: InteractiveFormDefinition = {
   pages: [
@@ -47,11 +53,15 @@ export function InteractiveFormEditor({
     .flatMap((page) => page.blocks)
     .filter((block) => block.kind === 'field');
 
+  function commit(next: InteractiveFormDefinition): void {
+    onChange(normalizeInteractiveForm(next, schema));
+  }
+
   function updatePage(
     index: number,
     change: Partial<InteractiveFormDefinition['pages'][number]>,
   ): void {
-    onChange({
+    commit({
       ...form,
       pages: form.pages.map((page, position) =>
         position === index ? { ...page, ...change } : page,
@@ -81,35 +91,11 @@ export function InteractiveFormEditor({
       >
         {previewing ? 'Close preview' : 'Preview structure'}
       </Button>
-      {previewing ? (
-        <aside
-          aria-label="Form preview"
-          className="flex flex-col gap-3 border border-divider bg-background p-4"
-        >
-          {form.pages.map((page, index) => (
-            <div key={page.id} className="flex flex-col gap-1">
-              <Text variant="caption" tone="muted">
-                Page {String(index + 1)}
-              </Text>
-              <Text variant="h4" as="h4">
-                {page.title}
-              </Text>
-              {page.blocks.map((block) => (
-                <Text
-                  key={block.id}
-                  {...(block.kind === 'paragraph' ? { tone: 'muted' as const } : {})}
-                >
-                  {block.kind === 'field' && block.required ? `${block.text} *` : block.text}
-                </Text>
-              ))}
-            </div>
-          ))}
-        </aside>
-      ) : null}
+      {previewing ? <InteractiveFormRespondentPreview form={form} schema={schema} /> : null}
 
       {form.pages.map((page, pageIndex) => (
         <div key={page.id} className="flex flex-col gap-2 border border-divider p-3">
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <Field label={`Page ${String(pageIndex + 1)} title`} className="flex-1">
               {(control) => (
                 <Input
@@ -128,7 +114,7 @@ export function InteractiveFormEditor({
                   disabled={pageIndex === 0}
                   aria-label={`Move ${page.title} up`}
                   onClick={() => {
-                    onChange({ ...form, pages: move(form.pages, pageIndex, -1) });
+                    commit({ ...form, pages: move(form.pages, pageIndex, -1) });
                   }}
                 >
                   <Icon icon={ChevronUp} size="sm" />
@@ -138,7 +124,7 @@ export function InteractiveFormEditor({
                   disabled={pageIndex === form.pages.length - 1}
                   aria-label={`Move ${page.title} down`}
                   onClick={() => {
-                    onChange({ ...form, pages: move(form.pages, pageIndex, 1) });
+                    commit({ ...form, pages: move(form.pages, pageIndex, 1) });
                   }}
                 >
                   <Icon icon={ChevronDown} size="sm" />
@@ -147,7 +133,7 @@ export function InteractiveFormEditor({
                   variant="icon"
                   aria-label={`Remove ${page.title}`}
                   onClick={() => {
-                    onChange({
+                    commit({
                       ...form,
                       pages: form.pages.filter((_, index) => index !== pageIndex),
                     });
@@ -248,7 +234,7 @@ export function InteractiveFormEditor({
         variant="secondary"
         className="self-start"
         onClick={() => {
-          onChange({
+          commit({
             ...form,
             pages: [
               ...form.pages,
@@ -266,14 +252,14 @@ export function InteractiveFormEditor({
         <Icon icon={Plus} size="sm" /> Add page
       </Button>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         <Field label="Response title">
           {(control) => (
             <Select
               {...control}
               value={form.titleMode === 'field' ? (form.titleFieldBlockId ?? '') : ''}
               onChange={(event) => {
-                onChange({
+                commit({
                   ...form,
                   titleMode: event.target.value ? 'field' : 'generated',
                   titleFieldBlockId: event.target.value || null,
@@ -295,7 +281,7 @@ export function InteractiveFormEditor({
               {...control}
               value={form.confirmationTitle}
               onChange={(event) => {
-                onChange({ ...form, confirmationTitle: event.target.value });
+                commit({ ...form, confirmationTitle: event.target.value });
               }}
             />
           )}
@@ -307,13 +293,170 @@ export function InteractiveFormEditor({
             {...control}
             value={form.confirmationMessage}
             onChange={(event) => {
-              onChange({ ...form, confirmationMessage: event.target.value });
+              commit({ ...form, confirmationMessage: event.target.value });
             }}
           />
         )}
       </Field>
       {showPublishing ? <PublishingControls itemId={itemId} viewId={viewId} /> : null}
     </section>
+  );
+}
+
+export function InteractiveFormRespondentPreview({
+  form,
+  schema,
+}: {
+  readonly form: InteractiveFormDefinition;
+  readonly schema: readonly PropertyDefinition[];
+}): ReactNode {
+  const [pageIndex, setPageIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, PropertyValue>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [complete, setComplete] = useState(false);
+  const pages = form.pages.filter((page) => formPartVisible(page.visibleWhen, answers));
+  const page = pages[Math.min(pageIndex, Math.max(0, pages.length - 1))];
+
+  if (complete) {
+    return (
+      <aside
+        aria-label="Form preview"
+        className="flex flex-col gap-3 border border-divider bg-background p-4"
+      >
+        <Text variant="h3" as="h3">
+          {form.confirmationTitle}
+        </Text>
+        <Text tone="muted">{form.confirmationMessage}</Text>
+        <Button
+          variant="secondary"
+          className="self-start"
+          onClick={() => {
+            setComplete(false);
+            setPageIndex(0);
+          }}
+        >
+          Preview again
+        </Button>
+      </aside>
+    );
+  }
+
+  if (page === undefined) {
+    return (
+      <aside aria-label="Form preview" className="border border-divider bg-background p-4">
+        <Text tone="muted">No page is currently visible.</Text>
+      </aside>
+    );
+  }
+
+  const blocks = page.blocks.filter((block) => formPartVisible(block.visibleWhen, answers));
+  const last = pageIndex >= pages.length - 1;
+  function advance(): void {
+    const missing = Object.fromEntries(
+      blocks
+        .filter(
+          (block) => block.kind === 'field' && block.required && emptyAnswer(answers[block.id]),
+        )
+        .map((block) => [block.id, 'This answer is required.']),
+    );
+    setErrors(missing);
+    if (Object.keys(missing).length > 0) return;
+    if (last) setComplete(true);
+    else setPageIndex((current) => current + 1);
+  }
+
+  return (
+    <aside
+      aria-label="Form preview"
+      className="flex flex-col gap-4 border border-divider bg-background p-4"
+    >
+      <header className="flex flex-col gap-1 border-b border-divider pb-3">
+        <Text variant="caption" tone="muted">
+          Page {String(pageIndex + 1)} of {String(pages.length)}
+        </Text>
+        <Text variant="h3" as="h3">
+          {page.title}
+        </Text>
+        {page.description === null ? null : <Text tone="muted">{page.description}</Text>}
+      </header>
+      {blocks.map((block) => {
+        if (block.kind === 'heading')
+          return (
+            <Text key={block.id} variant="h4" as="h4">
+              {block.text}
+            </Text>
+          );
+        if (block.kind === 'paragraph')
+          return (
+            <Text key={block.id} tone="muted">
+              {block.text}
+            </Text>
+          );
+        const property = schema.find((candidate) => candidate.key === block.propertyKey);
+        if (property === undefined || !isKnownPropertyType(property.type)) return null;
+        return (
+          <div key={block.id} className="flex flex-col gap-1">
+            {block.help === null ? null : (
+              <Text variant="note" tone="muted">
+                {block.help}
+              </Text>
+            )}
+            <PropertyInput
+              item={{
+                title: '',
+                properties:
+                  answers[block.id] === undefined ? {} : { [block.id]: answers[block.id] },
+              }}
+              property={{ ...property, key: block.id, label: block.text, required: block.required }}
+              error={errors[block.id] ?? null}
+              onCommit={(value) => {
+                setAnswers((current) => ({ ...current, [block.id]: value }));
+              }}
+            />
+          </div>
+        );
+      })}
+      <div className="flex gap-2">
+        {pageIndex === 0 ? null : (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setPageIndex((current) => current - 1);
+            }}
+          >
+            Back
+          </Button>
+        )}
+        <Button onClick={advance}>{last ? 'Preview confirmation' : 'Continue'}</Button>
+      </div>
+    </aside>
+  );
+}
+
+function formPartVisible(
+  conditions: readonly FormCondition[],
+  answers: Readonly<Record<string, PropertyValue>>,
+): boolean {
+  return conditions.every((condition) => {
+    const answer = answers[condition.fieldBlockId];
+    const expected = condition.value ?? '';
+    if (condition.operator === 'checked') return answer === true;
+    if (condition.operator === 'not_checked') return answer !== true;
+    if (condition.operator === 'not_equals') return String(answer ?? '') !== expected;
+    if (condition.operator === 'contains')
+      return Array.isArray(answer)
+        ? answer.includes(expected)
+        : String(answer ?? '').includes(expected);
+    return String(answer ?? '') === expected;
+  });
+}
+
+function emptyAnswer(value: PropertyValue | undefined): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    value === '' ||
+    (Array.isArray(value) && value.length === 0)
   );
 }
 
@@ -335,7 +478,7 @@ function PageConditions({
       {conditions.map((condition, index) => (
         <div
           key={`${condition.fieldBlockId}-${String(index)}`}
-          className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2"
+          className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
         >
           <Select
             aria-label="Page condition field"
@@ -428,56 +571,68 @@ function PublishingControls({
   readonly itemId: string | null;
   readonly viewId: string;
 }): ReactNode {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [url, setUrl] = useState<string | null>(null);
   const [published, setPublished] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    itemId === null ? 'idle' : 'loading',
+  );
   const [working, setWorking] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
+  const pendingChange = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (itemId === null) return;
     const controller = new AbortController();
-    void getAccessToken().then(async (token) => {
-      const response = await fetch(
-        `/api/v1/items/${itemId}/views/${encodeURIComponent(viewId)}/public-link`,
-        {
-          signal: controller.signal,
-          headers: token === null ? {} : { authorization: `Bearer ${token}` },
-        },
-      ).catch(() => null);
-      if (response?.ok !== true || controller.signal.aborted) return;
-      const result = (await response.json()) as { published: boolean; url: string | null };
-      setPublished(result.published);
-      setUrl(result.url);
-    });
+    void client
+      .query(publicFormStatus(itemId, viewId), {
+        signal: controller.signal,
+        forceRefresh: true,
+      })
+      .then((result) => {
+        setPublished(result.published);
+        setUrl(result.url);
+        setStatus('ready');
+      })
+      .catch((reason: unknown) => {
+        if (isCanceledError(reason)) return;
+        setStatus('error');
+        setOutcome(formLinkFailure(reason, 'The public-link status could not be loaded.'));
+      });
     return () => {
       controller.abort();
+      pendingChange.current?.abort();
     };
-  }, [getAccessToken, itemId, viewId]);
+  }, [client, itemId, viewId]);
 
   async function change(method: 'PUT' | 'DELETE'): Promise<void> {
-    if (itemId === null) return;
+    if (itemId === null || status !== 'ready') return;
+    pendingChange.current?.abort();
+    const controller = new AbortController();
+    pendingChange.current = controller;
     setWorking(true);
     setOutcome(null);
-    const token = await getAccessToken();
-    const response = await fetch(
-      `/api/v1/items/${itemId}/views/${encodeURIComponent(viewId)}/public-link`,
-      {
-        method,
-        headers: token === null ? {} : { authorization: `Bearer ${token}` },
-      },
-    ).catch(() => null);
-    setWorking(false);
-    if (response?.ok !== true) {
-      setOutcome('The public link could not be changed. Save this view and try again.');
-      return;
+    try {
+      const result = await client.execute(changePublicFormStatus(itemId, viewId, method), {
+        signal: controller.signal,
+      });
+      setPublished(result.published);
+      setUrl(result.url);
+      setOutcome(
+        result.published ? 'A new public link is ready.' : 'The public link has been revoked.',
+      );
+    } catch (reason) {
+      if (isCanceledError(reason)) return;
+      setOutcome(
+        formLinkFailure(
+          reason,
+          'The public link could not be changed. Save this view and try again.',
+        ),
+      );
+    } finally {
+      if (pendingChange.current === controller) pendingChange.current = null;
+      setWorking(false);
     }
-    const result = (await response.json()) as { published: boolean; url: string | null };
-    setPublished(result.published);
-    setUrl(result.url);
-    setOutcome(
-      result.published ? 'A new public link is ready.' : 'The public link has been revoked.',
-    );
   }
 
   return (
@@ -490,12 +645,21 @@ function PublishingControls({
           Save form changes first. Republishing rotates the old link.
         </Text>
         <Text variant="note" tone="muted">
-          Status: {published ? 'Published' : 'Not published'}
+          Status:{' '}
+          {status === 'loading'
+            ? 'Checking publication status'
+            : status === 'error'
+              ? 'Unavailable'
+              : status === 'idle'
+                ? 'Save this view to check'
+                : published
+                  ? 'Published'
+                  : 'Not published'}
         </Text>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button
-          disabled={working || itemId === null}
+          disabled={working || itemId === null || status !== 'ready'}
           onClick={() => {
             void change('PUT');
           }}
@@ -504,7 +668,7 @@ function PublishingControls({
         </Button>
         <Button
           variant="secondary"
-          disabled={working || itemId === null}
+          disabled={working || itemId === null || status !== 'ready' || !published}
           onClick={() => {
             void change('DELETE');
           }}
@@ -534,6 +698,10 @@ function PublishingControls({
   );
 }
 
+function formLinkFailure(reason: unknown, fallback: string): string {
+  return isNixApiError(reason) ? (reason.detail ?? fallback) : fallback;
+}
+
 function BlockEditor({
   block,
   schema,
@@ -557,12 +725,12 @@ function BlockEditor({
     schema.find((property) => property.key === block.propertyKey)?.type === 'text';
   return (
     <div className="flex flex-col gap-2 bg-surface p-3">
-      <div className="flex items-end gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <Field
           label={
             block.kind === 'field' ? 'Question' : block.kind === 'heading' ? 'Heading' : 'Text'
           }
-          className="flex-1"
+          className="min-w-full sm:min-w-0 sm:flex-1"
         >
           {(control) => (
             <Input
@@ -600,7 +768,7 @@ function BlockEditor({
       </div>
       {block.kind !== 'field' ? null : (
         <>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <Field label="Stores in">
               {(control) => (
                 <Select
@@ -671,7 +839,7 @@ function BlockEditor({
               {block.visibleWhen.map((condition, conditionIndex) => (
                 <div
                   key={`${condition.fieldBlockId}-${String(conditionIndex)}`}
-                  className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2"
+                  className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
                 >
                   <Field label="Field">
                     {(control) => (

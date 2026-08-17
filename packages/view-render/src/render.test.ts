@@ -63,8 +63,12 @@ describe('drawing any view', () => {
     expect([...DRAWN_VIEW_KINDS].sort()).toEqual([
       'board',
       'calendar',
+      'form',
       'gallery',
+      'interactive_form',
       'list',
+      'query',
+      'sheet',
       'timeline',
     ]);
   });
@@ -132,6 +136,66 @@ describe('a list', () => {
     });
 
     expect(drawn.svg).toContain('[x]');
+  });
+});
+
+describe('forms', () => {
+  it('draws a quick form as fields rather than response rows', () => {
+    const drawn = draw('form', [row('An existing response')], { columns: ['status', 'due'] });
+
+    expect(drawn.svg).toContain('New response');
+    expect(drawn.svg).toContain('Status');
+    expect(drawn.svg).toContain('Due');
+    expect(drawn.svg).toContain('Add response');
+    expect(drawn.svg).not.toContain('An existing response');
+    expect(drawn.notes).toEqual([]);
+  });
+
+  it('draws the configured Interactive Form page and prompts', () => {
+    const drawn = draw('interactive_form', [], {
+      interactiveForm: {
+        pages: [
+          {
+            id: 'page-1',
+            title: 'Daily check-in',
+            description: 'Tell us how today went.',
+            visibleWhen: [],
+            blocks: [
+              {
+                id: 'heading-1',
+                kind: 'heading',
+                propertyKey: null,
+                text: 'Your day',
+                help: null,
+                required: false,
+                identityRole: null,
+                visibleWhen: [],
+              },
+              {
+                id: 'field-1',
+                kind: 'field',
+                propertyKey: 'status',
+                text: 'How did it go?',
+                help: null,
+                required: true,
+                identityRole: null,
+                visibleWhen: [],
+              },
+            ],
+          },
+        ],
+        titleMode: 'generated',
+        titleFieldBlockId: null,
+        confirmationTitle: 'Thank you',
+        confirmationMessage: 'Saved.',
+      },
+    });
+
+    expect(drawn.svg).toContain('Daily check-in');
+    expect(drawn.svg).toContain('Your day');
+    expect(drawn.svg).toContain('How did it go? *');
+    expect(drawn.svg).toContain('Submit');
+    expect(drawn.notes).toEqual([]);
   });
 });
 
