@@ -30,6 +30,28 @@ export type QueryParameters = Readonly<Record<string, QueryValue | undefined>>;
 /** Write methods. GET is deliberately absent: reads are queries. */
 export type CommandMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+export interface BinaryQueryEndpoint {
+  readonly kind: 'binary-query';
+  readonly operation: string;
+  readonly path: string;
+  readonly query: QueryParameters | undefined;
+}
+
+export interface BinaryQuerySpec {
+  readonly operation: string;
+  readonly path: string;
+  readonly query?: QueryParameters | undefined;
+}
+
+export function defineBinaryQuery(spec: BinaryQuerySpec): BinaryQueryEndpoint {
+  return {
+    kind: 'binary-query',
+    operation: spec.operation,
+    path: spec.path,
+    query: spec.query,
+  };
+}
+
 export interface QueryEndpoint<TResult> {
   readonly kind: 'query';
   /** Stable label used in telemetry and cache keys, e.g. `items.get`. */
@@ -70,6 +92,7 @@ export interface CommandEndpoint<TResult> {
   readonly path: string;
   readonly query: QueryParameters | undefined;
   readonly body: unknown;
+  readonly headers: Readonly<Record<string, string>> | undefined;
   readonly schema: z.ZodType<TResult>;
   /** Cache key prefixes marked stale once the command succeeds. */
   readonly invalidates: readonly CacheKey[];
@@ -82,6 +105,7 @@ export interface CommandSpec<TResult> {
   readonly schema: z.ZodType<TResult>;
   readonly query?: QueryParameters | undefined;
   readonly body?: unknown;
+  readonly headers?: Readonly<Record<string, string>> | undefined;
   readonly invalidates?: readonly CacheKey[] | undefined;
 }
 
@@ -93,6 +117,7 @@ export function defineCommand<TResult>(spec: CommandSpec<TResult>): CommandEndpo
     path: spec.path,
     query: spec.query,
     body: spec.body,
+    headers: spec.headers,
     schema: spec.schema,
     invalidates: spec.invalidates ?? [],
   };

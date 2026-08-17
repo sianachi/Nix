@@ -652,6 +652,71 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/templates': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Templates available in a workspace */
+    get: operations['ListTemplates'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/templates/{templateId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetTemplate'];
+    put?: never;
+    post?: never;
+    delete: operations['DeleteTemplate'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/templates/{templateId}/preflight': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['PreflightTemplateApplication'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/templates/{templateId}/items/{sourceId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetTemplateItem'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1011,6 +1076,175 @@ export interface components {
     SubmitPublicFormRequest: {
       answers: null | Record<string, never>;
       website: null | string;
+    };
+    TemplateAdditionsResponse: {
+      /** Format: int32 */
+      fields: number | string;
+      /** Format: int32 */
+      views: number | string;
+      /** Format: int32 */
+      items: number | string;
+    };
+    /** @enum {unknown} */
+    TemplateApplicationModeResponse: 'merge' | 'create';
+    TemplateCapabilitiesResponse: {
+      canEdit: boolean;
+      canDelete: boolean;
+      canExport: boolean;
+      canApply: boolean;
+    };
+    TemplateCatalogResponse: {
+      templates: components['schemas']['TemplateSummaryResponse'][];
+      capabilities: components['schemas']['TemplateLibraryCapabilitiesResponse'];
+    };
+    TemplateDetailResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      title: string;
+      description: null | string;
+      origin: components['schemas']['TemplateOriginResponse'];
+      /** Format: int32 */
+      revision: number | string;
+      includeBody: boolean;
+      includeChildren: boolean;
+      /** Format: int32 */
+      fieldCount: number | string;
+      /** Format: int32 */
+      viewCount: number | string;
+      /** Format: int32 */
+      childCount: number | string;
+      viewKinds: string[];
+      capabilities: components['schemas']['TemplateCapabilitiesResponse'];
+      /** Format: date-time */
+      updatedAt: string;
+      root: components['schemas']['TemplateItemResponse'];
+    };
+    TemplateFilterResponse: {
+      property: string;
+      operator: string;
+      value: string;
+    };
+    TemplateFormBlockResponse: {
+      id: string;
+      kind: string;
+      propertyKey: null | string;
+      text: string;
+      help: null | string;
+      required: boolean;
+      identityRole: null | string;
+      visibleWhen: components['schemas']['TemplateFormConditionResponse'][];
+    };
+    TemplateFormConditionResponse: {
+      fieldBlockId: string;
+      operator: string;
+      value: null | string;
+    };
+    TemplateFormPageResponse: {
+      id: string;
+      title: string;
+      description: null | string;
+      visibleWhen: components['schemas']['TemplateFormConditionResponse'][];
+      blocks: components['schemas']['TemplateFormBlockResponse'][];
+    };
+    TemplateInteractiveFormResponse: {
+      pages: components['schemas']['TemplateFormPageResponse'][];
+      titleMode: string;
+      titleFieldBlockId: null | string;
+      confirmationTitle: string;
+      confirmationMessage: string;
+    };
+    TemplateItemResponse: {
+      /** Format: uuid */
+      sourceId: string;
+      itemType: string;
+      title: string;
+      seq: string;
+      properties: null | components['schemas']['JsonObject'];
+      schema: null | components['schemas']['TemplatePropertySchemaResponse'];
+      views: null | components['schemas']['TemplateStoredViewsResponse'];
+      hasBody: boolean;
+      children: components['schemas']['TemplateItemResponse'][];
+    };
+    TemplateLibraryCapabilitiesResponse: {
+      canManage: boolean;
+    };
+    /** @enum {unknown} */
+    TemplateOriginResponse: 'seed' | 'user' | 'managed';
+    TemplatePreflightRequest: {
+      mode: components['schemas']['TemplateApplicationModeResponse'];
+      /** Format: uuid */
+      targetItemId: null | string;
+      /** Format: uuid */
+      parentItemId: null | string;
+      title: null | string;
+    };
+    TemplatePreflightResponse: {
+      /** Format: uuid */
+      templateId: string;
+      mode: components['schemas']['TemplateApplicationModeResponse'];
+      additions: components['schemas']['TemplateAdditionsResponse'];
+      conflicts: string[];
+      canApply: boolean;
+    };
+    TemplatePropertyDefinitionResponse: {
+      key: string;
+      label: string;
+      type: string;
+      options: string[];
+      required: boolean;
+    };
+    TemplatePropertySchemaResponse: {
+      properties: components['schemas']['TemplatePropertyDefinitionResponse'][];
+      declared: components['schemas']['TemplatePropertyDefinitionResponse'][];
+      inherit: boolean;
+    };
+    TemplateStoredViewsResponse: {
+      views: components['schemas']['TemplateViewResponse'][];
+      default: null | string;
+    };
+    TemplateSummaryResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      title: string;
+      description: null | string;
+      origin: components['schemas']['TemplateOriginResponse'];
+      /** Format: int32 */
+      revision: number | string;
+      includeBody: boolean;
+      includeChildren: boolean;
+      /** Format: int32 */
+      fieldCount: number | string;
+      /** Format: int32 */
+      viewCount: number | string;
+      /** Format: int32 */
+      childCount: number | string;
+      viewKinds: string[];
+      capabilities: components['schemas']['TemplateCapabilitiesResponse'];
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    TemplateViewResponse: {
+      id: string;
+      name: string;
+      kind: string;
+      columns: string[];
+      groupBy: null | string;
+      groupOrder: string[];
+      dateProperty: null | string;
+      sortBy: null | string;
+      sortDescending: boolean;
+      mode: null | string;
+      coverProperty: null | string;
+      endDateProperty: null | string;
+      cardSize: null | string;
+      filters: components['schemas']['TemplateFilterResponse'][];
+      companionViewId: null | string;
+      companionPlacement: null | string;
+      interactiveForm: null | components['schemas']['TemplateInteractiveFormResponse'];
     };
     UnplaceableCalendarResponse: {
       /** Format: uuid */
@@ -2675,6 +2909,182 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  ListTemplates: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateCatalogResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetTemplate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        templateId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateDetailResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  DeleteTemplate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        templateId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PreflightTemplateApplication: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        templateId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TemplatePreflightRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplatePreflightResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetTemplateItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        templateId: string;
+        sourceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
       };
     };
   };

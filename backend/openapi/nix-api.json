@@ -2200,6 +2200,242 @@
           }
         }
       }
+    },
+    "/api/v1/workspaces/{workspaceId}/templates": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "summary": "Templates available in a workspace",
+        "operationId": "ListTemplates",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateCatalogResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/templates/{templateId}": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "operationId": "GetTemplate",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Templates"
+        ],
+        "operationId": "DeleteTemplate",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/templates/{templateId}/preflight": {
+      "post": {
+        "tags": [
+          "Templates"
+        ],
+        "operationId": "PreflightTemplateApplication",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplatePreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePreflightResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/templates/{templateId}/items/{sourceId}": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "operationId": "GetTemplateItem",
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3692,6 +3928,781 @@
           }
         }
       },
+      "TemplateAdditionsResponse": {
+        "required": [
+          "fields",
+          "views",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "fields": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "views": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "items": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TemplateApplicationModeResponse": {
+        "enum": [
+          "merge",
+          "create"
+        ]
+      },
+      "TemplateCapabilitiesResponse": {
+        "required": [
+          "canEdit",
+          "canDelete",
+          "canExport",
+          "canApply"
+        ],
+        "type": "object",
+        "properties": {
+          "canEdit": {
+            "type": "boolean"
+          },
+          "canDelete": {
+            "type": "boolean"
+          },
+          "canExport": {
+            "type": "boolean"
+          },
+          "canApply": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplateCatalogResponse": {
+        "required": [
+          "templates",
+          "capabilities"
+        ],
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateSummaryResponse"
+            }
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/TemplateLibraryCapabilitiesResponse"
+          }
+        }
+      },
+      "TemplateDetailResponse": {
+        "required": [
+          "id",
+          "workspaceId",
+          "title",
+          "description",
+          "origin",
+          "revision",
+          "includeBody",
+          "includeChildren",
+          "fieldCount",
+          "viewCount",
+          "childCount",
+          "viewKinds",
+          "capabilities",
+          "updatedAt",
+          "root"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TemplateOriginResponse"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "includeBody": {
+            "type": "boolean"
+          },
+          "includeChildren": {
+            "type": "boolean"
+          },
+          "fieldCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "viewCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "childCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "viewKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/TemplateCapabilitiesResponse"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "root": {
+            "$ref": "#/components/schemas/TemplateItemResponse"
+          }
+        }
+      },
+      "TemplateFilterResponse": {
+        "required": [
+          "property",
+          "operator",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "TemplateFormBlockResponse": {
+        "required": [
+          "id",
+          "kind",
+          "propertyKey",
+          "text",
+          "help",
+          "required",
+          "identityRole",
+          "visibleWhen"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "propertyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "help": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "identityRole": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateFormConditionResponse"
+            }
+          }
+        }
+      },
+      "TemplateFormConditionResponse": {
+        "required": [
+          "fieldBlockId",
+          "operator",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldBlockId": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TemplateFormPageResponse": {
+        "required": [
+          "id",
+          "title",
+          "description",
+          "visibleWhen",
+          "blocks"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "visibleWhen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateFormConditionResponse"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateFormBlockResponse"
+            }
+          }
+        }
+      },
+      "TemplateInteractiveFormResponse": {
+        "required": [
+          "pages",
+          "titleMode",
+          "titleFieldBlockId",
+          "confirmationTitle",
+          "confirmationMessage"
+        ],
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateFormPageResponse"
+            }
+          },
+          "titleMode": {
+            "type": "string"
+          },
+          "titleFieldBlockId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confirmationTitle": {
+            "type": "string"
+          },
+          "confirmationMessage": {
+            "type": "string"
+          }
+        }
+      },
+      "TemplateItemResponse": {
+        "required": [
+          "sourceId",
+          "itemType",
+          "title",
+          "seq",
+          "properties",
+          "schema",
+          "views",
+          "hasBody",
+          "children"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "string"
+          },
+          "properties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "schema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplatePropertySchemaResponse"
+              }
+            ]
+          },
+          "views": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateStoredViewsResponse"
+              }
+            ]
+          },
+          "hasBody": {
+            "type": "boolean"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateItemResponse"
+            }
+          }
+        }
+      },
+      "TemplateLibraryCapabilitiesResponse": {
+        "required": [
+          "canManage"
+        ],
+        "type": "object",
+        "properties": {
+          "canManage": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplateOriginResponse": {
+        "enum": [
+          "seed",
+          "user",
+          "managed"
+        ]
+      },
+      "TemplatePreflightRequest": {
+        "required": [
+          "mode",
+          "targetItemId",
+          "parentItemId",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/TemplateApplicationModeResponse"
+          },
+          "targetItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "parentItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TemplatePreflightResponse": {
+        "required": [
+          "templateId",
+          "mode",
+          "additions",
+          "conflicts",
+          "canApply"
+        ],
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TemplateApplicationModeResponse"
+          },
+          "additions": {
+            "$ref": "#/components/schemas/TemplateAdditionsResponse"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "canApply": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplatePropertyDefinitionResponse": {
+        "required": [
+          "key",
+          "label",
+          "type",
+          "options",
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplatePropertySchemaResponse": {
+        "required": [
+          "properties",
+          "declared",
+          "inherit"
+        ],
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplatePropertyDefinitionResponse"
+            }
+          },
+          "declared": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplatePropertyDefinitionResponse"
+            }
+          },
+          "inherit": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplateStoredViewsResponse": {
+        "required": [
+          "views",
+          "default"
+        ],
+        "type": "object",
+        "properties": {
+          "views": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateViewResponse"
+            }
+          },
+          "default": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TemplateSummaryResponse": {
+        "required": [
+          "id",
+          "workspaceId",
+          "title",
+          "description",
+          "origin",
+          "revision",
+          "includeBody",
+          "includeChildren",
+          "fieldCount",
+          "viewCount",
+          "childCount",
+          "viewKinds",
+          "capabilities",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TemplateOriginResponse"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "includeBody": {
+            "type": "boolean"
+          },
+          "includeChildren": {
+            "type": "boolean"
+          },
+          "fieldCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "viewCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "childCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "viewKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/TemplateCapabilitiesResponse"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TemplateViewResponse": {
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "columns",
+          "groupBy",
+          "groupOrder",
+          "dateProperty",
+          "sortBy",
+          "sortDescending",
+          "mode",
+          "coverProperty",
+          "endDateProperty",
+          "cardSize",
+          "filters",
+          "companionViewId",
+          "companionPlacement",
+          "interactiveForm"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupOrder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dateProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortDescending": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coverProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endDateProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cardSize": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateFilterResponse"
+            }
+          },
+          "companionViewId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "companionPlacement": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "interactiveForm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateInteractiveFormResponse"
+              }
+            ]
+          }
+        }
+      },
       "UnplaceableCalendarResponse": {
         "required": [
           "containerId",
@@ -4181,6 +5192,9 @@
     },
     {
       "name": "Bookmarks"
+    },
+    {
+      "name": "Templates"
     }
   ]
 }
