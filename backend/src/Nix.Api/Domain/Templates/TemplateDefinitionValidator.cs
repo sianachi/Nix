@@ -15,7 +15,7 @@ public sealed class TemplateDefinitionValidator
     private const int MaximumTemplateDepth = 32;
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
-    public string? ValidateTemplateTree(IReadOnlyList<Item> items)
+    public string? ValidateTemplateTree(IReadOnlyList<Item> items, bool tolerateViewDrift = false)
     {
         ArgumentNullException.ThrowIfNull(items);
 
@@ -27,7 +27,8 @@ public sealed class TemplateDefinitionValidator
                 ? PropertySchema.Merge(effectiveByItem[parentId], declared)
                 : declared;
             effectiveByItem[item.Id] = effective;
-            if (ValidateEnvelope(item.Properties, item.Schema, item.Views, effective) is { } refusal)
+            if (ValidateEnvelope(item.Properties, item.Schema, item.Views, effective, tolerateViewDrift)
+                is { } refusal)
             {
                 return $"Template item '{ItemProperties.ReadTitle(item.Properties)}' is invalid: {refusal}";
             }
@@ -40,7 +41,8 @@ public sealed class TemplateDefinitionValidator
         string? properties,
         string? schema,
         string? views,
-        PropertySchema? effectiveSchema = null)
+        PropertySchema? effectiveSchema = null,
+        bool tolerateViewDrift = false)
     {
         var parsedSchema = effectiveSchema;
         StoredViews? parsedViews = null;
@@ -241,7 +243,8 @@ public sealed class TemplateDefinitionValidator
         }
 
         if (parsedViews is not null
-            && ValidateViewDependencies(parsedSchema ?? PropertySchema.Empty, parsedViews) is { } dependencyReason)
+            && ValidateViewDependencies(parsedSchema ?? PropertySchema.Empty, parsedViews, tolerateViewDrift)
+                is { } dependencyReason)
         {
             return dependencyReason;
         }
@@ -249,10 +252,26 @@ public sealed class TemplateDefinitionValidator
         return null;
     }
 
-    public string? ValidateViewDependencies(PropertySchema schema, StoredViews stored)
+    public string? ValidateViewDependencies(
+        PropertySchema schema,
+        StoredViews stored,
+        bool tolerateDrift = false)
     {
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(stored);
+
+        // Match the live product for content that came from inside the workspace. SetContainerViews
+        // stores any structurally-valid view set - the structural rules are ViewDefinitionRules,
+        // enforced by every caller before this - and the read path reports a view whose configured
+        // property is missing or mistyped as *unrenderable* rather than refusing it (see
+        // ViewDefinition.CanRender and GetContainerViewsHandler). A template captured from, or
+        // applied to, a working container must therefore accept exactly what that container holds;
+        // a dangling column that renders as nothing live cannot be what blocks saving it as a
+        // template. Import stays strict, because its content is external and unvetted.
+        if (tolerateDrift)
+        {
+            return null;
+        }
 
         foreach (var view in stored.Views)
         {

@@ -93,9 +93,14 @@ public sealed class TemplateMergePlanner(TemplateDefinitionValidator validator)
         dependencySchema = PropertySchema.Merge(
             dependencySchema,
             templateSchema with { Inherit = dependencySchema.Inherit });
+        // The merge planner only ever runs on the apply lifecycle, over a template captured from a
+        // workspace. It tolerates a view whose column the merged schema does not declare, the same
+        // way capture did and the live container does - otherwise a template that saved could not
+        // be applied. Import never reaches here.
         if (_validator.ValidateViewDependencies(
                 dependencySchema,
-                new StoredViews(mergedViewsModel, currentViews.Default)) is { } dependencyConflict)
+                new StoredViews(mergedViewsModel, currentViews.Default),
+                tolerateDrift: true) is { } dependencyConflict)
         {
             conflicts.Add(dependencyConflict);
         }
