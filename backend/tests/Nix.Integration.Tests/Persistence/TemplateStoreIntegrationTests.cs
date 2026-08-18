@@ -1634,7 +1634,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Create_preflight_reports_a_corrupt_template_dependency_before_any_mutation()
+    public async Task Create_preflight_reports_a_corrupt_template_before_any_mutation()
     {
         var templateId = await ImportAndFinalizeAsync("corrupt-create-preflight");
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
@@ -1643,12 +1643,17 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             var rootId = (await work.DbContext.WorkspaceTemplates.SingleAsync(
                 template => template.Id == templateId,
                 Cancellation)).RootItemId!.Value;
+            // A structurally-corrupt stored template: the default names a view that does not
+            // exist. This is caught by ViewDefinitionRules before any mutation, and stays caught
+            // even though a merely dangling column is now tolerated the way the live product
+            // tolerates it (see TemplateValidationTests) - the safety net is for real corruption,
+            // not for a column that renders as nothing.
             await work.DbContext.Items.IgnoreQueryFilters()
                 .Where(item => item.Id == rootId)
                 .ExecuteUpdateAsync(
                     update => update.SetProperty(
                         item => item.Views,
-                        "{\"views\":[{\"id\":\"bad\",\"name\":\"Bad\",\"kind\":\"list\",\"columns\":[\"missing\"],\"sortDescending\":false}],\"default\":\"bad\"}"),
+                        "{\"views\":[{\"id\":\"real\",\"name\":\"Real\",\"kind\":\"list\",\"columns\":[],\"sortDescending\":false}],\"default\":\"ghost\"}"),
                     Cancellation);
 
             var store = work.Resolve<TemplateStore>();
@@ -1661,7 +1666,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             Assert.True(preflight.IsSuccess);
             Assert.False(preflight.Value.CanApply);
             Assert.Contains(preflight.Value.Conflicts, conflict => conflict.Contains(
-                "missing",
+                "cannot be the one that opens",
                 StringComparison.Ordinal));
 
             var begun = await store.BeginApplicationAsync(
