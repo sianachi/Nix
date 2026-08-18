@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Nix.Domain.Properties;
+using Nix.Domain.Templates;
 using Nix.Domain.Views;
 
 namespace Nix.Tests.Domain.Templates;
@@ -80,4 +81,43 @@ public sealed class TemplateValidationTests
 
         Assert.Contains("earlier field", ViewDefinitionRules.Refuse(views, "form"), StringComparison.Ordinal);
     }
+
+    // The Recipes-as-a-template bug: a working container's view listed a column its schema no
+    // longer declared. The live product renders that column as nothing (ViewDefinition.CanRender
+    // ignores columns), so capturing the container as a template must accept it too. Import stays
+    // strict, because its content is external.
+    [Fact]
+    public void A_view_column_the_schema_does_not_declare_is_rejected_when_strict()
+    {
+        var reason = new TemplateDefinitionValidator()
+            .ValidateViewDependencies(PropertySchema.Empty, CompanionWithDanglingColumn());
+
+        Assert.NotNull(reason);
+        Assert.Contains("does not declare", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_view_column_the_schema_does_not_declare_is_tolerated_when_capturing()
+    {
+        var reason = new TemplateDefinitionValidator()
+            .ValidateViewDependencies(PropertySchema.Empty, CompanionWithDanglingColumn(), tolerateDrift: true);
+
+        Assert.Null(reason);
+    }
+
+    private static StoredViews CompanionWithDanglingColumn() =>
+        new(
+            [
+                new ViewDefinition(
+                    "companion",
+                    "Companion",
+                    ViewKind.List,
+                    ["ingredient"],
+                    null,
+                    [],
+                    null,
+                    null,
+                    false),
+            ],
+            null);
 }

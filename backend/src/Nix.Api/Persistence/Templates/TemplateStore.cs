@@ -479,7 +479,10 @@ public sealed class TemplateStore :
                     cancellationToken).ConfigureAwait(false),
                 declared)
             : declared;
-        if (_validator.ValidateEnvelope(nextProperties, nextSchema, nextViews, effective) is { } refusal)
+        // Editing a template item drawn from the workspace: tolerate a view whose column the
+        // schema no longer declares, exactly as the live container does. See ValidateViewDependencies.
+        if (_validator.ValidateEnvelope(nextProperties, nextSchema, nextViews, effective, tolerateViewDrift: true)
+            is { } refusal)
         {
             return Result.Failure<TemplateItemSnapshot>(TemplateErrors.Invalid(refusal));
         }
@@ -702,7 +705,9 @@ public sealed class TemplateStore :
         }
         var canApply = await _permissions.CanWriteWorkspaceAsync(template.WorkspaceId, cancellationToken)
             .ConfigureAwait(false);
-        var templateConflict = _validator.ValidateTemplateTree(source);
+        // Preflighting an application of a captured template: the source came from a workspace and
+        // is tolerated the same way it was at capture, so a template that saved can also be applied.
+        var templateConflict = _validator.ValidateTemplateTree(source, tolerateViewDrift: true);
 
         if (mode == TemplateApplicationMode.Create)
         {
@@ -846,7 +851,12 @@ public sealed class TemplateStore :
         {
             var effective = await _schemas.ResolveForItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
             effectiveSchemas[item.Id] = effective;
-            if (_validator.ValidateEnvelope(item.Properties, item.Schema, item.Views, effective) is { } reason)
+            // Capture: this is the user-facing "save my container as a template". A working
+            // container may hold a view with a column the schema no longer declares - the live
+            // product renders it as nothing rather than refusing it - so capture tolerates the
+            // same drift instead of rejecting a container that works. Import stays strict.
+            if (_validator.ValidateEnvelope(item.Properties, item.Schema, item.Views, effective, tolerateViewDrift: true)
+                is { } reason)
             {
                 return Result.Failure<TemplateCapturePlan>(TemplateErrors.Invalid(reason));
             }
@@ -913,11 +923,14 @@ public sealed class TemplateStore :
             pair => pair.Value);
         foreach (var item in staged)
         {
+            // Still the capture path (the staged tree the plan will write): tolerant for the same
+            // reason as the source validation above.
             if (_validator.ValidateEnvelope(
                     item.Properties,
                     item.Schema,
                     item.Views,
-                    effectiveSchemasByTarget[item.Id]) is { } reason)
+                    effectiveSchemasByTarget[item.Id],
+                    tolerateViewDrift: true) is { } reason)
             {
                 return Result.Failure<TemplateCapturePlan>(TemplateErrors.Invalid(reason));
             }
@@ -1902,7 +1915,9 @@ public sealed class TemplateStore :
         {
             return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid("The template has no active root."));
         }
-        if (_validator.ValidateTemplateTree(source) is { } templateConflict)
+        // Applying a captured template: its source came from a workspace, so it is tolerated the
+        // same way it was at capture - a template that saved must be applyable.
+        if (_validator.ValidateTemplateTree(source, tolerateViewDrift: true) is { } templateConflict)
         {
             return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid(templateConflict));
         }
