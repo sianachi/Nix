@@ -279,3 +279,55 @@ describe('nixctl stress run search-storm', () => {
     await done();
   });
 });
+
+describe('nixctl stress run query-storm', () => {
+  const ITEM = '11111111-1111-4111-8111-111111111111';
+
+  it('runs the container view each iteration and reports the latency spread', async () => {
+    const { env, done } = await withProfile();
+    let queries = 0;
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId/query`, () => {
+        queries += 1;
+        return HttpResponse.json({
+          itemId: ITEM,
+          viewId: 'board',
+          today: '2026-01-01',
+          results: [],
+          limit: 100,
+          truncated: false,
+        });
+      }),
+    );
+
+    const ticks = [0, 5, 100, 110, 200, 201];
+    let tick = 0;
+    const now = (): number => ticks[tick++] ?? 0;
+
+    const printed = (await capture((json) =>
+      stressRun(
+        'default',
+        { scenario: 'query-storm', itemId: ITEM, viewId: 'board', today: '2026-01-01', iterations: 3 },
+        json,
+        { env, now },
+      ),
+    )) as { scenario: string; target: string; ok: number; latencyMs: { p50: number; max: number } };
+
+    expect(queries).toBe(3);
+    expect(printed.scenario).toBe('query-storm');
+    expect(printed.target).toBe(`${ITEM}#board`);
+    expect(printed.ok).toBe(3);
+    expect(printed.latencyMs).toMatchObject({ p50: 5, max: 10 });
+    await done();
+  });
+
+  it('rejects query-storm missing --view or --today', async () => {
+    const { env, done } = await withProfile();
+    await expect(
+      capture((json) =>
+        stressRun('default', { scenario: 'query-storm', itemId: ITEM, iterations: 1 }, json, { env }),
+      ),
+    ).rejects.toThrow(/needs --item .*--view .*--today/);
+    await done();
+  });
+});
