@@ -5,8 +5,9 @@
  * views a container offers and which can render, and `itemQuery` runs one of them.
  */
 
-import { defineQuery, type QueryEndpoint } from '../endpoints.js';
+import { defineCommand, defineQuery, type CommandEndpoint, type QueryEndpoint } from '../endpoints.js';
 import { containerViewsSchema, type ContainerViews } from '../schemas/index.js';
+import type { SetViewsRequestContract } from '../contracts.js';
 
 /** The views a container offers, which cannot currently render, and which one opens. */
 export const containerViews = (itemId: string): QueryEndpoint<ContainerViews> =>
@@ -15,4 +16,27 @@ export const containerViews = (itemId: string): QueryEndpoint<ContainerViews> =>
     path: `/api/v1/items/${itemId}/views`,
     schema: containerViewsSchema,
     cacheKey: ['items', itemId, 'views'],
+  });
+
+/**
+ * Replaces a container's whole view set and returns the summary after the change.
+ *
+ * The body is the full closed view shape the contract defines; a caller authoring views owns getting
+ * it right, and the server answers 422 where it does not. Setting the views changes what `query`
+ * runs and what a container opens to, so it invalidates the item and its cached views.
+ */
+export const setContainerViews = (
+  itemId: string,
+  body: SetViewsRequestContract,
+): CommandEndpoint<ContainerViews> =>
+  defineCommand<ContainerViews>({
+    operation: 'views.set',
+    method: 'PUT',
+    path: `/api/v1/items/${itemId}/views`,
+    schema: containerViewsSchema,
+    body,
+    invalidates: [
+      ['items', itemId, 'views'],
+      ['items', itemId],
+    ],
   });
