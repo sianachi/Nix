@@ -158,6 +158,7 @@ export type {
  */
 export * as accessTokens from './resources/access-tokens.js';
 export * as items from './resources/items.js';
+export * as workspaces from './resources/workspaces.js';
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';

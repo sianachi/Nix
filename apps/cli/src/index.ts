@@ -14,6 +14,8 @@
 
 import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
+import { listWorkspaces } from './commands/workspaces.ts';
+import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -100,7 +102,120 @@ export function buildProgram(): Command {
       await run(() => logout(flags.profile, outputOptions(flags.json)));
     });
 
+  const ws = program.command('ws').description('The workspaces a token can reach.');
+
+  ws.command('list')
+    .description('List every workspace the profile can reach.')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listWorkspaces(flags.profile, outputOptions(flags.json)));
+    });
+
+  const item = program.command('item').description('Read and write the item tree.');
+
+  item
+    .command('ls')
+    .description("List a container's children, or the workspace roots.")
+    .requiredOption('--workspace <id>', 'the workspace to list within')
+    .option('--parent <id>', 'the container whose children to list (default: workspace roots)')
+    .option('--deleted', 'include soft-deleted items', false)
+    .action(async (options: LsOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        listItems(
+          flags.profile,
+          { workspaceId: options.workspace, parentId: options.parent, includeDeleted: options.deleted === true },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  item
+    .command('get <itemId>')
+    .description('Read one item by id.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getItem(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  item
+    .command('create')
+    .description('Create an item.')
+    .requiredOption('--workspace <id>', 'the workspace to create in')
+    .requiredOption('--title <title>', 'the item title')
+    .option('--type <type>', 'the body kind', 'note')
+    .option('--parent <id>', 'the parent container (default: workspace root)')
+    .action(async (options: CreateItemOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        createItem(
+          flags.profile,
+          { workspaceId: options.workspace, type: options.type, title: options.title, parentId: options.parent },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  item
+    .command('mv <itemId>')
+    .description('Move an item to a new parent and position.')
+    .requiredOption('--workspace <id>', "the item's workspace")
+    .option('--parent <id>', 'the new parent, or omit for the workspace root')
+    .option('--after <id>', 'the sibling to place it after, or omit to place it first')
+    .action(async (itemId: string, options: MvOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        moveItem(
+          flags.profile,
+          itemId,
+          { workspaceId: options.workspace, parentId: options.parent ?? null, afterId: options.after ?? null },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  item
+    .command('rm <itemId>')
+    .description('Soft-delete an item; it can be restored until it is purged.')
+    .requiredOption('--workspace <id>', "the item's workspace")
+    .action(async (itemId: string, options: WorkspaceOption, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => deleteItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)));
+    });
+
+  item
+    .command('restore <itemId>')
+    .description('Restore a soft-deleted item.')
+    .requiredOption('--workspace <id>', "the item's workspace")
+    .action(async (itemId: string, options: WorkspaceOption, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => restoreItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)));
+    });
+
   return program;
+}
+
+interface LsOptions {
+  readonly workspace: string;
+  readonly parent?: string;
+  readonly deleted?: boolean;
+}
+
+interface CreateItemOptions {
+  readonly workspace: string;
+  readonly title: string;
+  readonly type: string;
+  readonly parent?: string;
+}
+
+interface MvOptions {
+  readonly workspace: string;
+  readonly parent?: string;
+  readonly after?: string;
+}
+
+interface WorkspaceOption {
+  readonly workspace: string;
 }
 
 interface LoginOptions {
