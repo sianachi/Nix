@@ -16,6 +16,7 @@ import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
 import { listWorkspaces } from './commands/workspaces.ts';
 import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
+import { readNote, writeNote } from './commands/notes.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -109,6 +110,26 @@ export function buildProgram(): Command {
     .action(async (_options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => listWorkspaces(flags.profile, outputOptions(flags.json)));
+    });
+
+  const note = program.command('note').description("A note's body, as Markdown.");
+
+  note
+    .command('read <itemId>')
+    .description('Read a note body as Markdown.')
+    .option('--raw', 'print only the Markdown text, even when piped', false)
+    .action(async (itemId: string, options: { raw?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readNote(flags.profile, itemId, { raw: options.raw === true }, outputOptions(flags.json)));
+    });
+
+  note
+    .command('write <itemId>')
+    .description('Replace a note body with Markdown from --file or stdin.')
+    .option('--file <path>', 'read the Markdown from this file instead of stdin')
+    .action(async (itemId: string, options: { file?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)));
     });
 
   const item = program.command('item').description('Read and write the item tree.');
