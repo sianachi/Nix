@@ -18,6 +18,7 @@ import { listWorkspaces } from './commands/workspaces.ts';
 import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
+import { getViews } from './commands/views.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -131,6 +132,16 @@ export function buildProgram(): Command {
     .action(async (itemId: string, options: { file?: string }, command: Command) => {
       const flags = globalFlags(command);
       await run(() => writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)));
+    });
+
+  const viewsCmd = program.command('views').description('The views a container offers over its children.');
+
+  viewsCmd
+    .command('get <itemId>')
+    .description('List a container\'s views, which can render, and which opens by default.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getViews(flags.profile, itemId, outputOptions(flags.json)));
     });
 
   program
