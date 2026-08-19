@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { getViews } from './views.ts';
+import { getViews, setViews } from './views.ts';
 
 const API = 'http://nix.test';
 const ITEM = '11111111-1111-4111-8111-111111111111';
@@ -50,11 +50,11 @@ afterAll(() => {
   server.close();
 });
 
-async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Promise<void> }> {
+async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; dir: string; done: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'nixctl-views-'));
   const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: dir };
   await saveProfile('default', { apiUrl: API, token: 'nixpat_abc' }, { makeDefault: true, env });
-  return { env, done: () => rm(dir, { recursive: true, force: true }) };
+  return { env, dir, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
 async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
@@ -107,6 +107,65 @@ describe('nixctl views get', () => {
     );
 
     await expect(capture((json) => getViews('default', ITEM, json, { env }))).rejects.toMatchObject({ status: 404 });
+    await done();
+  });
+});
+
+describe('nixctl views set', () => {
+  it('sends the file body to PUT and prints the resulting view set', async () => {
+    const { env, dir, done } = await withProfile();
+    const file = join(dir, 'views.json');
+    // A minimal smart-list authoring file; the per-view shape is the server's to validate.
+    const smartList = { ...view('due-soon', 'Due soon', 'query'), filters: [] };
+    await writeFile(file, JSON.stringify({ views: [smartList], default: 'due-soon' }), 'utf8');
+
+    let sentBody: unknown;
+    server.use(
+      http.put(`${API}/api/v1/items/:itemId/views`, async ({ request }) => {
+        sentBody = await request.json();
+        return HttpResponse.json({
+          views: [view('due-soon', 'Due soon', 'query')],
+          unrenderable: [],
+          default: 'due-soon',
+        });
+      }),
+    );
+
+    const printed = (await capture((json) => setViews('default', ITEM, file, json, { env }))) as {
+      count: number;
+      default: string;
+      views: { id: string; kind: string }[];
+    };
+
+    expect((sentBody as { default: string }).default).toBe('due-soon');
+    expect((sentBody as { views: unknown[] }).views).toHaveLength(1);
+    expect(printed.count).toBe(1);
+    expect(printed.default).toBe('due-soon');
+    expect(printed.views[0]).toMatchObject({ id: 'due-soon', kind: 'query' });
+    await done();
+  });
+
+  it('rejects a file with no views array before any request', async () => {
+    const { env, dir, done } = await withProfile();
+    const file = join(dir, 'bad.json');
+    await writeFile(file, JSON.stringify({ default: null }), 'utf8');
+    // onUnhandledRequest:'error' would fail if it reached the network; it must not.
+    await expect(capture((json) => setViews('default', ITEM, file, json, { env }))).rejects.toThrow(/views/);
+    await done();
+  });
+
+  it('maps a rejected view set (422) to exit 1 with the server detail', async () => {
+    const { env, dir, done } = await withProfile();
+    const file = join(dir, 'views.json');
+    await writeFile(file, JSON.stringify({ views: [view('x', 'X', 'query')], default: 'x' }), 'utf8');
+    server.use(
+      http.put(`${API}/api/v1/items/:itemId/views`, () =>
+        HttpResponse.json({ code: 'views.invalid', detail: 'That view is not valid.' }, { status: 422 }),
+      ),
+    );
+    await expect(capture((json) => setViews('default', ITEM, file, json, { env }))).rejects.toMatchObject({
+      status: 422,
+    });
     await done();
   });
 });
