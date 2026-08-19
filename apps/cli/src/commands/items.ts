@@ -155,3 +155,17 @@ export async function restoreItem(
   const item = await session.client.execute(items.restoreItem(workspaceId, itemId));
   printResult(view(item), output);
 }
+
+/** Renames an item; moving and deleting are separate operations, as the contract has them. */
+export async function renameItem(
+  profileName: string | undefined,
+  itemId: string,
+  workspaceId: string,
+  title: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  const item = await session.client.execute(items.renameItem(workspaceId, itemId, title));
+  printResult(view(item), output);
+}
