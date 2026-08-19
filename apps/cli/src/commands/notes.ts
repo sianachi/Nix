@@ -12,8 +12,17 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { items } from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
+
+/**
+ * Body kinds Markdown cannot carry. An item's `type` is an open string, so this refuses only the
+ * kinds known not to be prose and lets a note - or a body kind this build has not heard of - through
+ * to the reader, which is the safe direction: a new prose kind reads best-effort rather than being
+ * blocked, and a drawing or a grid is turned away with a pointer rather than read as an empty note.
+ */
+const NON_PROSE_BODY_KINDS = new Set(['canvas', 'spreadsheet']);
 
 export interface ReadOptions {
   /** Print only the Markdown text, even when piped, rather than the JSON envelope. */
@@ -32,6 +41,20 @@ export async function readNote(
   const token = await session.tokens.getAccessToken();
   if (token === null) {
     throw new Error('Could not obtain a session for this profile.');
+  }
+
+  // Read the item's kind before its body, so a canvas or a spreadsheet is refused with a pointer
+  // rather than read through the prose fragment - which is empty for those - and reported as an
+  // empty note. This is what a stress run walking a mixed workspace needs so it never records a
+  // drawing as "no content".
+  const item = await session.client.query(items.itemById(itemId));
+  if (NON_PROSE_BODY_KINDS.has(item.type)) {
+    throw new Error(
+      `Item ${itemId} is a ${item.type}, which Markdown cannot carry. ` +
+        'Use `nixctl export ' +
+        itemId +
+        ' --format nix` for its full content.',
+    );
   }
 
   const { readBodyMarkdown } = await import('../body.ts');
