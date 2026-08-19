@@ -15,7 +15,7 @@
 import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
 import { listWorkspaces } from './commands/workspaces.ts';
-import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
+import { createItem, deleteItem, getItem, listItems, moveItem, renameItem, restoreItem } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, setViews } from './commands/views.ts';
@@ -317,6 +317,16 @@ export function buildProgram(): Command {
           outputOptions(flags.json),
         ),
       );
+    });
+
+  item
+    .command('edit <itemId>')
+    .description('Rename an item.')
+    .requiredOption('--workspace <id>', "the item's workspace")
+    .requiredOption('--title <title>', 'the new title')
+    .action(async (itemId: string, options: { workspace: string; title: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => renameItem(flags.profile, itemId, options.workspace, options.title, outputOptions(flags.json)));
     });
 
   item

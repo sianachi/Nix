@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { createItem, deleteItem, getItem, listItems } from './items.ts';
+import { createItem, deleteItem, getItem, listItems, renameItem } from './items.ts';
 import { listWorkspaces } from './workspaces.ts';
 
 const API = 'http://nix.test';
@@ -112,6 +112,25 @@ describe('the item commands over a stubbed workspace', () => {
     )) as { title: string };
 
     expect(printed.title).toBe('Fresh');
+    await done();
+  });
+
+  it('renames an item, sending the new title and printing the updated row', async () => {
+    const { env, done } = await withProfile();
+    let sentBody: unknown;
+    server.use(
+      http.patch(`${API}/api/v1/items/:itemId`, async ({ request }) => {
+        sentBody = await request.json();
+        return HttpResponse.json(item({ title: 'Renamed' }));
+      }),
+    );
+
+    const printed = (await capture((json) =>
+      renameItem('default', ITEM, WORKSPACE, 'Renamed', json, { env }),
+    )) as { title: string };
+
+    expect(sentBody).toEqual({ title: 'Renamed' });
+    expect(printed.title).toBe('Renamed');
     await done();
   });
 
