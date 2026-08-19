@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { seed } from './stress.ts';
+import { percentile, seed, stressRun } from './stress.ts';
 
 const API = 'http://nix.test';
 const WS = '22222222-2222-4222-8222-222222222222';
@@ -153,6 +153,82 @@ describe('nixctl stress seed', () => {
     await expect(capture((json) => seed('default', { workspaceId: WS, count: 0 }, json, { env }))).rejects.toThrow(
       /positive integer/,
     );
+    await done();
+  });
+});
+
+describe('percentile', () => {
+  it('is the nearest-rank value, and 0 for an empty sample', () => {
+    const sorted = [1, 5, 10];
+    expect(percentile(sorted, 50)).toBe(5);
+    expect(percentile(sorted, 95)).toBe(10);
+    expect(percentile(sorted, 100)).toBe(10);
+    expect(percentile([], 50)).toBe(0);
+  });
+});
+
+describe('nixctl stress run read-storm', () => {
+  const ITEM = '11111111-1111-4111-8111-111111111111';
+
+  it('reads the item each iteration and reports the latency spread from an injected clock', async () => {
+    const { env, done } = await withProfile();
+    let reads = 0;
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId`, () => {
+        reads += 1;
+        return HttpResponse.json(itemFrom({ title: 'target' }));
+      }),
+    );
+
+    // A deterministic clock: start,end per iteration → durations 5, 10, 1 → sorted [1,5,10].
+    const ticks = [0, 5, 100, 110, 200, 201];
+    let tick = 0;
+    const now = (): number => ticks[tick++] ?? 0;
+
+    const printed = (await capture((json) =>
+      stressRun('default', { scenario: 'read-storm', itemId: ITEM, iterations: 3 }, json, { env, now }),
+    )) as { ok: number; errors: number; latencyMs: { p50: number; p95: number; p99: number; max: number } };
+
+    expect(reads).toBe(3);
+    expect(printed.ok).toBe(3);
+    expect(printed.errors).toBe(0);
+    expect(printed.latencyMs).toEqual({ p50: 5, p95: 10, p99: 10, max: 10 });
+    await done();
+  });
+
+  it('tallies failures by problem code and keeps going', async () => {
+    const { env, done } = await withProfile();
+    let reads = 0;
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId`, () => {
+        reads += 1;
+        // Every other read is refused; the storm counts it and continues.
+        if (reads % 2 === 0) {
+          return HttpResponse.json({ code: 'server.busy', detail: 'Busy.' }, { status: 503 });
+        }
+        return HttpResponse.json(itemFrom({ title: 'target' }));
+      }),
+    );
+
+    const printed = (await capture((json) =>
+      stressRun('default', { scenario: 'read-storm', itemId: ITEM, iterations: 4 }, json, { env }),
+    )) as { ok: number; errors: number; errorsByCode: Record<string, number> };
+
+    expect(printed.ok).toBe(2);
+    expect(printed.errors).toBe(2);
+    // Both failures are tallied under one code (the exact string is the client's to assign); the
+    // point is the storm counted them rather than aborting on the first.
+    const tallied = Object.values(printed.errorsByCode).reduce((sum, n) => sum + n, 0);
+    expect(tallied).toBe(2);
+    expect(Object.keys(printed.errorsByCode)).toHaveLength(1);
+    await done();
+  });
+
+  it('rejects an unknown scenario before opening a session', async () => {
+    const { env, done } = await withProfile();
+    await expect(
+      capture((json) => stressRun('default', { scenario: 'chaos', itemId: ITEM, iterations: 1 }, json, { env })),
+    ).rejects.toThrow(/Unknown scenario/);
     await done();
   });
 });
