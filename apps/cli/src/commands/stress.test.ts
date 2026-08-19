@@ -231,4 +231,51 @@ describe('nixctl stress run read-storm', () => {
     ).rejects.toThrow(/Unknown scenario/);
     await done();
   });
+
+  it('rejects read-storm with no --item', async () => {
+    const { env, done } = await withProfile();
+    await expect(
+      capture((json) => stressRun('default', { scenario: 'read-storm', iterations: 1 }, json, { env })),
+    ).rejects.toThrow(/needs --item/);
+    await done();
+  });
+});
+
+describe('nixctl stress run search-storm', () => {
+  it('runs the query each iteration and reports the latency spread', async () => {
+    const { env, done } = await withProfile();
+    let searches = 0;
+    let lastQ: string | null = null;
+    server.use(
+      http.get(`${API}/api/v1/search`, ({ request }) => {
+        searches += 1;
+        lastQ = new URL(request.url).searchParams.get('q');
+        return HttpResponse.json({ query: lastQ ?? '', results: [], limit: 50, truncated: false });
+      }),
+    );
+
+    const ticks = [0, 5, 100, 110, 200, 201];
+    let tick = 0;
+    const now = (): number => ticks[tick++] ?? 0;
+
+    const printed = (await capture((json) =>
+      stressRun('default', { scenario: 'search-storm', query: 'soup', iterations: 3 }, json, { env, now }),
+    )) as { scenario: string; target: string; ok: number; latencyMs: { p50: number; max: number } };
+
+    expect(searches).toBe(3);
+    expect(lastQ).toBe('soup');
+    expect(printed.scenario).toBe('search-storm');
+    expect(printed.target).toBe('soup');
+    expect(printed.ok).toBe(3);
+    expect(printed.latencyMs).toMatchObject({ p50: 5, max: 10 });
+    await done();
+  });
+
+  it('rejects search-storm with no --query', async () => {
+    const { env, done } = await withProfile();
+    await expect(
+      capture((json) => stressRun('default', { scenario: 'search-storm', iterations: 1 }, json, { env })),
+    ).rejects.toThrow(/needs --query/);
+    await done();
+  });
 });

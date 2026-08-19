@@ -239,15 +239,23 @@ export function buildProgram(): Command {
   stress
     .command('run')
     .description('Run a stress scenario and print a machine-readable report.')
-    .requiredOption('--scenario <name>', 'the scenario to run (read-storm)')
-    .requiredOption('--item <id>', 'the item the scenario reads')
+    .requiredOption('--scenario <name>', 'the scenario to run (read-storm, search-storm)')
     .requiredOption('--iterations <n>', 'how many reads to make', (value) => Number.parseInt(value, 10))
+    .option('--item <id>', 'read-storm: the item to read each iteration')
+    .option('--query <text>', 'search-storm: the query to run each iteration')
+    .option('--limit <n>', 'search-storm: cap the hits per query', (value) => Number.parseInt(value, 10))
     .action(async (options: RunCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
         stressRun(
           flags.profile,
-          { scenario: options.scenario, itemId: options.item, iterations: options.iterations },
+          {
+            scenario: options.scenario,
+            iterations: options.iterations,
+            itemId: options.item,
+            query: options.query,
+            limit: options.limit,
+          },
           outputOptions(flags.json),
         ),
       );
@@ -370,8 +378,10 @@ interface SeedCliOptions {
 
 interface RunCliOptions {
   readonly scenario: string;
-  readonly item: string;
   readonly iterations: number;
+  readonly item?: string;
+  readonly query?: string;
+  readonly limit?: number;
 }
 
 interface LoginOptions {
