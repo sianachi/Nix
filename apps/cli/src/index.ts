@@ -22,6 +22,7 @@ import { getViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
+import { seed } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -208,6 +209,33 @@ export function buildProgram(): Command {
       );
     });
 
+  const stress = program.command('stress').description('Seed and exercise a workspace at scale.');
+
+  stress
+    .command('seed')
+    .description('Create many children under a container, for the scale the stress rows name.')
+    .requiredOption('--workspace <id>', 'the workspace to seed within')
+    .requiredOption('--count <n>', 'how many children to create', (value) => Number.parseInt(value, 10))
+    .option('--parent <id>', 'the container to seed under (default: create a new one)')
+    .option('--title-prefix <p>', 'the prefix each child title carries', 'Item')
+    .option('--type <type>', 'the body kind of each child', 'note')
+    .action(async (options: SeedCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        seed(
+          flags.profile,
+          {
+            workspaceId: options.workspace,
+            count: options.count,
+            parentId: options.parent,
+            titlePrefix: options.titlePrefix,
+            type: options.type,
+          },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
   const item = program.command('item').description('Read and write the item tree.');
 
   item
@@ -313,6 +341,14 @@ interface MvOptions {
 
 interface WorkspaceOption {
   readonly workspace: string;
+}
+
+interface SeedCliOptions {
+  readonly workspace: string;
+  readonly count: number;
+  readonly parent?: string;
+  readonly titlePrefix?: string;
+  readonly type?: string;
 }
 
 interface LoginOptions {
