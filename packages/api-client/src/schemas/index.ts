@@ -43,6 +43,7 @@ export {
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
+export { workspaceSchema, type Workspace } from './workspaces.js';
 export {
   ACCESS_TOKEN_SCOPES,
   accessTokenListSchema,
