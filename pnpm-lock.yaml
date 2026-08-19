@@ -93,6 +93,9 @@ importers:
       '@nix/export':
         specifier: workspace:*
         version: link:../../packages/export
+      '@nix/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
       '@nix/pdf-export':
         specifier: workspace:*
         version: link:../../packages/pdf-export
