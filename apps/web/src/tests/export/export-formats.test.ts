@@ -12,8 +12,8 @@ import { EXPORT_FORMATS, formatFor, type ExportFormat } from '../../export/expor
  */
 
 describe('the formats on offer', () => {
-  it('offers the lossless one and the two lossy ones', () => {
-    expect(EXPORT_FORMATS.map((format) => format.value)).toEqual(['nix', 'pdf', 'docx']);
+  it('offers the lossless one and the three lossy ones', () => {
+    expect(EXPORT_FORMATS.map((format) => format.value)).toEqual(['nix', 'pdf', 'docx', 'md']);
   });
 
   it('sends the lossless one to the service that holds the documents', () => {
@@ -21,9 +21,10 @@ describe('the formats on offer', () => {
     expect(formatFor('nix').baseUrl).toBe('/collab');
     expect(formatFor('pdf').baseUrl).toBe('/media');
     expect(formatFor('docx').baseUrl).toBe('/media');
+    expect(formatFor('md').baseUrl).toBe('/media');
   });
 
-  it('says what each lossy format will not carry, in specifics rather than hedges', () => {
+  it('says what the page-shaped lossy formats will not carry, in specifics rather than hedges', () => {
     for (const format of ['pdf', 'docx'] as const) {
       const { preamble } = formatFor(format);
 
@@ -32,6 +33,18 @@ describe('the formats on offer', () => {
       expect(preamble).toContain('images stored elsewhere');
       expect(preamble).toMatch(/collapsed section/);
     }
+  });
+
+  it('says what Markdown will not carry, without claiming it drops links or images', () => {
+    // Markdown keeps references as nix:// links and images as image links, so it loses a different
+    // set than the page formats: comments, inline colour, columns and views - not images or links.
+    const { preamble } = formatFor('md');
+
+    expect(preamble).toContain('Comments');
+    expect(preamble).toMatch(/text colour and highlighting/);
+    expect(preamble).toMatch(/single column/);
+    expect(preamble).toMatch(/[Bb]oards, calendars and galleries/);
+    expect(preamble).not.toContain('images stored elsewhere');
   });
 
   it('claims no loss for the archive, which is the one format that has none', () => {

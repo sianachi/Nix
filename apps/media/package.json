@@ -15,6 +15,7 @@
     "@nix/design-tokens": "workspace:*",
     "@nix/docx-export": "workspace:*",
     "@nix/export": "workspace:*",
+    "@nix/markdown": "workspace:*",
     "@nix/pdf-export": "workspace:*",
     "@resvg/resvg-js": "^2.6.2",
     "fastify": "^5.10.0",
