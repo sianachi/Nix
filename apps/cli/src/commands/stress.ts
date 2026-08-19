@@ -12,7 +12,7 @@
  * children it made — a partial seed said plainly, never a hang or a silent stall.
  */
 
-import { isNixApiError, items } from '@nix/api-client';
+import { isNixApiError, items, search } from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -95,23 +95,66 @@ export async function seed(
   );
 }
 
-/** The scenarios `stress run` knows. Only `read-storm` is built; the rest are named to reject clearly. */
-export const KNOWN_SCENARIOS = ['read-storm'] as const;
+/** The scenarios `stress run` knows. Others are named where planned so an unknown one rejects clearly. */
+export const KNOWN_SCENARIOS = ['read-storm', 'search-storm'] as const;
 export type Scenario = (typeof KNOWN_SCENARIOS)[number];
 
 export interface RunOptions {
   readonly scenario: string;
-  readonly itemId: string;
   readonly iterations: number;
+  /** read-storm: the item to read each iteration. */
+  readonly itemId?: string | undefined;
+  /** search-storm: the query to run each iteration. */
+  readonly query?: string | undefined;
+  /** search-storm: the optional result cap. */
+  readonly limit?: number | undefined;
+}
+
+interface StormTally {
+  readonly ok: number;
+  readonly errors: number;
+  readonly errorsByCode: Record<string, number>;
+  readonly durations: number[];
 }
 
 /**
- * `stress run --scenario read-storm`: read one item many times and report the latency spread.
+ * The scenario-agnostic core of a storm: run one read `iterations` times, time each with the given
+ * clock, and tally successes and failures. A failure is counted by its problem code and the loop
+ * keeps going — reads are not rate-limited, so a blip is a genuine result to record, and a report
+ * that stops at the first one measures nothing.
+ */
+async function storm(
+  readOnce: () => Promise<unknown>,
+  iterations: number,
+  now: () => number,
+): Promise<StormTally> {
+  const durations: number[] = [];
+  const errorsByCode: Record<string, number> = {};
+  let ok = 0;
+  let errors = 0;
+
+  for (let index = 0; index < iterations; index += 1) {
+    const start = now();
+    try {
+      await readOnce();
+      durations.push(now() - start);
+      ok += 1;
+    } catch (error) {
+      errors += 1;
+      const code = isNixApiError(error) ? error.code : 'unknown';
+      errorsByCode[code] = (errorsByCode[code] ?? 0) + 1;
+    }
+  }
+
+  return { ok, errors, errorsByCode, durations };
+}
+
+/**
+ * `stress run --scenario <name>`: repeat a read many times and report the latency spread.
  *
- * Each read forces past the client cache (`forceRefresh`), so every iteration is a real round trip
- * to Core rather than a cache hit — which is the whole point of a *storm*. Reads are not rate-limited
- * (only writes are), so a failure here is a genuine one: it is counted by its problem code and the
- * storm keeps going, because a report that stops at the first blip measures nothing.
+ * Both `read-storm` (one item) and `search-storm` (one query) force past the client cache, so every
+ * iteration is a real round trip rather than a cache hit — the whole point of a *storm*. Adding a
+ * scenario is adding one `readOnce` closure below — the loop, the tally and the report do not change.
  *
  * **The latency numbers are only meaningful against a live stack.** Under the test's instant mocks
  * they exercise the harness — the counting, the error tally, the percentile maths (proved with an
@@ -135,33 +178,38 @@ export async function stressRun(
   const session = await resolveSession(profileName, deps);
   const now = deps.now ?? Date.now;
 
-  const durations: number[] = [];
-  const errorsByCode: Record<string, number> = {};
-  let ok = 0;
-  let errors = 0;
-
-  for (let index = 0; index < options.iterations; index += 1) {
-    const start = now();
-    try {
-      await session.client.query(items.itemById(options.itemId), { forceRefresh: true });
-      durations.push(now() - start);
-      ok += 1;
-    } catch (error) {
-      errors += 1;
-      const code = isNixApiError(error) ? error.code : 'unknown';
-      errorsByCode[code] = (errorsByCode[code] ?? 0) + 1;
+  let readOnce: () => Promise<unknown>;
+  let target: string;
+  if (options.scenario === 'read-storm') {
+    const itemId = options.itemId;
+    if (itemId === undefined) {
+      throw new Error('read-storm needs --item <id>.');
     }
+    readOnce = () => session.client.query(items.itemById(itemId), { forceRefresh: true });
+    target = itemId;
+  } else {
+    const query = options.query;
+    if (query === undefined) {
+      throw new Error('search-storm needs --query <text>.');
+    }
+    const limit = options.limit;
+    // forceRefresh here too: an undefined cacheKey means "key by the request", not "do not cache",
+    // so without it the second identical query would be served from the client cache and the storm
+    // would hit the index exactly once.
+    readOnce = () => session.client.query(search.searchItems(query, limit), { forceRefresh: true });
+    target = query;
   }
 
-  const sorted = [...durations].sort((left, right) => left - right);
+  const tally = await storm(readOnce, options.iterations, now);
+  const sorted = [...tally.durations].sort((left, right) => left - right);
   printResult(
     {
-      scenario: 'read-storm',
-      target: options.itemId,
+      scenario: options.scenario,
+      target,
       iterations: options.iterations,
-      ok,
-      errors,
-      errorsByCode,
+      ok: tally.ok,
+      errors: tally.errors,
+      errorsByCode: tally.errorsByCode,
       latencyMs: {
         p50: percentile(sorted, 50),
         p95: percentile(sorted, 95),
