@@ -20,6 +20,9 @@ export type ViewContract = components['schemas']['ViewResponse'];
 /** A container's views, its unrenderable ones, and which of them opens by default. */
 export type ContainerViewsContract = components['schemas']['ContainerViewsResponse'];
 
+/** The wire request to replace a container's whole view set: the views and which one opens. */
+export type SetViewsRequestContract = components['schemas']['SetViewsRequest'];
+
 /** An item's property schema: what it declares, what it inherits, and the resolved result. */
 export type EffectiveSchemaContract = components['schemas']['EffectiveSchemaResponse'];
 
