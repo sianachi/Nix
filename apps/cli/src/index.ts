@@ -15,13 +15,22 @@
 import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
 import { listWorkspaces } from './commands/workspaces.ts';
-import { createItem, deleteItem, getItem, listItems, moveItem, renameItem, restoreItem } from './commands/items.ts';
+import {
+  createItem,
+  deleteItem,
+  getItem,
+  listItems,
+  moveItem,
+  renameItem,
+  restoreItem,
+} from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, setViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
+import { runImport } from './commands/import.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
@@ -126,7 +135,9 @@ export function buildProgram(): Command {
     .option('--raw', 'print only the Markdown text, even when piped', false)
     .action(async (itemId: string, options: { raw?: boolean }, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => readNote(flags.profile, itemId, { raw: options.raw === true }, outputOptions(flags.json)));
+      await run(() =>
+        readNote(flags.profile, itemId, { raw: options.raw === true }, outputOptions(flags.json)),
+      );
     });
 
   note
@@ -135,14 +146,18 @@ export function buildProgram(): Command {
     .option('--file <path>', 'read the Markdown from this file instead of stdin')
     .action(async (itemId: string, options: { file?: string }, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)));
+      await run(() =>
+        writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)),
+      );
     });
 
-  const viewsCmd = program.command('views').description('The views a container offers over its children.');
+  const viewsCmd = program
+    .command('views')
+    .description('The views a container offers over its children.');
 
   viewsCmd
     .command('get <itemId>')
-    .description('List a container\'s views, which can render, and which opens by default.')
+    .description("List a container's views, which can render, and which opens by default.")
     .action(async (itemId: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => getViews(flags.profile, itemId, outputOptions(flags.json)));
@@ -150,7 +165,7 @@ export function buildProgram(): Command {
 
   viewsCmd
     .command('set <itemId>')
-    .description('Replace a container\'s view set from a JSON file.')
+    .description("Replace a container's view set from a JSON file.")
     .requiredOption('--file <path>', 'a JSON object { "views": [...], "default": <id|null> }')
     .action(async (itemId: string, options: { file: string }, command: Command) => {
       const flags = globalFlags(command);
@@ -160,11 +175,18 @@ export function buildProgram(): Command {
   program
     .command('query <itemId>')
     .description("Run one of a container's views and print the children it shows.")
-    .requiredOption('--view <viewId>', 'which of the container\'s views to run')
+    .requiredOption('--view <viewId>', "which of the container's views to run")
     .requiredOption('--today <yyyy-mm-dd>', "the caller's own day, for relative rules")
     .action(async (itemId: string, options: { view: string; today: string }, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => runQuery(flags.profile, itemId, { view: options.view, today: options.today }, outputOptions(flags.json)));
+      await run(() =>
+        runQuery(
+          flags.profile,
+          itemId,
+          { view: options.view, today: options.today },
+          outputOptions(flags.json),
+        ),
+      );
     });
 
   const schema = program.command('schema').description("An item's declared property schema.");
@@ -179,7 +201,7 @@ export function buildProgram(): Command {
 
   schema
     .command('set <itemId>')
-    .description('Replace an item\'s declared schema from a JSON file.')
+    .description("Replace an item's declared schema from a JSON file.")
     .requiredOption('--file <path>', 'a JSON object { "properties": [...], "inherit": bool }')
     .action(async (itemId: string, options: { file: string }, command: Command) => {
       const flags = globalFlags(command);
@@ -202,7 +224,9 @@ export function buildProgram(): Command {
     .option('--limit <n>', 'cap the number of hits', (value) => Number.parseInt(value, 10))
     .action(async (query: string, options: { limit?: number }, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => runSearch(flags.profile, query, { limit: options.limit }, outputOptions(flags.json)));
+      await run(() =>
+        runSearch(flags.profile, query, { limit: options.limit }, outputOptions(flags.json)),
+      );
     });
 
   program
@@ -211,10 +235,47 @@ export function buildProgram(): Command {
     .option('--format <format>', 'nix | md | pdf | docx', 'nix')
     .option('--scope <scope>', 'item | subtree', 'item')
     .option('-o, --out <file>', 'write the export here instead of stdout')
-    .action(async (itemId: string, options: { format: string; scope: string; out?: string }, command: Command) => {
+    .action(
+      async (
+        itemId: string,
+        options: { format: string; scope: string; out?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          runExport(
+            flags.profile,
+            itemId,
+            { format: options.format, scope: options.scope, out: options.out },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  program
+    .command('import <path>')
+    .description(
+      'Import a Markdown file or folder tree as items (client-side). Front matter becomes properties; ' +
+        'wiki links and local image paths are counted as unresolved, not resolved; ' +
+        '.nix/docx/pdf need the server import, not built yet.',
+    )
+    .requiredOption('--workspace <id>', 'the workspace to import into')
+    .option('--parent <id>', 'the container to import under (default: workspace root)')
+    .option('--dry-run', 'print the mapping report without creating anything', false)
+    .action(async (path: string, options: ImportCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
-        runExport(flags.profile, itemId, { format: options.format, scope: options.scope, out: options.out }, outputOptions(flags.json)),
+        runImport(
+          flags.profile,
+          {
+            path,
+            workspaceId: options.workspace,
+            parentId: options.parent,
+            dryRun: options.dryRun === true,
+          },
+          outputOptions(flags.json),
+        ),
       );
     });
 
@@ -224,7 +285,9 @@ export function buildProgram(): Command {
     .command('seed')
     .description('Create many children under a container, for the scale the stress rows name.')
     .requiredOption('--workspace <id>', 'the workspace to seed within')
-    .requiredOption('--count <n>', 'how many children to create', (value) => Number.parseInt(value, 10))
+    .requiredOption('--count <n>', 'how many children to create', (value) =>
+      Number.parseInt(value, 10),
+    )
     .option('--parent <id>', 'the container to seed under (default: create a new one)')
     .option('--title-prefix <p>', 'the prefix each child title carries', 'Item')
     .option('--type <type>', 'the body kind of each child', 'note')
@@ -248,13 +311,20 @@ export function buildProgram(): Command {
   stress
     .command('run')
     .description('Run a stress scenario and print a machine-readable report.')
-    .requiredOption('--scenario <name>', 'the scenario to run (read-storm, search-storm, query-storm)')
-    .requiredOption('--iterations <n>', 'how many reads to make', (value) => Number.parseInt(value, 10))
+    .requiredOption(
+      '--scenario <name>',
+      'the scenario to run (read-storm, search-storm, query-storm)',
+    )
+    .requiredOption('--iterations <n>', 'how many reads to make', (value) =>
+      Number.parseInt(value, 10),
+    )
     .option('--item <id>', 'read-storm/query-storm: the item (a container for query-storm) to read')
     .option('--query <text>', 'search-storm: the query to run each iteration')
-    .option('--limit <n>', 'search-storm: cap the hits per query', (value) => Number.parseInt(value, 10))
-    .option('--view <viewId>', 'query-storm: which of the container\'s views to run')
-    .option('--today <yyyy-mm-dd>', 'query-storm: the caller\'s own day, for relative rules')
+    .option('--limit <n>', 'search-storm: cap the hits per query', (value) =>
+      Number.parseInt(value, 10),
+    )
+    .option('--view <viewId>', "query-storm: which of the container's views to run")
+    .option('--today <yyyy-mm-dd>', "query-storm: the caller's own day, for relative rules")
     .action(async (options: RunCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
@@ -287,7 +357,11 @@ export function buildProgram(): Command {
       await run(() =>
         listItems(
           flags.profile,
-          { workspaceId: options.workspace, parentId: options.parent, includeDeleted: options.deleted === true },
+          {
+            workspaceId: options.workspace,
+            parentId: options.parent,
+            includeDeleted: options.deleted === true,
+          },
           outputOptions(flags.json),
         ),
       );
@@ -313,7 +387,12 @@ export function buildProgram(): Command {
       await run(() =>
         createItem(
           flags.profile,
-          { workspaceId: options.workspace, type: options.type, title: options.title, parentId: options.parent },
+          {
+            workspaceId: options.workspace,
+            type: options.type,
+            title: options.title,
+            parentId: options.parent,
+          },
           outputOptions(flags.json),
         ),
       );
@@ -324,10 +403,20 @@ export function buildProgram(): Command {
     .description('Rename an item.')
     .requiredOption('--workspace <id>', "the item's workspace")
     .requiredOption('--title <title>', 'the new title')
-    .action(async (itemId: string, options: { workspace: string; title: string }, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() => renameItem(flags.profile, itemId, options.workspace, options.title, outputOptions(flags.json)));
-    });
+    .action(
+      async (itemId: string, options: { workspace: string; title: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          renameItem(
+            flags.profile,
+            itemId,
+            options.workspace,
+            options.title,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
 
   item
     .command('mv <itemId>')
@@ -341,7 +430,11 @@ export function buildProgram(): Command {
         moveItem(
           flags.profile,
           itemId,
-          { workspaceId: options.workspace, parentId: options.parent ?? null, afterId: options.after ?? null },
+          {
+            workspaceId: options.workspace,
+            parentId: options.parent ?? null,
+            afterId: options.after ?? null,
+          },
           outputOptions(flags.json),
         ),
       );
@@ -353,7 +446,9 @@ export function buildProgram(): Command {
     .requiredOption('--workspace <id>', "the item's workspace")
     .action(async (itemId: string, options: WorkspaceOption, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => deleteItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)));
+      await run(() =>
+        deleteItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)),
+      );
     });
 
   item
@@ -362,7 +457,9 @@ export function buildProgram(): Command {
     .requiredOption('--workspace <id>', "the item's workspace")
     .action(async (itemId: string, options: WorkspaceOption, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => restoreItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)));
+      await run(() =>
+        restoreItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)),
+      );
     });
 
   return program;
@@ -389,6 +486,12 @@ interface MvOptions {
 
 interface WorkspaceOption {
   readonly workspace: string;
+}
+
+interface ImportCliOptions {
+  readonly workspace: string;
+  readonly parent?: string;
+  readonly dryRun?: boolean;
 }
 
 interface SeedCliOptions {

@@ -1,0 +1,564 @@
+/**
+ * `nixctl import`: bring a Markdown file or a folder tree into a workspace.
+ *
+ * This is the Markdown lane of MVP-7's import (7.3/7.9), built client-side from primitives the
+ * workspace already trusts - `item create`, the collab body write, the property merge - so it adds
+ * no server surface and inherits the same authorization and refusals every other command has. The
+ * `.nix`/DOCX/PDF lanes need the server import endpoint that phase still owes and are refused by
+ * name here rather than half-handled.
+ *
+ * The report is the point. Every file the walk meets ends up in exactly one bucket - created,
+ * skipped (with why), failed (with why), or not attempted (because its parent failed or the run
+ * stopped) - and what a created item still lost (a body write or a property patch that was
+ * refused) is declared on its own row, so "what was mapped and what was dropped" is answered by
+ * the output rather than by re-reading the tree. Wiki links and local image paths are counted as
+ * unresolved, never silently dropped. `--dry-run` prints the same mapping without touching the
+ * network, which is the preview-before-commit 7.5 asks the host to render. Anything short of a
+ * complete import leaves with a non-zero exit code, after the report has been printed.
+ *
+ * **It stops honestly on Core's write rate limit**, the same way `stress seed` does: a large tree
+ * meets the per-IP write cap, and when it does the import keeps what it made, lists everything it
+ * did not attempt, and names the override to raise - never a hang, never a silent partial dressed
+ * as a whole. There is no resume: removing the partial import (`nixctl item rm <rootItemId>`) and
+ * running again is the honest path, and the report says so.
+ *
+ * The planned tree - paths, titles, front matter, bodies - is held in memory for the run, so the
+ * command is sized for trees that fit there comfortably; the streaming shape a 10k-note import
+ * needs is goal 7.7's, not this commit's claim.
+ */
+
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
+import { isNixApiError, items, structure } from '@nix/api-client';
+import { parseScalar } from './structure.ts';
+import { resolveSession, type SessionDeps } from './shared.ts';
+import { ExitCode, printResult, toFailure, type OutputOptions } from '../output.ts';
+
+/** The override to name when the import meets the write rate limit, so a person can raise it. */
+const WRITES_LIMIT_OVERRIDE = 'Nix__RateLimits__WritesPerMinute';
+
+/** Wiki links are carried as plain text, not resolved; the report counts them so the loss is declared. */
+const WIKI_LINK = /\[\[[^\]]+\]\]/g;
+
+/** Every Markdown image; the ones whose target has no scheme point at local files that will not resolve. */
+const IMAGE = /!\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)/g;
+
+/** `http:`, `nix:`, `data:`... - a target with a scheme is an address, not a local path. */
+const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+export interface ImportOptions {
+  readonly path: string;
+  readonly workspaceId: string;
+  /** The container to import under; the workspace root when omitted. */
+  readonly parentId?: string | undefined;
+  /** Map and validate without writing anything - the preview before the commit. */
+  readonly dryRun: boolean;
+}
+
+/** One source file or directory, resolved to what the import will make of it. */
+interface PlannedEntry {
+  readonly path: string;
+  readonly kind: 'note' | 'container';
+  readonly title: string;
+  /** Front matter values to set, minus the `title` key the item itself consumes. */
+  readonly properties: Readonly<Record<string, unknown>>;
+  /** The Markdown body after the front matter, empty for containers and stub files. */
+  readonly body: string;
+  /** Front matter lines that could not be mapped, declared rather than dropped. */
+  readonly droppedFrontMatter: readonly string[];
+  /** `[[wiki links]]` in the body, carried as plain text rather than resolved. */
+  readonly unresolvedWikiLinks: number;
+  /** Image references to local files, which the workspace cannot resolve; carried, not dropped. */
+  readonly unresolvedLocalImages: number;
+  readonly children: readonly PlannedEntry[];
+}
+
+interface SkippedEntry {
+  readonly path: string;
+  readonly reason: string;
+}
+
+interface FailedEntry {
+  readonly path: string;
+  readonly reason: string;
+}
+
+/** A row for a created item, carrying any loss - a refused body or property write - by name. */
+interface CreatedEntry {
+  readonly path: string;
+  readonly itemId: string;
+  readonly title: string;
+  readonly properties: readonly string[];
+  /** The Yjs delta the body write posted; 0 when there was no body to write, or it failed. */
+  bodyBytes: number;
+  /** The refusal, verbatim, when the item was created but its body could not be written. */
+  bodyError?: string;
+  /** The refusal, verbatim, when the item was created but its properties could not be set. */
+  propertiesError?: string;
+  readonly droppedFrontMatter: readonly string[];
+  readonly unresolvedWikiLinks: number;
+  readonly unresolvedLocalImages: number;
+}
+
+/** Imports a Markdown file or folder tree under a parent and prints the mapping report. */
+export async function runImport(
+  profileName: string | undefined,
+  options: ImportOptions,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const skipped: SkippedEntry[] = [];
+  const failed: FailedEntry[] = [];
+
+  const root = await plan(options.path, skipped, failed);
+  if (root === null) {
+    // The one path the caller named is itself unimportable; that is a failure of the whole
+    // command, not a report with an empty middle.
+    const only = failed[0] ?? skipped[0];
+    throw new Error(
+      only !== undefined
+        ? `Cannot import ${only.path}: ${only.reason}`
+        : `Cannot import ${options.path}.`,
+    );
+  }
+
+  // Dynamic import: the parser is heavy, and the commands that never touch a body must not load
+  // it. Each body is parsed exactly once - here for the preview, or in the write loop below right
+  // before its item is created - so a file that cannot become a valid note is a reported failure
+  // and its item is never made.
+  const { markdownToDocument } = await import('@nix/markdown');
+
+  if (options.dryRun) {
+    const valid = validate(root, markdownToDocument, failed);
+    printResult(
+      {
+        dryRun: true,
+        workspaceId: options.workspaceId,
+        parentId: options.parentId ?? null,
+        planned: valid === null ? [] : flattenPlan(valid, []),
+        skipped,
+        failed,
+      },
+      output,
+    );
+    if (failed.length > 0) {
+      process.exitCode = ExitCode.General;
+    }
+    return;
+  }
+
+  const session = await resolveSession(profileName, deps);
+  const token = await session.tokens.getAccessToken();
+  if (token === null) {
+    throw new Error('Could not obtain a session for this profile.');
+  }
+
+  const { writeBodyMarkdown } = await import('../body.ts');
+  const created: CreatedEntry[] = [];
+  const notAttempted: SkippedEntry[] = [];
+  let stoppedEarly = false;
+  let stopReason: string | undefined;
+
+  // Parents before children, so a stop leaves a coherent partial tree: every created item hangs on
+  // a created parent, and the report's `rootItemId` is the one handle that removes the whole
+  // partial import (`nixctl item rm`). Drained with a head index rather than `shift()`, which
+  // degrades sharply on queues past a few thousand entries - the width one flat folder can have.
+  const queue: { entry: PlannedEntry; parentId: string | undefined }[] = [
+    { entry: root, parentId: options.parentId },
+  ];
+  for (let head = 0; head < queue.length; head += 1) {
+    const next = queue[head];
+    if (next === undefined) {
+      break;
+    }
+
+    // Parse before creating, so a file that cannot become a valid note fails on its own row and
+    // no empty item is left standing for it. The parsed document is handed to the write, which is
+    // the only time this body is parsed.
+    let parsedDoc: unknown;
+    if (next.entry.body.trim().length > 0) {
+      const parsed = markdownToDocument(next.entry.body);
+      if (!parsed.ok) {
+        failed.push({ path: next.entry.path, reason: `not a valid note body: ${parsed.reason}` });
+        for (const child of next.entry.children) {
+          declineSubtree(child, 'its parent was not imported', notAttempted);
+        }
+        continue;
+      }
+      parsedDoc = parsed.doc;
+    }
+
+    let itemId: string;
+    try {
+      const item = await session.client.execute(
+        items.createItem(options.workspaceId, {
+          type: 'note',
+          title: next.entry.title,
+          ...(next.parentId !== undefined ? { parentId: next.parentId } : {}),
+        }),
+      );
+      itemId = item.id;
+    } catch (error) {
+      // Core's write rate limit is an expected outcome of importing a large tree, not a bug:
+      // stop, keep what was made, list everything not attempted, and name the override. There is
+      // no resume, so the honest advice is to remove the partial import before running again.
+      if (isNixApiError(error) && error.status === 429) {
+        stoppedEarly = true;
+        stopReason =
+          `Hit the write rate limit after ${String(created.length)} items. ` +
+          `Remove the partial import (nixctl item rm <rootItemId>) and raise ${WRITES_LIMIT_OVERRIDE} on the stack before running again.`;
+        declineSubtree(next.entry, 'stopped at the write rate limit', notAttempted);
+        drainQueue(queue, head + 1, notAttempted);
+        break;
+      }
+      // Anything else fails this entry - with the service's own words - and takes its subtree to
+      // the not-attempted bucket: a child cannot be created under a parent that does not exist.
+      failed.push({ path: next.entry.path, reason: toFailure(error).message });
+      for (const child of next.entry.children) {
+        declineSubtree(child, 'its parent was not imported', notAttempted);
+      }
+      continue;
+    }
+
+    const row: CreatedEntry = {
+      path: next.entry.path,
+      itemId,
+      title: next.entry.title,
+      properties: Object.keys(next.entry.properties),
+      bodyBytes: 0,
+      droppedFrontMatter: next.entry.droppedFrontMatter,
+      unresolvedWikiLinks: next.entry.unresolvedWikiLinks,
+      unresolvedLocalImages: next.entry.unresolvedLocalImages,
+    };
+    created.push(row);
+
+    // From here the item exists, so a refused body or property write is a loss declared on the
+    // created row - never a "failure" that hides the id of what now sits in the workspace.
+    if (parsedDoc !== undefined) {
+      try {
+        const written = await writeBodyMarkdown({
+          collabUrl: session.endpoints.collabUrl,
+          itemId,
+          token,
+          markdown: next.entry.body,
+          parsedDoc,
+          // This item was created moments ago; its update log is empty, so the catch-up read
+          // would fetch nothing. Skipping it halves the collab traffic of an import.
+          assumeEmpty: true,
+          ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+        });
+        row.bodyBytes = written.bytes;
+      } catch (error) {
+        row.bodyError = toFailure(error).message;
+      }
+    }
+
+    if (row.properties.length > 0) {
+      try {
+        await session.client.execute(structure.setItemProperties(itemId, next.entry.properties));
+      } catch (error) {
+        if (isNixApiError(error) && error.status === 429) {
+          stoppedEarly = true;
+          stopReason =
+            `Hit the write rate limit after ${String(created.length)} items. ` +
+            `Remove the partial import (nixctl item rm <rootItemId>) and raise ${WRITES_LIMIT_OVERRIDE} on the stack before running again.`;
+          row.propertiesError = toFailure(error).message;
+          for (const child of next.entry.children) {
+            declineSubtree(child, 'stopped at the write rate limit', notAttempted);
+          }
+          drainQueue(queue, head + 1, notAttempted);
+          break;
+        }
+        row.propertiesError = toFailure(error).message;
+      }
+    }
+
+    for (const child of next.entry.children) {
+      queue.push({ entry: child, parentId: itemId });
+    }
+  }
+
+  printResult(
+    {
+      workspaceId: options.workspaceId,
+      parentId: options.parentId ?? null,
+      rootItemId: created[0]?.itemId ?? null,
+      created,
+      skipped,
+      failed,
+      notAttempted,
+      createdCount: created.length,
+      stoppedEarly,
+      ...(stopReason !== undefined ? { reason: stopReason } : {}),
+    },
+    output,
+  );
+
+  // The report goes out first, then the exit code says whether the import was whole: anything
+  // failed, unattempted, or created-with-a-loss means a script must not read this as a success.
+  const lossy = created.some(
+    (entry) => entry.bodyError !== undefined || entry.propertiesError !== undefined,
+  );
+  if (failed.length > 0 || notAttempted.length > 0 || stoppedEarly || lossy) {
+    process.exitCode = ExitCode.General;
+  }
+}
+
+/** Declares an entry and its whole subtree as not attempted, with the reason. */
+function declineSubtree(entry: PlannedEntry, reason: string, into: SkippedEntry[]): void {
+  into.push({ path: entry.path, reason });
+  for (const child of entry.children) {
+    declineSubtree(child, reason, into);
+  }
+}
+
+/** Declares everything still queued from `from` onward as not attempted. */
+function drainQueue(
+  queue: readonly { entry: PlannedEntry }[],
+  from: number,
+  into: SkippedEntry[],
+): void {
+  for (let index = from; index < queue.length; index += 1) {
+    const waiting = queue[index];
+    if (waiting !== undefined) {
+      declineSubtree(waiting.entry, 'stopped at the write rate limit', into);
+    }
+  }
+}
+
+/**
+ * Walks the source path into a planned tree, deciding titles and front matter without touching the
+ * network. Anything the walk cannot import lands in `skipped` with its reason - a non-Markdown
+ * file, a hidden directory, a symbolic link (not followed, so a cycle cannot make the walk
+ * infinite) - never dropped silently. The named root is the one place a symlink is followed: the
+ * caller pointed at it, so following it is the request, not a traversal surprise.
+ */
+async function plan(
+  path: string,
+  skipped: SkippedEntry[],
+  failed: FailedEntry[],
+): Promise<PlannedEntry | null> {
+  let info;
+  try {
+    info = await stat(path);
+  } catch {
+    failed.push({ path, reason: 'not found or not readable' });
+    return null;
+  }
+
+  if (info.isDirectory()) {
+    let entries;
+    try {
+      entries = (await readdir(path, { withFileTypes: true })).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+    } catch {
+      failed.push({ path, reason: 'not readable' });
+      return null;
+    }
+    const children: PlannedEntry[] = [];
+    for (const entry of entries) {
+      const childPath = join(path, entry.name);
+      if (entry.isSymbolicLink()) {
+        skipped.push({ path: childPath, reason: 'symbolic link, not followed' });
+        continue;
+      }
+      if (entry.isDirectory()) {
+        // `.obsidian`, `.git`, `.trash`: a dot-directory is a tool's private space, not part of
+        // the work being brought in. Skipped as a whole, with its reason, rather than imported as
+        // a container full of file-by-file skips.
+        if (entry.name.startsWith('.')) {
+          skipped.push({ path: childPath, reason: 'hidden directory, not imported' });
+          continue;
+        }
+        const child = await plan(childPath, skipped, failed);
+        if (child !== null) {
+          children.push(child);
+        }
+        continue;
+      }
+      if (extname(entry.name).toLowerCase() !== '.md') {
+        skipped.push({ path: childPath, reason: 'not a Markdown file' });
+        continue;
+      }
+      const file = await planFile(childPath, failed);
+      if (file !== null) {
+        children.push(file);
+      }
+    }
+    return {
+      path,
+      kind: 'container',
+      title: basename(path),
+      properties: {},
+      body: '',
+      droppedFrontMatter: [],
+      unresolvedWikiLinks: 0,
+      unresolvedLocalImages: 0,
+      children,
+    };
+  }
+
+  if (extname(path).toLowerCase() !== '.md') {
+    skipped.push({ path, reason: 'not a Markdown file' });
+    return null;
+  }
+  return planFile(path, failed);
+}
+
+/** Reads one Markdown file into a planned note: front matter split off, title decided. */
+async function planFile(path: string, failed: FailedEntry[]): Promise<PlannedEntry | null> {
+  let text;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch {
+    failed.push({ path, reason: 'not readable' });
+    return null;
+  }
+
+  const { properties, body, dropped } = splitFrontMatter(text);
+  const titleValue = properties.title;
+  const title =
+    typeof titleValue === 'string' && titleValue.trim().length > 0
+      ? titleValue
+      : basename(path, extname(path));
+  const rest = { ...properties };
+  delete rest.title;
+
+  return {
+    path,
+    kind: 'note',
+    title,
+    properties: rest,
+    body,
+    droppedFrontMatter: dropped,
+    unresolvedWikiLinks: body.match(WIKI_LINK)?.length ?? 0,
+    unresolvedLocalImages: countLocalImages(body),
+    children: [],
+  };
+}
+
+/** Counts image references whose target is a local path - an address the workspace cannot reach. */
+function countLocalImages(body: string): number {
+  let count = 0;
+  for (const match of body.matchAll(IMAGE)) {
+    const target = match[1];
+    if (target !== undefined && !HAS_SCHEME.test(target)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * Splits a leading `---` front matter fence into a property bag and the remaining body.
+ *
+ * Deliberately flat: `key: value` lines with scalar values, each parsed by the same rule `props
+ * set` applies (shared `parseScalar`, so front matter and the command line cannot disagree on what
+ * a value means). A line the split cannot map - nested YAML, a list item, a line with no `:` or no
+ * value after it - is returned in `dropped` so the report can declare it per file rather than
+ * losing it silently, and never fabricates a property the source did not have.
+ */
+export function splitFrontMatter(text: string): {
+  readonly properties: Record<string, unknown>;
+  readonly body: string;
+  readonly dropped: readonly string[];
+} {
+  const lines = text.split('\n');
+  if (lines[0]?.trim() !== '---') {
+    return { properties: {}, body: text, dropped: [] };
+  }
+
+  const closing = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+  if (closing < 0) {
+    // An unclosed fence is not front matter, it is a document that starts with a rule; leave the
+    // text alone rather than swallowing the rest of the file as metadata.
+    return { properties: {}, body: text, dropped: [] };
+  }
+
+  const properties: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const line of lines.slice(1, closing)) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+    const colon = line.indexOf(':');
+    const key = colon > 0 ? line.slice(0, colon).trim() : '';
+    const raw = colon > 0 ? line.slice(colon + 1).trim() : '';
+    const flat =
+      colon > 0 &&
+      key.length > 0 &&
+      raw.length > 0 &&
+      !/\s/.test(key) &&
+      !line.startsWith(' ') &&
+      !line.startsWith('\t');
+    if (!flat) {
+      dropped.push(line.trim());
+      continue;
+    }
+    properties[key] = parseScalar(raw);
+  }
+
+  return { properties, body: lines.slice(closing + 1).join('\n'), dropped };
+}
+
+/**
+ * Gates every planned body through the parser, for the dry run's report: a failed child is pruned
+ * into `failed`, a failed root fails the plan. The real run parses per entry instead, right before
+ * each create, so nothing is parsed twice.
+ */
+function validate(
+  entry: PlannedEntry,
+  parse: (
+    markdown: string,
+  ) =>
+    { readonly ok: true; readonly doc: unknown } | { readonly ok: false; readonly reason: string },
+  failed: FailedEntry[],
+): PlannedEntry | null {
+  if (entry.body.trim().length > 0) {
+    const parsed = parse(entry.body);
+    if (!parsed.ok) {
+      failed.push({ path: entry.path, reason: `not a valid note body: ${parsed.reason}` });
+      return null;
+    }
+  }
+
+  const children: PlannedEntry[] = [];
+  for (const child of entry.children) {
+    const kept = validate(child, parse, failed);
+    if (kept !== null) {
+      children.push(kept);
+    }
+  }
+  return { ...entry, children };
+}
+
+interface PlannedRow {
+  readonly path: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly properties: readonly string[];
+  /** The UTF-8 length of the Markdown source - not the write's delta, which only a real run has. */
+  readonly sourceBytes: number;
+  readonly droppedFrontMatter: readonly string[];
+  readonly unresolvedWikiLinks: number;
+  readonly unresolvedLocalImages: number;
+}
+
+/** The planned tree as a flat list for the dry-run report, parents before children. */
+function flattenPlan(entry: PlannedEntry, into: PlannedRow[]): PlannedRow[] {
+  into.push({
+    path: entry.path,
+    kind: entry.kind,
+    title: entry.title,
+    properties: Object.keys(entry.properties),
+    sourceBytes: Buffer.byteLength(entry.body.trim(), 'utf8'),
+    droppedFrontMatter: entry.droppedFrontMatter,
+    unresolvedWikiLinks: entry.unresolvedWikiLinks,
+    unresolvedLocalImages: entry.unresolvedLocalImages,
+  });
+  for (const child of entry.children) {
+    flattenPlan(child, into);
+  }
+  return into;
+}
