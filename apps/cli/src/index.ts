@@ -239,11 +239,13 @@ export function buildProgram(): Command {
   stress
     .command('run')
     .description('Run a stress scenario and print a machine-readable report.')
-    .requiredOption('--scenario <name>', 'the scenario to run (read-storm, search-storm)')
+    .requiredOption('--scenario <name>', 'the scenario to run (read-storm, search-storm, query-storm)')
     .requiredOption('--iterations <n>', 'how many reads to make', (value) => Number.parseInt(value, 10))
-    .option('--item <id>', 'read-storm: the item to read each iteration')
+    .option('--item <id>', 'read-storm/query-storm: the item (a container for query-storm) to read')
     .option('--query <text>', 'search-storm: the query to run each iteration')
     .option('--limit <n>', 'search-storm: cap the hits per query', (value) => Number.parseInt(value, 10))
+    .option('--view <viewId>', 'query-storm: which of the container\'s views to run')
+    .option('--today <yyyy-mm-dd>', 'query-storm: the caller\'s own day, for relative rules')
     .action(async (options: RunCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
@@ -255,6 +257,8 @@ export function buildProgram(): Command {
             itemId: options.item,
             query: options.query,
             limit: options.limit,
+            viewId: options.view,
+            today: options.today,
           },
           outputOptions(flags.json),
         ),
@@ -382,6 +386,8 @@ interface RunCliOptions {
   readonly item?: string;
   readonly query?: string;
   readonly limit?: number;
+  readonly view?: string;
+  readonly today?: string;
 }
 
 interface LoginOptions {

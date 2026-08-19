@@ -12,7 +12,7 @@
  * children it made — a partial seed said plainly, never a hang or a silent stall.
  */
 
-import { isNixApiError, items, search } from '@nix/api-client';
+import { isNixApiError, items, search, itemQuery as queries } from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -96,18 +96,22 @@ export async function seed(
 }
 
 /** The scenarios `stress run` knows. Others are named where planned so an unknown one rejects clearly. */
-export const KNOWN_SCENARIOS = ['read-storm', 'search-storm'] as const;
+export const KNOWN_SCENARIOS = ['read-storm', 'search-storm', 'query-storm'] as const;
 export type Scenario = (typeof KNOWN_SCENARIOS)[number];
 
 export interface RunOptions {
   readonly scenario: string;
   readonly iterations: number;
-  /** read-storm: the item to read each iteration. */
+  /** read-storm and query-storm: the item to read (a container, for query-storm). */
   readonly itemId?: string | undefined;
   /** search-storm: the query to run each iteration. */
   readonly query?: string | undefined;
   /** search-storm: the optional result cap. */
   readonly limit?: number | undefined;
+  /** query-storm: which of the container's views to run. */
+  readonly viewId?: string | undefined;
+  /** query-storm: the caller's own day (`yyyy-MM-dd`) for relative rules. */
+  readonly today?: string | undefined;
 }
 
 interface StormTally {
@@ -152,9 +156,10 @@ async function storm(
 /**
  * `stress run --scenario <name>`: repeat a read many times and report the latency spread.
  *
- * Both `read-storm` (one item) and `search-storm` (one query) force past the client cache, so every
- * iteration is a real round trip rather than a cache hit — the whole point of a *storm*. Adding a
- * scenario is adding one `readOnce` closure below — the loop, the tally and the report do not change.
+ * `read-storm` (one item), `search-storm` (one query) and `query-storm` (one container view) all
+ * force past the client cache, so every iteration is a real round trip rather than a cache hit — the
+ * whole point of a *storm*. Adding a scenario is adding one `readOnce` closure below — the loop, the
+ * tally and the report do not change.
  *
  * **The latency numbers are only meaningful against a live stack.** Under the test's instant mocks
  * they exercise the harness — the counting, the error tally, the percentile maths (proved with an
@@ -187,7 +192,7 @@ export async function stressRun(
     }
     readOnce = () => session.client.query(items.itemById(itemId), { forceRefresh: true });
     target = itemId;
-  } else {
+  } else if (options.scenario === 'search-storm') {
     const query = options.query;
     if (query === undefined) {
       throw new Error('search-storm needs --query <text>.');
@@ -198,6 +203,16 @@ export async function stressRun(
     // would hit the index exactly once.
     readOnce = () => session.client.query(search.searchItems(query, limit), { forceRefresh: true });
     target = query;
+  } else {
+    const itemId = options.itemId;
+    const viewId = options.viewId;
+    const today = options.today;
+    if (itemId === undefined || viewId === undefined || today === undefined) {
+      throw new Error('query-storm needs --item <id>, --view <viewId> and --today <yyyy-mm-dd>.');
+    }
+    readOnce = () =>
+      session.client.query(queries.itemQuery(itemId, viewId, today), { forceRefresh: true });
+    target = `${itemId}#${viewId}`;
   }
 
   const tally = await storm(readOnce, options.iterations, now);
