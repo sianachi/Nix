@@ -18,7 +18,7 @@ import { listWorkspaces } from './commands/workspaces.ts';
 import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
-import { getViews } from './commands/views.ts';
+import { getViews, setViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
@@ -146,6 +146,15 @@ export function buildProgram(): Command {
     .action(async (itemId: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => getViews(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  viewsCmd
+    .command('set <itemId>')
+    .description('Replace a container\'s view set from a JSON file.')
+    .requiredOption('--file <path>', 'a JSON object { "views": [...], "default": <id|null> }')
+    .action(async (itemId: string, options: { file: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setViews(flags.profile, itemId, options.file, outputOptions(flags.json)));
     });
 
   program
