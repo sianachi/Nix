@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2023"],
+    "types": ["node"],
+    // Run from source under Node's type-stripping loader, like the other services: imports carry
+    // their .ts extension and there is no dist to keep in step. The packages it imports are built.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "vitest.config.ts"]
+}
