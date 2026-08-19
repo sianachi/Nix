@@ -11,6 +11,7 @@
  * Neither constructs a ProseMirror instance at its boundary - plain JSON in, plain JSON out.
  */
 
+export { markdownConverter } from './converter.js';
 export { documentToMarkdown } from './to-markdown.js';
 export { markdownToDocument, type FromMarkdownResult } from './from-markdown.js';
 export {

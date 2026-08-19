@@ -30,8 +30,11 @@ import type { ArchiveManifest, ItemBundle } from './manifest.js';
  * with everything cannot depend on an extension seam. So `registry.formats()` is deliberately a
  * subset of this: this list is what the product can export, and a registry holds what one host
  * converts.
+ *
+ * `nix` is the lossless archive; `pdf` and `docx` and `md` are the lossy render formats a media host
+ * converts, each owing a stated list of what it drops.
  */
-export const EXPORT_FORMATS = ['nix', 'pdf', 'docx'] as const;
+export const EXPORT_FORMATS = ['nix', 'pdf', 'docx', 'md'] as const;
 
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 

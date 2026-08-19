@@ -17,7 +17,7 @@
  * Core's promise that you can leave with everything, and it cannot depend on a converter seam.
  */
 
-export type ExportFormat = 'nix' | 'pdf' | 'docx';
+export type ExportFormat = 'nix' | 'pdf' | 'docx' | 'md';
 
 export interface FormatDescriptor {
   readonly value: ExportFormat;
@@ -65,6 +65,15 @@ export const EXPORT_FORMATS: readonly FormatDescriptor[] = [
     preamble:
       'A Word document is for editing somewhere else. Boards, calendars and galleries become pictures, so they show what they showed but cannot be edited. Comments, the links between your items, and images stored elsewhere do not come across; side-by-side columns become a borderless table, a collapsed section is written out open, and a spreadsheet shows its values rather than its formulas. The last section lists exactly what was left out.',
     reportLocation: 'The last section of the file names each one.',
+  },
+  {
+    value: 'md',
+    label: 'Markdown',
+    extension: 'md',
+    baseUrl: '/media',
+    preamble:
+      'Markdown is plain text you can read and edit anywhere. Comments do not come across, text colour and highlighting are lost, and side-by-side columns become a single column. Boards, calendars and galleries are not shown, because Markdown cannot draw a view. Your links and images are kept. The end of the file lists exactly what was left out.',
+    reportLocation: 'The end of the file lists each one.',
   },
 ];
 

@@ -1,5 +1,6 @@
 import { createConverterRegistry, type ConverterRegistry } from '@nix/export';
 import { docxConverter } from '@nix/docx-export';
+import { markdownConverter } from '@nix/markdown';
 import { pdfConverter } from '@nix/pdf-export';
 
 /**
@@ -22,6 +23,7 @@ export function createConverters(): ConverterRegistry {
 
   registry.register(pdfConverter);
   registry.register(docxConverter);
+  registry.register(markdownConverter);
 
   return registry;
 }
