@@ -148,6 +148,7 @@ export type {
 export type {
   CanvasLibraryContract,
   ContainerViewsContract,
+  SetViewsRequestContract,
   CurrentPrincipalContract,
   EffectiveSchemaContract,
   PropertyDefinitionContract,
