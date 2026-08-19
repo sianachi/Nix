@@ -1,0 +1,25 @@
+{
+  "name": "@nix/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Nix CLI (nixctl): the scriptable, machine-readable way into a workspace without a browser",
+  "bin": {
+    "nixctl": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types src/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nix/api-client": "workspace:*",
+    "commander": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}
