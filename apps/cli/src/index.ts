@@ -22,7 +22,7 @@ import { getViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
-import { seed } from './commands/stress.ts';
+import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -236,6 +236,23 @@ export function buildProgram(): Command {
       );
     });
 
+  stress
+    .command('run')
+    .description('Run a stress scenario and print a machine-readable report.')
+    .requiredOption('--scenario <name>', 'the scenario to run (read-storm)')
+    .requiredOption('--item <id>', 'the item the scenario reads')
+    .requiredOption('--iterations <n>', 'how many reads to make', (value) => Number.parseInt(value, 10))
+    .action(async (options: RunCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        stressRun(
+          flags.profile,
+          { scenario: options.scenario, itemId: options.item, iterations: options.iterations },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
   const item = program.command('item').description('Read and write the item tree.');
 
   item
@@ -349,6 +366,12 @@ interface SeedCliOptions {
   readonly parent?: string;
   readonly titlePrefix?: string;
   readonly type?: string;
+}
+
+interface RunCliOptions {
+  readonly scenario: string;
+  readonly item: string;
+  readonly iterations: number;
 }
 
 interface LoginOptions {
