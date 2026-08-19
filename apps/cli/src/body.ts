@@ -25,6 +25,13 @@ import type { FetchImpl } from './session.ts';
 /** The Yjs fragment a note's prose binds to; must match the collaboration service's own. */
 const FRAGMENT = 'default';
 
+/**
+ * How long one collab request may take before it is abandoned. Without this, a single stalled
+ * request hangs the command silently - and a caller running the write in a loop (`import`) would
+ * stall mid-tree with no output and no stop reason rather than reporting one failed entry.
+ */
+const COLLAB_TIMEOUT_MS = 30_000;
+
 /** Collab returns at most this many updates a page; the reader pages until it has them all. */
 interface UpdatesPage {
   readonly docId: string;
@@ -73,7 +80,10 @@ export async function readBodyMarkdown(input: {
     }
   }
 
-  const json: unknown = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(FRAGMENT), nixSchema).toJSON();
+  const json: unknown = yXmlFragmentToProseMirrorRootNode(
+    doc.getXmlFragment(FRAGMENT),
+    nixSchema,
+  ).toJSON();
   const { markdown, losses } = documentToMarkdown(json);
   return { markdown, schemaVersion, losses, empty: !sawAny };
 }
@@ -93,9 +103,22 @@ export async function writeBodyMarkdown(input: {
   readonly itemId: string;
   readonly token: string;
   readonly markdown: string;
+  /** The already-parsed document for `markdown`, when the caller validated it; skips the re-parse. */
+  readonly parsedDoc?: unknown;
+  /**
+   * Skip the catch-up read because the caller knows the update log is empty - an item it created
+   * moments ago. Against an empty base the full state is the delta, so nothing changes in what is
+   * posted; what is saved is one round trip per write, which for an import is a quarter to a third
+   * of its whole traffic. Never set this for an item that may have been edited: the merge-safety
+   * of the write comes from that catch-up.
+   */
+  readonly assumeEmpty?: boolean;
   readonly fetchImpl?: FetchImpl;
 }): Promise<BodyWrite> {
-  const parsed = markdownToDocument(input.markdown);
+  const parsed =
+    input.parsedDoc !== undefined
+      ? { ok: true as const, doc: input.parsedDoc }
+      : markdownToDocument(input.markdown);
   if (!parsed.ok) {
     throw new Error(`The Markdown does not make a valid note body: ${parsed.reason}`);
   }
@@ -105,15 +128,17 @@ export async function writeBodyMarkdown(input: {
   // Catch up first, so the delta is computed against the note as it stands and Yjs can merge it
   // with whatever else has happened rather than clobbering it.
   const doc = new Y.Doc();
-  let after = 0;
-  for (;;) {
-    const page = await fetchUpdates(fetchImpl, input.collabUrl, input.itemId, input.token, after);
-    for (const entry of page.updates) {
-      Y.applyUpdate(doc, base64ToBytes(entry.update));
-      after = entry.seq;
-    }
-    if (!page.hasMore || page.updates.length === 0) {
-      break;
+  if (input.assumeEmpty !== true) {
+    let after = 0;
+    for (;;) {
+      const page = await fetchUpdates(fetchImpl, input.collabUrl, input.itemId, input.token, after);
+      for (const entry of page.updates) {
+        Y.applyUpdate(doc, base64ToBytes(entry.update));
+        after = entry.seq;
+      }
+      if (!page.hasMore || page.updates.length === 0) {
+        break;
+      }
     }
   }
 
@@ -131,6 +156,7 @@ export async function writeBodyMarkdown(input: {
     method: 'POST',
     headers: { authorization: `Bearer ${input.token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ update: bytesToBase64(delta), clientId: `nixctl-${randomUUID()}` }),
+    signal: AbortSignal.timeout(COLLAB_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -150,7 +176,10 @@ async function fetchUpdates(
 ): Promise<UpdatesPage> {
   const response = await fetchImpl(
     `${collabUrl}/documents/${itemId}/updates?after=${String(after)}`,
-    { headers: { authorization: `Bearer ${token}` } },
+    {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(COLLAB_TIMEOUT_MS),
+    },
   );
   if (!response.ok) {
     throw await collabError(response);
