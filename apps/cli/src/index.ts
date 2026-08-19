@@ -17,6 +17,7 @@ import { login, logout, status } from './commands/auth.ts';
 import { listWorkspaces } from './commands/workspaces.ts';
 import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
+import { runQuery } from './commands/query.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -130,6 +131,16 @@ export function buildProgram(): Command {
     .action(async (itemId: string, options: { file?: string }, command: Command) => {
       const flags = globalFlags(command);
       await run(() => writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)));
+    });
+
+  program
+    .command('query <itemId>')
+    .description("Run one of a container's views and print the children it shows.")
+    .requiredOption('--view <viewId>', 'which of the container\'s views to run')
+    .requiredOption('--today <yyyy-mm-dd>', "the caller's own day, for relative rules")
+    .action(async (itemId: string, options: { view: string; today: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => runQuery(flags.profile, itemId, { view: options.view, today: options.today }, outputOptions(flags.json)));
     });
 
   const item = program.command('item').description('Read and write the item tree.');
