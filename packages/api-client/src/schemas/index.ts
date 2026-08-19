@@ -46,6 +46,18 @@ export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookma
 export { workspaceSchema, type Workspace } from './workspaces.js';
 export { containerViewsSchema, viewSummarySchema, type ContainerViews, type ViewSummary } from './views.js';
 export {
+  effectiveSchemaSchema,
+  propertyDefinitionSchema,
+  type EffectiveSchema,
+  type PropertyDefinition,
+} from './structure.js';
+export {
+  searchHitSchema,
+  searchResultsSchema,
+  type SearchHit,
+  type SearchResults,
+} from './search.js';
+export {
   ACCESS_TOKEN_SCOPES,
   accessTokenListSchema,
   accessTokenSchema,

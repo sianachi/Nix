@@ -84,6 +84,10 @@ export {
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
+  effectiveSchemaSchema,
+  propertyDefinitionSchema,
+  searchHitSchema,
+  searchResultsSchema,
   graphNodeSchema,
   graphLinkSchema,
   shelfSchema,
@@ -102,8 +106,12 @@ export {
 export type {
   CursorPage,
   CalendarEntry,
+  EffectiveSchema,
   ItemQueryResults,
+  PropertyDefinition,
   QueryResultRow,
+  SearchHit,
+  SearchResults,
   KeptItem,
   CalendarEntryKind,
   GraphLink,
@@ -160,6 +168,8 @@ export * as accessTokens from './resources/access-tokens.js';
 export * as items from './resources/items.js';
 export * as workspaces from './resources/workspaces.js';
 export * as views from './resources/views.js';
+export * as structure from './resources/structure.js';
+export * as search from './resources/search.js';
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
