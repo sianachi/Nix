@@ -19,6 +19,9 @@ import { createItem, deleteItem, getItem, listItems, moveItem, restoreItem } fro
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews } from './commands/views.ts';
+import { getSchema, setProps, setSchema } from './commands/structure.ts';
+import { runSearch } from './commands/search.ts';
+import { runExport } from './commands/export.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 
 interface GlobalFlags {
@@ -152,6 +155,57 @@ export function buildProgram(): Command {
     .action(async (itemId: string, options: { view: string; today: string }, command: Command) => {
       const flags = globalFlags(command);
       await run(() => runQuery(flags.profile, itemId, { view: options.view, today: options.today }, outputOptions(flags.json)));
+    });
+
+  const schema = program.command('schema').description("An item's declared property schema.");
+
+  schema
+    .command('get <itemId>')
+    .description('Read the property schema resolved at an item.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getSchema(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  schema
+    .command('set <itemId>')
+    .description('Replace an item\'s declared schema from a JSON file.')
+    .requiredOption('--file <path>', 'a JSON object { "properties": [...], "inherit": bool }')
+    .action(async (itemId: string, options: { file: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setSchema(flags.profile, itemId, options.file, outputOptions(flags.json)));
+    });
+
+  const props = program.command('props').description("An item's property values.");
+
+  props
+    .command('set <itemId> [pairs...]')
+    .description('Merge key=value property values onto an item (a null value clears a key).')
+    .action(async (itemId: string, pairs: string[], _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setProps(flags.profile, itemId, pairs, outputOptions(flags.json)));
+    });
+
+  program
+    .command('search <query>')
+    .description('Full-text search across the items you can see.')
+    .option('--limit <n>', 'cap the number of hits', (value) => Number.parseInt(value, 10))
+    .action(async (query: string, options: { limit?: number }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => runSearch(flags.profile, query, { limit: options.limit }, outputOptions(flags.json)));
+    });
+
+  program
+    .command('export <itemId>')
+    .description('Download an export: nix (lossless) from collab, md/pdf/docx from media.')
+    .option('--format <format>', 'nix | md | pdf | docx', 'nix')
+    .option('--scope <scope>', 'item | subtree', 'item')
+    .option('-o, --out <file>', 'write the export here instead of stdout')
+    .action(async (itemId: string, options: { format: string; scope: string; out?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        runExport(flags.profile, itemId, { format: options.format, scope: options.scope, out: options.out }, outputOptions(flags.json)),
+      );
     });
 
   const item = program.command('item').description('Read and write the item tree.');
