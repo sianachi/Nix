@@ -54,7 +54,12 @@ export async function setSchema(
   );
 
   printResult(
-    { id: itemId, declared: answer.declared, inherit: answer.inherit, count: answer.properties.length },
+    {
+      id: itemId,
+      declared: answer.declared,
+      inherit: answer.inherit,
+      count: answer.properties.length,
+    },
     output,
   );
 }
@@ -95,8 +100,13 @@ export function parseAssignments(pairs: readonly string[]): Record<string, unkno
   return bag;
 }
 
-/** JSON where it parses (numbers, booleans, null, quoted strings), the raw text otherwise. */
-function parseScalar(raw: string): unknown {
+/**
+ * JSON where it parses (numbers, booleans, null, quoted strings), the raw text otherwise.
+ *
+ * Shared with `import`'s front matter on purpose: a value must mean the same thing arriving from
+ * the command line and from a file, or `props set status=done` and `status: done` would drift.
+ */
+export function parseScalar(raw: string): unknown {
   try {
     return JSON.parse(raw);
   } catch {
