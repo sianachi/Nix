@@ -38,10 +38,17 @@ describe('documentToMarkdown then markdownToDocument', () => {
     ['a heading', doc({ type: 'heading', attrs: { level: 2 }, content: [text('A heading')] })],
     ['a paragraph', doc(paragraph(text('Plain prose.')))],
     ['a blockquote', doc({ type: 'blockquote', content: [paragraph(text('Quoted.'))] })],
-    ['a horizontal rule', doc(paragraph(text('Above.')), { type: 'horizontalRule' }, paragraph(text('Below.')))],
+    [
+      'a horizontal rule',
+      doc(paragraph(text('Above.')), { type: 'horizontalRule' }, paragraph(text('Below.'))),
+    ],
     [
       'a fenced code block',
-      doc({ type: 'codeBlock', attrs: { language: 'typescript' }, content: [text('const answer = 42;')] }),
+      doc({
+        type: 'codeBlock',
+        attrs: { language: 'typescript' },
+        content: [text('const answer = 42;')],
+      }),
     ],
     [
       'a bullet list',
@@ -53,7 +60,10 @@ describe('documentToMarkdown then markdownToDocument', () => {
         ],
       }),
     ],
-    ['an image', doc({ type: 'image', attrs: { src: 'https://example.test/d.png', alt: 'A diagram' } })],
+    [
+      'an image',
+      doc({ type: 'image', attrs: { src: 'https://example.test/d.png', alt: 'A diagram' } }),
+    ],
   ])('round-trips %s unchanged', (_label, body) => {
     const result = roundTrip(body);
     expect(result.ok).toBe(true);
@@ -96,13 +106,14 @@ describe('documentToMarkdown then markdownToDocument', () => {
 
   it('round-trips a reference through its nix link', () => {
     const body = doc(
-      paragraph(
-        text('See '),
-        {
-          type: 'reference',
-          attrs: { kind: 'item', targetId: '0199c0de-0000-7000-8000-000000000001', label: 'The other note' },
+      paragraph(text('See '), {
+        type: 'reference',
+        attrs: {
+          kind: 'item',
+          targetId: '0199c0de-0000-7000-8000-000000000001',
+          label: 'The other note',
         },
-      ),
+      }),
     );
     const result = roundTrip(body);
     expect(result.ok).toBe(true);
@@ -183,7 +194,145 @@ describe('declared losses', () => {
 
 describe('markdownToDocument', () => {
   it('parses standard Markdown into a valid body', () => {
-    const result = markdownToDocument('# Title\n\nA paragraph with **bold** and a [link](https://x.test).');
+    const result = markdownToDocument(
+      '# Title\n\nA paragraph with **bold** and a [link](https://x.test).',
+    );
     expect(result.ok).toBe(true);
   });
+
+  it('keeps a standalone image as a block image node, with its neighbours intact', () => {
+    const result = markdownToDocument('Above.\n\n![a drawing](https://x.test/a.png)\n\nBelow.');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // The neighbours matter as much as the image: the bug class this file guards is a block
+      // silently vanishing, so a test that only finds the image could pass through that failure.
+      expect(blockTypes(result.doc)).toEqual(['paragraph', 'image', 'paragraph']);
+      expect(imageSrcs(result.doc)).toEqual(['https://x.test/a.png']);
+      expect(allText(result.doc)).toContain('Above.');
+      expect(allText(result.doc)).toContain('Below.');
+    }
+  });
+
+  it('keeps an image with trailing blanks or a small indent on the block path, as CommonMark does', () => {
+    const result = markdownToDocument(
+      'A.\n\n![one](https://x.test/1.png) \n\n   ![two](https://x.test/2.png)\n\nB.',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual(['https://x.test/1.png', 'https://x.test/2.png']);
+    }
+  });
+
+  it('degrades an inline image to a link, keeping the words around it', () => {
+    // The regression this guards: the block image mapping made prosemirror-markdown drop the
+    // whole enclosing block, silently - text destroyed with `losses: []`. Found live importing an
+    // Obsidian-shaped note (2026-08-20).
+    const result = markdownToDocument(
+      '# Hello\n\nA [[Wiki Link]] and a local image ![pic](./img.png).\n',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Asserted on the parsed document, not the serializer: this is the inbound parser's test,
+      // and it must not fail because the outbound direction changed.
+      expect(allText(result.doc)).toContain('and a local image');
+      expect(allText(result.doc)).toContain('Wiki Link');
+      expect(linkHrefs(result.doc)).toContain('./img.png');
+    }
+  });
+
+  it('uses the address as the link text when an inline image has no alt', () => {
+    const result = markdownToDocument('See ![](./shot.png) here.');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(allText(result.doc)).toContain('./shot.png');
+      expect(allText(result.doc)).toContain('here.');
+      expect(linkHrefs(result.doc)).toContain('./shot.png');
+    }
+  });
+
+  it('rewrites image syntax even inside code, the pinned cost of the text-level pass', () => {
+    // Known limitation, deliberately pinned rather than hidden: the image degrade runs over the
+    // raw source and cannot see where markdown-it would have said "code", so image syntax in a
+    // fence or an inline code span is rewritten too. If either assertion here starts failing, the
+    // pass changed reach - make that change on purpose (the docblock names the token-level shape
+    // that removes the limitation entirely).
+    const fenced = markdownToDocument('```markdown\nUse ![alt](pic.png) here.\n```');
+    expect(fenced.ok).toBe(true);
+    if (fenced.ok) {
+      expect(allText(fenced.doc)).toContain('Use [alt](pic.png) here.');
+    }
+
+    const span = markdownToDocument('Write `![alt](pic.png)` to embed.');
+    expect(span.ok).toBe(true);
+    if (span.ok) {
+      expect(allText(span.doc)).toContain('[alt](pic.png)');
+    }
+  });
+
+  it('leaves an Obsidian ![[embed]] as literal text - an honest unresolved reference', () => {
+    const result = markdownToDocument('Before ![[Pasted image 1.png]] after.');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(allText(result.doc)).toContain('Pasted image 1.png');
+      expect(allText(result.doc)).toContain('Before');
+      expect(allText(result.doc)).toContain('after.');
+      expect(imageSrcs(result.doc)).toEqual([]);
+    }
+  });
 });
+
+interface LooseNode {
+  type?: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+  content?: LooseNode[];
+}
+
+function blockTypes(docJson: unknown): string[] {
+  return ((docJson as LooseNode).content ?? []).map((node) => node.type ?? '');
+}
+
+function allText(docJson: unknown): string {
+  const parts: string[] = [];
+  const walk = (node: LooseNode): void => {
+    if (typeof node.text === 'string') {
+      parts.push(node.text);
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  walk(docJson as LooseNode);
+  return parts.join('');
+}
+
+function imageSrcs(docJson: unknown): string[] {
+  const sources: string[] = [];
+  const walk = (node: LooseNode): void => {
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') {
+      sources.push(node.attrs.src);
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  walk(docJson as LooseNode);
+  return sources;
+}
+
+function linkHrefs(docJson: unknown): string[] {
+  const hrefs: string[] = [];
+  const walk = (node: LooseNode): void => {
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'link' && typeof mark.attrs?.href === 'string') {
+        hrefs.push(mark.attrs.href);
+      }
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  walk(docJson as LooseNode);
+  return hrefs;
+}
