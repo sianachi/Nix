@@ -12,10 +12,14 @@
  */
 
 export { markdownConverter } from './converter.js';
+export {
+  splitFrontMatter,
+  parseScalar,
+  noteFromMarkdown,
+  type FrontMatterSplit,
+  type NoteFromMarkdown,
+} from './front-matter.js';
+export { countWikiLinks, countLocalImages } from './scan.js';
 export { documentToMarkdown } from './to-markdown.js';
 export { markdownToDocument, type FromMarkdownResult } from './from-markdown.js';
-export {
-  MARKDOWN_LOSSES,
-  type MarkdownLoss,
-  type ToMarkdownResult,
-} from './losses.js';
+export { MARKDOWN_LOSSES, type MarkdownLoss, type ToMarkdownResult } from './losses.js';
