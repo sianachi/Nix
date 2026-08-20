@@ -173,6 +173,9 @@ importers:
       '@nix/editor-schema':
         specifier: workspace:*
         version: link:../../packages/editor-schema
+      '@nix/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
       '@nix/sheet':
         specifier: workspace:*
         version: link:../../packages/sheet

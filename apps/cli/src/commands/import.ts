@@ -25,26 +25,25 @@
  * The planned tree - paths, titles, front matter, bodies - is held in memory for the run, so the
  * command is sized for trees that fit there comfortably; the streaming shape a 10k-note import
  * needs is goal 7.7's, not this commit's claim.
+ *
+ * The web application carries a twin of this run loop (`apps/web/src/import/import-run.ts`): the
+ * transports differ, but the bucket names, the stop policy, and "the root is the first thing
+ * created" must stay in step between the two, so a change to any of those here owes the same
+ * change there.
  */
 
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { isNixApiError, items, structure } from '@nix/api-client';
-import { parseScalar } from './structure.ts';
+// The subpaths, not the package root: the root re-exports the whole Markdown mapping, and a static
+// import of it here would load ProseMirror into every command - the cold start §2.4 protects.
+import { noteFromMarkdown } from '@nix/markdown/front-matter';
+import { countLocalImages, countWikiLinks } from '@nix/markdown/scan';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { ExitCode, printResult, toFailure, type OutputOptions } from '../output.ts';
 
 /** The override to name when the import meets the write rate limit, so a person can raise it. */
 const WRITES_LIMIT_OVERRIDE = 'Nix__RateLimits__WritesPerMinute';
-
-/** Wiki links are carried as plain text, not resolved; the report counts them so the loss is declared. */
-const WIKI_LINK = /\[\[[^\]]+\]\]/g;
-
-/** Every Markdown image; the ones whose target has no scheme point at local files that will not resolve. */
-const IMAGE = /!\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)/g;
-
-/** `http:`, `nix:`, `data:`... - a target with a scheme is an address, not a local path. */
-const HAS_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 export interface ImportOptions {
   readonly path: string;
@@ -158,6 +157,10 @@ export async function runImport(
   const notAttempted: SkippedEntry[] = [];
   let stoppedEarly = false;
   let stopReason: string | undefined;
+  // Captured when the root itself is created, not read back as created[0]: the undo advice hangs
+  // off this id, and a positional read would silently name the wrong item if anything were ever
+  // created before the root.
+  let rootItemId: string | null = null;
 
   // Parents before children, so a stop leaves a coherent partial tree: every created item hangs on
   // a created parent, and the report's `rootItemId` is the one handle that removes the whole
@@ -198,6 +201,9 @@ export async function runImport(
         }),
       );
       itemId = item.id;
+      if (head === 0) {
+        rootItemId = itemId;
+      }
     } catch (error) {
       // Core's write rate limit is an expected outcome of importing a large tree, not a bug:
       // stop, keep what was made, list everything not attempted, and name the override. There is
@@ -282,7 +288,7 @@ export async function runImport(
     {
       workspaceId: options.workspaceId,
       parentId: options.parentId ?? null,
-      rootItemId: created[0]?.itemId ?? null,
+      rootItemId,
       created,
       skipped,
       failed,
@@ -416,90 +422,19 @@ async function planFile(path: string, failed: FailedEntry[]): Promise<PlannedEnt
     return null;
   }
 
-  const { properties, body, dropped } = splitFrontMatter(text);
-  const titleValue = properties.title;
-  const title =
-    typeof titleValue === 'string' && titleValue.trim().length > 0
-      ? titleValue
-      : basename(path, extname(path));
-  const rest = { ...properties };
-  delete rest.title;
+  const { title, properties, body, dropped } = noteFromMarkdown(text, basename(path));
 
   return {
     path,
     kind: 'note',
     title,
-    properties: rest,
+    properties,
     body,
     droppedFrontMatter: dropped,
-    unresolvedWikiLinks: body.match(WIKI_LINK)?.length ?? 0,
+    unresolvedWikiLinks: countWikiLinks(body),
     unresolvedLocalImages: countLocalImages(body),
     children: [],
   };
-}
-
-/** Counts image references whose target is a local path - an address the workspace cannot reach. */
-function countLocalImages(body: string): number {
-  let count = 0;
-  for (const match of body.matchAll(IMAGE)) {
-    const target = match[1];
-    if (target !== undefined && !HAS_SCHEME.test(target)) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-/**
- * Splits a leading `---` front matter fence into a property bag and the remaining body.
- *
- * Deliberately flat: `key: value` lines with scalar values, each parsed by the same rule `props
- * set` applies (shared `parseScalar`, so front matter and the command line cannot disagree on what
- * a value means). A line the split cannot map - nested YAML, a list item, a line with no `:` or no
- * value after it - is returned in `dropped` so the report can declare it per file rather than
- * losing it silently, and never fabricates a property the source did not have.
- */
-export function splitFrontMatter(text: string): {
-  readonly properties: Record<string, unknown>;
-  readonly body: string;
-  readonly dropped: readonly string[];
-} {
-  const lines = text.split('\n');
-  if (lines[0]?.trim() !== '---') {
-    return { properties: {}, body: text, dropped: [] };
-  }
-
-  const closing = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
-  if (closing < 0) {
-    // An unclosed fence is not front matter, it is a document that starts with a rule; leave the
-    // text alone rather than swallowing the rest of the file as metadata.
-    return { properties: {}, body: text, dropped: [] };
-  }
-
-  const properties: Record<string, unknown> = {};
-  const dropped: string[] = [];
-  for (const line of lines.slice(1, closing)) {
-    if (line.trim().length === 0) {
-      continue;
-    }
-    const colon = line.indexOf(':');
-    const key = colon > 0 ? line.slice(0, colon).trim() : '';
-    const raw = colon > 0 ? line.slice(colon + 1).trim() : '';
-    const flat =
-      colon > 0 &&
-      key.length > 0 &&
-      raw.length > 0 &&
-      !/\s/.test(key) &&
-      !line.startsWith(' ') &&
-      !line.startsWith('\t');
-    if (!flat) {
-      dropped.push(line.trim());
-      continue;
-    }
-    properties[key] = parseScalar(raw);
-  }
-
-  return { properties, body: lines.slice(closing + 1).join('\n'), dropped };
 }
 
 /**

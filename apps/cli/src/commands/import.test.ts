@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { runImport, splitFrontMatter } from './import.ts';
+import { runImport } from './import.ts';
 
 const API = 'http://nix.test';
 const COLLAB = 'http://nix.test:8100';
@@ -129,36 +129,8 @@ function greenHandlers(record: {
   ];
 }
 
-describe('splitFrontMatter', () => {
-  it('maps flat key: value lines to properties and returns the body without the fence', () => {
-    const split = splitFrontMatter('---\ntitle: My Note\ncount: 5\ndone: true\n---\nBody here.\n');
-    expect(split.properties).toEqual({ title: 'My Note', count: 5, done: true });
-    expect(split.body).toBe('Body here.\n');
-    expect(split.dropped).toEqual([]);
-  });
-
-  it('declares a line it cannot map as dropped rather than losing it silently', () => {
-    const split = splitFrontMatter(
-      '---\nok: yes\n- a list item\nnested:\n  child: 1\n---\nBody.\n',
-    );
-    expect(split.properties).toEqual({ ok: 'yes' });
-    expect(split.dropped).toContain('- a list item');
-    expect(split.dropped).toContain('child: 1');
-  });
-
-  it('drops a key with no value instead of fabricating an empty property', () => {
-    const split = splitFrontMatter('---\nempty:\nreal: here\n---\nBody.\n');
-    expect(split.properties).toEqual({ real: 'here' });
-    expect(split.dropped).toEqual(['empty:']);
-  });
-
-  it('treats an unclosed fence as body, not metadata', () => {
-    const text = '---\nnot: front matter without a close\n';
-    const split = splitFrontMatter(text);
-    expect(split.properties).toEqual({});
-    expect(split.body).toBe(text);
-  });
-});
+// `splitFrontMatter` and `parseScalar` live in `@nix/markdown` (shared with the web import) and
+// are tested there; these tests cover what the CLI does with their output.
 
 describe('nixctl import --dry-run', () => {
   it('previews the mapping - titles, properties, declared losses, skips - without touching the network', async () => {
