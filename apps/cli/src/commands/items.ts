@@ -42,6 +42,17 @@ function view(item: {
   };
 }
 
+/** What `item get` prints: the list row plus the property values a one-item read is for. */
+interface ItemDetailView extends ItemView {
+  readonly properties: Readonly<Record<string, unknown>>;
+}
+
+function detailView(
+  item: Parameters<typeof view>[0] & { properties: Record<string, unknown> },
+): ItemDetailView {
+  return { ...view(item), properties: item.properties };
+}
+
 export interface ListOptions {
   readonly workspaceId: string;
   readonly parentId?: string | undefined;
@@ -78,7 +89,12 @@ export async function getItem(
 ): Promise<void> {
   const session = await resolveSession(profileName, deps);
   const item = await session.client.query(items.itemById(itemId));
-  printResult(view(item), output);
+  // The one-item read carries the property values too - `props set` reports only the keys it
+  // wrote, so this is how a script (or an import verification) reads a value back. The list view
+  // stays trimmed; a tree listing is about shape, not contents. Core mirrors the title into the
+  // property bag on every create, so `properties.title` here is the server's echo - the top-level
+  // `title` is the canonical one.
+  printResult(detailView(item), output);
 }
 
 export interface CreateOptions {

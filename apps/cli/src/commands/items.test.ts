@@ -50,7 +50,9 @@ afterAll(() => {
 });
 
 /** Runs a command with stdout captured, returns the single JSON value it printed. */
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -90,25 +92,43 @@ describe('the item commands over a stubbed workspace', () => {
 
     expect(printed.count).toBe(2);
     expect(printed.items.map((row) => row.title)).toEqual(['Kickoff', 'Second']);
+    // The list stays trimmed to shape - property values belong to `item get`, and this is the
+    // assertion that keeps that split from eroding silently.
+    expect(printed.items.every((row) => !('properties' in row))).toBe(true);
     await done();
   });
 
-  it('reads one item by id', async () => {
+  it('reads one item by id, property values included', async () => {
     const { env, done } = await withProfile();
-    server.use(http.get(`${API}/api/v1/items/:itemId`, () => HttpResponse.json(item({ title: 'The one' }))));
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId`, () =>
+        HttpResponse.json(item({ title: 'The one', properties: { status: 'done', count: 5 } })),
+      ),
+    );
 
-    const printed = (await capture((json) => getItem('default', ITEM, json, { env }))) as { title: string };
+    const printed = (await capture((json) => getItem('default', ITEM, json, { env }))) as {
+      title: string;
+      properties: Record<string, unknown>;
+    };
 
     expect(printed.title).toBe('The one');
+    // The values themselves, not just the keys - `props set` reports keys, this is the read-back.
+    expect(printed.properties).toEqual({ status: 'done', count: 5 });
     await done();
   });
 
   it('creates an item and prints the created row', async () => {
     const { env, done } = await withProfile();
-    server.use(http.post(`${API}/api/v1/workspaces/:workspaceId/items`, () => HttpResponse.json(item({ title: 'Fresh' }))));
+    server.use(
+      http.post(`${API}/api/v1/workspaces/:workspaceId/items`, () =>
+        HttpResponse.json(item({ title: 'Fresh' })),
+      ),
+    );
 
     const printed = (await capture((json) =>
-      createItem('default', { workspaceId: WORKSPACE, type: 'note', title: 'Fresh' }, json, { env }),
+      createItem('default', { workspaceId: WORKSPACE, type: 'note', title: 'Fresh' }, json, {
+        env,
+      }),
     )) as { title: string };
 
     expect(printed.title).toBe('Fresh');
@@ -136,7 +156,9 @@ describe('the item commands over a stubbed workspace', () => {
 
   it('reports a soft-delete as done', async () => {
     const { env, done } = await withProfile();
-    server.use(http.delete(`${API}/api/v1/items/:itemId`, () => new HttpResponse(null, { status: 204 })));
+    server.use(
+      http.delete(`${API}/api/v1/items/:itemId`, () => new HttpResponse(null, { status: 204 })),
+    );
 
     const printed = await capture((json) => deleteItem('default', ITEM, WORKSPACE, json, { env }));
 
@@ -148,7 +170,10 @@ describe('the item commands over a stubbed workspace', () => {
     const { env, done } = await withProfile();
     server.use(
       http.get(`${API}/api/v1/items/:itemId`, () =>
-        HttpResponse.json({ code: 'items.not_found', detail: 'No item is visible.' }, { status: 404 }),
+        HttpResponse.json(
+          { code: 'items.not_found', detail: 'No item is visible.' },
+          { status: 404 },
+        ),
       ),
     );
 
@@ -167,11 +192,27 @@ describe('ws list', () => {
         const cursor = new URL(request.url).searchParams.get('cursor');
         return cursor === null
           ? HttpResponse.json({
-              items: [{ id: 'w1', name: 'Alpha', versionRetentionDays: 30, storageQuotaBytes: '1', createdAt: 'x' }],
+              items: [
+                {
+                  id: 'w1',
+                  name: 'Alpha',
+                  versionRetentionDays: 30,
+                  storageQuotaBytes: '1',
+                  createdAt: 'x',
+                },
+              ],
               nextCursor: 'more',
             })
           : HttpResponse.json({
-              items: [{ id: 'w2', name: 'Beta', versionRetentionDays: 30, storageQuotaBytes: '1', createdAt: 'x' }],
+              items: [
+                {
+                  id: 'w2',
+                  name: 'Beta',
+                  versionRetentionDays: 30,
+                  storageQuotaBytes: '1',
+                  createdAt: 'x',
+                },
+              ],
               nextCursor: null,
             });
       }),
