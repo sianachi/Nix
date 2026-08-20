@@ -42,9 +42,30 @@ const tokenizer = MarkdownIt('commonmark', { html: false }).enable(['strikethrou
 // A block image survives Markdown's round trip only with help: `documentToMarkdown` writes a
 // block-level image as `![alt](src)` on its own line, but re-parsing puts an image inline, where
 // Nix's block-level image node cannot live, so the parser drops it. These two markers carry a
-// standalone image out of inline context and back into a block image node in the post-pass.
+// standalone image out of inline context and back into a block image node in the post-pass. The
+// anchors admit CommonMark's own block latitude - up to three leading spaces, trailing blanks -
+// so an image that is a paragraph of its own stays on the block path rather than falling through
+// to the inline degrade below.
 const IMAGE_SENTINEL = /^\s*nix-image:(\d+)\s*$/;
-const STANDALONE_IMAGE = /^!\[([^\]]*)]\(([^)\n]+)\)$/gm;
+const STANDALONE_IMAGE = /^[ \t]{0,3}!\[([^\]]*)]\(([^)\n]+)\)[ \t]*$/gm;
+
+/**
+ * An image *inside* a line of text, degraded to a link so the address and the surrounding words
+ * survive - without this, the block image mapping made prosemirror-markdown drop the whole
+ * enclosing block, silently (found live 2026-08-20, importing an Obsidian-shaped note; a heading,
+ * list item or blockquote holding an inline image vanished the same way).
+ *
+ * **This is a text-level pass over the raw source, and that is its known cost:** it cannot see
+ * where markdown-it would have said "code", so image syntax inside a fenced block, an inline code
+ * span or an indented code block is rewritten too - the same limitation `STANDALONE_IMAGE` and
+ * `stripDetails` already carry, reaching more places because an inline image can sit anywhere.
+ * The durable fix is token-level: an `image` ParseSpec that emits a link mark in inline position
+ * would be immune to code contexts by construction, because markdown-it never emits an image
+ * token inside code. Until then, the tests pin the code-context behaviour so a change to it is
+ * seen, not discovered. Obsidian's own `![[embed]]` spelling matches neither pattern and stays as
+ * literal text - an honest unresolved reference, also pinned. Runs after `STANDALONE_IMAGE`.
+ */
+const INLINE_IMAGE = /!\[([^\]]*)]\(([^)\n]+)\)/g;
 
 /**
  * markdown-it token names mapped onto Nix's node and mark names.
@@ -214,12 +235,15 @@ function asCallout(node: JsonNode): JsonNode | null {
  * @returns The document JSON, or the reason it could not be produced.
  */
 export function markdownToDocument(markdown: string): FromMarkdownResult {
-  // Lift standalone images out to sentinels first, so re-parsing does not drop them inline.
+  // Lift standalone images out to sentinels first, so re-parsing does not drop them inline; what
+  // is still an image after that is inline, and degrades to a link (see INLINE_IMAGE).
   const images: { src: string; alt: string }[] = [];
-  const sentinelled = stripDetails(markdown).replace(STANDALONE_IMAGE, (_match, alt: string, src: string) => {
-    const index = images.push({ src, alt }) - 1;
-    return ` nix-image:${String(index)} `;
-  });
+  const sentinelled = stripDetails(markdown)
+    .replace(STANDALONE_IMAGE, (_match, alt: string, src: string) => {
+      const index = images.push({ src, alt }) - 1;
+      return ` nix-image:${String(index)} `;
+    })
+    .replace(INLINE_IMAGE, (_match, alt: string, src: string) => `[${alt.length > 0 ? alt : src}](${src})`);
 
   let json: JsonNode;
   try {
