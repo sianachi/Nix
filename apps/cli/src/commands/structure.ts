@@ -14,6 +14,9 @@
 
 import { readFile } from 'node:fs/promises';
 import { structure, propertyDefinitionSchema, type PropertyDefinition } from '@nix/api-client';
+// The light subpath: `parseScalar` is the shared value rule for `props set` and import's front
+// matter, and pulling it must not load the Markdown mapping into every command.
+import { parseScalar } from '@nix/markdown/front-matter';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -98,20 +101,6 @@ export function parseAssignments(pairs: readonly string[]): Record<string, unkno
     bag[key] = parseScalar(raw);
   }
   return bag;
-}
-
-/**
- * JSON where it parses (numbers, booleans, null, quoted strings), the raw text otherwise.
- *
- * Shared with `import`'s front matter on purpose: a value must mean the same thing arriving from
- * the command line and from a file, or `props set status=done` and `status: done` would drift.
- */
-export function parseScalar(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
 }
 
 interface SchemaFile {
