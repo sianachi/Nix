@@ -3,11 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Converts a Nix document body between ProseMirror JSON and Markdown, in both directions, over the shared schema and export visitor seams",
+  "description": "Markdown for Nix: the body mapping to and from ProseMirror JSON, plus the shared front matter, note-title and unresolved-reference rules every import surface uses",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./front-matter": {
+      "types": "./dist/front-matter.d.ts",
+      "default": "./dist/front-matter.js"
+    },
+    "./scan": {
+      "types": "./dist/scan.d.ts",
+      "default": "./dist/scan.js"
+    },
+    "./from-markdown": {
+      "types": "./dist/from-markdown.d.ts",
+      "default": "./dist/from-markdown.js"
     },
     "./package.json": "./package.json"
   },

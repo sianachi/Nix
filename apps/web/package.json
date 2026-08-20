@@ -19,6 +19,7 @@
     "@nix/api-client": "workspace:*",
     "@nix/design-tokens": "workspace:*",
     "@nix/editor-schema": "workspace:*",
+    "@nix/markdown": "workspace:*",
     "@nix/sheet": "workspace:*",
     "@nix/ui": "workspace:*",
     "@nix/view-render": "workspace:*",

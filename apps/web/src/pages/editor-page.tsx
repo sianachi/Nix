@@ -1,5 +1,5 @@
 import { Button, Icon, Text, focusRing } from '@nix/ui';
-import { Download, LayoutTemplate, PanelRightClose, Save, Settings2 } from 'lucide-react';
+import { Download, LayoutTemplate, PanelRightClose, Save, Settings2, Upload } from 'lucide-react';
 import {
   Suspense,
   lazy,
@@ -29,6 +29,7 @@ import { announce } from '../a11y/announcer';
 import { useAuth } from '../auth/auth-provider';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { ExportDialog } from '../export/export-dialog';
+import { ImportDialog } from '../import/import-dialog';
 import { PaneGroup } from '../panes/pane-group';
 import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
@@ -389,6 +390,7 @@ function OpenItem({
   // The dialog is mounted only while it is open, so an export that was never started costs nothing
   // and a closed one keeps no half-chosen format from last time.
   const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const paneIndex = usePaneIndex();
 
@@ -478,6 +480,19 @@ function OpenItem({
           >
             <Icon icon={Download} size="sm" />
             Export
+          </Button>
+
+          {/* Beside Export because they are the same door swinging the other way: what leaves as
+              Markdown can come back as Markdown, under the item being looked at. */}
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            onClick={() => {
+              setImportOpen(true);
+            }}
+          >
+            <Icon icon={Upload} size="sm" />
+            Import
           </Button>
 
           {canApplyTemplates ? (
@@ -624,6 +639,22 @@ function OpenItem({
           getAccessToken={getAccessToken}
           onClose={() => {
             setExportOpen(false);
+          }}
+        />
+      ) : null}
+
+      {importOpen ? (
+        <ImportDialog
+          open
+          parentId={itemId}
+          getAccessToken={getAccessToken}
+          onClose={() => {
+            setImportOpen(false);
+          }}
+          onImported={(rootItemId) => {
+            // Revealed rather than navigated to: the person is mid-import in a dialog that still
+            // has the report to show, so the tree opens to the result without yanking the page.
+            void tree.reveal(rootItemId);
           }}
         />
       ) : null}
