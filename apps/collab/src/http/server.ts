@@ -41,7 +41,6 @@ export interface ServerDependencies {
    * handshake so there is a single cache and a single behaviour to reason about.
    */
   readonly sessions: SessionAuthenticator;
-  readonly snapshotEvery: number;
 
   /**
    * Core's public surface, for the export routes.
@@ -665,7 +664,14 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
         updateBytes,
         actorId: context.scope.principalId,
         clientId: body.clientId as string,
-        snapshotEvery: deps.snapshotEvery,
+        // Publish on every REST write, not on the resident cadence. A socket session snapshots
+        // when the last editor detaches - "exactly when they are owed" - because the snapshot is
+        // what publishes a document's searchable text and its link edges. A stateless request has
+        // no session, no idle clock and no eviction, so the moment its update lands is the only
+        // moment it can ever publish: with the cadence applied here, a body written once through
+        // this path (nixctl note write, an import) stayed invisible to search and backlinks until
+        // someone happened to open it in the editor. Found live, 2026-08-21, importing 10k notes.
+        snapshotEvery: 1,
         strategy: strategyFor(context.bodyKind),
       });
 
