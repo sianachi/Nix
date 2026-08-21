@@ -45,7 +45,8 @@ export interface CollabConfig {
    */
   readonly oidcAudiences: readonly string[];
 
-  /** Updates between snapshots. A snapshot is a materialisation, never a source of truth. */
+  /** Updates between the resident session's snapshots; the stateless REST path publishes on
+   *  every update. A snapshot is a materialisation, never a source of truth. */
   readonly snapshotEvery: number;
 
   /** How long pending updates may wait before a flush, in milliseconds. The crash-loss window. */

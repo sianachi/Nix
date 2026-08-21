@@ -1,6 +1,9 @@
 import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
+
+import { nixSchema } from '@nix/editor-schema';
 
 import { connectDocumentLocks } from '../db/advisory-lock.ts';
 import {
@@ -103,6 +106,70 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
         textOf(alice.doc).includes('the second'),
       'both clients to converge',
     );
+  });
+
+  it('publishes searchable text on a stateless REST write, not on the resident cadence', async () => {
+    // The regression this pins (found live 2026-08-21, importing 10k notes through nixctl): the
+    // REST update path applied the resident snapshot cadence, and a snapshot is what publishes a
+    // document's searchable text and link edges. A body written once over HTTP - seq 1, cadence
+    // 5 here, 200 in production - therefore never published: no session, no idle clock, no
+    // eviction ever owed it a snapshot. The stateless path's request end is its detach, so every
+    // accepted REST update publishes immediately.
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const base = harness.url.replace('ws://', 'http://');
+
+    // Text and a reference, because a snapshot publishes both derived tables and this is the one
+    // end-to-end pin of the stateless path: a change that split the two writes must fail here.
+    const authored = new Y.Doc();
+    prosemirrorJSONToYXmlFragment(
+      nixSchema,
+      {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'imported by rest and searchable ' },
+              {
+                type: 'reference',
+                attrs: { kind: 'item', targetId: TENANTS.alpha.targetItemId, label: 'A title' },
+              },
+            ],
+          },
+        ],
+      },
+      authored.getXmlFragment('default'),
+    );
+    const response = await fetch(`${base}/documents/${TENANTS.alpha.itemId}/updates`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        update: Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64'),
+        clientId: 'rest-import',
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { seq: string; snapshotWritten: boolean };
+    // Seq 1 against a cadence of 5: the cadence alone would not have published this.
+    expect(body.seq).toBe('1');
+    expect(body.snapshotWritten).toBe(true);
+
+    const { rows } = await verifyPool.query<{ matches: boolean }>(
+      `SELECT body_vector @@ plainto_tsquery('english', 'imported by rest') AS matches
+       FROM item_search
+       WHERE tenant_id = $1 AND item_id = $2`,
+      [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.matches).toBe(true);
+
+    const links = await verifyPool.query<{ target_item_id: string; occurrences: number }>(
+      `SELECT target_item_id, occurrences FROM item_link
+       WHERE tenant_id = $1 AND source_item_id = $2`,
+      [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
+    );
+    expect(links.rows).toEqual([{ target_item_id: TENANTS.alpha.targetItemId, occurrences: 1 }]);
   });
 
   it('flushes one batch that advances the head once, and says so to Core once', async () => {
