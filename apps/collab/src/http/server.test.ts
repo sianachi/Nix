@@ -65,7 +65,6 @@ function server(overrides: {
     }),
     core: overrides.core ?? silentCore,
     internalSecret: INTERNAL_SECRET,
-    snapshotEvery: 0,
   });
 }
 
@@ -266,7 +265,6 @@ describe('the collaboration service HTTP surface', () => {
         }),
         core: silentCore,
         internalSecret: INTERNAL_SECRET,
-        snapshotEvery: 0,
         metrics: createMetrics(),
       }),
     );

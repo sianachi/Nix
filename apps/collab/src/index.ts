@@ -102,7 +102,6 @@ const app = createServer({
   sessions,
   core: createCoreClient({ coreBaseUrl: config.coreBaseUrl }),
   internalSecret: config.internalSecret,
-  snapshotEvery: config.snapshotEvery,
   reauthMs: config.reauthSeconds * 1000,
   metrics,
   hub: registry,
