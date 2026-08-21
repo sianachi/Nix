@@ -126,7 +126,6 @@ export async function startLiveServer(
       getViews: () => Promise.resolve(null),
     },
     internalSecret: 'live-harness-secret',
-    snapshotEvery: FAST.snapshotEvery,
     reauthMs: 60_000,
     hub: registry,
     rateWindow: options?.rateWindow,
