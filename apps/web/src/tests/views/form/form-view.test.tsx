@@ -290,3 +290,27 @@ describe('surviving the reload a create causes', () => {
     expect(reload).toHaveBeenCalled();
   });
 });
+
+describe('a computed property on a form', () => {
+  it('is not offered as a field, because a form writes children and nothing writes a computed value', () => {
+    formAt({
+      schema: schemaOf(
+        property('sleep', 'Sleep', 'number'),
+        property('rested', 'Rested', 'formula', { expression: '[sleep] > 7' }),
+      ),
+    });
+
+    expect(screen.getByRole('spinbutton', { name: /sleep/i })).toBeVisible();
+    expect(screen.queryByText(/rested/i)).not.toBeInTheDocument();
+  });
+
+  it('is not reported as unavailable either, because nothing about it is broken', () => {
+    // "Unavailable" is for a field that was meant to be an input and is not one - a renamed
+    // property, a type this build cannot draw. A formula is working exactly as declared.
+    formAt({
+      schema: schemaOf(property('rested', 'Rested', 'formula', { expression: '1' })),
+    });
+
+    expect(screen.queryByText(/cannot be offered as inputs here/i)).not.toBeInTheDocument();
+  });
+});

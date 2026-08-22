@@ -3851,6 +3851,12 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3860,7 +3866,8 @@
           "label",
           "type",
           "options",
-          "required"
+          "required",
+          "expression"
         ],
         "type": "object",
         "properties": {
@@ -3881,6 +3888,12 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

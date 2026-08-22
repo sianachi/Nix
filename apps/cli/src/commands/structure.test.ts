@@ -29,7 +29,13 @@ function item(props: Record<string, unknown>): Record<string, unknown> {
 }
 
 function propertyDef(key: string, type: string): Record<string, unknown> {
-  return { key, label: key, type, options: [], required: false };
+  // `expression` is what a formula property carries and null on every other type; the client's
+  // parse fills it in, so a file that omits it is still sent with it.
+  return { key, label: key, type, options: [], required: false, expression: null };
+}
+
+function formulaDef(key: string, expression: string): Record<string, unknown> {
+  return { key, label: key, type: 'formula', options: [], required: false, expression };
 }
 
 const server = setupServer(
@@ -48,14 +54,20 @@ afterAll(() => {
   server.close();
 });
 
-async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; dir: string; done: () => Promise<void> }> {
+async function withProfile(): Promise<{
+  env: NodeJS.ProcessEnv;
+  dir: string;
+  done: () => Promise<void>;
+}> {
   const dir = await mkdtemp(join(tmpdir(), 'nixctl-structure-'));
   const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: dir };
   await saveProfile('default', { apiUrl: API, token: 'nixpat_abc' }, { makeDefault: true, env });
   return { env, dir, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -71,9 +83,21 @@ async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise
 
 describe('parseAssignments', () => {
   it('parses JSON values where they parse and plain strings otherwise', () => {
-    const bag = parseAssignments(['status=done', 'count=5', 'archived=null', 'due=2026-01-01', 'flag=true']);
+    const bag = parseAssignments([
+      'status=done',
+      'count=5',
+      'archived=null',
+      'due=2026-01-01',
+      'flag=true',
+    ]);
     // A bare word is a string; a number is a number; null clears; a date is a string; a bool is a bool.
-    expect(bag).toEqual({ status: 'done', count: 5, archived: null, due: '2026-01-01', flag: true });
+    expect(bag).toEqual({
+      status: 'done',
+      count: 5,
+      archived: null,
+      due: '2026-01-01',
+      flag: true,
+    });
   });
 
   it('refuses a pair with no key before the equals', () => {
@@ -107,10 +131,15 @@ describe('nixctl props set', () => {
     const { env, done } = await withProfile();
     server.use(
       http.patch(`${API}/api/v1/items/:itemId/properties`, () =>
-        HttpResponse.json({ code: 'items.not_found', detail: 'No item is visible.' }, { status: 404 }),
+        HttpResponse.json(
+          { code: 'items.not_found', detail: 'No item is visible.' },
+          { status: 404 },
+        ),
       ),
     );
-    await expect(capture((json) => setProps('default', ITEM, ['a=1'], json, { env }))).rejects.toMatchObject({
+    await expect(
+      capture((json) => setProps('default', ITEM, ['a=1'], json, { env })),
+    ).rejects.toMatchObject({
       status: 404,
     });
     await done();
@@ -149,7 +178,14 @@ describe('nixctl schema set', () => {
     const file = join(dir, 'schema.json');
     await writeFile(
       file,
-      JSON.stringify({ properties: [propertyDef('status', 'select')], inherit: false }),
+      // Written without `expression`, as somebody would author it: the parse fills the null in,
+      // which is what keeps a schema file from before the field valid.
+      JSON.stringify({
+        properties: [
+          { key: 'status', label: 'status', type: 'select', options: [], required: false },
+        ],
+        inherit: false,
+      }),
       'utf8',
     );
     let sentBody: unknown;
@@ -175,12 +211,42 @@ describe('nixctl schema set', () => {
     await done();
   });
 
+  it('carries a formula property expression through to Core', async () => {
+    const { env, dir, done } = await withProfile();
+    const file = join(dir, 'schema.json');
+    await writeFile(
+      file,
+      JSON.stringify({ properties: [formulaDef('total', '[price] * 2')], inherit: true }),
+      'utf8',
+    );
+    let sentBody: unknown;
+    server.use(
+      http.put(`${API}/api/v1/items/:itemId/schema`, async ({ request }) => {
+        sentBody = await request.json();
+        return HttpResponse.json({
+          properties: [formulaDef('total', '[price] * 2')],
+          declared: [formulaDef('total', '[price] * 2')],
+          inherit: true,
+        });
+      }),
+    );
+
+    await capture((json) => setSchema('default', ITEM, file, json, { env }));
+
+    // Dropped on the way through, the property would reach Core as a formula with nothing to
+    // evaluate - which Core refuses, naming a field the file did supply.
+    expect(sentBody).toEqual({ properties: [formulaDef('total', '[price] * 2')], inherit: true });
+    await done();
+  });
+
   it('refuses a file missing the inherit flag before any request', async () => {
     const { env, dir, done } = await withProfile();
     const file = join(dir, 'bad.json');
     await writeFile(file, JSON.stringify({ properties: [] }), 'utf8');
     // onUnhandledRequest:'error' would fail the test if it reached the network; it must not.
-    await expect(capture((json) => setSchema('default', ITEM, file, json, { env }))).rejects.toThrow(/inherit/);
+    await expect(
+      capture((json) => setSchema('default', ITEM, file, json, { env })),
+    ).rejects.toThrow(/inherit/);
     await done();
   });
 });

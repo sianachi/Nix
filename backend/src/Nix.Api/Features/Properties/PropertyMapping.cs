@@ -26,7 +26,8 @@ internal static class PropertyMapping
             definition.Label,
             PropertyTypes.ToText(definition.Type),
             definition.Options,
-            definition.Required);
+            definition.Required,
+            definition.Expression);
     }
 
     /// <summary>Maps a resolved schema onto the published shape.</summary>
@@ -75,7 +76,12 @@ internal static class PropertyMapping
                     property.Label.Length == 0 ? property.Key : property.Label,
                     type,
                     property.Options is null ? [] : [.. property.Options],
-                    property.Required));
+                    property.Required,
+                    // Empty and absent are one thing here. A client that sends "" for every
+                    // property rather than omitting the field would otherwise declare an
+                    // expression on each of them, which PropertySchemaRules then refuses on types
+                    // that cannot carry one - a refusal about a field the caller never filled in.
+                    string.IsNullOrWhiteSpace(property.Expression) ? null : property.Expression));
         }
 
         schema = new PropertySchema { Properties = properties.ToImmutable(), Inherit = request.Inherit };

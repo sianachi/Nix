@@ -15,7 +15,18 @@ namespace Nix.Features.Properties;
 /// </param>
 /// <param name="Options">The values a select accepts, in offer order. Empty for other types.</param>
 /// <param name="Required">Whether a write must supply a value.</param>
+/// <param name="Expression">
+/// For a formula property: the expression evaluated on read, without a leading <c>=</c>. Null for
+/// every other type.
+/// </param>
 /// <remarks>
+/// <para>
+/// <b>The expression is published and the value is not.</b> A formula property has no stored value
+/// to send; a client evaluates the expression against the item's other properties wherever it draws
+/// one. That is the whole of goal 2.1's "evaluated on read" seam, and it is why a client that meets
+/// this field must not look for a matching entry in an item's property bag - there will never be
+/// one, and a write attempting to add one is refused.
+/// </para>
 /// <para>
 /// <see cref="Type"/> is an open string rather than an enumeration, for the same reason an item's
 /// kind is: adding a property type should be a feature, not a breaking change to every generated
@@ -33,7 +44,8 @@ internal sealed record PropertyDefinitionResponse(
     string Label,
     string Type,
     IReadOnlyList<string> Options,
-    bool Required);
+    bool Required,
+    string? Expression);
 
 /// <summary>
 /// The property schema in force at an item.
@@ -75,12 +87,17 @@ internal sealed record SetSchemaRequest(
 /// </param>
 /// <param name="Options">The values a select accepts.</param>
 /// <param name="Required">Whether a write must supply a value.</param>
+/// <param name="Expression">
+/// For a formula property: the expression to evaluate on read, without a leading <c>=</c>. Refused
+/// on any other type, and refused when a formula omits it.
+/// </param>
 internal sealed record PropertyDefinitionRequest(
     string Key,
     string Label,
     string Type,
     IReadOnlyList<string>? Options,
-    bool Required);
+    bool Required,
+    string? Expression = null);
 
 /// <summary>
 /// Writes property values onto an item.

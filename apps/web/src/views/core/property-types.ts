@@ -40,6 +40,9 @@ export const PROPERTY_TYPES = [
   // identifier, a canonical lowercase UUID string (or null when unassigned), so it shares its shape
   // with every other string property while its type says the string names a person.
   { value: 'assignee', label: 'Assignee' },
+  // Goal 2.1. The only type whose declaration carries an expression and whose values are never
+  // stored: it is computed wherever it is read, from the item's other properties.
+  { value: 'formula', label: 'Formula' },
 ] as const;
 
 /**
@@ -87,6 +90,17 @@ export function valueShapeOf(type: string): PropertyValueShape {
 export function isDateShaped(type: string): boolean {
   const shape = valueShapeOf(type);
   return shape === 'date' || shape === 'timestamp';
+}
+
+/**
+ * Whether a property's values are computed on read rather than written.
+ *
+ * The server's counterpart is `PropertyTypes.IsComputed` (PropertyType.cs), and the two must widen
+ * together: a type this build thinks is writable but Core refuses would leave somebody typing into
+ * a control whose every commit is rejected.
+ */
+export function isComputedType(type: string): boolean {
+  return type === 'formula';
 }
 
 /**

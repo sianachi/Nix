@@ -16,6 +16,10 @@ namespace Nix.Domain.Properties;
 /// other type.
 /// </param>
 /// <param name="Required">Whether a write must supply a value.</param>
+/// <param name="Expression">
+/// For a <see cref="PropertyType.Formula"/>: the expression evaluated on read, without a leading
+/// <c>=</c>. Null for every other type.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b><see cref="Key"/> and <see cref="Label"/> are separate on purpose.</b> A property bag is keyed
@@ -28,13 +32,19 @@ namespace Nix.Domain.Properties;
 /// show three of six statuses, or order them differently, and that is the view's business rather
 /// than the schema's.
 /// </para>
+/// <para>
+/// <b><see cref="Expression"/> is last and defaulted</b>, like every field added to a positional
+/// record here since it was first cut: an argument inserted anywhere else would silently re-bind
+/// the constructions that already exist rather than fail to compile.
+/// </para>
 /// </remarks>
 public sealed record PropertyDefinition(
     string Key,
     string Label,
     PropertyType Type,
     ImmutableArray<string> Options,
-    bool Required)
+    bool Required,
+    string? Expression = null)
 {
     /// <summary>Whether this property's declared options include a value.</summary>
     /// <param name="value">The value to look for.</param>

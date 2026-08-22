@@ -16,7 +16,11 @@ import {
 } from '@nix/api-client';
 import { z } from 'zod';
 
-import { ContainerViewsSchema, EffectiveSchemaSchema } from '../views/core/container-model';
+import {
+  ContainerViewsSchema,
+  EffectiveSchemaSchema,
+  type EffectiveSchema,
+} from '../views/core/container-model';
 
 export {
   templateCapabilitiesSchema as TemplateCapabilitiesSchema,
@@ -95,7 +99,7 @@ export const templateById = coreTemplates.templateById;
 
 export function templateCaptureSourceSchema(
   itemId: string,
-): QueryEndpoint<z.infer<typeof EffectiveSchemaSchema>> {
+): QueryEndpoint<EffectiveSchema> {
   return defineQuery({
     operation: 'templates.capture-source.schema',
     path: `/api/v1/items/${itemId}/schema`,
@@ -164,7 +168,7 @@ export function updateTemplateEditDraftItem(
   input: {
     readonly title?: string | undefined;
     readonly properties?: Readonly<Record<string, unknown>> | null | undefined;
-    readonly schema?: z.infer<typeof EffectiveSchemaSchema> | null | undefined;
+    readonly schema?: EffectiveSchema | null | undefined;
     readonly views?: TemplateItem['views'];
   },
 ): CommandEndpoint<TemplateItem> {

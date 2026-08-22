@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ZodType } from 'zod';
 
 import { useAuth } from '../../auth/auth-provider';
+import { decorateItems } from '../../properties/computed';
 import {
   ContainerViewsSchema,
   EffectiveSchemaSchema,
@@ -586,6 +587,10 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           // nobody typed.
           options: property.options.length > 0 ? property.options : null,
           required: property.required,
+
+          // Only a formula carries one, and the server refuses a schema where anything else does -
+          // the same technicality the options line above avoids, for the same reason.
+          expression: property.type === 'formula' ? (property.expression ?? null) : null,
         })),
       });
     },
@@ -767,6 +772,24 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     [createChild, load],
   );
 
+  /**
+   * The children as every view reads them: what the server sent, plus the properties this build
+   * computes rather than stores.
+   *
+   * Derived on the way out rather than merged into state, so the optimistic write paths above keep
+   * operating on exactly what the server sent and a computed value can never be mistaken for one
+   * to send back. `decorateItems` returns the same array when the schema declares no formulas, so
+   * a container without any pays nothing at all.
+   *
+   * Memoised for identity, not for arithmetic: `children` is the dependency of every view's own
+   * memoised sort, filter and virtual window, and a fresh array each render would re-run all of
+   * them on every keystroke elsewhere on the screen.
+   */
+  const computedChildren = useMemo(
+    () => decorateItems(children, schema?.properties),
+    [children, schema?.properties],
+  );
+
   return {
     itemId: containerId,
     status,
@@ -774,7 +797,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     create,
     schema,
     views,
-    children,
+    children: computedChildren,
     setProperties,
     setPropertiesMany,
     setSchema,
