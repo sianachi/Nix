@@ -18,6 +18,10 @@ export const propertyDefinitionSchema = z.object({
   type: z.string(),
   options: z.array(z.string()),
   required: z.boolean(),
+
+  // For a formula property: the expression evaluated on read. Defaulted rather than merely
+  // nullable, so a server from before the field answers schemas this still parses.
+  expression: z.string().nullable().default(null),
 });
 
 export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;

@@ -1,7 +1,7 @@
 import { type CellRange, type CellRef, cellKey } from '@nix/sheet';
 
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
-import { valueShapeOf } from '../core/property-types';
+import { isComputedType, valueShapeOf } from '../core/property-types';
 import {
   readPropertyText,
   type EffectiveSchema,
@@ -93,6 +93,11 @@ export function resolveColumns(
         type,
         editable:
           type !== null &&
+          // Stated rather than left to the shape switch's default. A computed column already came
+          // out uneditable, but only because `formula` happens not to be a shape in the list above
+          // - an accident that would reverse the day that list grew, and would then send a paste
+          // over the column into a per-row refusal from Core.
+          !isComputedType(type) &&
           TEXT_EDITABLE_TYPES.includes(valueShapeOf(type)) &&
           !TEXT_SHAPED_BUT_NOT_TEXT_EDITABLE.includes(type),
       };

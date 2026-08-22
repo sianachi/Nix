@@ -15,6 +15,16 @@ export interface EvaluationContext {
   /** The value of a cell, empty cells as null, out-of-bounds as #REF!. */
   readCell(row: number, col: number): CellValue;
   /**
+   * The value of a named field - `[estimate]` - or #NAME? when the context
+   * knows no such name.
+   *
+   * Optional because a sheet body has no fields to resolve and its own lexer
+   * cannot produce one. An absent reader is not a failure to configure: it is
+   * a surface where the node cannot occur, and the evaluator answers #NAME?
+   * for the impossible case rather than inventing a value for it.
+   */
+  readField?(name: string): CellValue;
+  /**
    * Spend evaluation budget. Throws BudgetExhausted when the sheet's op
    * budget runs out; the engine catches it and marks the rest #LIMIT!.
    */

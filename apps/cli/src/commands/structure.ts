@@ -131,7 +131,8 @@ function parseSchemaFile(text: string, path: string): SchemaFile {
   const properties = propertyDefinitionSchema.array().safeParse(record.properties);
   if (!properties.success) {
     throw new Error(
-      `${path}: 'properties' must be an array of { key, label, type, options, required }.`,
+      `${path}: 'properties' must be an array of { key, label, type, options, required } - ` +
+        `plus 'expression' on a formula property.`,
     );
   }
   return { properties: properties.data, inherit: record.inherit };
