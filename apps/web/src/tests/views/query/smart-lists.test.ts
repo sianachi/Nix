@@ -19,20 +19,47 @@ function presetAt(index: number): SmartListPreset {
 
 /**
  * The shipped smart-list presets: what each one filters on, and what applying one stores. The
- * keys are conventions until task semantics ship, and the registry's own doc says so - these
- * tests pin the rules so a preset cannot drift from its sentence.
+ * keys are goal 3.1's reserved task-semantic keys (ADR-0042), not workspace conventions - these
+ * tests pin the rules by key/operator/value so a future rename of a reserved key fails here
+ * rather than silently shipping a preset that matches nothing.
  */
 
 describe('the presets', () => {
-  it('offers Today, Next 7 days and Overdue, and no assignment preset before principals exist', () => {
-    expect(SMART_LISTS.map((preset) => preset.id)).toEqual(['today', 'next-seven-days', 'overdue']);
+  it('offers Today, Next 7 days, Overdue and Assigned to me', () => {
+    expect(SMART_LISTS.map((preset) => preset.id)).toEqual([
+      'today',
+      'next-seven-days',
+      'overdue',
+      'assigned-to-me',
+    ]);
   });
 
-  it('spells Overdue as past due AND not done, with absence counting as not done', () => {
-    expect(findSmartList('overdue')?.filters).toEqual([
-      { property: 'due', operator: 'before', value: 'today' },
-      { property: 'done', operator: 'not-equals', value: 'true' },
+  it('spells Today as due_date on today', () => {
+    expect(findSmartList('today')?.filters).toEqual([
+      { property: 'due_date', operator: 'on', value: 'today' },
     ]);
+  });
+
+  it('spells Next 7 days as due_date within the next 7 days', () => {
+    expect(findSmartList('next-seven-days')?.filters).toEqual([
+      { property: 'due_date', operator: 'within-next', value: '7' },
+    ]);
+  });
+
+  it('spells Overdue as due_date before today AND completion not-equals true, with absence counting as not done', () => {
+    expect(findSmartList('overdue')?.filters).toEqual([
+      { property: 'due_date', operator: 'before', value: 'today' },
+      { property: 'completion', operator: 'not-equals', value: 'true' },
+    ]);
+  });
+
+  it('spells Assigned to me as assignee equals the literal token me, never a resolved identifier', () => {
+    const filters = findSmartList('assigned-to-me')?.filters;
+
+    expect(filters).toEqual([{ property: 'assignee', operator: 'equals', value: 'me' }]);
+    // The server resolves 'me' to the calling principal; a UUID or any other identifier here
+    // would bake in whoever applied the preset rather than the person viewing the list.
+    expect(filters?.[0]?.value).toBe('me');
   });
 
   it('stores one query view that opens by default', () => {
