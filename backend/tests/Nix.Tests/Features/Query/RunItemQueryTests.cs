@@ -22,6 +22,9 @@ public sealed class RunItemQueryTests
     private static readonly ItemId SmartList = ItemId.From(new Guid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
     private static readonly WorkspaceId Readable = WorkspaceId.From(new Guid("11111111-1111-4111-8111-111111111111"));
     private static readonly WorkspaceId AlsoReadable = WorkspaceId.From(new Guid("22222222-2222-4222-8222-222222222222"));
+    private static readonly TenantId Tenant = TenantId.From(new Guid("99999999-9999-4999-8999-999999999999"));
+    private static readonly PrincipalId Caller = PrincipalId.From(new Guid("77777777-7777-4777-8777-777777777777"));
+    private static readonly PrincipalId OtherCaller = PrincipalId.From(new Guid("88888888-8888-4888-8888-888888888888"));
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -45,7 +48,8 @@ public sealed class RunItemQueryTests
         var handler = new RunItemQueryHandler(
             new StubTree(null),
             new StubPermissions([Readable]),
-            query);
+            query,
+            new StubSession(SessionFor(Caller)));
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -107,7 +111,8 @@ public sealed class RunItemQueryTests
         var handler = new RunItemQueryHandler(
             new StubTree(ItemWithViews(OverdueViews())),
             new StubPermissions([Readable, AlsoReadable]),
-            query);
+            query,
+            new StubSession(SessionFor(Caller)));
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -170,6 +175,109 @@ public sealed class RunItemQueryTests
         Assert.Equal("items.not_found", Nix.Features.Items.ItemErrors.NotFound("why").Code);
     }
 
+    [Fact]
+    public async Task Assigned_to_me_resolves_to_the_calling_principals_own_identifier()
+    {
+        var query = new RecordingQuery();
+        var views = MineView("equals");
+        var handler = new RunItemQueryHandler(
+            new StubTree(ItemWithViews(views)),
+            new StubPermissions([Readable]),
+            query,
+            new StubSession(SessionFor(Caller)));
+
+        var result = await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        var rule = Assert.Single(query.LastRules);
+        Assert.Equal("assignee", rule.Property);
+        Assert.Equal("equals", rule.Operator);
+        Assert.Equal(Caller.ToString(), rule.Value);
+        Assert.NotEqual(QueryOperators.Me, rule.Value);
+    }
+
+    [Fact]
+    public async Task Not_equals_me_resolves_too_and_keeps_its_operator()
+    {
+        var query = new RecordingQuery();
+        var views = MineView("not-equals");
+        var handler = new RunItemQueryHandler(
+            new StubTree(ItemWithViews(views)),
+            new StubPermissions([Readable]),
+            query,
+            new StubSession(SessionFor(Caller)));
+
+        await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
+
+        var rule = Assert.Single(query.LastRules);
+        Assert.Equal("not-equals", rule.Operator);
+        Assert.Equal(Caller.ToString(), rule.Value);
+    }
+
+    [Fact]
+    public async Task Two_different_callers_compiling_the_same_stored_rule_get_different_values()
+    {
+        // The whole point of the token: the same saved "assigned to me" view means something
+        // different depending on who runs it.
+        var views = MineView("equals");
+
+        var firstCallerQuery = new RecordingQuery();
+        await new RunItemQueryHandler(
+                new StubTree(ItemWithViews(views)),
+                new StubPermissions([Readable]),
+                firstCallerQuery,
+                new StubSession(SessionFor(Caller)))
+            .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
+
+        var secondCallerQuery = new RecordingQuery();
+        await new RunItemQueryHandler(
+                new StubTree(ItemWithViews(views)),
+                new StubPermissions([Readable]),
+                secondCallerQuery,
+                new StubSession(SessionFor(OtherCaller)))
+            .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
+
+        var firstValue = Assert.Single(firstCallerQuery.LastRules).Value;
+        var secondValue = Assert.Single(secondCallerQuery.LastRules).Value;
+
+        Assert.Equal(Caller.ToString(), firstValue);
+        Assert.Equal(OtherCaller.ToString(), secondValue);
+        Assert.NotEqual(firstValue, secondValue);
+    }
+
+    [Fact]
+    public async Task A_missing_session_context_fails_loudly_rather_than_guessing_a_principal()
+    {
+        // There is no anonymous path to this query, so a missing context is a bug in the pipeline
+        // that set up the unit of work - not an input to refuse gracefully. Matching nobody's
+        // items, or everybody's, would both be the quiet kind of wrong.
+        var query = new RecordingQuery();
+        var handler = new RunItemQueryHandler(
+            new StubTree(ItemWithViews(OverdueViews())),
+            new StubPermissions([Readable]),
+            query,
+            new StubSession(null));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation).AsTask());
+
+        Assert.Equal(0, query.Calls);
+    }
+
+    private static string? MineView(string @operator) =>
+        ViewDefinitionsJson.Write(
+            [new ViewDefinition(
+                "mine",
+                "Mine",
+                ViewKind.Query,
+                [],
+                null,
+                [],
+                null,
+                null,
+                false,
+                Filters: [new FilterRule("assignee", @operator, QueryOperators.Me)])]);
+
     private static string? OverdueViews() =>
         ViewDefinitionsJson.Write(
             [new ViewDefinition(
@@ -189,7 +297,9 @@ public sealed class RunItemQueryTests
                 ])]);
 
     private static RunItemQueryHandler Handler(IItemQuery query, Item? item) =>
-        new(new StubTree(item), new StubPermissions([Readable]), query);
+        new(new StubTree(item), new StubPermissions([Readable]), query, new StubSession(SessionFor(Caller)));
+
+    private static NixSessionContext SessionFor(PrincipalId principal) => NixSessionContext.ForTenant(Tenant, principal);
 
     private static Item ItemWithViews(string? views) => new()
     {
@@ -293,6 +403,14 @@ public sealed class RunItemQueryTests
             PrincipalId actor,
             DateTimeOffset at,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    /// <summary>Answers with a fixed session context, or none - the way a missing pipeline setup would.</summary>
+    private sealed class StubSession : INixSessionContextAccessor
+    {
+        internal StubSession(NixSessionContext? current) => Current = current;
+
+        public NixSessionContext? Current { get; }
     }
 
     /// <summary>Answers with a fixed readable set, the way the resolver does for one principal.</summary>

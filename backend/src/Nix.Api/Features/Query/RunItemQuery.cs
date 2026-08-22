@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -49,20 +50,31 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
     private readonly IItemQuery _query;
+    private readonly INixSessionContextAccessor _session;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemQueryHandler"/> class.</summary>
     /// <param name="tree">Item storage, for the smart list itself.</param>
     /// <param name="permissions">Decides what the caller may read.</param>
     /// <param name="query">Runs the compiled query.</param>
-    public RunItemQueryHandler(IItemTree tree, IPermissionResolver permissions, IItemQuery query)
+    /// <param name="session">
+    /// The acting principal, used to resolve the <see cref="QueryOperators.Me"/> token. Never the
+    /// client - see <see cref="QueryOperators.Me"/> for why that would defeat the check.
+    /// </param>
+    public RunItemQueryHandler(
+        IItemTree tree,
+        IPermissionResolver permissions,
+        IItemQuery query,
+        INixSessionContextAccessor session)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(session);
 
         _tree = tree;
         _permissions = permissions;
         _query = query;
+        _session = session;
     }
 
     /// <summary>Runs the query.</summary>
@@ -82,6 +94,17 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
             return Result.Failure<ItemQueryResults>(
                 QueryErrors.InvalidToday($"'{query.Today}' is not a day; send today as yyyy-MM-dd."));
         }
+
+        // Loud rather than guessed: there is no anonymous path to this query (every route under
+        // /api/v1 is authenticated, Program.cs), so a missing context here is a bug in the
+        // pipeline that established the unit of work, not an input this handler can refuse
+        // gracefully. Silently skipping the "me" resolution would either match nobody's items or,
+        // worse, everybody's - both are the wrong kind of quiet.
+        var caller = _session.Current
+            ?? throw new InvalidOperationException(
+                "No session context has been established for this unit of work. Resolving the "
+                + "'me' token needs an acting principal, and there is no anonymous path to this "
+                + "query.");
 
         var item = await _tree.FindAsync(query.ItemId, cancellationToken).ConfigureAwait(false);
         if (item is null
@@ -129,13 +152,49 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
             }
         }
 
+        // Resolved here, not in the compiler: QuerySql is a static class with no session to read
+        // a principal from, and the same argument that keeps "today" client-supplied keeps "me"
+        // the opposite - never client-supplied - so this is the one place both facts are in
+        // scope at once. What reaches the query port is already a literal; see QuerySql's remarks.
+        var resolvedRules = ResolveCaller(rules, caller.PrincipalId.ToString());
+
         var workspaces = await _permissions.ReadableWorkspacesAsync(cancellationToken).ConfigureAwait(false);
 
         var results = await _query
-            .RunAsync(query.ItemId, rules, ResolveOrder(view, rules), today, workspaces, MaximumResults, cancellationToken)
+            .RunAsync(query.ItemId, resolvedRules, ResolveOrder(view, resolvedRules), today, workspaces, MaximumResults, cancellationToken)
             .ConfigureAwait(false);
 
         return Result.Success(new ItemQueryResults(results, view.Id, ToIso(today), MaximumResults));
+    }
+
+    /// <summary>
+    /// Replaces <see cref="QueryOperators.Me"/> wherever it appears as a rule's value with the
+    /// caller's own canonical identifier - the exact lowercase text an <c>assignee</c> property
+    /// stores (<c>PrincipalId.ToString()</c>), so the comparison downstream actually matches.
+    /// </summary>
+    /// <param name="rules">
+    /// The re-validated rules. Grammar already guarantees <see cref="QueryOperators.Me"/> can only
+    /// survive here as the value of <see cref="QueryOperators.EqualTo"/> or
+    /// <see cref="QueryOperators.NotEqualTo"/> - every other operator refuses it before this runs.
+    /// </param>
+    /// <param name="callerId">The acting principal's canonical identifier.</param>
+    /// <returns>The rules, with every <c>me</c> value replaced; everything else untouched.</returns>
+    private static ImmutableArray<FilterRule> ResolveCaller(ImmutableArray<FilterRule> rules, string callerId)
+    {
+        if (rules.IsDefaultOrEmpty)
+        {
+            return rules;
+        }
+
+        var resolved = ImmutableArray.CreateBuilder<FilterRule>(rules.Length);
+        foreach (var rule in rules)
+        {
+            resolved.Add(string.Equals(rule.Value, QueryOperators.Me, StringComparison.Ordinal)
+                ? rule with { Value = callerId }
+                : rule);
+        }
+
+        return resolved.ToImmutable();
     }
 
     /// <summary>
