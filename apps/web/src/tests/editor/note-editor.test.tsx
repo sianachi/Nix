@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -437,6 +437,127 @@ describe('collaborative history keys', () => {
     fireEvent.keyDown(body, { key: 'z', ...MODIFIER, shiftKey: true });
     expect(body.querySelector('h2')).not.toBeNull();
     expect(body.querySelector('h1')).toBeNull();
+  });
+});
+
+describe('Vim basics in a note', () => {
+  it('shows and announces the pane-local mode while describing how to leave it', async () => {
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const descriptionId = body.getAttribute('aria-describedby');
+
+    expect(descriptionId).not.toBeNull();
+    expect(document.getElementById(descriptionId ?? '')).toHaveTextContent(/Press i.*Escape/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+
+    fireEvent.keyDown(body, { key: 'i' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
+    });
+    fireEvent.keyDown(body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+  });
+
+  it('switches the same collaborative editor live and resets each Vim session to Normal', async () => {
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const editor: unknown = Reflect.get(body, 'editor');
+
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'vim' });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+    fireEvent.keyDown(body, { key: 'i' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
+    });
+
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'standard' });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'vim' });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+
+    expect(screen.getByLabelText('Note body')).toBe(body);
+    expect(Reflect.get(body, 'editor')).toBe(editor);
+  });
+
+  it('keeps Normal inert and records Insert typing in local collaborative history', async () => {
+    const user = userEvent.setup();
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+    body.focus();
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+    const beforeNormal = JSON.stringify(doc.getXmlFragment('default').toJSON());
+
+    fireEvent.keyDown(body, { key: 'q' });
+    body.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: 'blocked',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    fireEvent.paste(body, {
+      clipboardData: { getData: () => 'blocked', types: ['text/plain'] },
+    });
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toBe(beforeNormal);
+
+    fireEvent.keyDown(body, { key: 'i' });
+    await user.keyboard('x');
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('x');
+    });
+    fireEvent.keyDown(body, { key: 'Escape' });
+
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Peer note')]);
+      peer.getXmlFragment('default').push([paragraph]);
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('x');
+      expect(shared).toContain('Peer note');
+    });
+    peer.destroy();
+  });
+
+  it('lets an open slash menu consume Escape before Vim leaves Insert', async () => {
+    const user = userEvent.setup();
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    await open();
+    const body = screen.getByLabelText('Note body');
+    body.focus();
+    fireEvent.keyDown(body, { key: 'i' });
+
+    await user.keyboard('/');
+    expect(await screen.findByRole('listbox')).toBeVisible();
+    fireEvent.keyDown(body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
+    });
   });
 });
 

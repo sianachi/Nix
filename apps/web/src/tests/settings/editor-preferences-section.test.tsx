@@ -21,8 +21,23 @@ describe('editor preferences', () => {
     expect(screen.getByText(/stored only in this browser/i)).toBeVisible();
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Standard',
+      'Vim basics',
       'Emacs basics',
     ]);
+  });
+
+  it('states the exact boundary of Vim basics', async () => {
+    const user = userEvent.setup();
+    render(<EditorPreferencesSection />);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'vim');
+
+    expect(screen.getByText(/h\/l move by character/i)).toBeVisible();
+    expect(
+      screen.getByText(/w\/b\/e move by language word within the current text block/i),
+    ).toBeVisible();
+    expect(screen.getByText(/Escape returns to Normal/i)).toBeVisible();
+    expect(screen.getByText(/Visual mode, j\/k, operators, counts/i)).toBeVisible();
   });
 
   it('applies the choice immediately and explains its scope', async () => {
@@ -61,5 +76,12 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('status')).toHaveTextContent(/Standard remains the default/i);
+  });
+
+  it('names a session-only Vim choice accurately', () => {
+    useKeyboardModeStore.setState({ mode: 'vim', persistence: 'session-only' });
+    render(<EditorPreferencesSection />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Vim basics may reset/i);
   });
 });
