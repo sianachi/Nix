@@ -150,6 +150,41 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_graph_omits_an_active_descendant_of_a_deleted_ancestor_and_every_edge_touching_it()
+    {
+        await SetLifecycleAsync(VisibleRoot, "deleted");
+
+        var graph = await ReadGraphAsync(OpenWorkspace);
+
+        Assert.DoesNotContain(graph.Nodes, node => node.Id == ItemId.From(VisibleRoot));
+        Assert.DoesNotContain(graph.Nodes, node => node.Id == ItemId.From(VisibleChild));
+        Assert.DoesNotContain(
+            graph.Links,
+            link => link.SourceId == ItemId.From(VisibleChild) || link.TargetId == ItemId.From(VisibleChild));
+    }
+
+    [Fact]
+    public async Task A_hidden_early_node_does_not_spend_the_node_ceiling()
+    {
+        await SetSequenceAsync(VisibleChild, 1);
+        await SetLifecycleAsync(VisibleRoot, "deleted");
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var graph = await work.Resolve<IWorkspaceGraph>().ReadAsync(
+                OpenWorkspace,
+                [OpenWorkspace],
+                nodeLimit: 1,
+                linkLimit: GetWorkspaceGraphHandler.MaximumLinks,
+                Cancellation);
+
+            var node = Assert.Single(graph.Nodes);
+            Assert.NotEqual(ItemId.From(VisibleChild), node.Id);
+        }
+    }
+
+    [Fact]
     public async Task The_graph_of_a_workspace_the_caller_may_not_read_is_reported_as_not_found()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
@@ -407,6 +442,30 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
         await using (connection.ConfigureAwait(false))
         {
             await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    private async Task SetLifecycleAsync(Guid itemId, string lifecycle)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $"UPDATE item SET lifecycle_state = '{lifecycle}' WHERE id = {Literal(itemId)};");
+        }
+    }
+
+    private async Task SetSequenceAsync(Guid itemId, long sequence)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $"UPDATE item SET seq = {sequence.ToString(CultureInfo.InvariantCulture)} WHERE id = {Literal(itemId)};");
         }
     }
 

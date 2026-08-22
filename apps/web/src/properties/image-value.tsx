@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { isFetchableImageAddress } from '../lib/image-address';
 import { readPropertyText } from '../views/core/container-model';
 
 import type { PropertyInputProps } from './property-input';
@@ -62,26 +63,6 @@ const FILE_REFUSAL =
 /** The sentence `PropertyValidator.CheckImage` refuses with, built the same way. */
 function refusalSentence(label: string): string {
   return `${label} must be a link to an image, over http or https.`;
-}
-
-/**
- * Whether a stored value is something a browser may be asked to fetch.
- *
- * The rule the server applies on write, applied again here because the server's copy does not
- * cover values that predate the declaration. The same check, for the same reason, guards the
- * gallery's covers - it is written out per consumer because it is three lines of URL parsing, not
- * because the two layers may not share: `container-model` is the shared item model this file
- * already imports from, and it happens to sit under `views/` only because that is where the model
- * was first needed.
- */
-function isFetchableAddress(value: string): boolean {
-  try {
-    const { protocol } = new URL(value);
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    // Not absolute, so not something to resolve against this origin and hope.
-    return false;
-  }
 }
 
 /**
@@ -219,7 +200,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     setRefusal(null);
   }
 
-  const storedIsAddress = stored.length > 0 && isFetchableAddress(stored);
+  const storedIsAddress = stored.length > 0 && isFetchableImageAddress(stored);
   const failed = failedSrc === stored;
 
   function tryCommit(text: string): void {
@@ -248,7 +229,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
       return;
     }
 
-    if (!isFetchableAddress(trimmed)) {
+    if (!isFetchableImageAddress(trimmed)) {
       // Refused here, in place, and nothing is written. Left on screen to be corrected rather
       // than silently cleared: the person entered something, and discarding it would not say so.
       setDraft(trimmed);

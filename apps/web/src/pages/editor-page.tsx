@@ -33,13 +33,16 @@ import { ImportDialog } from '../import/import-dialog';
 import { PaneGroup } from '../panes/pane-group';
 import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
+import { PaneSplitControl } from '../panes/pane-split-control';
 import { usePanes, type PaneState } from '../panes/pane-state';
 import { usePaneCycling } from '../panes/use-pane-cycling';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useTabOrientationStore } from '../tabs/tab-orientation-store';
 import { DocumentTabStrip } from '../tabs/document-tab-strip';
+import type { TabTransferPayload } from '../tabs/tab-transfer';
 import { useTabStore } from '../tabs/tab-store';
 import { useOpenItem } from '../tabs/use-open-item';
+import { useTabTransfer } from '../tabs/use-tab-transfer';
 import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
@@ -73,11 +76,13 @@ import { useTemplateLibrary } from '../templates/template-library-context';
 export function EditorPage(): ReactNode {
   const { tree } = useOutletContext<ShellContext>();
   const templateLibrary = useTemplateLibrary();
-  const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
+  const { panes, split, sizes, requested, closePane, setSplit, setSizes } = usePanes();
   const paneClosed = useTabStore((state) => state.paneClosed);
   const narrow = useNarrowViewport();
+  const [draggedTab, setDraggedTab] = useState<TabTransferPayload | null>(null);
 
   const paneCount = panes.length;
+  const { moveTab } = useTabTransfer(panes.map((pane) => pane.index));
 
   // F6 and Shift F6 cycle focus between the pane regions - see the hook for why it is claimed
   // only while there is more than one pane to cycle.
@@ -138,37 +143,47 @@ export function EditorPage(): ReactNode {
   const hidden = (requested ?? panes.length) - panes.length;
 
   return (
-    <PaneGroup
-      panes={panes}
-      split={split}
-      sizes={sizes}
-      onSizes={setSizes}
-      describePane={(pane) => describe(tree.find(pane.itemId)?.title, pane.index)}
-      renderPane={(pane) => (
-        <PaneContents
-          pane={pane}
-          tree={tree}
-          canManageTemplates={templateLibrary.capabilities.canManage}
-          canApplyTemplates={
-            templateLibrary.status === 'ready' &&
-            templateLibrary.templates.some((template) => template.capabilities.canApply)
-          }
-          hiddenPanes={pane.index === 0 ? hidden : 0}
-          paneLabel={
-            paneCount > 1
-              ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
-              : undefined
-          }
-          onClose={
-            paneCount > 1
-              ? () => {
-                  close(pane.index, tree.find(pane.itemId)?.title ?? '');
-                }
-              : undefined
-          }
-        />
-      )}
-    />
+    <div className={paneColumn}>
+      {paneCount > 1 ? <PaneSplitControl orientation={split} onChange={setSplit} /> : null}
+      <PaneGroup
+        panes={panes}
+        split={split}
+        sizes={sizes}
+        onSizes={setSizes}
+        describePane={(pane) => describe(tree.find(pane.itemId)?.title, pane.index)}
+        renderPane={(pane) => (
+          <PaneContents
+            pane={pane}
+            tree={tree}
+            visiblePanes={panes}
+            draggedTab={draggedTab}
+            onTabDragStarted={setDraggedTab}
+            onTabDragEnded={() => {
+              setDraggedTab(null);
+            }}
+            onMoveTab={moveTab}
+            canManageTemplates={templateLibrary.capabilities.canManage}
+            canApplyTemplates={
+              templateLibrary.status === 'ready' &&
+              templateLibrary.templates.some((template) => template.capabilities.canApply)
+            }
+            hiddenPanes={pane.index === 0 ? hidden : 0}
+            paneLabel={
+              paneCount > 1
+                ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
+                : undefined
+            }
+            onClose={
+              paneCount > 1
+                ? () => {
+                    close(pane.index, tree.find(pane.itemId)?.title ?? '');
+                  }
+                : undefined
+            }
+          />
+        )}
+      />
+    </div>
   );
 }
 
@@ -186,6 +201,15 @@ function describe(title: string | undefined, index: number): string {
 interface PaneContentsProps {
   readonly pane: PaneState;
   readonly tree: ShellContext['tree'];
+  readonly visiblePanes: readonly PaneState[];
+  readonly draggedTab: TabTransferPayload | null;
+  readonly onTabDragStarted: (payload: TabTransferPayload) => void;
+  readonly onTabDragEnded: () => void;
+  readonly onMoveTab: (
+    payload: TabTransferPayload,
+    destinationPane: number,
+    title: string,
+  ) => boolean;
 
   /** How many panes this address holds that this window is too narrow to draw. */
   readonly hiddenPanes: number;
@@ -209,6 +233,11 @@ interface PaneContentsProps {
 function PaneContents({
   pane,
   tree,
+  visiblePanes,
+  draggedTab,
+  onTabDragStarted,
+  onTabDragEnded,
+  onMoveTab,
   onClose,
   paneLabel,
   hiddenPanes,
@@ -244,6 +273,11 @@ function PaneContents({
           paneIndex={pane.index}
           tree={tree}
           activeItemId={pane.itemId}
+          visiblePanes={visiblePanes}
+          draggedTab={draggedTab}
+          onTabDragStarted={onTabDragStarted}
+          onTabDragEnded={onTabDragEnded}
+          onMoveTab={onMoveTab}
           onClosePane={onClose}
         />
 

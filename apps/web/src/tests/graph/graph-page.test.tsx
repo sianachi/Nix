@@ -110,27 +110,16 @@ describe('the graph destination', () => {
     expect(child).toHaveAttribute('aria-level', '2');
   });
 
-  /**
-   * Asserted through the tree rather than by reading the address, for two reasons. The router here
-   * is a `MemoryRouter`, so `window.location` is not where the address lives - but more usefully,
-   * what a reader can actually perceive is that the node they clicked became the current one, and
-   * that only happens if the selection round-tripped through the URL and back into the view.
-   */
-  it('opens the item a node stands for, and marks it current', async () => {
+  it('opens the item a node stands for', async () => {
     stubCoreApi({ items: [ROOT, OTHER] });
     renderAt(<App />, '/graph');
 
     await screen.findByRole('tree', { name: /workspace graph/i });
 
     const roadmap = within(graphTree()).getByRole('treeitem', { name: /Roadmap/i });
-    expect(roadmap).toHaveAttribute('aria-selected', 'false');
-
     await userEvent.click(within(roadmap).getByRole('button'));
 
-    expect(within(graphTree()).getByRole('treeitem', { name: /Roadmap/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Roadmap');
   });
 
   /**
@@ -373,20 +362,6 @@ describe('when a node writes its name', () => {
     expect(labelFor(container, 'Roadmap')?.getAttribute('class')).toContain('opacity-0');
   });
 
-  it('keeps the open item named without a hover, since it is the one you are looking at', async () => {
-    stubCoreApi({ items: [ROOT, OTHER] });
-    const { container } = renderAt(<App />, '/graph');
-
-    await screen.findByRole('tree', { name: /workspace graph/i });
-    await userEvent.click(
-      within(screen.getByRole('tree', { name: /workspace graph/i })).getByRole('button', {
-        name: /Roadmap/i,
-      }),
-    );
-
-    expect(labelFor(container, 'Roadmap')?.getAttribute('class')).not.toContain('opacity-0');
-  });
-
   /**
    * The reason the drawing tracks keyboard focus at all. The tree is `sr-only`, so a sighted
    * keyboard user is focused on a control they cannot see - and without this the graph would give
@@ -491,19 +466,13 @@ describe('handling a node with the pointer', () => {
 
     await screen.findByRole('tree', { name: /workspace graph/i });
 
-    const tree = screen.getByRole('tree', { name: /workspace graph/i });
-    const before = within(tree).getAllByRole('treeitem')[0];
-    expect(before).toHaveAttribute('aria-selected', 'false');
-
     const disc = discFor(container, 0);
     press(disc, 100, 100);
     fireEvent.pointerUp(disc, { pointerId: 1, clientX: 100, clientY: 100 });
 
-    await waitFor(() => {
-      expect(
-        within(screen.getByRole('tree', { name: /workspace graph/i })).getAllByRole('treeitem')[0],
-      ).toHaveAttribute('aria-selected', 'true');
-    });
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Specifications',
+    );
   });
 
   /**
@@ -521,8 +490,7 @@ describe('handling a node with the pointer', () => {
     fireEvent.pointerMove(disc, { pointerId: 1, clientX: 160, clientY: 140 });
     fireEvent.pointerUp(disc, { pointerId: 1, clientX: 160, clientY: 140 });
 
-    const tree = screen.getByRole('tree', { name: /workspace graph/i });
-    expect(within(tree).getAllByRole('treeitem')[0]).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByRole('textbox', { name: /note title/i })).not.toBeInTheDocument();
   });
 
   it('moves the node the pointer dragged', async () => {
@@ -574,7 +542,6 @@ describe('handling a node with the pointer', () => {
     fireEvent.pointerDown(disc, { button: 2, pointerId: 1, clientX: 100, clientY: 100 });
     fireEvent.pointerUp(disc, { pointerId: 1, clientX: 100, clientY: 100 });
 
-    const tree = screen.getByRole('tree', { name: /workspace graph/i });
-    expect(within(tree).getAllByRole('treeitem')[0]).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByRole('textbox', { name: /note title/i })).not.toBeInTheDocument();
   });
 });

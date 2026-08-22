@@ -58,10 +58,27 @@ interface Control {
   readonly enabled?: boolean;
   /** The keys that do the same thing, shown in the tooltip. A control nobody can find is a control nobody uses. */
   readonly shortcut?: string;
+  /** The platform-resolved form of `shortcut`, for assistive technology. */
+  readonly ariaShortcut?: string;
 }
+
+// ProseMirror resolves `Mod` from this exact platform signal. Keeping the display tied to the same
+// test prevents the toolbar from advertising Command while the keymap is listening for Control.
+const navigatorPlatform: unknown =
+  typeof navigator === 'undefined' ? undefined : Reflect.get(navigator, 'platform');
+const applePlatform =
+  typeof navigatorPlatform === 'string' && /Mac|iP(hone|[oa]d)/.test(navigatorPlatform);
+const ariaModifier = applePlatform ? 'Meta' : 'Control';
+const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
 
 export interface ToolbarProps {
   readonly editor: Editor;
+
+  /** Opens the editor-owned image form without making this toolbar own modal state. */
+  readonly onInsertImage: () => void;
+
+  /** Opens the editor-owned link form for the current selection. */
+  readonly onInsertLink: () => void;
 
   /**
    * The document's own history.
@@ -74,7 +91,13 @@ export interface ToolbarProps {
   readonly onRedo: () => void;
 }
 
-export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNode {
+export function EditorToolbar({
+  editor,
+  onInsertImage,
+  onInsertLink,
+  onUndo,
+  onRedo,
+}: ToolbarProps): ReactNode {
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
   // and React's strict mode does that on every mount in development. `destroy()` sets the
@@ -215,13 +238,7 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
           return;
         }
 
-        // A prompt rather than a popover, for now. It is the honest placeholder: a link needs a
-        // destination typed somewhere, and a half-built inline editor that loses what you typed is
-        // worse than the browser's own box.
-        const href = globalThis.prompt('Link to');
-        if (href !== null && href.trim().length > 0) {
-          editor.chain().focus().setLink({ href: href.trim() }).run();
-        }
+        onInsertLink();
       },
     },
   ];
@@ -237,12 +254,7 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
       id: 'image',
       label: 'Image',
       icon: ImageIcon,
-      run: () => {
-        const src = globalThis.prompt('Image address');
-        if (src !== null && src.trim().length > 0) {
-          editor.chain().focus().setImage({ src: src.trim() }).run();
-        }
-      },
+      run: onInsertImage,
     },
     {
       id: 'table',
@@ -254,8 +266,22 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
   ];
 
   const history: readonly Control[] = [
-    { id: 'undo', label: 'Undo', icon: Undo2, run: onUndo },
-    { id: 'redo', label: 'Redo', icon: Redo2, run: onRedo },
+    {
+      id: 'undo',
+      label: 'Undo',
+      icon: Undo2,
+      shortcut: `${visibleModifier}+Z`,
+      ariaShortcut: `${ariaModifier}+Z`,
+      run: onUndo,
+    },
+    {
+      id: 'redo',
+      label: 'Redo',
+      icon: Redo2,
+      shortcut: `${visibleModifier}+Shift+Z or ${visibleModifier}+Y`,
+      ariaShortcut: `${ariaModifier}+Shift+Z ${ariaModifier}+Y`,
+      run: onRedo,
+    },
   ];
 
   /**
@@ -386,6 +412,7 @@ function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
     <button
       type="button"
       aria-label={control.label}
+      aria-keyshortcuts={control.ariaShortcut}
       title={
         control.shortcut === undefined ? control.label : `${control.label} (${control.shortcut})`
       }

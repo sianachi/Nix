@@ -74,9 +74,6 @@ export interface GraphViewProps {
 
   /** Opens an item. Wired to the same `useOpenItem` the tree and the palette use. */
   readonly onOpen: (itemId: string) => void;
-
-  /** The item currently open, drawn as the current node. Null when the graph is not showing one. */
-  readonly selectedId: string | null;
 }
 
 /**
@@ -153,7 +150,7 @@ interface Drag {
   moved: boolean;
 }
 
-export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps): ReactElement {
+export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElement {
   // Profiled cost is not the reason - the reason is that `layout` is the input to everything below,
   // and laying 2,000 nodes out again on an unrelated re-render (a zoom step, a drag, a hover) would
   // redo the whole walk to produce an identical arrangement. It keys on the payload alone.
@@ -195,8 +192,7 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const selectedIndex = positioned.findIndex((node) => node.id === selectedId);
-  const entryIndex = focusedIndex ?? Math.max(selectedIndex, 0);
+  const entryIndex = focusedIndex ?? 0;
   const focusedId = focusedIndex === null ? null : (positioned[focusedIndex]?.id ?? null);
 
   const moveTo = (index: number): void => {
@@ -433,10 +429,11 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
           </g>
 
           {positioned.map((node) => {
-            // Open or keyboard-focused nodes keep their label permanently; everything else waits to
-            // be hovered. A class swap rather than a conditional render, so the text node stays
-            // mounted and the transition has something to animate.
-            const named = node.id === selectedId || node.id === focusedId;
+            // Keyboard-focused nodes keep their label permanently; everything else waits to be
+            // hovered. Activating a node opens its note and leaves this route, so the graph has no
+            // separate selected state to advertise. A class swap rather than a conditional render,
+            // so the text node stays mounted and the transition has something to animate.
+            const named = node.id === focusedId;
 
             // Before the first frame every node sits at the middle; afterwards it sits where the
             // layout put it, and the transition between the two is the explosion. `motion-reduce`
@@ -477,9 +474,7 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
                   // so every disc would grow towards the middle of the drawing instead of in place
                   // - and the alternative, a computed `transform-origin` per node, is an inline
                   // style with two raw lengths in it.
-                  className={`origin-center [transform-box:fill-box] transition-transform group-hover:scale-125 motion-reduce:transition-none ${
-                    node.id === selectedId ? 'fill-accent-fill' : 'fill-surface stroke-divider'
-                  }`}
+                  className="origin-center fill-surface stroke-divider [transform-box:fill-box] transition-transform group-hover:scale-125 motion-reduce:transition-none"
                 />
                 <text
                   x={node.x + NODE_RADIUS * 2}
@@ -506,7 +501,10 @@ export function GraphView({ nodes, links, onOpen, selectedId }: GraphViewProps):
               key={node.id}
               role="treeitem"
               aria-level={node.depth + 1}
-              aria-selected={node.id === selectedId}
+              // There is no persistent graph selection: activating a node navigates to its note.
+              // An explicit undefined keeps that state absent while satisfying the static role
+              // contract, whose role table cannot distinguish a navigation tree from a selector.
+              aria-selected={undefined}
             >
               <button
                 type="button"

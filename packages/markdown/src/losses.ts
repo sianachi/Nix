@@ -40,7 +40,8 @@ export const MARKDOWN_LOSSES = {
   },
   tableFlattened: {
     kind: 'table-flattened',
-    detail: 'A table was written as Markdown text and will not round-trip back to a table.',
+    detail:
+      'GFM uses the first row as a header and cannot preserve merged cells, column widths, per-cell alignment, multi-block cells or inline formatting.',
   },
   taskListFlattened: {
     kind: 'task-list-flattened',

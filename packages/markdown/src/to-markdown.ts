@@ -174,12 +174,11 @@ function renderText(node: ProseNode, loss: LossCollector): string {
 /**
  * A table, flattened to a GFM pipe table.
  *
- * **Best-effort, and a declared loss, on purpose.** A pipe cell holds inline text; a Nix table cell
- * holds blocks, so a cell with a list or a second paragraph cannot be expressed faithfully and the
- * Markdown parser this package pairs with does not rebuild a table from pipes at all. Rather than
- * rabbit-hole on an HTML `<table>` that still would not round-trip, every table records
- * `table-flattened` and renders its cells' text so the result stays readable - which is what the
- * CLI and MCP callers reading a body want from it.
+ * **Best-effort, and a declared loss, on purpose.** GFM requires a header row and cannot express
+ * merged cells, column widths or alignment that differs from the header cell for that column. Its
+ * cells hold one line of inline Markdown while this renderer deliberately extracts plain text from
+ * Nix's block cells. Every table therefore records `table-flattened`, including when its simplest
+ * grid and alignment happen to round-trip.
  */
 function renderTable(node: ProseNode, loss: LossCollector): string {
   loss.note(MARKDOWN_LOSSES.tableFlattened.kind, MARKDOWN_LOSSES.tableFlattened.detail);
@@ -222,7 +221,9 @@ function renderTable(node: ProseNode, loss: LossCollector): string {
   const headerCells = rows[0] ?? [];
   const line = (cells: string[]): string => `| ${padded(cells).join(' | ')} |`;
   const headerLine = line(headerCells.map(cellText));
-  const separator = line(headerCells.map(cellAlign));
+  const separator = line(
+    padded(headerCells.map(cellAlign)).map((marker) => (marker.length > 0 ? marker : '---')),
+  );
   const bodyLines = rows.slice(1).map((cells) => line(cells.map(cellText)));
 
   return [headerLine, separator, ...bodyLines].join('\n');
@@ -248,12 +249,16 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
     paragraph: inline,
     text: (node) => renderText(node, loss),
     hardBreak: () => '\\\n',
-    heading: (node, _ctx, children) => `${'#'.repeat(clampLevel(readNumber(node.attrs, 'level')))} ${children().join('')}`,
+    heading: (node, _ctx, children) =>
+      `${'#'.repeat(clampLevel(readNumber(node.attrs, 'level')))} ${children().join('')}`,
     blockquote: (_node, _ctx, children) => quote(children().join('\n\n')),
-    codeBlock: (node) => `\`\`\`${readString(node.attrs, 'language') ?? ''}\n${rawText(node)}\n\`\`\``,
+    codeBlock: (node) =>
+      `\`\`\`${readString(node.attrs, 'language') ?? ''}\n${rawText(node)}\n\`\`\``,
     horizontalRule: () => '---',
-    callout: (node, _ctx, children) => quote(`[!${calloutTone(node)}]\n\n${children().join('\n\n')}`),
-    image: (node) => `![${readString(node.attrs, 'alt') ?? ''}](${readString(node.attrs, 'src') ?? ''})`,
+    callout: (node, _ctx, children) =>
+      quote(`[!${calloutTone(node)}]\n\n${children().join('\n\n')}`),
+    image: (node) =>
+      `![${readString(node.attrs, 'alt') ?? ''}](${readString(node.attrs, 'src') ?? ''})`,
     bulletList: renderList(null),
     orderedList: (node, ctx, children) =>
       renderList(readNumber(node.attrs, 'start') ?? 1)(node, ctx, children),
@@ -293,7 +298,8 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
     reference: (node) => {
       const kind = referenceKind(node);
       const targetId = readString(node.attrs, 'targetId') ?? '';
-      const label = readString(node.attrs, 'label') ?? (targetId.length > 0 ? targetId : 'reference');
+      const label =
+        readString(node.attrs, 'label') ?? (targetId.length > 0 ? targetId : 'reference');
       return `[${escapeInline(label)}](nix://${kind}/${targetId})`;
     },
   };
@@ -308,7 +314,8 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
 export function documentToMarkdown(doc: unknown): ToMarkdownResult {
   const loss = createLossCollector();
   const report = createLossReport();
-  const markdown = visitProse<string>(doc, buildHandlers(loss), { itemId: DOC_ITEM_ID, report }) ?? '';
+  const markdown =
+    visitProse<string>(doc, buildHandlers(loss), { itemId: DOC_ITEM_ID, report }) ?? '';
 
   for (const entry of report.entries()) {
     loss.note(entry.kind, entry.detail);

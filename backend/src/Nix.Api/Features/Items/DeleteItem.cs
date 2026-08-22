@@ -84,9 +84,20 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
-        var item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var visible = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var item = visible
+            ?? await _tree.FindStoredAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (item is null
             || !await _permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<ItemId>(ItemErrors.NotFound($"No item {itemId} is visible."));
+        }
+
+        // A directly deleted row remains addressable here for an idempotent retry. An active row
+        // hidden below a deleted ancestor does not: being able to mutate it by guessing its id
+        // would contradict the visibility boundary every ordinary read and collaboration session
+        // observes.
+        if (item.LifecycleState == ItemLifecycleState.Active && visible is null)
         {
             return Result.Failure<ItemId>(ItemErrors.NotFound($"No item {itemId} is visible."));
         }

@@ -37,6 +37,8 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
     private const int Containers = 50;
     private const int BetaItems = 5_000;
 
+    private static readonly Guid AlphaRoot = new("7a5c0000-1111-4111-8111-7a5c00000001");
+
     private static readonly DateOnly QueryDay = new(2026, 8, 15);
 
     private readonly NixPostgresFixture _fixture;
@@ -82,6 +84,9 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         // The row-security qual is pinned as present, not left incidental: a future change that
         // let due_day be served ABOVE the policy would keep every shape assertion green.
         Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
+        AssertAncestorPointLookup(plan);
+        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
 
         // The two tenants exist so the policy has something to exclude - so the exclusion is
         // asserted, not implied: the same statement executed as Alpha returns rows, and none of
@@ -108,6 +113,9 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         Assert.Contains("due_day <=", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
         Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
+        AssertAncestorPointLookup(plan);
+        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
 
         var titles = await ExecuteTitlesAsRuntimeRoleAsync(compiled.Sql, compiled.Parameters);
         Assert.NotEmpty(titles);
@@ -132,6 +140,33 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         _output.WriteLine(plan);
 
         Assert.Contains("ix_item_declares_views", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
+        AssertAncestorPointLookup(plan);
+        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_recurrence_candidate_read_keeps_both_partial_indexes_and_executes_visibility_probes()
+    {
+        var plan = await ExplainAsRuntimeRoleAsync(
+            RecurrenceSql.WorkspaceRecurrenceCandidates,
+            [
+                new NpgsqlParameter("workspace_id", NpgsqlDbType.Uuid)
+                {
+                    Value = M0SchemaSeed.Alpha.WorkspaceId,
+                },
+                new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = "2026-08-01" },
+                new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = "2026-08-31" },
+                new NpgsqlParameter("candidate_limit", NpgsqlDbType.Integer) { Value = 501 },
+            ]);
+        _output.WriteLine("Workspace recurrence candidates, runtime role:");
+        _output.WriteLine(plan);
+
+        Assert.Contains("ix_item_declares_views", plan, StringComparison.Ordinal);
+        Assert.Contains("ix_item_recurs", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
+        AssertAncestorPointLookup(plan);
+        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -284,6 +319,14 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         AddIfMissing("limit", NpgsqlDbType.Integer, 501);
     }
 
+    private static void AssertAncestorPointLookup(string plan) =>
+        Assert.True(
+            plan.Contains("AK_item_tenant_id_id", StringComparison.Ordinal)
+            || plan.Contains(
+                "Index Scan using \"PK_item\" on item visibility_ancestor",
+                StringComparison.Ordinal),
+            "Expected each visibility ancestor to be resolved through a point index lookup.");
+
     private async Task SeedCorpusAsync()
     {
         var alphaTenant = Literal(M0SchemaSeed.Alpha.TenantId);
@@ -297,9 +340,19 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         // the children spread across them with dates around the query day and a third completed.
         var sql = $$"""
             INSERT INTO item
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                 lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                 last_modified_at)
+            VALUES
+                ({{Literal(AlphaRoot)}}, {{alphaTenant}}, {{alphaWorkspace}}, 'note', NULL, 199999,
+                 '{"title":"Corpus root"}'::jsonb, 'active', NULL, {{alphaPrincipal}},
+                 {{alphaPrincipal}}, now(), now());
+
+            INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties, views,
                  lifecycle_state, purge_after, created_by, last_modified_by, created_at, last_modified_at)
-            SELECT gen_random_uuid(), {{alphaTenant}}, {{alphaWorkspace}}, 'note', NULL, 200000 + n,
+            SELECT gen_random_uuid(), {{alphaTenant}}, {{alphaWorkspace}}, 'note',
+                   {{Literal(AlphaRoot)}}, 200000 + n,
                    jsonb_build_object('title', 'Container ' || n),
                    jsonb_build_object('views', jsonb_build_array(jsonb_build_object(
                        'id', 'v' || n, 'name', 'Calendar', 'kind', 'calendar',
@@ -308,7 +361,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
             FROM generate_series(1, {{Containers}}) AS n;
 
             INSERT INTO item
-                (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties, recurrence,
                  lifecycle_state, purge_after, created_by, last_modified_by, created_at, last_modified_at)
             SELECT gen_random_uuid(), {{alphaTenant}}, {{alphaWorkspace}}, 'note',
                    container.id,
@@ -317,6 +370,9 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
                        'title', 'Task ' || n,
                        'due_date', to_char(DATE '2026-05-01' + (n % 200), 'YYYY-MM-DD'),
                        'completion', (n % 3 = 0)),
+                   CASE WHEN n % 100 = 0
+                        THEN '{"freq":"daily","interval":1}'::jsonb
+                        ELSE NULL END,
                    'active', NULL, {{alphaPrincipal}}, {{alphaPrincipal}}, now(), now()
             FROM generate_series(1, {{AlphaChildren}}) AS n
             JOIN item AS container
@@ -336,9 +392,28 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
             INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
             SELECT id, id, tenant_id, workspace_id, 0
             FROM item
-            WHERE seq >= 200000;
+            WHERE seq >= 199999;
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT id, {{Literal(AlphaRoot)}}, tenant_id, workspace_id, 1
+            FROM item
+            WHERE tenant_id = {{alphaTenant}}
+              AND seq BETWEEN 200001 AND {{200000 + Containers}};
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT child.id, child.parent_id, child.tenant_id, child.workspace_id, 1
+            FROM item AS child
+            WHERE child.tenant_id = {{alphaTenant}}
+              AND child.seq >= 300001;
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT child.id, {{Literal(AlphaRoot)}}, child.tenant_id, child.workspace_id, 2
+            FROM item AS child
+            WHERE child.tenant_id = {{alphaTenant}}
+              AND child.seq >= 300001;
 
             ANALYZE item;
+            ANALYZE item_closure;
             """;
 
         var connection = await _fixture.OpenMigratorConnectionAsync();
