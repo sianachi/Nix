@@ -2021,7 +2021,7 @@
           "Calendar"
         ],
         "summary": "Every calendar in a workspace, collated into one window",
-        "description": "Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. That list is never truncated. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.",
+        "description": "Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. So are repeating items whose series cannot be drawn on this calendar - by container ('calendar_not_by_due_date'), by the item itself ('no_due_date'), or by the stored rule ('unreadable_rule'). That list is never truncated. An entry produced by a recurrence rule rather than read from storage carries 'generated: true' and its own 'completed' state; a client must not offer to edit or delete it as if it were a stored item, since there is no row behind it, only the series that produced it. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. Separately, 'seriesTruncated' is true when more repeating series exist than this read considered or than there was room left to expand after concrete entries were read - a different fact from 'entriesTruncated', since a workspace can hold more series than this response even names. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.",
         "operationId": "GetWorkspaceCalendar",
         "parameters": [
           {
@@ -2071,6 +2071,158 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/recurrence": {
+      "put": {
+        "tags": [
+          "Recurrence"
+        ],
+        "summary": "Set or clear an item's repeating rule",
+        "description": "A null request body clears the rule and the item stops repeating. Editing an existing rule preserves its completion state: the watermark carries over untouched and each individually completed day is kept only when the new rule still lands on it. Fails with 'recurrence.invalid_frequency', 'recurrence.invalid_interval', 'recurrence.weekdays_require_weekly', 'recurrence.invalid_weekday' or 'recurrence.invalid_until' when the request is malformed, and with 'recurrence.rule_too_large' when the resulting rule does not fit.",
+        "operationId": "SetItemRecurrence",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetRecurrenceRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRecurrenceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/recurrence/completions": {
+      "post": {
+        "tags": [
+          "Recurrence"
+        ],
+        "summary": "Complete one occurrence of an item's repeating series",
+        "description": "Idempotent: completing an already-completed occurrence succeeds without writing anything a second time. Fails with 'recurrence.not_recurring' when the item carries no rule, 'recurrence.no_anchor' when it has no due date to anchor to, 'recurrence.unreadable_rule' when the stored rule cannot be read, and 'recurrence.not_an_occurrence' when the named day is not one the series lands on.",
+        "operationId": "CompleteRecurrenceOccurrence",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteOccurrenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteOccurrenceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2822,7 +2974,9 @@
           "containerTitle",
           "dateProperty",
           "value",
-          "kind"
+          "kind",
+          "generated",
+          "completed"
         ],
         "type": "object",
         "properties": {
@@ -2854,6 +3008,15 @@
           },
           "kind": {
             "type": "string"
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "completed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -2865,6 +3028,39 @@
         "properties": {
           "items": {
             "$ref": "#/components/schemas/JsonArray"
+          }
+        }
+      },
+      "CompleteOccurrenceRequest": {
+        "required": [
+          "occurredOn"
+        ],
+        "type": "object",
+        "properties": {
+          "occurredOn": {
+            "type": "string"
+          }
+        }
+      },
+      "CompleteOccurrenceResponse": {
+        "required": [
+          "rule",
+          "occurredOn"
+        ],
+        "type": "object",
+        "properties": {
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecurrenceRuleResponse"
+              }
+            ]
+          },
+          "occurredOn": {
+            "type": "string"
           }
         }
       },
@@ -3955,6 +4151,54 @@
           }
         }
       },
+      "RecurrenceRuleResponse": {
+        "required": [
+          "freq",
+          "interval",
+          "weekdays",
+          "until",
+          "completedThrough",
+          "completed"
+        ],
+        "type": "object",
+        "properties": {
+          "freq": {
+            "type": "string"
+          },
+          "interval": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "weekdays": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "until": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "completedThrough": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "completed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ReferenceResolutionResponse": {
         "required": [
           "id",
@@ -4155,6 +4399,61 @@
         "properties": {
           "properties": {
             "$ref": "#/components/schemas/JsonObject"
+          }
+        }
+      },
+      "SetRecurrenceRequest": {
+        "required": [
+          "freq",
+          "interval",
+          "weekdays",
+          "until"
+        ],
+        "type": "object",
+        "properties": {
+          "freq": {
+            "type": "string"
+          },
+          "interval": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "weekdays": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "until": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SetRecurrenceResponse": {
+        "required": [
+          "rule"
+        ],
+        "type": "object",
+        "properties": {
+          "rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecurrenceRuleResponse"
+              }
+            ]
           }
         }
       },
@@ -5088,7 +5387,9 @@
         "required": [
           "containerId",
           "containerTitle",
-          "reason"
+          "reason",
+          "itemId",
+          "itemTitle"
         ],
         "type": "object",
         "properties": {
@@ -5104,6 +5405,19 @@
           },
           "reason": {
             "type": "string"
+          },
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "itemTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5399,7 +5713,8 @@
           "entries",
           "unplaceable",
           "entryLimit",
-          "entriesTruncated"
+          "entriesTruncated",
+          "seriesTruncated"
         ],
         "type": "object",
         "properties": {
@@ -5434,6 +5749,9 @@
             "format": "int32"
           },
           "entriesTruncated": {
+            "type": "boolean"
+          },
+          "seriesTruncated": {
             "type": "boolean"
           }
         }
@@ -5567,6 +5885,9 @@
     },
     {
       "name": "Calendar"
+    },
+    {
+      "name": "Recurrence"
     },
     {
       "name": "Query"

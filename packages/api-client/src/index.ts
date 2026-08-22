@@ -102,6 +102,11 @@ export {
   templateSummarySchema,
   workspaceCalendarSchema,
   workspaceGraphSchema,
+  completeOccurrenceResultSchema,
+  recurrenceFreqSchema,
+  recurrenceRuleSchema,
+  recurrenceWeekdaySchema,
+  setRecurrenceResultSchema,
 } from './schemas/index.js';
 export type {
   CursorPage,
@@ -129,6 +134,11 @@ export type {
   UnplaceableCalendar,
   WorkspaceCalendar,
   WorkspaceGraph,
+  CompleteOccurrenceResult,
+  RecurrenceFreq,
+  RecurrenceRule,
+  RecurrenceWeekday,
+  SetRecurrenceResult,
 } from './schemas/index.js';
 
 /**
@@ -176,3 +186,4 @@ export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
+export * as recurrence from './resources/recurrence.js';
