@@ -329,11 +329,24 @@ public sealed class WorkspaceCalendarAuthorizationTests : IAsyncLifetime
         Assert.Equal(values.OrderBy(value => value, StringComparer.Ordinal), values);
     }
 
+    /// <summary>
+    /// The stored calendar these tests are about: the concrete entries and the containers that
+    /// could not place one.
+    /// </summary>
+    /// <remarks>
+    /// Generated occurrences are filtered out on purpose. This file asks what one principal may
+    /// see of what is stored, and a series occurrence is computed from a rule rather than read
+    /// from a row - it has its own authorization test, and letting it through here would make
+    /// these assertions depend on recurrence arithmetic that has nothing to do with permissions.
+    /// </remarks>
     private async Task<WorkspaceCalendar> ReadAsync(string firstDay, string lastDay)
     {
         var result = await QueryAsync(OpenWorkspace, firstDay, lastDay);
         Assert.True(result.IsSuccess);
-        return result.Value.Calendar;
+
+        return new WorkspaceCalendar(
+            [.. result.Value.Entries.Where(row => !row.Generated).Select(row => row.Entry)],
+            result.Value.UnplaceableContainers);
     }
 
     private async Task<Result<WorkspaceCalendarResults>> QueryAsync(
