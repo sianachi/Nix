@@ -35,6 +35,22 @@ public interface IItemTree
     /// <returns>The item, or <see langword="null"/> when it does not exist or is not visible.</returns>
     public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken);
 
+    /// <summary>Finds one stored item without applying lifecycle-derived visibility.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The ordinary stored item, or <see langword="null"/> when it does not exist in this tenant.
+    /// Template-owned and provisioning rows remain excluded by the persistence boundary's
+    /// ordinary-item filter.
+    /// </returns>
+    /// <remarks>
+    /// This is the narrow lifecycle seam. Delete needs an already-deleted row to make retries
+    /// idempotent, and restore needs the row precisely because it is deleted. Ordinary reads,
+    /// mutations and authorization must use <see cref="FindAsync"/> so a deleted item or an active
+    /// descendant of a deleted ancestor stays invisible.
+    /// </remarks>
+    public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken);
+
     /// <summary>Which of these items have at least one child that is not deleted.</summary>
     /// <param name="workspaceId">The workspace the items live in.</param>
     /// <param name="parents">The items to ask about.</param>

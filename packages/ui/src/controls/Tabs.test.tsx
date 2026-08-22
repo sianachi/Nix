@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -250,6 +250,37 @@ describe('Tabs', () => {
     render(<Tabs label="Open documents" items={OPEN} activeId="a" onActivate={vi.fn()} />);
 
     expect(screen.queryByTitle(/^Close /)).not.toBeInTheDocument();
+  });
+
+  it('opts tabs into native dragging and reports the document that started it', () => {
+    const onTabDragStart = vi.fn();
+    const onTabDragEnd = vi.fn();
+    const dataTransfer = { effectAllowed: 'all', setData: vi.fn() } as unknown as DataTransfer;
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        drag={{ onStart: onTabDragStart, onEnd: onTabDragEnd }}
+      />,
+    );
+
+    const tab = screen.getByRole('tab', { name: 'Roadmap' });
+    expect(tab).toHaveAttribute('draggable', 'true');
+    expect(tab).toHaveAttribute('title', 'Roadmap (Drag to another pane)');
+
+    fireEvent.dragStart(tab, { dataTransfer });
+    fireEvent.dragEnd(tab, { dataTransfer });
+
+    expect(onTabDragStart).toHaveBeenCalledWith('b', expect.any(Object));
+    expect(onTabDragEnd).toHaveBeenCalledOnce();
+  });
+
+  it('does not make tabs draggable without an explicit transfer surface', () => {
+    render(<Tabs label="Open documents" items={OPEN} activeId="a" onActivate={vi.fn()} />);
+
+    expect(screen.getByRole('tab', { name: 'Roadmap' })).not.toHaveAttribute('draggable');
   });
 });
 

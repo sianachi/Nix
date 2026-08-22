@@ -54,6 +54,9 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
     /// </remarks>
     private static readonly Guid Member = new("5eacf000-1111-4111-8111-5eacf0000005");
 
+    /// <summary>A deleted parent introduced by tests that exercise derived visibility.</summary>
+    private static readonly Guid DeletedAncestor = new("5eacf000-1111-4111-8111-5eacf0000006");
+
     private readonly NixPostgresFixture _fixture;
 
     public SearchAuthorizationTests(NixPostgresFixture fixture) => _fixture = fixture;
@@ -118,6 +121,26 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
 
         Assert.Empty(byTitle.Hits);
         Assert.Empty(byBody.Hits);
+    }
+
+    [Fact]
+    public async Task Search_omits_an_active_descendant_of_a_deleted_ancestor_for_title_and_body_matches()
+    {
+        await HideBelowDeletedAncestorAsync(VisibleItem);
+
+        Assert.Empty((await SearchAsync("quarter")).Hits);
+        Assert.Empty((await SearchAsync("photosynthesis")).Hits);
+    }
+
+    [Fact]
+    public async Task A_hidden_higher_ranked_search_match_does_not_spend_the_limit()
+    {
+        await HideBelowDeletedAncestorAsync(VisibleSource);
+
+        var found = await SearchAsync("ledger", limit: 1);
+
+        var hit = Assert.Single(found.Hits);
+        Assert.Equal(ItemId.From(VisibleItem), hit.Id);
     }
 
     [Fact]
@@ -191,6 +214,24 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Resolving_an_active_descendant_of_a_deleted_ancestor_returns_no_title()
+    {
+        await HideBelowDeletedAncestorAsync(VisibleItem);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var resolved = await work.Resolve<NixDispatcher>()
+                .QueryAsync<ResolveReferences, Result<ResolvedReferences>>(
+                    new ResolveReferences([ItemId.From(VisibleItem)]),
+                    Cancellation);
+
+            Assert.True(resolved.IsSuccess);
+            Assert.Null(Assert.Single(resolved.Value.Resolutions).Item);
+        }
+    }
+
+    [Fact]
     public async Task Backlinks_list_the_documents_that_point_at_an_item()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
@@ -228,6 +269,62 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
             // the count as well as from the list, which is why this asserts on Single above and on
             // the absence here rather than on a number.
             Assert.DoesNotContain(result.Value.Backlinks, backlink => backlink.Source.Id == ItemId.From(PrivateItem));
+        }
+    }
+
+    [Fact]
+    public async Task Backlinks_omit_an_active_source_below_a_deleted_ancestor()
+    {
+        await HideBelowDeletedAncestorAsync(VisibleSource);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var result = await work.Resolve<NixDispatcher>()
+                .QueryAsync<GetBacklinks, Result<BacklinkResults>>(
+                    new GetBacklinks(ItemId.From(VisibleItem), GetBacklinksHandler.DefaultLimit),
+                    Cancellation);
+
+            Assert.True(result.IsSuccess);
+            Assert.Empty(result.Value.Backlinks);
+        }
+    }
+
+    [Fact]
+    public async Task A_hidden_high_occurrence_backlink_does_not_spend_the_limit()
+    {
+        await AddVisibleBacklinkAsync();
+        await HideBelowDeletedAncestorAsync(VisibleSource);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var result = await work.Resolve<NixDispatcher>()
+                .QueryAsync<GetBacklinks, Result<BacklinkResults>>(
+                    new GetBacklinks(ItemId.From(VisibleItem), 1),
+                    Cancellation);
+
+            Assert.True(result.IsSuccess);
+            var backlink = Assert.Single(result.Value.Backlinks);
+            Assert.Equal(ItemId.From(M0SchemaSeed.Alpha.ItemId), backlink.Source.Id);
+        }
+    }
+
+    [Fact]
+    public async Task Backlinks_of_an_active_target_below_a_deleted_ancestor_are_reported_as_not_found()
+    {
+        await HideBelowDeletedAncestorAsync(VisibleItem);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var result = await work.Resolve<NixDispatcher>()
+                .QueryAsync<GetBacklinks, Result<BacklinkResults>>(
+                    new GetBacklinks(ItemId.From(VisibleItem), GetBacklinksHandler.DefaultLimit),
+                    Cancellation);
+
+            Assert.True(result.IsFailure);
+            Assert.Equal("items.not_found", result.Error.Code);
         }
     }
 
@@ -288,14 +385,14 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
         }
     }
 
-    private async Task<SearchResults> SearchAsync(string query)
+    private async Task<SearchResults> SearchAsync(string query, int limit = SearchItemsHandler.DefaultLimit)
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var result = await work.Resolve<NixDispatcher>()
                 .QueryAsync<SearchItems, Result<SearchResults>>(
-                    new SearchItems(query, SearchItemsHandler.DefaultLimit),
+                    new SearchItems(query, limit),
                     Cancellation);
 
             Assert.True(result.IsSuccess);
@@ -387,6 +484,58 @@ public sealed class SearchAuthorizationTests : IAsyncLifetime
         await using (connection.ConfigureAwait(false))
         {
             await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    private async Task HideBelowDeletedAncestorAsync(Guid itemId)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var workspace = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+        var ancestor = Literal(DeletedAncestor);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  INSERT INTO item
+                      (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                       lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                       last_modified_at)
+                  VALUES
+                      ({{ancestor}}, {{tenant}}, {{workspace}}, 'note', NULL, 5000,
+                       '{"title": "Deleted ancestor"}'::jsonb, 'deleted', NULL, {{principal}},
+                       {{principal}}, now(), now());
+
+                  INSERT INTO item_closure
+                      (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  VALUES
+                      ({{ancestor}}, {{ancestor}}, {{tenant}}, {{workspace}}, 0),
+                      ({{Literal(itemId)}}, {{ancestor}}, {{tenant}}, {{workspace}}, 1);
+
+                  UPDATE item SET parent_id = {{ancestor}} WHERE id = {{Literal(itemId)}};
+                  """);
+        }
+    }
+
+    private async Task AddVisibleBacklinkAsync()
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  INSERT INTO item_link
+                      (tenant_id, source_item_id, target_item_id, occurrences, seq)
+                  VALUES
+                      ({{Literal(M0SchemaSeed.Alpha.TenantId)}},
+                       {{Literal(M0SchemaSeed.Alpha.ItemId)}}, {{Literal(VisibleItem)}}, 1, 1);
+                  """);
         }
     }
 

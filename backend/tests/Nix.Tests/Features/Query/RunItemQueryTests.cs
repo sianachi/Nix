@@ -326,6 +326,9 @@ public sealed class RunItemQueryTests
         public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_item?.Id == id ? _item : null);
 
+        public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken) =>
+            FindAsync(id, cancellationToken);
+
         public ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
             WorkspaceId workspaceId,
             IReadOnlyList<ItemId> parents,

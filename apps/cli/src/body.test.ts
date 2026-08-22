@@ -21,7 +21,13 @@ function updateFor(prose: unknown): string {
 
 function updatesPage(updates: { seq: number; update: string }[], hasMore = false): Response {
   return new Response(
-    JSON.stringify({ docId: 'd1', headSeq: updates.at(-1)?.seq ?? 0, schemaVersion: 2, updates, hasMore }),
+    JSON.stringify({
+      docId: 'd1',
+      headSeq: updates.at(-1)?.seq ?? 0,
+      schemaVersion: 2,
+      updates,
+      hasMore,
+    }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 }
@@ -33,9 +39,16 @@ function canonical(prose: unknown): unknown {
 
 describe('readBodyMarkdown', () => {
   it('catches up the update log and renders the body as Markdown', async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(updatesPage([{ seq: 1, update: updateFor(doc('Hello world')) }])));
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(updatesPage([{ seq: 1, update: updateFor(doc('Hello world')) }])),
+    );
 
-    const body = await readBodyMarkdown({ collabUrl: COLLAB, itemId: ITEM, token: TOKEN, fetchImpl });
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl,
+    });
 
     expect(body.markdown.trim()).toBe('Hello world');
     expect(body.empty).toBe(false);
@@ -48,7 +61,12 @@ describe('readBodyMarkdown', () => {
   it('reports an item with no body log as empty', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(updatesPage([])));
 
-    const body = await readBodyMarkdown({ collabUrl: COLLAB, itemId: ITEM, token: TOKEN, fetchImpl });
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl,
+    });
 
     expect(body.empty).toBe(true);
   });
@@ -60,7 +78,12 @@ describe('readBodyMarkdown', () => {
       .mockResolvedValueOnce(updatesPage([{ seq: 1, update: first }], true))
       .mockResolvedValueOnce(updatesPage([], false));
 
-    const body = await readBodyMarkdown({ collabUrl: COLLAB, itemId: ITEM, token: TOKEN, fetchImpl });
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl,
+    });
 
     expect(body.markdown.trim()).toBe('page one only');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -78,7 +101,10 @@ describe('writeBodyMarkdown', () => {
       }
       posted = (JSON.parse(init?.body as string) as { update: string }).update;
       return Promise.resolve(
-        new Response(JSON.stringify({ seq: '2' }), { status: 202, headers: { 'content-type': 'application/json' } }),
+        new Response(JSON.stringify({ seq: '2' }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        }),
       );
     });
 
@@ -97,12 +123,22 @@ describe('writeBodyMarkdown', () => {
     // collaboration service does, and confirm the body is now what the Markdown described.
     const reconstructed = new Y.Doc();
     Y.applyUpdate(reconstructed, new Uint8Array(Buffer.from(starting, 'base64')));
-    Y.applyUpdate(reconstructed, new Uint8Array(Buffer.from(posted as unknown as string, 'base64')));
+    Y.applyUpdate(
+      reconstructed,
+      new Uint8Array(Buffer.from(posted as unknown as string, 'base64')),
+    );
 
     const expected = markdownToDocument('# A new heading\n\nand a fresh paragraph.');
     expect(expected.ok).toBe(true);
     if (expected.ok) {
-      expect(canonical(yXmlFragmentToProseMirrorRootNode(reconstructed.getXmlFragment('default'), nixSchema).toJSON())).toEqual(canonical(expected.doc));
+      expect(
+        canonical(
+          yXmlFragmentToProseMirrorRootNode(
+            reconstructed.getXmlFragment('default'),
+            nixSchema,
+          ).toJSON(),
+        ),
+      ).toEqual(canonical(expected.doc));
     }
   });
 
@@ -119,9 +155,67 @@ describe('writeBodyMarkdown', () => {
       return Promise.resolve(new Response(JSON.stringify({ seq: '2' }), { status: 202 }));
     });
 
-    const result = await writeBodyMarkdown({ collabUrl: COLLAB, itemId: ITEM, token: TOKEN, markdown: '', fetchImpl });
+    const result = await writeBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      markdown: '',
+      fetchImpl,
+    });
 
     expect(result.bytes).toBeGreaterThan(0);
     expect(posted).not.toBeNull();
+  });
+
+  it('returns the parser scan paired with the body it writes', async () => {
+    const fetchImpl = vi.fn((url: string) =>
+      Promise.resolve(
+        url.includes('/updates?after=')
+          ? updatesPage([])
+          : new Response(JSON.stringify({ seq: '1' }), { status: 202 }),
+      ),
+    );
+
+    const result = await writeBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      markdown: '[[Note]] ![[Embed]] ![local](./local.png)',
+      fetchImpl,
+    });
+
+    expect(result.scan).toEqual({
+      unresolvedWikiLinks: 1,
+      unresolvedObsidianEmbeds: 1,
+      unresolvedLocalImages: 1,
+      unsupportedImageAddresses: 0,
+      inlineImagesFlattened: 0,
+    });
+  });
+
+  it('keeps a pre-parsed document inseparable from its supplied scan', async () => {
+    const scan = {
+      unresolvedWikiLinks: 2,
+      unresolvedObsidianEmbeds: 3,
+      unresolvedLocalImages: 4,
+      unsupportedImageAddresses: 5,
+      inlineImagesFlattened: 6,
+    };
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ seq: '1' }), { status: 202 })),
+    );
+
+    const result = await writeBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      markdown: 'not reparsed',
+      parsed: { doc: doc('already parsed'), scan },
+      assumeEmpty: true,
+      fetchImpl,
+    });
+
+    expect(result.scan).toBe(scan);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

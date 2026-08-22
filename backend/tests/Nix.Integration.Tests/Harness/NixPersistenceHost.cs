@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Persistence;
@@ -25,11 +27,25 @@ internal sealed class NixPersistenceHost : IAsyncDisposable
     /// Builds a host over <paramref name="connectionString"/>.
     /// </summary>
     /// <param name="connectionString">A connection string for the runtime role.</param>
+    /// <param name="testInterceptor">An optional observer appended by an integration test.</param>
     /// <returns>The host.</returns>
-    public static NixPersistenceHost Create(string connectionString)
+    public static NixPersistenceHost Create(
+        string connectionString,
+        IInterceptor? testInterceptor = null)
     {
         var services = new ServiceCollection();
         services.AddNixPersistence(connectionString);
+
+        if (testInterceptor is not null)
+        {
+            // Test-only composition seam: append an observer to the real persistence graph so
+            // plan evidence can capture the exact EF command production executes. The runtime
+            // registration remains AddNixPersistence above; this does not replace any of its RLS
+            // interceptors or context options.
+            services.AddDbContext<NixDbContext>(
+                (_, builder) => builder.AddInterceptors(testInterceptor));
+        }
+
         return new NixPersistenceHost(services.BuildServiceProvider(validateScopes: true));
     }
 
