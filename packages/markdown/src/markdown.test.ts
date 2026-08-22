@@ -91,6 +91,56 @@ describe('documentToMarkdown then markdownToDocument', () => {
     }
   });
 
+  it('round-trips table structure, cell roles, and column alignment', () => {
+    const cellAttrs = (align: 'left' | 'right') => ({
+      colspan: 1,
+      rowspan: 1,
+      colwidth: null,
+      align,
+    });
+    const body = doc({
+      type: 'table',
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableHeader',
+              attrs: cellAttrs('left'),
+              content: [paragraph(text('Name'))],
+            },
+            {
+              type: 'tableHeader',
+              attrs: cellAttrs('right'),
+              content: [paragraph(text('Count'))],
+            },
+          ],
+        },
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: cellAttrs('left'),
+              content: [paragraph(text('Nix'))],
+            },
+            {
+              type: 'tableCell',
+              attrs: cellAttrs('right'),
+              content: [paragraph(text('42'))],
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = roundTrip(body);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(canonical(result.doc)).toEqual(canonical(body));
+    }
+  });
+
   it('round-trips a callout through its admonition spelling', () => {
     const body = doc({
       type: 'callout',
@@ -190,6 +240,62 @@ describe('declared losses', () => {
     expect(result.ok).toBe(true);
     expect(documentToMarkdown(result.ok ? result.doc : body).markdown).toContain('Body text.');
   });
+
+  it('reports the header, merged-cell, width, block and mark losses of a rich table', () => {
+    const attrs = (overrides: Record<string, unknown> = {}) => ({
+      colspan: 1,
+      rowspan: 1,
+      colwidth: null,
+      align: null,
+      ...overrides,
+    });
+    const body = doc({
+      type: 'table',
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: attrs({ colspan: 2, colwidth: [160, 240] }),
+              content: [
+                paragraph(
+                  text('Rich', [{ type: 'bold' }]),
+                  text(' and '),
+                  text('linked', [{ type: 'link', attrs: { href: 'https://example.test/table' } }]),
+                ),
+                paragraph(text('Second block')),
+              ],
+            },
+          ],
+        },
+        {
+          type: 'tableRow',
+          content: [
+            { type: 'tableCell', attrs: attrs(), content: [paragraph(text('Left'))] },
+            { type: 'tableCell', attrs: attrs(), content: [paragraph(text('Right'))] },
+          ],
+        },
+      ],
+    });
+
+    const { markdown, losses } = documentToMarkdown(body);
+    expect(losses).toContainEqual(MARKDOWN_LOSSES.tableFlattened);
+    expect(markdown).toContain('Rich and linkedSecond block');
+    expect(markdown).not.toContain('**Rich**');
+    expect(markdown).not.toContain('https://example.test/table');
+
+    const imported = markdownToDocument(markdown);
+    expect(imported.ok).toBe(true);
+    if (imported.ok) {
+      const firstRow = firstNodeOfType(imported.doc, 'table')?.content?.[0];
+      expect(firstRow?.content?.map((cell) => cell.type)).toEqual(['tableHeader', 'tableHeader']);
+      expect(firstRow?.content?.map((cell) => cell.attrs)).toEqual([
+        { colspan: 1, rowspan: 1, colwidth: null, align: null },
+        { colspan: 1, rowspan: 1, colwidth: null, align: null },
+      ]);
+    }
+  });
 });
 
 describe('markdownToDocument', () => {
@@ -198,6 +304,69 @@ describe('markdownToDocument', () => {
       '# Title\n\nA paragraph with **bold** and a [link](https://x.test).',
     );
     expect(result.ok).toBe(true);
+  });
+
+  it('imports a pipe table as editor table nodes with headers and alignment', () => {
+    const result = markdownToDocument(
+      'Before.\n\n| Name | Status |\n| :--- | ---: |\n| Nix | Ready |\n\nAfter.',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(blockTypes(result.doc)).toEqual(['paragraph', 'table', 'paragraph']);
+      const table = firstNodeOfType(result.doc, 'table');
+      expect(table?.content).toHaveLength(2);
+      expect(table?.content?.[0]?.content?.map((cell) => cell.type)).toEqual([
+        'tableHeader',
+        'tableHeader',
+      ]);
+      expect(table?.content?.[1]?.content?.map((cell) => cell.type)).toEqual([
+        'tableCell',
+        'tableCell',
+      ]);
+      expect(table?.content?.[0]?.content?.map((cell) => cell.attrs?.align)).toEqual([
+        'left',
+        'right',
+      ]);
+      expect(allText(table)).toContain('Nix');
+      expect(allText(table)).toContain('Ready');
+    }
+  });
+
+  it('keeps inline formatting and links inside imported table cells', () => {
+    const result = markdownToDocument(
+      '| Project | Reference |\n| --- | --- |\n| **Nix** | [Plan](https://example.test/plan) |',
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const table = firstNodeOfType(result.doc, 'table');
+      const bodyRow = table?.content?.[1];
+      expect(bodyRow?.content?.[0]?.content?.[0]?.content?.[0]?.marks).toEqual([{ type: 'bold' }]);
+      expect(bodyRow?.content?.[1]?.content?.[0]?.content?.[0]?.marks).toEqual([
+        {
+          type: 'link',
+          attrs: {
+            href: 'https://example.test/plan',
+            target: '_blank',
+            rel: 'noopener noreferrer nofollow',
+            class: null,
+            title: null,
+          },
+        },
+      ]);
+    }
+  });
+
+  it('leaves pipe-shaped text inside a code fence as code', () => {
+    const result = markdownToDocument('```text\n| not | a table |\n| --- | --- |\n```');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(blockTypes(result.doc)).toEqual(['codeBlock']);
+      expect(firstNodeOfType(result.doc, 'table')).toBeUndefined();
+      expect(allText(result.doc)).toContain('| not | a table |');
+    }
   });
 
   it('keeps a standalone image as a block image node, with its neighbours intact', () => {
@@ -291,6 +460,24 @@ interface LooseNode {
 
 function blockTypes(docJson: unknown): string[] {
   return ((docJson as LooseNode).content ?? []).map((node) => node.type ?? '');
+}
+
+function firstNodeOfType(docJson: unknown, type: string): LooseNode | undefined {
+  let match: LooseNode | undefined;
+  const walk = (node: LooseNode): void => {
+    if (match !== undefined) {
+      return;
+    }
+    if (node.type === type) {
+      match = node;
+      return;
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  walk(docJson as LooseNode);
+  return match;
 }
 
 function allText(docJson: unknown): string {
