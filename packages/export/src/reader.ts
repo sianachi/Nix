@@ -852,6 +852,11 @@ function parseBundle(value: unknown, name: string): ItemBundle {
   };
 }
 
+// The server's closed set, mirrored (`PropertyType.cs` / `PropertyTypes.TryParse` is the canon).
+// This copy is a validator, so unlike `view-render`'s open rendering set it refuses what it does
+// not know - which means a type added to the canon and not here breaks the archive round trip for
+// exactly the schemas that carry it. `reader.test.ts` enumerates this list against the canon's
+// current fourteen names so the drift is a failing test, not a refused import.
 const PROPERTY_TYPES = new Set([
   'text',
   'number',
@@ -862,6 +867,11 @@ const PROPERTY_TYPES = new Set([
   'url',
   'timestamp',
   'image',
+  'due_date',
+  'start_date',
+  'completion',
+  'priority',
+  'estimate',
 ]);
 
 function parseNullableSchema(value: unknown, owner: string): SchemaSnapshot | null {

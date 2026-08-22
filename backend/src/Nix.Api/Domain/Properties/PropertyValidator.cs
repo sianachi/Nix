@@ -231,6 +231,16 @@ public static class PropertyValidator
         PropertyType.MultiSelect => CheckMultiSelect(definition, value),
         PropertyType.Image => CheckImage(definition, value),
 
+        // The task types are value-shaped like the plain types they refine - the type carries the
+        // meaning, not a new representation - so a due date is checked exactly as a date is. That
+        // identity is load-bearing: every stored comparison is `left(value, 10)` over the same
+        // yyyy-MM-dd text, and a task type with its own shape would quietly fall out of it.
+        PropertyType.DueDate => CheckDate(definition, value),
+        PropertyType.StartDate => CheckDate(definition, value),
+        PropertyType.Completion => CheckCompletion(definition, value),
+        PropertyType.Priority => CheckPriority(definition, value),
+        PropertyType.Estimate => CheckEstimate(definition, value),
+
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
         // It used to be `_ => null`, which is "accepted": an unhandled member let any JSON node
@@ -247,6 +257,45 @@ public static class PropertyValidator
             definition.Type,
             "Unknown property type."),
     };
+
+    /// <summary>
+    /// A completion is a boolean, checked exactly as a checkbox is - the type refines meaning,
+    /// never representation.
+    /// </summary>
+    private static string? CheckCompletion(PropertyDefinition definition, JsonNode? value)
+    {
+        return value is JsonValue flag && flag.TryGetValue(out bool _)
+            ? null
+            : $"{definition.Label} must be true or false.";
+    }
+
+    /// <summary>
+    /// A priority is an integer from 1 (most urgent) to 4 (least): a closed scale with intrinsic
+    /// order, which is what makes priorities from different containers comparable in one list.
+    /// </summary>
+    private static string? CheckPriority(PropertyDefinition definition, JsonNode? value)
+    {
+        return value is JsonValue number
+            && number.TryGetValue(out double parsed)
+            && double.IsInteger(parsed)
+            && parsed is >= 1 and <= 4
+            ? null
+            : $"{definition.Label} must be a whole number from 1 (most urgent) to 4.";
+    }
+
+    /// <summary>
+    /// An estimate is a non-negative number. The unit is the team's convention; the type promises
+    /// only that a rollup can sum it.
+    /// </summary>
+    private static string? CheckEstimate(PropertyDefinition definition, JsonNode? value)
+    {
+        return value is JsonValue number
+            && number.TryGetValue(out double parsed)
+            && double.IsFinite(parsed)
+            && parsed >= 0
+            ? null
+            : $"{definition.Label} must be a number of zero or more.";
+    }
 
     private static string? CheckDate(PropertyDefinition definition, JsonNode? value)
     {

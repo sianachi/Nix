@@ -247,6 +247,48 @@ describe('the hostile archive reader', () => {
     ).toThrowError(expect.objectContaining({ code: 'archive.bundle_mismatch' }) as Error);
   });
 
+  it('accepts a schema carrying every property type the server defines', () => {
+    // The server's closed set, spelled out (`PropertyType.cs` / `PropertyTypes.TryParse` is the
+    // canon). This reader is a validator that refuses what it does not know, so a type added to
+    // the canon and not to its mirror breaks the archive round trip for exactly the schemas that
+    // carry it - which is how the five task types shipped un-importable until this test existed.
+    // A new type must appear here AND in the reader's set, deliberately: the failure is loud.
+    const everyType = [
+      'text',
+      'number',
+      'select',
+      'multi_select',
+      'date',
+      'checkbox',
+      'url',
+      'timestamp',
+      'image',
+      'due_date',
+      'start_date',
+      'completion',
+      'priority',
+      'estimate',
+    ];
+
+    const properties = everyType.map((type) => ({
+      key: type,
+      label: type,
+      type,
+      options: type === 'select' || type === 'multi_select' ? ['One'] : [],
+      required: false,
+    }));
+
+    const read = parseArchiveObject({
+      manifest: manifest(),
+      bundles: [
+        { ...bundle(ROOT), schema: { properties, declared: properties, inherit: true } },
+        bundle(CHILD),
+      ],
+    });
+
+    expect(read.bundles[0]?.schema?.properties.map((property) => property.type)).toEqual(everyType);
+  });
+
   it('reads a chunked template archive and preserves modern view configuration', async () => {
     const bytes = await collect(writeArchive({ manifest: manifest(), bundles: bundles() }));
     const read = await readArchive(pieces(bytes));

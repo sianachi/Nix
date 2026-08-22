@@ -269,4 +269,30 @@ describe('display', () => {
     expect(columnFor(columns, 'when').editable).toBe(false);
     expect(columnFor(columns, 'shot').editable).toBe(false);
   });
+
+  it('treats the task types exactly as the shapes they store, in editing and coercion alike', () => {
+    // The type carries the meaning; the value keeps the plain shape - so a due-date cell edits
+    // like a date cell, a completion cell clears to false like a checkbox, and a priority cell
+    // coerces its text to a number the way any number does.
+    const columns = resolveColumns(
+      aView(),
+      schemaOf(
+        property('due_date', 'Due', 'due_date'),
+        property('completion', 'Done', 'completion'),
+        property('priority', 'Urgency', 'priority'),
+        property('estimate', 'Hours', 'estimate'),
+      ),
+    );
+
+    expect(columnFor(columns, 'due_date').editable).toBe(true);
+    expect(columnFor(columns, 'completion').editable).toBe(true);
+    expect(columnFor(columns, 'priority').editable).toBe(true);
+    expect(columnFor(columns, 'estimate').editable).toBe(true);
+
+    expect(coerceCellText('yes', 'completion')).toEqual({ ok: true, value: true });
+    expect(coerceCellText('', 'completion')).toEqual({ ok: true, value: false });
+    expect(coerceCellText('2', 'priority')).toEqual({ ok: true, value: 2 });
+    expect(coerceCellText('2.5', 'estimate')).toEqual({ ok: true, value: 2.5 });
+    expect(coerceCellText('2026-09-01', 'due_date')).toEqual({ ok: true, value: '2026-09-01' });
+  });
 });

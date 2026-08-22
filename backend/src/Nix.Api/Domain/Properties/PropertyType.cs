@@ -72,6 +72,53 @@ public enum PropertyType
     /// </para>
     /// </remarks>
     Image = 8,
+
+    /// <summary>
+    /// The date something is owed. Value-shaped exactly like <see cref="Date"/>; the type is the
+    /// meaning.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The five task types (this one through <see cref="Estimate"/>) carry their meaning in the
+    /// type, deliberately, because that is what goal 3.1 replaces:</b> before them, "the due date"
+    /// was a key-name convention (<c>due</c>) that smart lists, seeds and tests each restated. A
+    /// schema that declares a property <em>is</em> the due date lets every view bind to the
+    /// meaning and lets a workspace call the key whatever it likes. At most one property of each
+    /// task type may be declared per schema - "the" due date cannot be two properties - and
+    /// <see cref="Domain.Properties.PropertySchemaRules"/> enforces it.
+    /// </para>
+    /// <para>
+    /// This is also what recurrence (3.2) anchors to: a repeating rule expands from the item's
+    /// due date, so an item with a rule and no due-date property has nothing to repeat.
+    /// </para>
+    /// </remarks>
+    DueDate = 9,
+
+    /// <summary>
+    /// The date work begins. Value-shaped exactly like <see cref="Date"/>; what a timeline draws
+    /// as a bar's left edge, paired with <see cref="DueDate"/> as its right.
+    /// </summary>
+    StartDate = 10,
+
+    /// <summary>
+    /// Whether the item is done. Value-shaped exactly like <see cref="Checkbox"/>; the type says
+    /// this particular flag is the one that means finished, which is what an Overdue list must
+    /// exclude by and a progress rollup must count.
+    /// </summary>
+    Completion = 11,
+
+    /// <summary>
+    /// How urgent, as an integer from 1 (most urgent) to 4 (least). A closed numeric scale rather
+    /// than a select, so ordering is intrinsic and no workspace invents "High"/"Highest"/"Urgent"
+    /// option sets that cannot be compared.
+    /// </summary>
+    Priority = 12,
+
+    /// <summary>
+    /// How much work, as a non-negative number. The unit is the team's convention (hours,
+    /// typically) - the type promises only that estimates are numbers a rollup can sum.
+    /// </summary>
+    Estimate = 13,
 }
 
 /// <summary>
@@ -121,6 +168,21 @@ public static class PropertyTypes
             case "image":
                 type = PropertyType.Image;
                 return true;
+            case "due_date":
+                type = PropertyType.DueDate;
+                return true;
+            case "start_date":
+                type = PropertyType.StartDate;
+                return true;
+            case "completion":
+                type = PropertyType.Completion;
+                return true;
+            case "priority":
+                type = PropertyType.Priority;
+                return true;
+            case "estimate":
+                type = PropertyType.Estimate;
+                return true;
             default:
                 type = default;
                 return false;
@@ -142,6 +204,11 @@ public static class PropertyTypes
         PropertyType.Url => "url",
         PropertyType.Timestamp => "timestamp",
         PropertyType.Image => "image",
+        PropertyType.DueDate => "due_date",
+        PropertyType.StartDate => "start_date",
+        PropertyType.Completion => "completion",
+        PropertyType.Priority => "priority",
+        PropertyType.Estimate => "estimate",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -167,7 +234,22 @@ public static class PropertyTypes
 
     /// <summary>Whether a calendar may place items by this type.</summary>
     /// <param name="type">The type.</param>
-    /// <returns><see langword="true"/> for dates.</returns>
+    /// <returns><see langword="true"/> for the date-shaped types.</returns>
     public static bool CanPlaceOnCalendar(this PropertyType type) =>
-        type is PropertyType.Date or PropertyType.Timestamp;
+        type is PropertyType.Date or PropertyType.Timestamp
+            or PropertyType.DueDate or PropertyType.StartDate;
+
+    /// <summary>
+    /// Whether a type names a task-semantic role, of which a schema may declare at most one.
+    /// </summary>
+    /// <param name="type">The type.</param>
+    /// <returns><see langword="true"/> for the five task types.</returns>
+    /// <remarks>
+    /// "The due date" is singular by meaning: two properties both claiming to be it would leave
+    /// every view that binds to the meaning choosing arbitrarily. Ordinary types carry no such
+    /// claim, so a schema may declare as many dates or checkboxes as it likes.
+    /// </remarks>
+    public static bool IsTaskSemantic(this PropertyType type) =>
+        type is PropertyType.DueDate or PropertyType.StartDate or PropertyType.Completion
+            or PropertyType.Priority or PropertyType.Estimate;
 }

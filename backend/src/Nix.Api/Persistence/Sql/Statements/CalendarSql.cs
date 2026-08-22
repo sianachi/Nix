@@ -21,10 +21,15 @@ namespace Nix.Persistence.Sql.Statements;
 /// per item, the predicate is the line that grows and the handler does not move.
 /// </para>
 /// <para>
-/// Index dependencies: <c>IX_item_tenant_id_workspace_id</c> for the container scan and
-/// <c>IX_item_parent_id_seq</c> for the child join. The container scan reads <c>views</c>, which is
-/// unindexed - it is bounded by the workspace's item count and the arm is selective on
-/// <c>views IS NOT NULL</c> before the lateral runs.
+/// Index dependencies, measured rather than asserted (2026-08-21, 100k corpus, runtime role):
+/// the container arm now rides <c>ix_item_declares_views</c> - the partial index the
+/// TaskSemantics migration added after measurement showed the old shape reading all 10,001 rows
+/// of a 10k workspace to find its 30 view-declaring containers (container CTE: 4.432 ms / 473
+/// buffers before, 0.708 ms / 4 after). The child join stays on <c>IX_item_parent_id_seq</c>-shaped
+/// access and remains proportional to workspace size; a single workspace past ~200k items puts
+/// this statement beyond 250 ms, which is the recorded threshold for revisiting it. The figures
+/// are the design measurement's; <c>TaskSemanticsPlanEvidenceTests</c> is the standing check and
+/// asserts the index choice, not the milliseconds.
 /// </para>
 /// </remarks>
 public static class CalendarSql
