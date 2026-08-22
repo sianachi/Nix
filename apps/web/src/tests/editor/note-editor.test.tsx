@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import type * as collabSync from '../../editor/collab-sync';
+import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { NoteEditor } from '../../editor/note-editor';
 
 /**
@@ -75,6 +76,7 @@ vi.mock('../../auth/auth-provider', () => ({
 
 beforeEach(() => {
   captured = null;
+  useKeyboardModeStore.setState({ mode: 'standard', persistence: 'stored' });
 });
 
 /** Renders the editor and returns the shared document it handed the provider. */
@@ -366,8 +368,9 @@ describe('collaborative history keys', () => {
       expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('heading');
     });
 
+    useKeyboardModeStore.setState({ mode: 'emacs' });
     body.focus();
-    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    fireEvent.keyDown(body, { key: '/', ctrlKey: true });
     await waitFor(() => {
       expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
     });
@@ -399,7 +402,7 @@ describe('collaborative history keys', () => {
       expect(shared).toContain('Peer note');
     });
 
-    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    fireEvent.keyDown(body, { key: '_', ctrlKey: true, shiftKey: true });
     await waitFor(() => {
       const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
       expect(shared).not.toContain('heading');

@@ -19,6 +19,7 @@ import { BubbleMenu } from './bubble-menu';
 import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
+import { EmacsKeymap } from './emacs-keymap';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
@@ -305,6 +306,9 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
         // The platform history keys must reach the same client-local Yjs history as the toolbar.
         // ProseMirror history is intentionally not installed in a collaborative document.
         CollaborationHistoryKeymap,
+        // A live browser-local preference. The extension stays installed so changing the preset
+        // never rebuilds this editor or its Yjs binding.
+        EmacsKeymap,
         // Lets the drag handle select and move a whole block as a node range rather than a text
         // span - without it, grabbing a block would drag whatever text selection happened to
         // exist. The handle itself is the <DragHandle> component below, which registers its own

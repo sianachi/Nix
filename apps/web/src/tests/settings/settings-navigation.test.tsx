@@ -22,6 +22,7 @@ describe('reaching the settings screen', () => {
     renderAt(<App />, '/settings');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Members' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Access tokens' })).toBeVisible();
   });
