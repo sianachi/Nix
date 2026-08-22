@@ -172,6 +172,28 @@ public enum PropertyType
     /// </para>
     /// </remarks>
     Formula = 15,
+
+    /// <summary>
+    /// A value aggregated across the item's children, never written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>How a container answers "how much of this is done".</b> The declaration names a property
+    /// of the children and one of <see cref="RollupAggregate"/>'s reductions; the value is folded
+    /// when the item is read and stored nowhere, so it cannot disagree with the children it is
+    /// folded from.
+    /// </para>
+    /// <para>
+    /// <b>Computed in SQL, not by the formula engine, and that is the split ADR-0044 draws.</b> A
+    /// rollup is an aggregate rather than an expression, so it belongs where the rows are: the
+    /// client would otherwise have to fetch every child of every item it draws one for, which the
+    /// stress row puts at 3,000+ per container and which is not expressible at all for a list of a
+    /// hundred items each showing one. A <see cref="Formula"/> may then read a rollup's value as an
+    /// ordinary field, which is what lets "percent complete" be a formula over a rollup rather than
+    /// a third mechanism.
+    /// </para>
+    /// </remarks>
+    Rollup = 16,
 }
 
 /// <summary>
@@ -242,6 +264,9 @@ public static class PropertyTypes
             case "formula":
                 type = PropertyType.Formula;
                 return true;
+            case "rollup":
+                type = PropertyType.Rollup;
+                return true;
             default:
                 type = default;
                 return false;
@@ -270,6 +295,7 @@ public static class PropertyTypes
         PropertyType.Estimate => "estimate",
         PropertyType.Assignee => "assignee",
         PropertyType.Formula => "formula",
+        PropertyType.Rollup => "rollup",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -277,12 +303,14 @@ public static class PropertyTypes
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> when nothing may write a value of this type.</returns>
     /// <remarks>
-    /// Asked rather than compared against a member, because the set grows: 2.2's rollup joins it,
-    /// and every rule that holds for a computed property - no stored value, never required, no
-    /// options, refused on write - holds for both. A call site that pattern-matched
-    /// <see cref="PropertyType.Formula"/> by name would have to be found again for the second one.
+    /// Asked rather than compared against a member, because the set has already grown once: the
+    /// rollup joined the formula here, and every rule that holds for a computed property - no
+    /// stored value, never required, no options, refused on write - holds for both. A call site
+    /// that pattern-matched <see cref="PropertyType.Formula"/> by name would have had to be found
+    /// again for the second one.
     /// </remarks>
-    public static bool IsComputed(this PropertyType type) => type is PropertyType.Formula;
+    public static bool IsComputed(this PropertyType type) =>
+        type is PropertyType.Formula or PropertyType.Rollup;
 
     /// <summary>Whether a type draws its values from a declared list.</summary>
     /// <param name="type">The type.</param>

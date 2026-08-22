@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
-import { decorateItem } from './computed';
+import { decorateItem, keepComputed } from './computed';
 import {
   EffectiveSchemaSchema,
   ItemSchema,
@@ -128,7 +128,10 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       // something on the way in.
       const written = ItemSchema.safeParse(await response.json());
       if (written.success) {
-        setItem(written.data);
+        // The write answers with the item and not with a fresh fold of its children, so the
+        // rollups come back null; keeping the last folded values is more honest than blanking the
+        // panel's rollup rows on every edit.
+        setItem((previous) => keepComputed(previous ?? undefined, written.data));
       }
 
       return null;

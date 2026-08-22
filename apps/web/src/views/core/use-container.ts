@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ZodType } from 'zod';
 
 import { useAuth } from '../../auth/auth-provider';
-import { decorateItems } from '../../properties/computed';
+import { decorateItems, keepComputed } from '../../properties/computed';
 import {
   ContainerViewsSchema,
   EffectiveSchemaSchema,
@@ -422,7 +422,14 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
 
       const updated = ItemSchema.safeParse(await response.json());
       if (updated.success) {
-        setChildren((current) => current.map((item) => (item.id === itemId ? updated.data : item)));
+        // A write answers with the item, never with a fresh fold of its children, so the rollups
+        // it carries are null - and replacing the row with that would blank every rollup column on
+        // it. `keepComputed` holds the last folded values rather than reporting none.
+        setChildren((current) =>
+          current.map((item) =>
+            item.id === itemId ? keepComputed(item, updated.data) : item,
+          ),
+        );
       }
 
       return null;
@@ -591,6 +598,11 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           // Only a formula carries one, and the server refuses a schema where anything else does -
           // the same technicality the options line above avoids, for the same reason.
           expression: property.type === 'formula' ? (property.expression ?? null) : null,
+
+          // The same rule for the rollup's pair. A count of the children carries no source, and
+          // sending one would be refused for naming a property the fold ignores.
+          aggregate: property.type === 'rollup' ? (property.aggregate ?? null) : null,
+          source: property.type === 'rollup' ? (property.source ?? null) : null,
         })),
       });
     },

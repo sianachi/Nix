@@ -1,8 +1,10 @@
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Features.Properties;
 using Nix.Messaging;
 
 namespace Nix.Features.Items;
@@ -98,8 +100,26 @@ internal static class GetItemEndpoint
             return TypedResults.Problem(ItemEndpoints.Problem(httpContext, result.Error));
         }
 
+        var item = result.Value;
+
+        var withChildren = await dispatcher
+            .QueryAsync<ItemsWithChildren, IReadOnlySet<ItemId>>(
+                new ItemsWithChildren(item.WorkspaceId, [item.Id]),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        // Folded from the item's own schema, because a rollup declared at an item is about that
+        // item's children - which is the same question a listing asks of its container.
+        var rollups = await dispatcher
+            .QueryAsync<ItemRollups, IReadOnlyDictionary<ItemId, JsonObject>>(
+                new ItemRollups(item.WorkspaceId, [item.Id], item.Id),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
         return TypedResults.Ok(
-            await ItemMapping.RespondAsync(result.Value, dispatcher, httpContext.RequestAborted)
-                .ConfigureAwait(false));
+            ItemMapping.ToResponse(
+                item,
+                withChildren.Contains(item.Id),
+                rollups.TryGetValue(item.Id, out var computed) ? computed : new JsonObject()));
     }
 }
