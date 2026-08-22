@@ -1,6 +1,7 @@
 using System.Globalization;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
 using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Integration.Tests.Harness;
@@ -109,6 +110,36 @@ public sealed class InternalAuthorizationTests : IAsyncLifetime
             var dispatcher = work.Resolve<NixDispatcher>();
             var answer = await dispatcher.QueryAsync<GetItemAuthorization, Result<ItemAuthorization>>(
                 new GetItemAuthorization(AlphaItem),
+                Cancellation);
+
+            Assert.True(answer.IsFailure);
+            Assert.Equal("internal.not_found", answer.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_deleted_parent_hides_its_active_child_from_collaboration_authorization()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(
+                    WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
+                    "note",
+                    "Hidden child",
+                    AlphaItem,
+                    null),
+                Cancellation);
+            Assert.True(created.IsSuccess);
+
+            var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(
+                new DeleteItem(AlphaItem), Cancellation);
+            Assert.True(deleted.IsSuccess);
+
+            var answer = await dispatcher.QueryAsync<GetItemAuthorization, Result<ItemAuthorization>>(
+                new GetItemAuthorization(created.Value.Id),
                 Cancellation);
 
             Assert.True(answer.IsFailure);
