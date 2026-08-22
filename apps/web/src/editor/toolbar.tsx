@@ -58,7 +58,18 @@ interface Control {
   readonly enabled?: boolean;
   /** The keys that do the same thing, shown in the tooltip. A control nobody can find is a control nobody uses. */
   readonly shortcut?: string;
+  /** The platform-resolved form of `shortcut`, for assistive technology. */
+  readonly ariaShortcut?: string;
 }
+
+// ProseMirror resolves `Mod` from this exact platform signal. Keeping the display tied to the same
+// test prevents the toolbar from advertising Command while the keymap is listening for Control.
+const navigatorPlatform: unknown =
+  typeof navigator === 'undefined' ? undefined : Reflect.get(navigator, 'platform');
+const applePlatform =
+  typeof navigatorPlatform === 'string' && /Mac|iP(hone|[oa]d)/.test(navigatorPlatform);
+const ariaModifier = applePlatform ? 'Meta' : 'Control';
+const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
 
 export interface ToolbarProps {
   readonly editor: Editor;
@@ -255,8 +266,22 @@ export function EditorToolbar({
   ];
 
   const history: readonly Control[] = [
-    { id: 'undo', label: 'Undo', icon: Undo2, run: onUndo },
-    { id: 'redo', label: 'Redo', icon: Redo2, run: onRedo },
+    {
+      id: 'undo',
+      label: 'Undo',
+      icon: Undo2,
+      shortcut: `${visibleModifier}+Z`,
+      ariaShortcut: `${ariaModifier}+Z`,
+      run: onUndo,
+    },
+    {
+      id: 'redo',
+      label: 'Redo',
+      icon: Redo2,
+      shortcut: `${visibleModifier}+Shift+Z or ${visibleModifier}+Y`,
+      ariaShortcut: `${ariaModifier}+Shift+Z ${ariaModifier}+Y`,
+      run: onRedo,
+    },
   ];
 
   /**
@@ -387,6 +412,7 @@ function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
     <button
       type="button"
       aria-label={control.label}
+      aria-keyshortcuts={control.ariaShortcut}
       title={
         control.shortcut === undefined ? control.label : `${control.label} (${control.shortcut})`
       }
