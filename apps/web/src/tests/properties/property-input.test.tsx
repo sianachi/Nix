@@ -385,4 +385,84 @@ describe('a property input', () => {
 
     expect(screen.getByRole('textbox', { name: 'Owner' })).toBeDisabled();
   });
+
+  it('edits a due date and a start date through the same day-only control a date gets', () => {
+    // The task types refine meaning, never representation: the text that arrives is the text that
+    // goes back, exactly as the plain date test above establishes.
+    render(
+      <>
+        <PropertyInput
+          item={itemWith({ due_date: '2026-09-01' })}
+          property={propertyOf({ key: 'due_date', label: 'Due', type: 'due_date' })}
+          onCommit={vi.fn()}
+        />
+        <PropertyInput
+          item={itemWith({ start_date: '2026-08-25' })}
+          property={propertyOf({ key: 'start_date', label: 'Begins', type: 'start_date' })}
+          onCommit={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(screen.getByLabelText('Due')).toHaveValue('2026-09-01');
+    expect(screen.getByLabelText('Begins')).toHaveValue('2026-08-25');
+  });
+
+  it('edits completion as a checkbox that stores true or false', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ completion: false })}
+        property={propertyOf({ key: 'completion', label: 'Done', type: 'completion' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.click(screen.getByRole('checkbox', { name: 'Done' }));
+
+    expect(onCommit).toHaveBeenCalledWith(true);
+  });
+
+  it('offers priority as the closed four-step scale, storing the number', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ priority: 3 })}
+        property={propertyOf({ key: 'priority', label: 'Urgency', type: 'priority' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const control = screen.getByRole('combobox', { name: 'Urgency' });
+    const options = within(control).getAllByRole('option');
+    // Four levels plus the way back to none; chosen, never typed, so the 0 and the 7 the server
+    // refuses are not offerable here.
+    expect(options).toHaveLength(5);
+
+    await person.selectOptions(control, '1');
+    expect(onCommit).toHaveBeenCalledWith(1);
+  });
+
+  it('edits an estimate as a number, storing a number rather than its text', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'estimate', label: 'Hours', type: 'estimate' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const box = screen.getByRole('spinbutton', { name: 'Hours' });
+    await person.type(box, '2.5');
+    await person.keyboard('{Enter}');
+
+    expect(onCommit).toHaveBeenCalledWith(2.5);
+  });
 });

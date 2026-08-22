@@ -15,7 +15,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
-import { propertyTypeWord } from '../core/property-types';
+import { propertyTypeWord, isDateShaped } from '../core/property-types';
 import {
   buildWindow,
   placeSpan,
@@ -540,7 +540,7 @@ function describeUndrawable(
 
 /** Both, because both name a day: a date is all-day, a timestamp is a moment that carries one. */
 function placesOnAnAxis(property: PropertyDefinition): boolean {
-  return property.type === 'date' || property.type === 'timestamp';
+  return isDateShaped(property.type);
 }
 
 /**
