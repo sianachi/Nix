@@ -1210,7 +1210,13 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             }
             finally
             {
-                await migrator.MigrateAsync("20260816211617_WorkspaceTemplates", Cancellation);
+                // Back to LATEST, not to a pinned name: restoring only to this phase's own
+                // migration silently stranded the database one step behind the model the moment
+                // any later phase added one, and every EF write after this test then failed on a
+                // column the model has and the table does not - a 33-test cascade the TaskSemantics
+                // migration was the first to trip. The down-target above stays pinned on purpose
+                // (the point is to cross this phase's boundary); the way back up is "everything".
+                await migrator.MigrateAsync(targetMigration: null, cancellationToken: Cancellation);
             }
 
             Assert.Equal(6, await migrationContext.Database.SqlQueryRaw<int>(

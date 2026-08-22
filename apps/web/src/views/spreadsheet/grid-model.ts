@@ -1,6 +1,7 @@
 import { type CellRange, type CellRef, cellKey } from '@nix/sheet';
 
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
+import { valueShapeOf } from '../core/property-types';
 import {
   readPropertyText,
   type EffectiveSchema,
@@ -78,7 +79,7 @@ export function resolveColumns(
         key,
         label: definition?.label ?? key,
         type,
-        editable: type !== null && TEXT_EDITABLE_TYPES.includes(type),
+        editable: type !== null && TEXT_EDITABLE_TYPES.includes(valueShapeOf(type)),
       };
     }),
   ];
@@ -97,7 +98,7 @@ export function columnWidth(column: SpreadsheetColumn): number {
     return 240;
   }
 
-  switch (column.type) {
+  switch (valueShapeOf(column.type ?? '')) {
     case 'checkbox':
       return 96;
     case 'number':
@@ -161,15 +162,22 @@ export function coerceCellText(text: string, type: string | null): Coerced {
 
   if (trimmed.length === 0) {
     // Empty clears, per the merge contract - except a checkbox, whose "unchecked" is a value.
-    return { ok: true, value: type === 'checkbox' ? false : null };
+    return { ok: true, value: valueShapeOf(type ?? '') === 'checkbox' ? false : null };
   }
 
-  switch (type) {
+  switch (type === null ? null : valueShapeOf(type)) {
     case 'number': {
       const parsed = Number(trimmed);
 
       if (!Number.isFinite(parsed)) {
         return { ok: false, reason: `"${trimmed}" is not a number.` };
+      }
+
+      // The shape says "number"; the TYPE says which numbers are legal. Priority is the one
+      // number-shaped type with a closed scale, and committing a 7 here for the server to refuse
+      // later is the failure the panel's own select exists to prevent.
+      if (type === 'priority' && !(Number.isInteger(parsed) && parsed >= 1 && parsed <= 4)) {
+        return { ok: false, reason: `Priority is a whole number from 1 (most urgent) to 4.` };
       }
 
       return { ok: true, value: parsed };

@@ -89,6 +89,11 @@ const KNOWN_TYPES = [
   'checkbox',
   'url',
   'image',
+  'due_date',
+  'start_date',
+  'completion',
+  'priority',
+  'estimate',
 ] as const;
 
 export function isKnownPropertyType(type: string): boolean {
@@ -150,6 +155,21 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
 
     case 'checkbox':
       return <CheckboxValue {...props} />;
+
+    // The task types (3.1) edit through the controls of the shapes they store: a due date IS a
+    // date to every hand that touches it, and the meaning lives in the schema, not the control.
+    case 'due_date':
+    case 'start_date':
+      return <DateValue {...props} />;
+
+    case 'completion':
+      return <CheckboxValue {...props} />;
+
+    case 'priority':
+      return <PriorityValue {...props} />;
+
+    case 'estimate':
+      return <TypedValue {...props} kind="number" />;
 
     default:
       return (
@@ -389,6 +409,53 @@ function SelectValue(props: PropertyInputProps): ReactNode {
           {options.map((option) => (
             <option key={option} value={option}>
               {option}
+            </option>
+          ))}
+        </select>
+      )}
+    </ValueShell>
+  );
+}
+
+/** The priority scale, drawn once: the number is the value, the word is what it means. */
+const PRIORITY_LEVELS = [
+  { value: 1, label: '1 - Urgent' },
+  { value: 2, label: '2 - High' },
+  { value: 3, label: '3 - Normal' },
+  { value: 4, label: '4 - Low' },
+] as const;
+
+/**
+ * A priority is a closed four-step scale, so it is chosen, never typed: a free number box would
+ * invite the 0 and the 7 the server refuses, and refusal after the fact is a worse control than a
+ * list that only offers what is real.
+ */
+function PriorityValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
+
+  const raw: unknown = item.properties[property.key];
+  const current =
+    typeof raw === 'number' && PRIORITY_LEVELS.some((level) => level.value === raw) ? raw : null;
+
+  return (
+    <ValueShell {...props}>
+      {(control) => (
+        <select
+          {...control}
+          value={current === null ? UNSET_VALUE : String(current)}
+          required={property.required}
+          disabled={disabled}
+          onChange={(event) => {
+            const next = event.target.value;
+            onCommit(next === UNSET_VALUE ? null : Number(next));
+          }}
+          className={selectBox(density)}
+        >
+          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+          {PRIORITY_LEVELS.map((level) => (
+            <option key={level.value} value={String(level.value)}>
+              {level.label}
             </option>
           ))}
         </select>

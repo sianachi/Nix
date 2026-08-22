@@ -52,6 +52,18 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             .HasColumnName("properties")
             .HasColumnType("jsonb");
 
+        builder.Property(item => item.Recurrence).HasColumnName("recurrence").HasColumnType("jsonb");
+
+        // Postgres maintains this: it is the indexable projection of the reserved due_date key,
+        // and it exists because a qual over `properties ->> key` can never be an index cond under
+        // RLS - `->>` is not leakproof, so row security keeps it above the access method. A plain
+        // column reference is leakproof, so the same predicate becomes a boundary qual.
+        builder.Property(item => item.DueDay)
+            .HasColumnName("due_day")
+            .HasColumnType("text")
+            .HasComputedColumnSql("left(properties ->> 'due_date', 10)", stored: true)
+            .ValueGeneratedOnAddOrUpdate();
+
         builder.Property(item => item.LifecycleState)
             .HasColumnName("lifecycle_state")
             .HasConversion(new EnumConverters.ItemLifecycleStateConverter())

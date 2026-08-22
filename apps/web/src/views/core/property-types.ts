@@ -28,7 +28,57 @@ export const PROPERTY_TYPES = [
   // is also what lets a gallery offer covers from the properties that are pictures rather than
   // from every link in the workspace.
   { value: 'image', label: 'Picture' },
+  // The task types (goal 3.1): the type carries the meaning, the value keeps the plain shape. A
+  // schema declaring one of these is saying "this property IS the due date", which is what lets a
+  // smart list or a timeline bind to the meaning instead of to a key-name convention.
+  { value: 'due_date', label: 'Due date' },
+  { value: 'start_date', label: 'Start date' },
+  { value: 'completion', label: 'Completion' },
+  { value: 'priority', label: 'Priority (1 to 4)' },
+  { value: 'estimate', label: 'Estimate' },
 ] as const;
+
+/**
+ * The value shape a type stores. The task types deliberately share their shape with the plain
+ * types they refine - a due date is stored exactly as a date - so everything that handles values
+ * (cell coercion, column widths, date pickers) asks for the shape and stays one switch, while
+ * everything that handles meaning (smart lists, the recurrence anchor) asks for the type.
+ */
+export type PropertyValueShape =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'multi_select'
+  | 'date'
+  | 'timestamp'
+  | 'checkbox'
+  | 'url'
+  | 'image'
+  | (string & {});
+
+export function valueShapeOf(type: string): PropertyValueShape {
+  switch (type) {
+    case 'due_date':
+    case 'start_date':
+      return 'date';
+    case 'completion':
+      return 'checkbox';
+    case 'priority':
+    case 'estimate':
+      return 'number';
+    default:
+      return type;
+  }
+}
+
+/**
+ * Whether a property of this type can sit on a calendar or a timeline. The server's counterpart
+ * is `PropertyTypes.CanPlaceOnCalendar` (PropertyType.cs); the two must widen together.
+ */
+export function isDateShaped(type: string): boolean {
+  const shape = valueShapeOf(type);
+  return shape === 'date' || shape === 'timestamp';
+}
 
 /**
  * What to call a type mid-sentence.

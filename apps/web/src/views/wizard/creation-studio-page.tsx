@@ -36,7 +36,7 @@ import {
   type PropertyDefinition,
   type View,
 } from '../core/container-model';
-import { PROPERTY_TYPES } from '../core/property-types';
+import { PROPERTY_TYPES, isDateShaped } from '../core/property-types';
 import { StructuredViewConfiguration } from '../core/structured-view-configuration';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
 import { InteractiveFormRespondentPreview } from '../form/interactive-form-editor';
@@ -141,9 +141,7 @@ function createCompanionView(
   properties: readonly PropertyDefinition[],
 ): View {
   const firstSelect = properties.find((property) => property.type === 'select');
-  const firstDate = properties.find(
-    (property) => property.type === 'date' || property.type === 'timestamp',
-  );
+  const firstDate = properties.find((property) => isDateShaped(property.type));
   const firstImage = properties.find((property) => property.type === 'image');
   return {
     id,
@@ -951,9 +949,7 @@ function CompanionStep({
   readonly onChange: (draft: StudioDraft) => void;
 }): ReactNode {
   const hasSelect = draft.properties.some((property) => property.type === 'select');
-  const hasDate = draft.properties.some(
-    (property) => property.type === 'date' || property.type === 'timestamp',
-  );
+  const hasDate = draft.properties.some((property) => isDateShaped(property.type));
   const offeredKinds = new Set(['list', 'sheet', 'board', 'calendar', 'gallery']);
   const configuredCompanion = companionView(draft);
   return (
@@ -1145,8 +1141,7 @@ function StudioPreview({ draft }: { readonly draft: StudioDraft }): ReactNode {
 function previewValue(property: PropertyDefinition, index: number): unknown {
   if (property.type === 'checkbox') return index % 2 === 0;
   if (property.type === 'number') return index + 1;
-  if (property.type === 'date' || property.type === 'timestamp')
-    return `2026-08-${String(index + 10).padStart(2, '0')}`;
+  if (isDateShaped(property.type)) return `2026-08-${String(index + 10).padStart(2, '0')}`;
   if (property.type === 'multi_select') return property.options.slice(0, 2);
   if (property.type === 'select')
     return property.options[index % Math.max(1, property.options.length)] ?? '';
@@ -1155,9 +1150,7 @@ function previewValue(property: PropertyDefinition, index: number): unknown {
 
 function refreshViewProperties(view: View, properties: readonly PropertyDefinition[]): View {
   const select = properties.find((property) => property.type === 'select');
-  const dates = properties.filter(
-    (property) => property.type === 'date' || property.type === 'timestamp',
-  );
+  const dates = properties.filter((property) => isDateShaped(property.type));
   const image = properties.find((property) => property.type === 'image');
   return {
     ...view,
