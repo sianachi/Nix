@@ -22,25 +22,43 @@ internal static class CalendarMapping
     /// <summary>The token for an entry that carries a time.</summary>
     internal const string TimestampKind = "timestamp";
 
-    /// <summary>The only reason a calendar can currently place nothing.</summary>
+    /// <summary>The reason a container-level row names: its calendar view names no date property.</summary>
     /// <remarks>
     /// A token rather than a sentence, so a client can decide how to say it and translate it. The
     /// sentence lives in the client, which is the only place that knows the reader's language.
     /// </remarks>
     internal const string NoDatePropertyReason = "no_date_property";
 
-    /// <summary>Projects the dated entries.</summary>
-    /// <param name="entries">What the reader found.</param>
+    /// <summary>
+    /// The reason an item-level row names: its container's calendar places by a property other
+    /// than the reserved <c>due_date</c> a series always repeats from.
+    /// </summary>
+    internal const string NotByDueDateReason = "calendar_not_by_due_date";
+
+    /// <summary>
+    /// The reason an item-level row names: the item carries no value on the <c>due_date</c> axis
+    /// to repeat from.
+    /// </summary>
+    internal const string NoDueDateReason = "no_due_date";
+
+    /// <summary>
+    /// The reason an item-level row names: the stored rule is not one this build could interpret.
+    /// </summary>
+    internal const string UnreadableRuleReason = "unreadable_rule";
+
+    /// <summary>Projects the merged calendar rows.</summary>
+    /// <param name="rows">What the handler merged, concrete entries and generated occurrences alike.</param>
     /// <returns>The entries as the contract publishes them.</returns>
     internal static IReadOnlyList<CalendarEntryResponse> ToEntryResponses(
-        IReadOnlyList<CalendarEntry> entries)
+        IReadOnlyList<CalendarRow> rows)
     {
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(rows);
 
-        var responses = new CalendarEntryResponse[entries.Count];
-        for (var index = 0; index < entries.Count; index++)
+        var responses = new CalendarEntryResponse[rows.Count];
+        for (var index = 0; index < rows.Count; index++)
         {
-            var entry = entries[index];
+            var row = rows[index];
+            var entry = row.Entry;
             responses[index] = new CalendarEntryResponse(
                 entry.ItemId.Value,
                 entry.Title,
@@ -48,28 +66,49 @@ internal static class CalendarMapping
                 entry.ContainerTitle,
                 entry.DateProperty,
                 entry.Value,
-                entry.Kind == CalendarEntryKind.Date ? DateKind : TimestampKind);
+                entry.Kind == CalendarEntryKind.Date ? DateKind : TimestampKind,
+                row.Generated,
+                row.Completed);
         }
 
         return responses;
     }
 
-    /// <summary>Projects the containers that placed nothing.</summary>
-    /// <param name="unplaceable">What the reader could not place.</param>
-    /// <returns>The explanations as the contract publishes them.</returns>
+    /// <summary>Projects the containers and the repeating items that placed nothing.</summary>
+    /// <param name="containers">The containers whose calendar view names no property to place by.</param>
+    /// <param name="candidates">The repeating items this calendar could not draw, and why.</param>
+    /// <returns>The explanations as the contract publishes them, containers first.</returns>
     internal static IReadOnlyList<UnplaceableCalendarResponse> ToUnplaceableResponses(
-        IReadOnlyList<UnplaceableCalendar> unplaceable)
+        IReadOnlyList<UnplaceableCalendar> containers,
+        IReadOnlyList<UnplaceableCandidate> candidates)
     {
-        ArgumentNullException.ThrowIfNull(unplaceable);
+        ArgumentNullException.ThrowIfNull(containers);
+        ArgumentNullException.ThrowIfNull(candidates);
 
-        var responses = new UnplaceableCalendarResponse[unplaceable.Count];
-        for (var index = 0; index < unplaceable.Count; index++)
+        var responses = new UnplaceableCalendarResponse[containers.Count + candidates.Count];
+        var index = 0;
+
+        foreach (var container in containers)
         {
-            var entry = unplaceable[index];
             responses[index] = new UnplaceableCalendarResponse(
-                entry.ContainerId.Value,
-                entry.ContainerTitle,
-                NoDatePropertyReason);
+                container.ContainerId.Value,
+                container.ContainerTitle,
+                NoDatePropertyReason,
+                ItemId: null,
+                ItemTitle: null);
+            index++;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var item = candidate.Candidate;
+            responses[index] = new UnplaceableCalendarResponse(
+                item.ContainerId.Value,
+                item.ContainerTitle,
+                candidate.Reason,
+                item.ItemId.Value,
+                item.ItemTitle);
+            index++;
         }
 
         return responses;
