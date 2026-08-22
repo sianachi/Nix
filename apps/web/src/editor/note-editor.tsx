@@ -4,9 +4,9 @@ import { mergeAttributes } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { NodeRange } from '@tiptap/extension-node-range';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
-import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import type { Plugin, Transaction } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
 import { redo, undo, yCursorPlugin, ySyncPluginKey, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
@@ -20,6 +20,7 @@ import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
 import { EmacsKeymap } from './emacs-keymap';
+import { useKeyboardModeStore } from './keyboard-mode-store';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
@@ -29,6 +30,7 @@ import { ReferenceResolutionProvider } from './reference-resolution';
 import { ReferenceView } from './reference-view';
 import { SlashMenu } from './slash-menu';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
+import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -271,6 +273,20 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
  */
 const RESTORE_ORIGIN = Symbol('nix.editor.restore');
 
+function describeEditorWith(element: HTMLElement, id: string, enabled: boolean): void {
+  const ids = (element.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/)
+    .filter((candidate) => candidate.length > 0 && candidate !== id);
+  if (enabled) {
+    ids.push(id);
+  }
+  if (ids.length === 0) {
+    element.removeAttribute('aria-describedby');
+  } else {
+    element.setAttribute('aria-describedby', ids.join(' '));
+  }
+}
+
 export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
@@ -281,6 +297,8 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
   // it did not stick.
   const [refusal, setRefusal] = useState<string | null>(null);
   const [addressRequest, setAddressRequest] = useState<EditorAddressKind | null>(null);
+  const keyboardMode = useKeyboardModeStore((state) => state.mode);
+  const vimDescriptionId = useId();
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -309,6 +327,7 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
         // A live browser-local preference. The extension stays installed so changing the preset
         // never rebuilds this editor or its Yjs binding.
         EmacsKeymap,
+        VimMotions,
         // Lets the drag handle select and move a whole block as a node range rather than a text
         // span - without it, grabbing a block would drag whatever text selection happened to
         // exist. The handle itself is the <DragHandle> component below, which registers its own
@@ -341,6 +360,19 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
     },
     [fragment, awareness],
   );
+
+  const activeVimMode = useEditorState({
+    editor,
+    selector: ({ editor: current }) => vimStatusMode(current.state),
+  });
+
+  useEffect(() => {
+    setVimEnabled(editor.view, keyboardMode === 'vim');
+    describeEditorWith(editor.view.dom, vimDescriptionId, keyboardMode === 'vim');
+    return () => {
+      describeEditorWith(editor.view.dom, vimDescriptionId, false);
+    };
+  }, [editor, keyboardMode, vimDescriptionId]);
 
   // The one document shape the schema refuses outright is an empty one - `doc` is `block+` -
   // and the Yjs undo manager can produce it. ProseMirror editing cannot: deleting everything
@@ -479,6 +511,9 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
     // forty links and opening forty connections.
     <ReferenceResolutionProvider>
       <div className="flex min-h-0 flex-1 flex-col">
+        <Text id={vimDescriptionId} variant="note" className="sr-only">
+          Vim basics starts in Normal mode. Press i to insert text and Escape to return to Normal.
+        </Text>
         <div className="flex items-center justify-between pr-8">
           <EditorToolbar
             editor={editor}
@@ -601,6 +636,19 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
               });
             }}
           />
+        )}
+
+        {activeVimMode === null ? null : (
+          <Text
+            variant="caption"
+            as="p"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
+          >
+            Vim {activeVimMode}
+          </Text>
         )}
 
         <SyncFooter state={syncState} />

@@ -35,7 +35,7 @@ function memoryStorage(initial: Record<string, string> = {}): Storage {
 }
 
 describe('the stored editor keyboard mode', () => {
-  it.each(['standard', 'emacs'] as const)('reads %s', (mode) => {
+  it.each(['standard', 'vim', 'emacs'] as const)('reads %s', (mode) => {
     expect(readKeyboardMode(memoryStorage({ [KEYBOARD_MODE_STORAGE_KEY]: mode }))).toBe(mode);
   });
 
