@@ -22,6 +22,9 @@ function aDate(value: string): CalendarEntry {
     dateProperty: 'due',
     value,
     kind: 'date',
+    // A stored entry, not one a rule produced.
+    generated: false,
+    completed: null,
   };
 }
 
@@ -34,6 +37,9 @@ function aMoment(value: string): CalendarEntry {
     dateProperty: 'starts',
     value,
     kind: 'timestamp',
+    // A stored entry, not one a rule produced.
+    generated: false,
+    completed: null,
   };
 }
 

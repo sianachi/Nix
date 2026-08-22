@@ -78,7 +78,7 @@ export function CalendarPage(): ReactElement {
   const anchor = anchorOf(params.get('on'), today);
   const window = windowFor(grain, anchor);
 
-  const { status, calendar, error, reload, reschedule } = useWorkspaceCalendar(
+  const { status, calendar, error, reload, reschedule, create } = useWorkspaceCalendar(
     window.from,
     window.to,
   );
@@ -134,6 +134,7 @@ export function CalendarPage(): ReactElement {
   }
 
   const unplaceableEntries = unplaceableEntryCount(calendar);
+  const unplaceableNotices = describeUnplaceable(calendar.unplaceable);
   const notes = parseNotes(params.get('notes'));
   const options = noteOptions(calendar.entries);
   const shown = filterByNotes(calendar.entries, notes);
@@ -160,11 +161,9 @@ export function CalendarPage(): ReactElement {
         />
       )}
 
-      {calendar.unplaceable.length > 0 && (
-        <PartialNotice
-          pending={`${calendar.unplaceable.map((entry) => entry.containerTitle ?? 'Untitled').join(', ')} ${calendar.unplaceable.length === 1 ? 'offers a calendar but names no date property, so nothing from it is drawn.' : 'offer calendars but name no date property, so nothing from them is drawn.'}`}
-        />
-      )}
+      {unplaceableNotices.map((notice) => (
+        <PartialNotice key={notice.reason} pending={notice.text} />
+      ))}
 
       {unplaceableEntries > 0 && (
         <PartialNotice
@@ -195,7 +194,58 @@ export function CalendarPage(): ReactElement {
         onReschedule={(entry, value) => {
           void reschedule(entry.itemId, entry.dateProperty, value);
         }}
+        onCreate={create}
       />
     </CalendarFrame>
   );
+}
+
+/**
+ * What the calendar could not draw, said one reason at a time.
+ *
+ * Four reasons reach this list and they are not the same fact: a container that never named a date
+ * property is a setup somebody has to finish, while a repeating item that cannot be placed is a
+ * different problem with a different fix. Collapsing them into one sentence - which this page did
+ * while only the first reason existed - would tell three quarters of readers something untrue about
+ * their own workspace.
+ */
+function describeUnplaceable(
+  rows: readonly {
+    readonly containerTitle: string | null;
+    readonly itemTitle?: string | null;
+    readonly reason: string;
+  }[],
+): readonly { readonly reason: string; readonly text: string }[] {
+  const byReason = new Map<string, string[]>();
+  for (const row of rows) {
+    const named = row.itemTitle ?? row.containerTitle ?? 'Untitled';
+    byReason.set(row.reason, [...(byReason.get(row.reason) ?? []), named]);
+  }
+
+  return [...byReason.entries()].map(([reason, names]) => ({
+    reason,
+    text: `${names.join(', ')} ${sentenceFor(reason, names.length === 1)}`,
+  }));
+}
+
+/** The sentence for one reason, in the number the list needs. */
+function sentenceFor(reason: string, singular: boolean): string {
+  switch (reason) {
+    case 'calendar_not_by_due_date':
+      return singular
+        ? 'repeats, but this calendar places by another property, so its occurrences are not drawn.'
+        : 'repeat, but this calendar places by another property, so their occurrences are not drawn.';
+    case 'no_due_date':
+      return singular
+        ? 'repeats but has no due date to repeat from, so nothing is drawn for it.'
+        : 'repeat but have no due date to repeat from, so nothing is drawn for them.';
+    case 'unreadable_rule':
+      return singular
+        ? 'carries a repeating rule this version cannot read, so it is not drawn.'
+        : 'carry repeating rules this version cannot read, so they are not drawn.';
+    default:
+      return singular
+        ? 'offers a calendar but names no date property, so nothing from it is drawn.'
+        : 'offer calendars but name no date property, so nothing from them is drawn.';
+  }
 }
