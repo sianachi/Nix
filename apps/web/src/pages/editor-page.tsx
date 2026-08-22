@@ -33,6 +33,7 @@ import { ImportDialog } from '../import/import-dialog';
 import { PaneGroup } from '../panes/pane-group';
 import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
+import { PaneSplitControl } from '../panes/pane-split-control';
 import { usePanes, type PaneState } from '../panes/pane-state';
 import { usePaneCycling } from '../panes/use-pane-cycling';
 import { useItemProperties } from '../properties/use-item-properties';
@@ -73,7 +74,7 @@ import { useTemplateLibrary } from '../templates/template-library-context';
 export function EditorPage(): ReactNode {
   const { tree } = useOutletContext<ShellContext>();
   const templateLibrary = useTemplateLibrary();
-  const { panes, split, sizes, requested, closePane, setSizes } = usePanes();
+  const { panes, split, sizes, requested, closePane, setSplit, setSizes } = usePanes();
   const paneClosed = useTabStore((state) => state.paneClosed);
   const narrow = useNarrowViewport();
 
@@ -138,37 +139,40 @@ export function EditorPage(): ReactNode {
   const hidden = (requested ?? panes.length) - panes.length;
 
   return (
-    <PaneGroup
-      panes={panes}
-      split={split}
-      sizes={sizes}
-      onSizes={setSizes}
-      describePane={(pane) => describe(tree.find(pane.itemId)?.title, pane.index)}
-      renderPane={(pane) => (
-        <PaneContents
-          pane={pane}
-          tree={tree}
-          canManageTemplates={templateLibrary.capabilities.canManage}
-          canApplyTemplates={
-            templateLibrary.status === 'ready' &&
-            templateLibrary.templates.some((template) => template.capabilities.canApply)
-          }
-          hiddenPanes={pane.index === 0 ? hidden : 0}
-          paneLabel={
-            paneCount > 1
-              ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
-              : undefined
-          }
-          onClose={
-            paneCount > 1
-              ? () => {
-                  close(pane.index, tree.find(pane.itemId)?.title ?? '');
-                }
-              : undefined
-          }
-        />
-      )}
-    />
+    <div className={paneColumn}>
+      {paneCount > 1 ? <PaneSplitControl orientation={split} onChange={setSplit} /> : null}
+      <PaneGroup
+        panes={panes}
+        split={split}
+        sizes={sizes}
+        onSizes={setSizes}
+        describePane={(pane) => describe(tree.find(pane.itemId)?.title, pane.index)}
+        renderPane={(pane) => (
+          <PaneContents
+            pane={pane}
+            tree={tree}
+            canManageTemplates={templateLibrary.capabilities.canManage}
+            canApplyTemplates={
+              templateLibrary.status === 'ready' &&
+              templateLibrary.templates.some((template) => template.capabilities.canApply)
+            }
+            hiddenPanes={pane.index === 0 ? hidden : 0}
+            paneLabel={
+              paneCount > 1
+                ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
+                : undefined
+            }
+            onClose={
+              paneCount > 1
+                ? () => {
+                    close(pane.index, tree.find(pane.itemId)?.title ?? '');
+                  }
+                : undefined
+            }
+          />
+        )}
+      />
+    </div>
   );
 }
 
