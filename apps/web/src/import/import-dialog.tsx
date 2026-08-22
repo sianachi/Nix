@@ -255,11 +255,16 @@ export function ImportDialog({
         {phase.name === 'pick' ? (
           <>
             <Text tone="muted" variant="body">
-              Markdown files or a folder of them, imported under one new item. Front matter is kept
-              as item properties; each appears once a property of that name is declared on the
-              item&rsquo;s schema. Archives, Word and PDF cannot be imported yet.
+              Choose an Obsidian vault or any folder of Markdown notes. Nix scans every nested
+              folder and recreates that structure under one new item. Front matter is kept as item
+              properties; each appears once a property of that name is declared on the item&rsquo;s
+              schema.
             </Text>
-            <div className="flex gap-2">
+            <Text tone="muted" variant="note">
+              The .obsidian settings folder and non-Markdown attachments are skipped and named in
+              the preview. Archives, Word and PDF cannot be imported yet.
+            </Text>
+            <div className="flex flex-wrap gap-2">
               {/* Out of the tab order and the a11y tree: the visible buttons are the controls, and
                   a focusable but invisible input is a focus ring nobody can see. */}
               <input
@@ -291,6 +296,16 @@ export function ImportDialog({
                   void chose(files);
                 }}
               />
+              {FOLDER_PICK_SUPPORTED ? (
+                <Button
+                  disabled={phase.reading}
+                  onClick={() => {
+                    folderInput.current?.click();
+                  }}
+                >
+                  Choose a vault or folder
+                </Button>
+              ) : null}
               <Button
                 variant="secondary"
                 disabled={phase.reading}
@@ -300,18 +315,12 @@ export function ImportDialog({
               >
                 Choose files
               </Button>
-              {FOLDER_PICK_SUPPORTED ? (
-                <Button
-                  variant="secondary"
-                  disabled={phase.reading}
-                  onClick={() => {
-                    folderInput.current?.click();
-                  }}
-                >
-                  Choose a folder
-                </Button>
-              ) : null}
             </div>
+            {FOLDER_PICK_SUPPORTED ? null : (
+              <Text tone="muted" variant="note">
+                This browser cannot select folders. You can still choose Markdown files.
+              </Text>
+            )}
             {phase.reading ? <Text tone="muted">Reading the files…</Text> : null}
             {phase.error !== null ? (
               <div role="alert">
