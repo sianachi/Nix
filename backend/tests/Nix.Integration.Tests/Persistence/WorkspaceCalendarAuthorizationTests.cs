@@ -75,6 +75,9 @@ public sealed class WorkspaceCalendarAuthorizationTests : IAsyncLifetime
     /// </remarks>
     private static readonly Guid Member = new("7b5b5000-2222-4222-8222-7b5b5000000c");
 
+    /// <summary>A no-view ancestor used only to exercise derived container visibility.</summary>
+    private static readonly Guid DeletedAncestor = new("7b5b5000-2222-4222-8222-7b5b5000000d");
+
     private readonly NixPostgresFixture _fixture;
 
     public WorkspaceCalendarAuthorizationTests(NixPostgresFixture fixture) => _fixture = fixture;
@@ -225,6 +228,28 @@ public sealed class WorkspaceCalendarAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_calendar_omits_an_active_calendar_container_below_a_deleted_ancestor()
+    {
+        await HideContainersBelowDeletedAncestorAsync(DueContainer, UnplaceableContainer);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var calendar = await work.Resolve<IWorkspaceCalendar>().ReadAsync(
+                OpenWorkspace,
+                [OpenWorkspace],
+                "2026-03-01",
+                "2026-03-31",
+                entryLimit: 1,
+                Cancellation);
+
+            var entry = Assert.Single(calendar.Entries);
+            Assert.Equal(ItemId.From(Moment), entry.ItemId);
+            Assert.Empty(calendar.Unplaceable);
+        }
+    }
+
+    [Fact]
     public async Task The_calendar_of_a_workspace_the_caller_may_not_read_is_reported_as_not_found()
     {
         var result = await QueryAsync(WorkspaceId.From(PrivateWorkspace), "2026-03-01", "2026-03-31");
@@ -361,6 +386,45 @@ public sealed class WorkspaceCalendarAuthorizationTests : IAsyncLifetime
                 .QueryAsync<GetWorkspaceCalendar, Result<WorkspaceCalendarResults>>(
                     new GetWorkspaceCalendar(workspaceId, firstDay, lastDay),
                     Cancellation);
+        }
+    }
+
+    private async Task HideContainersBelowDeletedAncestorAsync(Guid datedContainerId, Guid unplaceableContainerId)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var workspace = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  INSERT INTO item
+                      (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                       lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                       last_modified_at)
+                  VALUES
+                      ({{Literal(DeletedAncestor)}}, {{tenant}}, {{workspace}}, 'note', NULL, 900,
+                       '{"title":"Deleted ancestor"}'::jsonb, 'deleted', NULL, {{principal}},
+                       {{principal}}, now(), now());
+
+                  UPDATE item
+                     SET parent_id = {{Literal(DeletedAncestor)}}
+                   WHERE id IN ({{Literal(datedContainerId)}}, {{Literal(unplaceableContainerId)}});
+
+                  INSERT INTO item_closure
+                      (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  VALUES
+                      ({{Literal(DeletedAncestor)}}, {{Literal(DeletedAncestor)}},
+                       {{tenant}}, {{workspace}}, 0),
+                      ({{Literal(datedContainerId)}}, {{Literal(DeletedAncestor)}},
+                       {{tenant}}, {{workspace}}, 1),
+                      ({{Literal(unplaceableContainerId)}}, {{Literal(DeletedAncestor)}},
+                       {{tenant}}, {{workspace}}, 1);
+                  """);
         }
     }
 
