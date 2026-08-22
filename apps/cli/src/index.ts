@@ -28,6 +28,12 @@ import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, setViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
+import {
+  clearRecurrence,
+  completeRecurrence,
+  runCalendar,
+  setRecurrence,
+} from './commands/recurrence.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
@@ -216,6 +222,74 @@ export function buildProgram(): Command {
     .action(async (itemId: string, pairs: string[], _options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => setProps(flags.profile, itemId, pairs, outputOptions(flags.json)));
+    });
+
+  const recur = program.command('recur').description("An item's recurrence rule.");
+
+  recur
+    .command('set <itemId>')
+    .description("Replace an item's recurrence rule wholesale.")
+    .requiredOption('--freq <freq>', 'daily | weekly | monthly | yearly')
+    .option('--interval <n>', 'repeat every n units of freq (1-366, default 1)')
+    .option('--weekdays <days>', 'comma-separated mo,tu,we,th,fr,sa,su - weekly rules only')
+    .option('--until <yyyy-mm-dd>', 'the last day the item is due, inclusive (default: no end)')
+    .action(
+      async (
+        itemId: string,
+        options: { freq: string; interval?: string; weekdays?: string; until?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          setRecurrence(
+            flags.profile,
+            itemId,
+            {
+              freq: options.freq,
+              interval: options.interval,
+              weekdays: options.weekdays,
+              until: options.until,
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  recur
+    .command('clear <itemId>')
+    .description("Remove an item's recurrence rule; it stops repeating.")
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => clearRecurrence(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  recur
+    .command('complete <itemId>')
+    .description('Mark one occurrence of a recurring item complete.')
+    .requiredOption('--on <yyyy-mm-dd>', 'the day of the occurrence to complete')
+    .action(async (itemId: string, options: { on: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        completeRecurrence(flags.profile, itemId, { on: options.on }, outputOptions(flags.json)),
+      );
+    });
+
+  program
+    .command('calendar')
+    .description("Print one window of a workspace's collated calendar, generated entries included.")
+    .requiredOption('--workspace <id>', 'the workspace to read')
+    .requiredOption('--from <yyyy-mm-dd>', 'the first day to include, inclusive')
+    .requiredOption('--to <yyyy-mm-dd>', 'the last day to include, inclusive')
+    .action(async (options: { workspace: string; from: string; to: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        runCalendar(
+          flags.profile,
+          { workspaceId: options.workspace, from: options.from, to: options.to },
+          outputOptions(flags.json),
+        ),
+      );
     });
 
   program
