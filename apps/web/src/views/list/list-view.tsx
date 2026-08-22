@@ -12,6 +12,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
 import { drawable, useViewChrome } from '../core/view-chrome';
@@ -33,8 +34,10 @@ const ESTIMATED_ROW_HEIGHT = 45;
  *
  * **Every cell is a control, always drawn as one.** Not click-to-edit: that needs a focus transfer
  * effect of its own, and it hides from a screen reader the one fact the table is trying to convey,
- * which is that these values can be changed. The cost is a tab stop per cell, which a following
- * goal buys back with arrow-key navigation.
+ * which is that these values can be changed. The cost is a tab stop per cell - kept, deliberately:
+ * goal 3.8 adds Alt+Arrow cell-to-cell movement (`./cell-nav.ts`) rather than roving tabindex, so
+ * this table never trades a long tab order for the focus-restoration problem a roving tabindex
+ * would reopen on every re-sort, optimistic update and refusal rollback (see the note below).
  *
  * **Plain table semantics.** A real `<table>` with `<th scope="row">` row headers, not `role="grid"`
  * with a roving tabindex. A roving tabindex is focus state with no source - it cannot come from the
@@ -131,7 +134,37 @@ export function ListView(props: ListViewProps): ReactNode {
     // narrower than its min-content width - enough property columns and it paints straight past a
     // `min-w-0` parent. Now that the pane scrolls only vertically, this is the sole owner of the
     // wide axis.
-    <div className="min-w-0 overflow-x-auto">
+    //
+    // Justification: this div is not itself interactive - it only delegates a keydown listener
+    // that catches Alt+Arrow bubbling up from its own focusable descendants (the real per-cell
+    // controls, see `cell-nav.ts`). A role or tabIndex here would make the div itself a tab stop
+    // or a widget, which is exactly what goal 3.8's ruling says not to build.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      className="min-w-0 overflow-x-auto"
+      onKeyDown={(event) => {
+        // Alt is the gate: a plain arrow, Home or End belongs to whatever control is focused (a
+        // caret, a date stepper, a select, a checkbox) and must reach it untouched - see
+        // `cell-nav.ts` for why this table cannot use the spreadsheet's own arrow-key ladder.
+        if (!event.altKey || event.ctrlKey || event.metaKey || !isCellMoveKey(event.key)) {
+          return;
+        }
+        if (!(event.target instanceof Element)) {
+          return;
+        }
+        const cell = cellFor(event.target);
+        if (cell === null) {
+          // Not one of the list's own cells (a sort header, the "Add an item" control): this
+          // shortcut has nothing to say here, so the key is left alone rather than claimed.
+          return;
+        }
+        // Claimed once it is known to be ours, whether or not a destination exists - an edge does
+        // nothing to the table, but the keystroke must still not fall through to the browser's own
+        // Alt+Arrow history navigation or a native `<select>`'s Alt+ArrowDown.
+        event.preventDefault();
+        moveFocusedCell(cell, event.key);
+      }}
+    >
       {chrome.notice}
 
       <ListRows items={chrome.items} columns={columns} sort={sort} onSortChange={onSortChange} />
