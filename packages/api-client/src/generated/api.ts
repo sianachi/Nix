@@ -577,11 +577,51 @@ export interface paths {
     };
     /**
      * Every calendar in a workspace, collated into one window
-     * @description Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. That list is never truncated. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.
+     * @description Returns the dated items of one workspace between 'from' and 'to' inclusive, both given as yyyy-MM-dd and both required. Which property carries an item's date is decided by the data rather than by the caller: a container's calendar view names the property its children are placed by, and different containers may name different ones, so every entry carries the key it was placed by and the container that decided it. A container configuring more than one calendar view contributes each item once, through the first view it declares. Values are returned exactly as stored - either yyyy-MM-dd or an RFC 9557 timestamp with a bracketed zone - and 'kind' says which. They are deliberately not normalised: only the reader's own zone decides which day a moment falls on, so the window here is coarse and the client places precisely. An entry near a window edge may therefore fall on a different day for the reader. Only items the caller may read are included, and they are excluded while the query runs rather than filtered out of its results. Containers that offer a calendar but name no property to place by are reported in 'unplaceable' rather than passed over in silence, because a reader with no way to tell 'nothing is scheduled' from 'that one could not be read' will believe the first. So are repeating items whose series cannot be drawn on this calendar - by container ('calendar_not_by_due_date'), by the item itself ('no_due_date'), or by the stored rule ('unreadable_rule'). That list is never truncated. An entry produced by a recurrence rule rather than read from storage carries 'generated: true' and its own 'completed' state; a client must not offer to edit or delete it as if it were a stored item, since there is no row behind it, only the series that produced it. Entries are bounded at 2,000; when the ceiling is reached 'entriesTruncated' is true and the window holds more than this response carries, which a calendar cannot convey on its own. Entries enter earliest first, so a truncated read keeps the start of the window. Separately, 'seriesTruncated' is true when more repeating series exist than this read considered or than there was room left to expand after concrete entries were read - a different fact from 'entriesTruncated', since a workspace can hold more series than this response even names. The window may cover at most 400 days. A workspace the caller may not see is reported as not found rather than as forbidden, so the response cannot be used to confirm that it exists.
      */
     get: operations['GetWorkspaceCalendar'];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/recurrence': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Set or clear an item's repeating rule
+     * @description A null request body clears the rule and the item stops repeating. Editing an existing rule preserves its completion state: the watermark carries over untouched and each individually completed day is kept only when the new rule still lands on it. Fails with 'recurrence.invalid_frequency', 'recurrence.invalid_interval', 'recurrence.weekdays_require_weekly', 'recurrence.invalid_weekday' or 'recurrence.invalid_until' when the request is malformed, and with 'recurrence.rule_too_large' when the resulting rule does not fit.
+     */
+    put: operations['SetItemRecurrence'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/recurrence/completions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Complete one occurrence of an item's repeating series
+     * @description Idempotent: completing an already-completed occurrence succeeds without writing anything a second time. Fails with 'recurrence.not_recurring' when the item carries no rule, 'recurrence.no_anchor' when it has no due date to anchor to, 'recurrence.unreadable_rule' when the stored rule cannot be read, and 'recurrence.not_an_occurrence' when the named day is not one the series lands on.
+     */
+    post: operations['CompleteRecurrenceOccurrence'];
     delete?: never;
     options?: never;
     head?: never;
@@ -864,9 +904,18 @@ export interface components {
       dateProperty: string;
       value: string;
       kind: string;
+      generated: boolean;
+      completed: null | boolean;
     };
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
+    };
+    CompleteOccurrenceRequest: {
+      occurredOn: string;
+    };
+    CompleteOccurrenceResponse: {
+      rule: null | components['schemas']['RecurrenceRuleResponse'];
+      occurredOn: string;
     };
     ContainerViewsResponse: {
       views: components['schemas']['ViewResponse'][];
@@ -1126,6 +1175,15 @@ export interface components {
       limit: number | string;
       truncated: boolean;
     };
+    RecurrenceRuleResponse: {
+      freq: string;
+      /** Format: int32 */
+      interval: number | string;
+      weekdays: string[];
+      until: null | string;
+      completedThrough: null | string;
+      completed: string[];
+    };
     ReferenceResolutionResponse: {
       /** Format: uuid */
       id: string;
@@ -1176,6 +1234,16 @@ export interface components {
     };
     SetPropertiesRequest: {
       properties: components['schemas']['JsonObject'];
+    };
+    SetRecurrenceRequest: {
+      freq: string;
+      /** Format: int32 */
+      interval: number | string;
+      weekdays: null | string[];
+      until: null | string;
+    };
+    SetRecurrenceResponse: {
+      rule: null | components['schemas']['RecurrenceRuleResponse'];
     };
     SetSchemaRequest: {
       properties: components['schemas']['PropertyDefinitionRequest'][];
@@ -1383,6 +1451,9 @@ export interface components {
       containerId: string;
       containerTitle: null | string;
       reason: string;
+      /** Format: uuid */
+      itemId: null | string;
+      itemTitle: null | string;
     };
     UpdateItemRequest: {
       title: string;
@@ -1443,6 +1514,7 @@ export interface components {
       /** Format: int32 */
       entryLimit: number | string;
       entriesTruncated: boolean;
+      seriesTruncated: boolean;
     };
     WorkspaceGraphResponse: {
       /** Format: uuid */
@@ -2950,6 +3022,112 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetItemRecurrence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': null | components['schemas']['SetRecurrenceRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SetRecurrenceResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CompleteRecurrenceOccurrence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CompleteOccurrenceRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CompleteOccurrenceResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

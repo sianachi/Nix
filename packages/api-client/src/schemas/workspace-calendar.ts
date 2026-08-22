@@ -15,11 +15,21 @@
  * can therefore belong to a different day for the reader than for the window, which is correct
  * rather than a rounding error.
  *
- * **The response is bounded, and it says so twice.** `entriesTruncated` means the window holds more
- * than came back. `unplaceable` names containers that offer a calendar and could place nothing —
- * that list is never truncated, because it is the part of the answer that explains what is missing.
- * A truncated list looks short and announces itself; a truncated calendar looks like a calendar, so
- * a view that renders this must say so.
+ * **The response is bounded, and it says so twice, for two different reasons.** `entriesTruncated`
+ * means the window holds more concrete entries than came back. `seriesTruncated` means more
+ * repeating series exist than this read considered, or than there was room left to expand after
+ * concrete entries were read — a different fact, since a workspace can hold more series than this
+ * response even names. `unplaceable` names containers that offer a calendar and could place
+ * nothing, and repeating items whose series could not be drawn on this calendar — that list is
+ * never truncated, because it is the part of the answer that explains what is missing. A truncated
+ * list looks short and announces itself; a truncated calendar looks like a calendar, so a view that
+ * renders this must say so.
+ *
+ * **A generated entry is not a stored one.** An entry produced by a recurrence rule rather than
+ * read from storage carries `generated: true` and its own `completed` state; a view must not offer
+ * to edit or delete it as if it were a row in storage, since there is no row behind it, only the
+ * series that produced it. A stored entry's `completed` is always null — it has no completion state
+ * of its own to report.
  */
 
 import { z } from 'zod';
@@ -56,20 +66,36 @@ export const calendarEntrySchema = z.object({
   value: z.string(),
 
   kind: calendarEntryKindSchema,
+
+  /** True when this entry was produced by a recurrence rule rather than read from storage. */
+  generated: z.boolean(),
+
+  /**
+   * Whether this occurrence is complete. Null for a stored (non-generated) entry, which has no
+   * completion state of its own to report.
+   */
+  completed: z.boolean().nullable(),
 });
 
 export type CalendarEntry = z.infer<typeof calendarEntrySchema>;
 
 /**
- * A container that offers a calendar and could place nothing on it.
+ * A container that offers a calendar and could place nothing on it, or a repeating item whose
+ * series could not be drawn.
  *
  * The reason is a token rather than a sentence, because the sentence belongs where it can be
- * translated. Today the only value is `no_date_property`.
+ * translated. The known values are `no_date_property` (the container names no date property),
+ * `calendar_not_by_due_date` (the container's calendar does not place by a due date, so a
+ * repeating item's series has nowhere to go), `no_due_date` (the item itself has no due date to
+ * anchor the series to), and `unreadable_rule` (the stored rule could not be read). `itemId` and
+ * `itemTitle` are set only for the series reasons - a container-level reason names no single item.
  */
 export const unplaceableCalendarSchema = z.object({
   containerId: z.uuid(),
   containerTitle: z.string().nullable(),
   reason: z.string(),
+  itemId: z.uuid().nullable(),
+  itemTitle: z.string().nullable(),
 });
 
 export type UnplaceableCalendar = z.infer<typeof unplaceableCalendarSchema>;
@@ -96,6 +122,13 @@ export const workspaceCalendarSchema = z.object({
 
   /** True when the ceiling was reached, so this is part of the window and not all of it. */
   entriesTruncated: z.boolean(),
+
+  /**
+   * True when more repeating series exist than this read considered, or than there was room left
+   * to expand after concrete entries were read. Distinct from `entriesTruncated`: a workspace can
+   * hold more series than this response even names.
+   */
+  seriesTruncated: z.boolean(),
 });
 
 export type WorkspaceCalendar = z.infer<typeof workspaceCalendarSchema>;
