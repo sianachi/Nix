@@ -1446,7 +1446,7 @@
           "Structure"
         ],
         "summary": "Replace the views a container offers",
-        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query' or 'interactive_form'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
+        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
         "operationId": "SetContainerViews",
         "parameters": [
           {
@@ -2281,6 +2281,46 @@
         }
       }
     },
+    "/api/v1/items/{itemId}/chart": {
+      "get": {
+        "tags": [
+          "Charts"
+        ],
+        "summary": "Draw one of an item's chart views",
+        "description": "Summarises every active child of the item into buckets, the way the named chart view says to: grouped by the view's grouping property, counted, or totalled by the view's measured property. The client names the view and never sends the grouping - the stored view is the whole configuration, edited through PUT /items/{itemId}/views like any other view. Children with no value for the grouping property are their own bucket rather than being dropped, because unset is a real and often large group and hiding it would misreport every proportion drawn beside it. Computed over every child rather than over a page, which is what a chart tallied in the browser could not honestly claim. At most 100 buckets are returned, largest first; 'truncated', 'distinctValues' and 'children' say what did not fit, so a bounded chart can say so rather than drawing its top few as though they were all of them.",
+        "operationId": "RunItemChart",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/bookmarks": {
       "get": {
         "tags": [
@@ -3028,6 +3068,99 @@
         "properties": {
           "items": {
             "$ref": "#/components/schemas/JsonArray"
+          }
+        }
+      },
+      "ChartBucketResponse": {
+        "required": [
+          "value",
+          "children",
+          "total"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "children": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "ChartResponse": {
+        "required": [
+          "itemId",
+          "viewId",
+          "groupBy",
+          "measure",
+          "measureProperty",
+          "buckets",
+          "children",
+          "distinctValues",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "viewId": {
+            "type": "string"
+          },
+          "groupBy": {
+            "type": "string"
+          },
+          "measure": {
+            "type": "string"
+          },
+          "measureProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChartBucketResponse"
+            }
+          },
+          "children": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "distinctValues": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       },
@@ -5634,6 +5767,18 @@
                 "$ref": "#/components/schemas/InteractiveFormContract"
               }
             ]
+          },
+          "measure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "measureProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5655,7 +5800,9 @@
           "filters",
           "companionViewId",
           "companionPlacement",
-          "interactiveForm"
+          "interactiveForm",
+          "measure",
+          "measureProperty"
         ],
         "type": "object",
         "properties": {
@@ -5751,6 +5898,18 @@
               {
                 "$ref": "#/components/schemas/InteractiveFormContract"
               }
+            ]
+          },
+          "measure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "measureProperty": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -5941,6 +6100,9 @@
     },
     {
       "name": "Query"
+    },
+    {
+      "name": "Charts"
     },
     {
       "name": "Bookmarks"
