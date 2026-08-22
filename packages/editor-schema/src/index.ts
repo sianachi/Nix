@@ -40,6 +40,7 @@ export {
   type ToggleLevel,
 } from './details.js';
 export { CommentMark, TEXT_COLORS, TextColorMark, type TextColor } from './marks.js';
+export { isAllowedLinkAddress } from './link-address.js';
 export { REFERENCE_KINDS, Reference, type ReferenceKind } from './references.js';
 export { nixEditingExtensions, nixExtensions } from './extensions.js';
 export {
