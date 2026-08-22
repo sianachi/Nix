@@ -4,6 +4,7 @@ import type {
   View,
   ViewFilterRule,
 } from '../core/container-model';
+import { SMART_LISTS } from '../query/smart-lists';
 
 export type StructuredRecipeId =
   | 'board'
@@ -235,27 +236,14 @@ export function viewForRecipe(
   };
 }
 
+/**
+ * The Smart list wizard's date/assignment shortcuts, reusing the shipped presets in
+ * `views/query/smart-lists.ts` rather than restating their rules - the wizard's shortcut and the
+ * "apply to an existing item" preset must name the same reserved keys (ADR-0042), so one registry
+ * is the source and the other re-exports it instead of drifting a second copy.
+ */
 export const SMART_LIST_STARTERS: readonly {
   readonly id: string;
   readonly label: string;
   readonly filters: readonly ViewFilterRule[];
-}[] = [
-  {
-    id: 'today',
-    label: 'Today',
-    filters: [{ property: 'due', operator: 'on', value: 'today' }],
-  },
-  {
-    id: 'next-seven-days',
-    label: 'Next 7 days',
-    filters: [{ property: 'due', operator: 'within-next', value: '7' }],
-  },
-  {
-    id: 'overdue',
-    label: 'Overdue',
-    filters: [
-      { property: 'due', operator: 'before', value: 'today' },
-      { property: 'done', operator: 'not-equals', value: 'true' },
-    ],
-  },
-];
+}[] = SMART_LISTS;
