@@ -69,6 +69,16 @@ export interface CreateItemInput {
   readonly type: string;
   readonly title: string;
   readonly parentId?: string | null | undefined;
+
+  /**
+   * Property values to store with the item, checked against the schema in force where it lands.
+   *
+   * **Sent with the create rather than patched afterwards**, which is what makes a seeded item one
+   * write instead of two - and at the scale the stress rows name, two writes per item is twice as
+   * far past the write rate limit for the same corpus. Omitted means an item with only its title,
+   * which is what every create did before this field existed.
+   */
+  readonly properties?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /** Creates an item under a parent, or at the workspace root when the parent is null. */
@@ -82,6 +92,7 @@ export const createItem = (workspaceId: string, input: CreateItemInput): Command
       type: input.type,
       title: input.title,
       parentId: input.parentId ?? null,
+      ...(input.properties === undefined ? {} : { properties: input.properties }),
     },
     invalidates: [workspaceTreeKey(workspaceId)],
   });
