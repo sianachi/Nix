@@ -18,12 +18,41 @@
  */
 
 import MarkdownIt from 'markdown-it';
-import type Token from 'markdown-it/lib/token.mjs';
+import Token from 'markdown-it/lib/token.mjs';
 import { MarkdownParser, type ParseSpec } from 'prosemirror-markdown';
-import { nixSchema, parseDocument, REFERENCE_KINDS } from '@nix/editor-schema';
+import {
+  isAllowedLinkAddress,
+  nixSchema,
+  parseDocument,
+  REFERENCE_KINDS,
+} from '@nix/editor-schema';
+import { isLocalImageTarget, isPersistableImageTarget, type MarkdownImportScan } from './scan.js';
 
 export type FromMarkdownResult =
-  { readonly ok: true; readonly doc: unknown } | { readonly ok: false; readonly reason: string };
+  | { readonly ok: true; readonly doc: unknown; readonly scan: MarkdownImportScan }
+  | {
+      readonly ok: false;
+      readonly reason: string;
+    };
+
+interface MutableMarkdownImportScan {
+  unresolvedWikiLinks: number;
+  unresolvedObsidianEmbeds: number;
+  unresolvedLocalImages: number;
+  unsupportedImageAddresses: number;
+  inlineImagesFlattened: number;
+}
+
+interface MarkdownEnvironment {
+  readonly importScan: MutableMarkdownImportScan;
+  readonly obsidianBoundaries: Map<string, ObsidianBoundaries>;
+  references?: Record<string, { href: string; title: string }>;
+}
+
+interface ObsidianBoundaries {
+  readonly closes: readonly number[];
+  readonly newlines: readonly number[];
+}
 
 /** The minimal shape of a ProseMirror node in its JSON form, for the post-pass. */
 interface JsonNode {
@@ -35,16 +64,123 @@ interface JsonNode {
 }
 
 // GFM-ish: strikethrough and pipe tables are on; HTML is off so a stray tag is escaped text rather
-// than an injected node the schema has no home for. The details block and standalone images are
-// pre-processed below before this ever runs.
+// than an injected node the schema has no home for. The details block is flattened before parsing;
+// image placement and import observations are handled by token rules below.
 const tokenizer = MarkdownIt('commonmark', { html: false }).enable(['strikethrough', 'table']);
+
+// markdown-it intentionally refuses file-scheme images before emitting an image token. Recognise
+// that one rejected filesystem spelling here so the exact literal remains visible and the import
+// report still declares it. Returning false during label validation preserves any outer link.
+const FILE_IMAGE =
+  /^!\[[^\]\n]*]\(\s*(?:<file:[^>\n]+>|file:[^\s)\n]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^\n)]*\)))?\s*\)/i;
+
+tokenizer.inline.ruler.before('text', 'nix_file_images', (state, silent) => {
+  if (silent || !state.src.startsWith('![', state.pos)) {
+    return false;
+  }
+  const match = FILE_IMAGE.exec(state.src.slice(state.pos));
+  const source = match?.[0];
+  if (source === undefined) {
+    return false;
+  }
+
+  const environment = state.env as MarkdownEnvironment;
+  environment.importScan.unresolvedLocalImages += 1;
+  const token = state.push('text', '', 0);
+  token.content = source;
+  state.pos += source.length;
+  return true;
+});
+
+// Recognise Obsidian references as their own inline spelling. They deliberately remain text: the
+// importer has no item ids with which to resolve a wiki link and no file bytes with which to
+// resolve an embed. Owning the count in the tokenizer makes code spans/fences and escaped brackets
+// immune to false reports, and makes `![[...]]` mutually exclusive with `[[...]]`.
+tokenizer.inline.ruler.before('text', 'nix_obsidian_references', (state, silent) => {
+  const start = state.pos;
+  const embed = state.src.startsWith('![[', start);
+  const wiki = !embed && state.src.startsWith('[[', start);
+  if (!embed && !wiki) {
+    return false;
+  }
+  if (silent) {
+    return false;
+  }
+
+  // `\![[target]]` is literal source, not an embed followed by a wiki link. The escape rule has
+  // already consumed the escaped bang by the time inline parsing reaches the first bracket.
+  if (wiki && start > 0 && state.src[start - 1] === '!' && isEscaped(state.src, start - 1)) {
+    return false;
+  }
+
+  const contentStart = start + (embed ? 3 : 2);
+  const environment = state.env as MarkdownEnvironment;
+  const boundaries = obsidianBoundaries(environment, state.src);
+  const end = firstAtOrAfter(boundaries.closes, contentStart);
+  const newline = firstAtOrAfter(boundaries.newlines, contentStart);
+  if (end === undefined || end === contentStart || (newline !== undefined && newline < end)) {
+    return false;
+  }
+  state.pos = end + 2;
+
+  if (embed) {
+    environment.importScan.unresolvedObsidianEmbeds += 1;
+  } else {
+    environment.importScan.unresolvedWikiLinks += 1;
+  }
+  const token = state.push('text', '', 0);
+  token.content = state.src.slice(start, end + 2);
+  return true;
+});
+
+// Rewrite images after inline parsing, when code and CommonMark destinations are known. A durable
+// web/data image that occupies a root paragraph keeps the block-image behaviour Markdown already
+// had. Other images become links or readable source text. Filesystem and ambiguous addresses never
+// become browser-relative or unsupported image requests.
+tokenizer.core.ruler.after('inline', 'nix_import_images', (state) => {
+  const environment = state.env as MarkdownEnvironment;
+  const rewritten: Token[] = [];
+
+  for (let index = 0; index < state.tokens.length; index += 1) {
+    const paragraphOpen = state.tokens[index];
+    const inline = state.tokens[index + 1];
+    const paragraphClose = state.tokens[index + 2];
+    const only = inline?.children?.length === 1 ? inline.children[0] : undefined;
+    if (
+      paragraphOpen?.type === 'paragraph_open' &&
+      paragraphOpen.level === 0 &&
+      inline?.type === 'inline' &&
+      paragraphClose?.type === 'paragraph_close' &&
+      only?.type === 'image' &&
+      isPersistableImageTarget(only.attrGet('src') ?? '')
+    ) {
+      const image = new state.Token('nix_image', 'img', 0);
+      image.attrs = only.attrs;
+      image.children = only.children;
+      image.content = only.content;
+      image.block = true;
+      image.map = paragraphOpen.map;
+      rewritten.push(image);
+      index += 2;
+      continue;
+    }
+
+    if (paragraphOpen?.type === 'inline' && paragraphOpen.children !== null) {
+      paragraphOpen.children = rewriteInlineImages(paragraphOpen.children, environment);
+    }
+    if (paragraphOpen !== undefined) {
+      rewritten.push(paragraphOpen);
+    }
+  }
+  state.tokens = rewritten;
+});
 
 // markdown-it represents a table cell as inline tokens directly inside `th` or `td`. Nix's table
 // schema correctly requires block content in every cell, so a direct MarkdownParser mapping drops
 // those cells when `createAndFill` refuses the invalid shape. Injecting a paragraph pair around the
 // inline stream expresses the structure Markdown already implied. Because this runs over tokens,
 // not source text, pipe-like text inside a code fence is never mistaken for a table.
-tokenizer.core.ruler.after('inline', 'nix_table_cell_blocks', (state) => {
+tokenizer.core.ruler.after('nix_import_images', 'nix_table_cell_blocks', (state) => {
   const wrapped: Token[] = [];
   for (const token of state.tokens) {
     if (token.type === 'th_close' || token.type === 'td_close') {
@@ -58,33 +194,133 @@ tokenizer.core.ruler.after('inline', 'nix_table_cell_blocks', (state) => {
   state.tokens = wrapped;
 });
 
-// A block image survives Markdown's round trip only with help: `documentToMarkdown` writes a
-// block-level image as `![alt](src)` on its own line, but re-parsing puts an image inline, where
-// Nix's block-level image node cannot live, so the parser drops it. These two markers carry a
-// standalone image out of inline context and back into a block image node in the post-pass. The
-// anchors admit CommonMark's own block latitude - up to three leading spaces, trailing blanks -
-// so an image that is a paragraph of its own stays on the block path rather than falling through
-// to the inline degrade below.
-const IMAGE_SENTINEL = /^\s*nix-image:(\d+)\s*$/;
-const STANDALONE_IMAGE = /^[ \t]{0,3}!\[([^\]]*)]\(([^)\n]+)\)[ \t]*$/gm;
+function isEscaped(source: string, position: number): boolean {
+  let slashes = 0;
+  for (let index = position - 1; index >= 0 && source[index] === '\\'; index -= 1) {
+    slashes += 1;
+  }
+  return slashes % 2 === 1;
+}
 
-/**
- * An image *inside* a line of text, degraded to a link so the address and the surrounding words
- * survive - without this, the block image mapping made prosemirror-markdown drop the whole
- * enclosing block, silently (found live 2026-08-20, importing an Obsidian-shaped note; a heading,
- * list item or blockquote holding an inline image vanished the same way).
- *
- * **This is a text-level pass over the raw source, and that is its known cost:** it cannot see
- * where markdown-it would have said "code", so image syntax inside a fenced block, an inline code
- * span or an indented code block is rewritten too - the same limitation `STANDALONE_IMAGE` and
- * `stripDetails` already carry, reaching more places because an inline image can sit anywhere.
- * The durable fix is token-level: an `image` ParseSpec that emits a link mark in inline position
- * would be immune to code contexts by construction, because markdown-it never emits an image
- * token inside code. Until then, the tests pin the code-context behaviour so a change to it is
- * seen, not discovered. Obsidian's own `![[embed]]` spelling matches neither pattern and stays as
- * literal text - an honest unresolved reference, also pinned. Runs after `STANDALONE_IMAGE`.
- */
-const INLINE_IMAGE = /!\[([^\]]*)]\(([^)\n]+)\)/g;
+function obsidianBoundaries(environment: MarkdownEnvironment, source: string): ObsidianBoundaries {
+  const cached = environment.obsidianBoundaries.get(source);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const closes: number[] = [];
+  const newlines: number[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === '\n') {
+      newlines.push(index);
+    }
+    if (source[index] === ']' && source[index + 1] === ']') {
+      closes.push(index);
+      index += 1;
+    }
+  }
+  const found = { closes, newlines };
+  environment.obsidianBoundaries.set(source, found);
+  return found;
+}
+
+function firstAtOrAfter(sorted: readonly number[], target: number): number | undefined {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const value = sorted[middle];
+    if (value !== undefined && value < target) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return sorted[low];
+}
+
+function imageAlt(token: Token): string {
+  return token.children?.map((child) => child.content).join('') ?? token.content;
+}
+
+function imageText(token: Token): string {
+  const source = token.attrGet('src') ?? '';
+  const alt = imageAlt(token);
+  const title = token.attrGet('title');
+  return `![${alt}](${source}${title === null ? '' : ` "${title}"`})`;
+}
+
+function replacementText(content: string): Token {
+  const token = new Token('text', '', 0);
+  token.content = content;
+  return token;
+}
+
+function rewriteInlineImages(
+  children: readonly Token[],
+  environment: MarkdownEnvironment,
+): Token[] {
+  const rewritten: Token[] = [];
+  let linkDepth = 0;
+
+  for (const child of children) {
+    if (child.type === 'link_open') {
+      linkDepth += 1;
+      rewritten.push(child);
+      continue;
+    }
+    if (child.type === 'link_close') {
+      linkDepth = Math.max(0, linkDepth - 1);
+      rewritten.push(child);
+      continue;
+    }
+    if (child.type !== 'image') {
+      rewritten.push(child);
+      continue;
+    }
+
+    const source = child.attrGet('src') ?? '';
+    const alt = imageAlt(child);
+    if (isLocalImageTarget(source)) {
+      environment.importScan.unresolvedLocalImages += 1;
+      if (linkDepth > 0 || !isAllowedLinkAddress(source)) {
+        rewritten.push(replacementText(imageText(child)));
+        continue;
+      }
+      const open = new Token('link_open', 'a', 1);
+      open.attrs = [['href', source]];
+      const title = child.attrGet('title');
+      if (title !== null) {
+        open.attrSet('title', title);
+      }
+      rewritten.push(open, replacementText(alt.length > 0 ? alt : source));
+      rewritten.push(new Token('link_close', 'a', -1));
+      continue;
+    }
+
+    if (!isPersistableImageTarget(source)) {
+      environment.importScan.unsupportedImageAddresses += 1;
+      rewritten.push(replacementText(imageText(child)));
+      continue;
+    }
+
+    environment.importScan.inlineImagesFlattened += 1;
+    if (linkDepth > 0 || !isAllowedLinkAddress(source)) {
+      rewritten.push(replacementText(imageText(child)));
+      continue;
+    }
+
+    const open = new Token('link_open', 'a', 1);
+    open.attrs = [['href', source]];
+    const title = child.attrGet('title');
+    if (title !== null) {
+      open.attrSet('title', title);
+    }
+    rewritten.push(open, replacementText(alt.length > 0 ? alt : source));
+    rewritten.push(new Token('link_close', 'a', -1));
+  }
+  return rewritten;
+}
 
 /**
  * markdown-it token names mapped onto Nix's node and mark names.
@@ -119,19 +355,13 @@ const tokens: Record<string, ParseSpec> = {
     noCloseToken: true,
   },
   hr: { node: 'horizontalRule' },
+  nix_image: {
+    node: 'image',
+    getAttrs: imageAttrs,
+  },
   image: {
     node: 'image',
-    getAttrs: (token) => {
-      // markdown-it puts the alt text in the token's inline children; fall back to the attribute
-      // only when there is no child text, which a nullish coalesce cannot express (an empty string
-      // is a real value to it).
-      const fromChildren = token.children?.map((child) => child.content).join('') ?? '';
-      return {
-        src: token.attrGet('src') ?? '',
-        alt: fromChildren.length > 0 ? fromChildren : (token.attrGet('alt') ?? ''),
-        title: token.attrGet('title'),
-      };
-    },
+    getAttrs: imageAttrs,
   },
   hardbreak: { node: 'hardBreak' },
   em: { mark: 'italic' },
@@ -139,10 +369,22 @@ const tokens: Record<string, ParseSpec> = {
   s: { mark: 'strike' },
   link: {
     mark: 'link',
-    getAttrs: (token) => ({ href: token.attrGet('href') ?? '' }),
+    getAttrs: (token) => ({
+      href: token.attrGet('href') ?? '',
+      title: token.attrGet('title'),
+    }),
   },
   code_inline: { mark: 'code', noCloseToken: true },
 };
+
+function imageAttrs(token: Token): Record<string, unknown> {
+  const fromChildren = imageAlt(token);
+  return {
+    src: token.attrGet('src') ?? '',
+    alt: fromChildren.length > 0 ? fromChildren : (token.attrGet('alt') ?? ''),
+    title: token.attrGet('title'),
+  };
+}
 
 /** The editor table attributes a Markdown cell can carry. */
 function tableCellAttrs(token: Token): Record<string, unknown> {
@@ -188,42 +430,18 @@ function stripDetails(markdown: string): string {
     .replace(/\s*<\/details>/g, '');
 }
 
-/** Depth-first rewrite of the parsed JSON: link -> reference, `[!tone]` blockquote -> callout,
- *  image sentinel paragraph -> block image. */
-function rebuildCustomNodes(
-  node: JsonNode,
-  images: readonly { src: string; alt: string }[],
-): JsonNode {
+/** Depth-first rewrite of the parsed JSON: link -> reference and `[!tone]` blockquote -> callout. */
+function rebuildCustomNodes(node: JsonNode): JsonNode {
   const reference = asReference(node);
   if (reference !== null) {
     return reference;
   }
 
-  const image = asImage(node, images);
-  if (image !== null) {
-    return image;
-  }
-
-  const rewrittenChildren = node.content?.map((child) => rebuildCustomNodes(child, images));
+  const rewrittenChildren = node.content?.map((child) => rebuildCustomNodes(child));
   const withChildren: JsonNode =
     rewrittenChildren === undefined ? node : { ...node, content: rewrittenChildren };
 
   return asCallout(withChildren) ?? withChildren;
-}
-
-/** A paragraph holding only an image sentinel becomes the block image it stood in for. */
-function asImage(node: JsonNode, images: readonly { src: string; alt: string }[]): JsonNode | null {
-  if (node.type !== 'paragraph' || node.content?.length !== 1) {
-    return null;
-  }
-  const only = node.content[0];
-  const match = only?.type === 'text' ? IMAGE_SENTINEL.exec(only.text ?? '') : null;
-  const index = match === null ? null : Number(match[1]);
-  const image = index === null ? undefined : images[index];
-  if (image === undefined) {
-    return null;
-  }
-  return { type: 'image', attrs: { src: image.src, alt: image.alt, title: null } };
 }
 
 /** A text node carrying a single `nix://` link becomes a reference inline node. */
@@ -281,23 +499,19 @@ function asCallout(node: JsonNode): JsonNode | null {
  * @returns The document JSON, or the reason it could not be produced.
  */
 export function markdownToDocument(markdown: string): FromMarkdownResult {
-  // Lift standalone images out to sentinels first, so re-parsing does not drop them inline; what
-  // is still an image after that is inline, and degrades to a link (see INLINE_IMAGE).
-  const images: { src: string; alt: string }[] = [];
-  const sentinelled = stripDetails(markdown)
-    .replace(STANDALONE_IMAGE, (_match, alt: string, src: string) => {
-      const index = images.push({ src, alt }) - 1;
-      return ` nix-image:${String(index)} `;
-    })
-    .replace(
-      INLINE_IMAGE,
-      (_match, alt: string, src: string) => `[${alt.length > 0 ? alt : src}](${src})`,
-    );
+  const importScan: MutableMarkdownImportScan = {
+    unresolvedWikiLinks: 0,
+    unresolvedObsidianEmbeds: 0,
+    unresolvedLocalImages: 0,
+    unsupportedImageAddresses: 0,
+    inlineImagesFlattened: 0,
+  };
+  const environment: MarkdownEnvironment = { importScan, obsidianBoundaries: new Map() };
 
   let json: JsonNode;
   try {
     // MarkdownParser.parse returns a document node or throws; it never returns null.
-    json = parser.parse(sentinelled).toJSON() as JsonNode;
+    json = parser.parse(stripDetails(markdown), environment).toJSON() as JsonNode;
   } catch (error) {
     return {
       ok: false,
@@ -305,7 +519,7 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
     };
   }
 
-  const rebuilt = rebuildCustomNodes(json, images);
+  const rebuilt = rebuildCustomNodes(json);
 
   // The schema is the boundary, not the parser: a document that tokenised cleanly can still be a
   // shape the schema refuses (an empty doc, a mis-nested node), and that is a failure to report
@@ -315,5 +529,5 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
     return { ok: false, reason: parsed.error };
   }
 
-  return { ok: true, doc: rebuilt };
+  return { ok: true, doc: rebuilt, scan: importScan };
 }
