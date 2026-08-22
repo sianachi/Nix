@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
 using Nix.Domain.Calendar;
 using Nix.Domain.Primitives;
+using Nix.Domain.Recurrence;
 using Nix.Domain.Tenancy;
 using Nix.Messaging;
 
@@ -16,13 +17,57 @@ namespace Nix.Features.Calendar;
 public sealed record GetWorkspaceCalendar(WorkspaceId WorkspaceId, string From, string To)
     : IQuery<Result<WorkspaceCalendarResults>>;
 
-/// <summary>What a calendar read found, and the ceiling it was read under.</summary>
-/// <param name="Calendar">The entries, and the containers that placed nothing.</param>
+/// <summary>One row on a merged calendar: a stored item, or an occurrence a rule produced.</summary>
+/// <param name="Entry">The dated entry: who, which container, which property, and its value.</param>
+/// <param name="Generated">
+/// Whether a recurrence rule produced this row rather than it being read from storage.
+/// </param>
+/// <param name="Completed">
+/// The occurrence's completion state when <paramref name="Generated"/> is <see langword="true"/>;
+/// <see langword="null"/> for a concrete entry, which carries no completion state of its own.
+/// </param>
+public sealed record CalendarRow(CalendarEntry Entry, bool Generated, bool? Completed);
+
+/// <summary>A repeating item a recurrence read found, that this calendar could not draw.</summary>
+/// <param name="Candidate">The repeating item.</param>
+/// <param name="Reason">
+/// The stable token naming why it could not be placed: <c>calendar_not_by_due_date</c>,
+/// <c>no_due_date</c>, or <c>unreadable_rule</c>. The wire-facing tokens live on the internal
+/// <c>CalendarMapping</c>, which is what assigns this value; declared here as a plain
+/// <see langword="string"/>, not a reference to that type, because this record is public and
+/// <c>CalendarMapping</c> is not.
+/// </param>
+public sealed record UnplaceableCandidate(RecurringItem Candidate, string Reason);
+
+/// <summary>What a calendar read found, and the ceilings it was read under.</summary>
+/// <param name="Entries">
+/// The dated rows, concrete and rule-generated together, in one merged order.
+/// </param>
+/// <param name="UnplaceableContainers">
+/// The containers that offer a calendar but named no property to place children by.
+/// </param>
+/// <param name="UnplaceableCandidates">
+/// The repeating items a recurrence read found but could not draw, and why - kept apart from
+/// <paramref name="UnplaceableContainers"/> because the two answer different questions: one names
+/// a container with no axis, the other an item whose series cannot ride the axis it has.
+/// </param>
 /// <param name="EntryLimit">The entry ceiling that was applied.</param>
-public sealed record WorkspaceCalendarResults(WorkspaceCalendar Calendar, int EntryLimit)
+/// <param name="SeriesTruncated">
+/// Whether the candidate read hit <see cref="GetWorkspaceCalendarHandler.MaximumRecurringItems"/>,
+/// or the merge stopped before every drawable series had been expanded. Kept apart from
+/// <see cref="EntriesTruncated"/> on purpose: "there are more entries than were returned" and
+/// "there are more series than were considered" are different facts, and a reader who wants to see
+/// a specific series acts on the second one, not the first.
+/// </param>
+public sealed record WorkspaceCalendarResults(
+    IReadOnlyList<CalendarRow> Entries,
+    IReadOnlyList<UnplaceableCalendar> UnplaceableContainers,
+    IReadOnlyList<UnplaceableCandidate> UnplaceableCandidates,
+    int EntryLimit,
+    bool SeriesTruncated)
 {
     /// <summary>Whether the entry ceiling was reached.</summary>
-    public bool EntriesTruncated => Calendar.Entries.Count >= EntryLimit;
+    public bool EntriesTruncated => Entries.Count >= EntryLimit;
 }
 
 /// <summary>
@@ -74,18 +119,49 @@ public sealed class GetWorkspaceCalendarHandler
     /// </remarks>
     public const int MaximumWindowDays = 400;
 
+    /// <summary>
+    /// The most repeating series one calendar read considers before any of them is expanded.
+    /// </summary>
+    /// <remarks>
+    /// A ceiling on how many <em>series</em> are read, which is a different fact from
+    /// <see cref="MaximumEntries"/>, the ceiling on how many <em>entries</em> come back. A
+    /// workspace can hold many series that each contribute at most one occurrence to a short
+    /// window, or a handful that each contribute hundreds - so the search for repeating items has
+    /// to be bounded on its own axis, or a busy calendar could make finding the candidates the
+    /// expensive part of the read even when almost none of them end up drawn.
+    /// </remarks>
+    public const int MaximumRecurringItems = 500;
+
+    /// <summary>
+    /// The reserved property key a series' anchor is always read from.
+    /// </summary>
+    /// <remarks>
+    /// A series repeats from the day it is due, not from whatever property a container's calendar
+    /// happens to place by - <see cref="RecurringItem"/>'s own docs say why. A candidate whose
+    /// container places by a different key is therefore reported as unplaceable rather than drawn
+    /// on an axis nobody asked for.
+    /// </remarks>
+    private const string DueDateProperty = "due_date";
+
     private readonly IWorkspaceCalendar _calendar;
+    private readonly IRecurrenceCandidates _recurrence;
     private readonly IPermissionResolver _permissions;
 
     /// <summary>Initializes a new instance of the <see cref="GetWorkspaceCalendarHandler"/> class.</summary>
     /// <param name="calendar">Reads the dated entries.</param>
+    /// <param name="recurrence">Reads the repeating items a calendar has to expand.</param>
     /// <param name="permissions">Decides what the caller may read.</param>
-    public GetWorkspaceCalendarHandler(IWorkspaceCalendar calendar, IPermissionResolver permissions)
+    public GetWorkspaceCalendarHandler(
+        IWorkspaceCalendar calendar,
+        IRecurrenceCandidates recurrence,
+        IPermissionResolver permissions)
     {
         ArgumentNullException.ThrowIfNull(calendar);
+        ArgumentNullException.ThrowIfNull(recurrence);
         ArgumentNullException.ThrowIfNull(permissions);
 
         _calendar = calendar;
+        _recurrence = recurrence;
         _permissions = permissions;
     }
 
@@ -99,10 +175,10 @@ public sealed class GetWorkspaceCalendarHandler
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        if (!TryReadWindow(query.From, query.To, out var window))
+        if (!TryReadWindow(query.From, query.To, out var from, out var to, out var problem))
         {
             return Result.Failure<WorkspaceCalendarResults>(
-                CalendarErrors.InvalidWindow(window));
+                CalendarErrors.InvalidWindow(problem));
         }
 
         var workspaces = await _permissions
@@ -119,7 +195,116 @@ public sealed class GetWorkspaceCalendarHandler
             .ReadAsync(query.WorkspaceId, workspaces, query.From, query.To, MaximumEntries, cancellationToken)
             .ConfigureAwait(false);
 
-        return Result.Success(new WorkspaceCalendarResults(calendar, MaximumEntries));
+        var candidates = await _recurrence
+            .ReadAsync(query.WorkspaceId, workspaces, query.From, query.To, MaximumRecurringItems, cancellationToken)
+            .ConfigureAwait(false);
+
+        var candidateCeilingReached = candidates.Count >= MaximumRecurringItems;
+
+        // A candidate is drawable only when it repeats from the item's own due_date - the axis
+        // this calendar's occurrences are anchored to - and this build could read both a value on
+        // that axis and the rule itself. Anything else is reported as unplaceable, with the reason
+        // that is specifically true of it, rather than silently dropped or drawn on an axis nobody
+        // asked for.
+        var drawable = new List<RecurringItem>(candidates.Count);
+        var unplaceableCandidates = new List<UnplaceableCandidate>();
+
+        foreach (var candidate in candidates)
+        {
+            if (!string.Equals(candidate.DateProperty, DueDateProperty, StringComparison.Ordinal))
+            {
+                unplaceableCandidates.Add(new UnplaceableCandidate(candidate, CalendarMapping.NotByDueDateReason));
+            }
+            else if (candidate.Anchor is null)
+            {
+                unplaceableCandidates.Add(new UnplaceableCandidate(candidate, CalendarMapping.NoDueDateReason));
+            }
+            else if (candidate.Rule is null)
+            {
+                unplaceableCandidates.Add(new UnplaceableCandidate(candidate, CalendarMapping.UnreadableRuleReason));
+            }
+            else
+            {
+                drawable.Add(candidate);
+            }
+        }
+
+        // The concrete read already spent up to MaximumEntries; whatever it did not spend is what
+        // the merge may fill with generated occurrences. RecurrenceMerge's own remarks explain why
+        // this ordering - concrete first, then the remaining ceiling - loses nothing from the union.
+        var ceiling = Math.Max(0, MaximumEntries - calendar.Entries.Count);
+        var merge = RecurrenceMerge.Expand(drawable, from, to, ceiling);
+
+        var entries = MergeEntries(calendar.Entries, merge.Occurrences);
+        var seriesTruncated = candidateCeilingReached || merge.Truncated;
+
+        return Result.Success(new WorkspaceCalendarResults(
+            entries,
+            calendar.Unplaceable,
+            unplaceableCandidates,
+            MaximumEntries,
+            seriesTruncated));
+    }
+
+    /// <summary>
+    /// Merges the concrete entries and the generated occurrences into one list, ordered by value
+    /// then by the order they arrived.
+    /// </summary>
+    /// <param name="concrete">The stored entries, earliest first.</param>
+    /// <param name="generated">The generated occurrences, earliest first.</param>
+    /// <returns>The two, interleaved by day.</returns>
+    /// <remarks>
+    /// <para>
+    /// Both inputs already arrive sorted ascending by value, so this is a merge, not a sort - the
+    /// same shape <see cref="RecurrenceMerge"/> itself uses to combine many series. A plain sort
+    /// over the concatenation would cost more for the same answer and would not, on its own, fix
+    /// the tie order below.
+    /// </para>
+    /// <para>
+    /// <b>Ties favour the concrete entry.</b> When a stored entry and a generated occurrence land
+    /// on the same value, the stored one is placed first - it is the caller's own data, read
+    /// before any series is expanded, so it is the one that "arrived" first. This is deterministic
+    /// regardless of how many series a workspace holds, which is what "the same window cuts the
+    /// same rows twice" requires.
+    /// </para>
+    /// </remarks>
+    private static List<CalendarRow> MergeEntries(
+        IReadOnlyList<CalendarEntry> concrete,
+        IReadOnlyList<GeneratedOccurrence> generated)
+    {
+        var merged = new List<CalendarRow>(concrete.Count + generated.Count);
+        var concreteIndex = 0;
+        var generatedIndex = 0;
+
+        while (concreteIndex < concrete.Count && generatedIndex < generated.Count)
+        {
+            if (string.CompareOrdinal(concrete[concreteIndex].Value, generated[generatedIndex].Entry.Value) <= 0)
+            {
+                merged.Add(new CalendarRow(concrete[concreteIndex], Generated: false, Completed: null));
+                concreteIndex++;
+            }
+            else
+            {
+                var occurrence = generated[generatedIndex];
+                merged.Add(new CalendarRow(occurrence.Entry, Generated: true, occurrence.Completed));
+                generatedIndex++;
+            }
+        }
+
+        while (concreteIndex < concrete.Count)
+        {
+            merged.Add(new CalendarRow(concrete[concreteIndex], Generated: false, Completed: null));
+            concreteIndex++;
+        }
+
+        while (generatedIndex < generated.Count)
+        {
+            var occurrence = generated[generatedIndex];
+            merged.Add(new CalendarRow(occurrence.Entry, Generated: true, occurrence.Completed));
+            generatedIndex++;
+        }
+
+        return merged;
     }
 
     /// <summary>
@@ -127,6 +312,8 @@ public sealed class GetWorkspaceCalendarHandler
     /// </summary>
     /// <param name="from">The first day.</param>
     /// <param name="to">The last day.</param>
+    /// <param name="first">The first day, parsed, when the window may be used.</param>
+    /// <param name="last">The last day, parsed, when the window may be used.</param>
     /// <param name="problem">Why it was refused, when it was.</param>
     /// <returns><see langword="true"/> when the window may be used.</returns>
     /// <remarks>
@@ -142,16 +329,22 @@ public sealed class GetWorkspaceCalendarHandler
     /// <c>2026-3-1</c> is refused rather than accepted and then compared against stored values that
     /// are always zero-padded - which would match nothing and look like an empty month.
     /// </para>
+    /// <para>
+    /// The parsed days are handed back rather than reparsed by the caller, because the recurrence
+    /// merge needs them as <see cref="DateOnly"/> too - one parse, used twice, so the two cannot
+    /// disagree about what the window means.
+    /// </para>
     /// </remarks>
-    private static bool TryReadWindow(string from, string to, out string problem)
+    private static bool TryReadWindow(string from, string to, out DateOnly first, out DateOnly last, out string problem)
     {
-        if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first))
+        if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out first))
         {
+            last = default;
             problem = $"'{from}' is not a date. Windows are given as yyyy-MM-dd.";
             return false;
         }
 
-        if (!DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var last))
+        if (!DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out last))
         {
             problem = $"'{to}' is not a date. Windows are given as yyyy-MM-dd.";
             return false;
@@ -222,9 +415,10 @@ internal static class GetWorkspaceCalendarEndpoint
             workspaceId,
             from,
             to,
-            CalendarMapping.ToEntryResponses(found.Calendar.Entries),
-            CalendarMapping.ToUnplaceableResponses(found.Calendar.Unplaceable),
+            CalendarMapping.ToEntryResponses(found.Entries),
+            CalendarMapping.ToUnplaceableResponses(found.UnplaceableContainers, found.UnplaceableCandidates),
             found.EntryLimit,
-            found.EntriesTruncated));
+            found.EntriesTruncated,
+            found.SeriesTruncated));
     }
 }
