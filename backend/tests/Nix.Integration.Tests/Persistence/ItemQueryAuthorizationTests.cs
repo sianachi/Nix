@@ -178,6 +178,18 @@ public sealed class ItemQueryAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_active_match_below_a_deleted_ancestor_is_excluded_before_ordering_and_limit()
+    {
+        await HideBelowDeletedItemAsync(Overdue, DeletedOverdue);
+
+        var results = await RunAsync(OverdueRules, limit: 1);
+
+        var item = Assert.Single(results.Items);
+        Assert.Equal(ItemId.From(ZonedOverdue), item.Id);
+        Assert.False(results.Truncated);
+    }
+
+    [Fact]
     public async Task Another_tenant_s_matches_never_return()
     {
         var results = await RunAsync(OverdueRules, limit: RunItemQueryHandler.MaximumResults);
@@ -371,6 +383,33 @@ public sealed class ItemQueryAuthorizationTests : IAsyncLifetime
         await using (connection.ConfigureAwait(false))
         {
             await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    private async Task HideBelowDeletedItemAsync(Guid itemId, Guid deletedAncestorId)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  DELETE FROM item_closure
+                   WHERE descendant_id = {{Literal(itemId)}}
+                     AND depth > 0;
+
+                  UPDATE item
+                     SET parent_id = {{Literal(deletedAncestorId)}}
+                   WHERE id = {{Literal(itemId)}};
+
+                  INSERT INTO item_closure
+                      (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  VALUES
+                      ({{Literal(itemId)}}, {{Literal(deletedAncestorId)}},
+                       {{Literal(M0SchemaSeed.Alpha.TenantId)}},
+                       {{Literal(M0SchemaSeed.Alpha.WorkspaceId)}}, 1);
+                  """);
         }
     }
 
