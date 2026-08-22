@@ -208,6 +208,43 @@ public sealed class BookmarkShelfAuthorizationTests : IAsyncLifetime
         Assert.Equal(1, shelf.Hidden);
     }
 
+    [Fact]
+    public async Task A_bookmarked_active_descendant_below_a_deleted_ancestor_is_counted_as_hidden()
+    {
+        await KeepAsync(KeeperContext, SharedItem);
+        await HideBelowTrashedItemAsync(SharedItem);
+
+        var shelf = await ReadAsync(KeeperContext);
+
+        Assert.Empty(shelf.Items);
+        Assert.Equal(1, shelf.Hidden);
+    }
+
+    [Fact]
+    public async Task An_active_descendant_below_a_deleted_ancestor_cannot_be_kept()
+    {
+        await HideBelowTrashedItemAsync(SharedItem);
+
+        await KeepAsync(KeeperContext, SharedItem);
+
+        var shelf = await ReadAsync(KeeperContext);
+        Assert.Empty(shelf.Items);
+        Assert.Equal(0, shelf.Hidden);
+    }
+
+    [Fact]
+    public async Task A_hidden_bookmark_can_still_be_released()
+    {
+        await KeepAsync(KeeperContext, SharedItem);
+        await HideBelowTrashedItemAsync(SharedItem);
+
+        await ReleaseAsync(KeeperContext, SharedItem);
+
+        var shelf = await ReadAsync(KeeperContext);
+        Assert.Empty(shelf.Items);
+        Assert.Equal(0, shelf.Hidden);
+    }
+
     /// <summary>
     /// The case the hidden count exists for. The row survives losing access, so the list must not
     /// carry it - and the reader must still be told their shelf is larger than what they can see.
@@ -333,6 +370,29 @@ public sealed class BookmarkShelfAuthorizationTests : IAsyncLifetime
                 connection,
                 transaction: null,
                 $"UPDATE item SET lifecycle_state = 'deleted' WHERE id = {Literal(itemId)};");
+        }
+    }
+
+    private async Task HideBelowTrashedItemAsync(Guid itemId)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  UPDATE item
+                     SET parent_id = {{Literal(TrashedItem)}}
+                   WHERE id = {{Literal(itemId)}};
+
+                  INSERT INTO item_closure
+                      (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  VALUES
+                      ({{Literal(itemId)}}, {{Literal(TrashedItem)}},
+                       {{Literal(M0SchemaSeed.Alpha.TenantId)}},
+                       {{Literal(M0SchemaSeed.Alpha.WorkspaceId)}}, 1);
+                  """);
         }
     }
 
