@@ -3,6 +3,8 @@ import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router';
 
+import { useAuth } from '../auth/auth-provider';
+import { ImportDialog } from '../import/import-dialog';
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import { announce, useAnnouncement } from '../a11y/announcer';
@@ -102,6 +104,7 @@ const MAX_SHELL_TOASTS = 2;
 
 export function AppShell(): ReactNode {
   const navigate = useNavigate();
+  const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
   const { selectedId, select } = useSelectedItem();
@@ -118,6 +121,7 @@ export function AppShell(): ReactNode {
   const selectedIsKept = useIsKept(selectedId);
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
 
   // Selecting something in the drawer is "I'm done with the drawer, show me what I picked" on a
   // phone - there is no room to leave it open over the thing it just navigated to. Left alone on a
@@ -391,6 +395,15 @@ export function AppShell(): ReactNode {
           row underneath a definite height to scroll against. */}
       <div className="flex min-h-0 flex-1">
         <NavRail
+          onImport={() => {
+            // The import is modal, so there is no reason to leave a narrow-screen drawer open
+            // underneath it. Closing it also means the imported root can be revealed cleanly in
+            // the tree once the report is dismissed.
+            if (narrow && sidebar.visible) {
+              sidebar.toggle();
+            }
+            setWorkspaceImportOpen(true);
+          }}
           onNavigate={() => {
             // A phone has no room to leave the tree open over the destination it was just asked
             // to leave for. Focus is left on the rail link that was activated rather than moved
@@ -554,6 +567,22 @@ export function AppShell(): ReactNode {
           </div>
         </div>
       </div>
+
+      {workspaceImportOpen ? (
+        <ImportDialog
+          open
+          parentId={null}
+          getAccessToken={getAccessToken}
+          onClose={() => {
+            setWorkspaceImportOpen(false);
+          }}
+          onImported={(rootItemId) => {
+            // Reveal the imported vault without opening it over the report the person is still
+            // reading. This is the same promise as a contextual import inside an open note.
+            void tree.reveal(rootItemId);
+          }}
+        />
+      ) : null}
 
       <CommandPalette
         open={searchOpen}
