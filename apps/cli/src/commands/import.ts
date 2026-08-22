@@ -11,10 +11,11 @@
  * skipped (with why), failed (with why), or not attempted (because its parent failed or the run
  * stopped) - and what a created item still lost (a body write or a property patch that was
  * refused) is declared on its own row, so "what was mapped and what was dropped" is answered by
- * the output rather than by re-reading the tree. Wiki links and local image paths are counted as
- * unresolved, never silently dropped. `--dry-run` prints the same mapping without touching the
- * network, which is the preview-before-commit 7.5 asks the host to render. Anything short of a
- * complete import leaves with a non-zero exit code, after the report has been printed.
+ * the output rather than by re-reading the tree. Wiki links, Obsidian embeds, local/unsupported
+ * image targets, and inline image flattening are measured by the body parser and declared. A
+ * `--dry-run` prints the same mapping without touching the network, which is the
+ * preview-before-commit 7.5 asks the host to render. Anything short of a complete import leaves
+ * with a non-zero exit code, after the report has been printed.
  *
  * **It stops honestly on Core's write rate limit**, the same way `stress seed` does: a large tree
  * meets the per-IP write cap, and when it does the import keeps what it made, lists everything it
@@ -38,7 +39,8 @@ import { isNixApiError, items, structure } from '@nix/api-client';
 // The subpaths, not the package root: the root re-exports the whole Markdown mapping, and a static
 // import of it here would load ProseMirror into every command - the cold start §2.4 protects.
 import { noteFromMarkdown } from '@nix/markdown/front-matter';
-import { countLocalImages, countWikiLinks } from '@nix/markdown/scan';
+import { EMPTY_MARKDOWN_IMPORT_SCAN, type MarkdownImportScan } from '@nix/markdown/scan';
+import type { FromMarkdownResult } from '@nix/markdown/from-markdown';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { ExitCode, printResult, toFailure, type OutputOptions } from '../output.ts';
 
@@ -65,10 +67,8 @@ interface PlannedEntry {
   readonly body: string;
   /** Front matter lines that could not be mapped, declared rather than dropped. */
   readonly droppedFrontMatter: readonly string[];
-  /** `[[wiki links]]` in the body, carried as plain text rather than resolved. */
-  readonly unresolvedWikiLinks: number;
-  /** Image references to local files, which the workspace cannot resolve; carried, not dropped. */
-  readonly unresolvedLocalImages: number;
+  /** Parser-observed changes in how the source can be represented in a Nix body. */
+  readonly scan: MarkdownImportScan;
   readonly children: readonly PlannedEntry[];
 }
 
@@ -96,7 +96,10 @@ interface CreatedEntry {
   propertiesError?: string;
   readonly droppedFrontMatter: readonly string[];
   readonly unresolvedWikiLinks: number;
+  readonly unresolvedObsidianEmbeds: number;
   readonly unresolvedLocalImages: number;
+  readonly unsupportedImageAddresses: number;
+  readonly inlineImagesFlattened: number;
 }
 
 /** Imports a Markdown file or folder tree under a parent and prints the mapping report. */
@@ -125,7 +128,7 @@ export async function runImport(
   // it. Each body is parsed exactly once - here for the preview, or in the write loop below right
   // before its item is created - so a file that cannot become a valid note is a reported failure
   // and its item is never made.
-  const { markdownToDocument } = await import('@nix/markdown');
+  const { markdownToDocument } = await import('@nix/markdown/from-markdown');
 
   if (options.dryRun) {
     const valid = validate(root, markdownToDocument, failed);
@@ -179,6 +182,7 @@ export async function runImport(
     // no empty item is left standing for it. The parsed document is handed to the write, which is
     // the only time this body is parsed.
     let parsedDoc: unknown;
+    let scan = next.entry.scan;
     if (next.entry.body.trim().length > 0) {
       const parsed = markdownToDocument(next.entry.body);
       if (!parsed.ok) {
@@ -189,6 +193,7 @@ export async function runImport(
         continue;
       }
       parsedDoc = parsed.doc;
+      scan = parsed.scan;
     }
 
     let itemId: string;
@@ -233,8 +238,11 @@ export async function runImport(
       properties: Object.keys(next.entry.properties),
       bodyBytes: 0,
       droppedFrontMatter: next.entry.droppedFrontMatter,
-      unresolvedWikiLinks: next.entry.unresolvedWikiLinks,
-      unresolvedLocalImages: next.entry.unresolvedLocalImages,
+      unresolvedWikiLinks: scan.unresolvedWikiLinks,
+      unresolvedObsidianEmbeds: scan.unresolvedObsidianEmbeds,
+      unresolvedLocalImages: scan.unresolvedLocalImages,
+      unsupportedImageAddresses: scan.unsupportedImageAddresses,
+      inlineImagesFlattened: scan.inlineImagesFlattened,
     };
     created.push(row);
 
@@ -247,7 +255,7 @@ export async function runImport(
           itemId,
           token,
           markdown: next.entry.body,
-          parsedDoc,
+          parsed: { doc: parsedDoc, scan },
           // This item was created moments ago; its update log is empty, so the catch-up read
           // would fetch nothing. Skipping it halves the collab traffic of an import.
           assumeEmpty: true,
@@ -356,7 +364,7 @@ async function plan(
     let entries;
     try {
       entries = (await readdir(path, { withFileTypes: true })).sort((a, b) =>
-        a.name.localeCompare(b.name),
+        compareCodeUnits(a.name, b.name),
       );
     } catch {
       failed.push({ path, reason: 'not readable' });
@@ -399,8 +407,7 @@ async function plan(
       properties: {},
       body: '',
       droppedFrontMatter: [],
-      unresolvedWikiLinks: 0,
-      unresolvedLocalImages: 0,
+      scan: EMPTY_MARKDOWN_IMPORT_SCAN,
       children,
     };
   }
@@ -431,8 +438,7 @@ async function planFile(path: string, failed: FailedEntry[]): Promise<PlannedEnt
     properties,
     body,
     droppedFrontMatter: dropped,
-    unresolvedWikiLinks: countWikiLinks(body),
-    unresolvedLocalImages: countLocalImages(body),
+    scan: EMPTY_MARKDOWN_IMPORT_SCAN,
     children: [],
   };
 }
@@ -444,18 +450,17 @@ async function planFile(path: string, failed: FailedEntry[]): Promise<PlannedEnt
  */
 function validate(
   entry: PlannedEntry,
-  parse: (
-    markdown: string,
-  ) =>
-    { readonly ok: true; readonly doc: unknown } | { readonly ok: false; readonly reason: string },
+  parse: (markdown: string) => FromMarkdownResult,
   failed: FailedEntry[],
 ): PlannedEntry | null {
+  let scan = entry.scan;
   if (entry.body.trim().length > 0) {
     const parsed = parse(entry.body);
     if (!parsed.ok) {
       failed.push({ path: entry.path, reason: `not a valid note body: ${parsed.reason}` });
       return null;
     }
+    scan = parsed.scan;
   }
 
   const children: PlannedEntry[] = [];
@@ -465,7 +470,7 @@ function validate(
       children.push(kept);
     }
   }
-  return { ...entry, children };
+  return { ...entry, scan, children };
 }
 
 interface PlannedRow {
@@ -477,7 +482,10 @@ interface PlannedRow {
   readonly sourceBytes: number;
   readonly droppedFrontMatter: readonly string[];
   readonly unresolvedWikiLinks: number;
+  readonly unresolvedObsidianEmbeds: number;
   readonly unresolvedLocalImages: number;
+  readonly unsupportedImageAddresses: number;
+  readonly inlineImagesFlattened: number;
 }
 
 /** The planned tree as a flat list for the dry-run report, parents before children. */
@@ -489,11 +497,18 @@ function flattenPlan(entry: PlannedEntry, into: PlannedRow[]): PlannedRow[] {
     properties: Object.keys(entry.properties),
     sourceBytes: Buffer.byteLength(entry.body.trim(), 'utf8'),
     droppedFrontMatter: entry.droppedFrontMatter,
-    unresolvedWikiLinks: entry.unresolvedWikiLinks,
-    unresolvedLocalImages: entry.unresolvedLocalImages,
+    unresolvedWikiLinks: entry.scan.unresolvedWikiLinks,
+    unresolvedObsidianEmbeds: entry.scan.unresolvedObsidianEmbeds,
+    unresolvedLocalImages: entry.scan.unresolvedLocalImages,
+    unsupportedImageAddresses: entry.scan.unsupportedImageAddresses,
+    inlineImagesFlattened: entry.scan.inlineImagesFlattened,
   });
   for (const child of entry.children) {
     flattenPlan(child, into);
   }
   return into;
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
