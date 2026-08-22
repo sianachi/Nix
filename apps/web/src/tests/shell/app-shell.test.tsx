@@ -112,10 +112,10 @@ describe('the shell', () => {
     });
   });
 
-  it('finds a note by title and opens it', async () => {
+  it('finds a note by title and opens it from any workspace destination', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
-    renderAt(<App />);
+    renderAt(<App />, '/calendar');
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
     await user.click(screen.getByRole('button', { name: /^search/i }));
@@ -132,6 +132,9 @@ describe('the shell', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
     });
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Acquisition memo',
+    );
   });
 
   it('says a search failed rather than reporting an empty workspace', async () => {

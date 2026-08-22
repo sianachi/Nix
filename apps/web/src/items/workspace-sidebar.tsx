@@ -26,7 +26,7 @@ import {
 import { announce } from '../a11y/announcer';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
-import { BESIDE_REFUSAL_COPY, type BesideRefusal } from '../panes/pane-state';
+import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-open-item';
 import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
@@ -82,8 +82,8 @@ export interface WorkspaceSidebarProps {
   /** Whether another pane would fit. A control that silently refuses reads as a broken one. */
   readonly canOpenBeside: boolean;
 
-  /** Why not, when it would not - so the control can say which of two reasons it is. */
-  readonly besideRefusal: BesideRefusal | null;
+  /** Why not, when it would not - so the control can say what must change before it can work. */
+  readonly besideRefusal: OpenBesideRefusal | null;
 
   /**
    * Deletes an item. Owned by `app-shell.tsx` rather than by this component - see its own
@@ -534,7 +534,7 @@ interface TreeBodyProps {
   readonly onOpenBeside: (itemId: string) => void;
   readonly onOpenPinned: (itemId: string) => void;
   readonly canOpenBeside: boolean;
-  readonly besideRefusal: BesideRefusal | null;
+  readonly besideRefusal: OpenBesideRefusal | null;
   readonly dragged: string | null;
   readonly setDragged: (itemId: string | null) => void;
 
@@ -775,7 +775,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       } else if (besideRefusal !== null) {
         // A pointer user gets a disabled control whose name explains itself; without this a
         // keyboard user gets silence, which reads as a broken key rather than a full screen.
-        announce(BESIDE_REFUSAL_COPY[besideRefusal]);
+        announce(OPEN_BESIDE_REFUSAL_COPY[besideRefusal]);
       }
       return;
     }
@@ -925,7 +925,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             aria-label={
               besideRefusal === null
                 ? `Open ${item.title || 'Untitled'} beside`
-                : `Cannot open ${item.title || 'Untitled'} beside. ${BESIDE_REFUSAL_COPY[besideRefusal]}`
+                : `Cannot open ${item.title || 'Untitled'} beside. ${OPEN_BESIDE_REFUSAL_COPY[besideRefusal]}`
             }
             onClick={() => {
               onOpenBeside(item.id);

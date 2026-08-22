@@ -7,6 +7,7 @@ import { useSelectedItem } from '../routing/selected-item';
 import { useTabOrientationStore } from './tab-orientation-store';
 import { useTabStore } from './tab-store';
 import { useDocumentTabs } from './use-document-tabs';
+import { useOpenItem } from './use-open-item';
 
 /**
  * One pane's open documents.
@@ -46,7 +47,8 @@ export function DocumentTabStrip({
   onClosePane,
 }: DocumentTabStripProps): ReactNode {
   const { tabs } = useDocumentTabs(paneIndex, activeItemId);
-  const { select, clear } = useSelectedItem();
+  const { clear } = useSelectedItem();
+  const { activateTab } = useOpenItem();
   const tabClosed = useTabStore((state) => state.tabClosed);
   const orientation = useTabOrientationStore((state) => state.orientation);
   const orientationToggled = useTabOrientationStore((state) => state.orientationToggled);
@@ -67,7 +69,7 @@ export function DocumentTabStrip({
     const index = tabs.findIndex((tab) => tab.itemId === itemId);
     const remaining = tabs.filter((tab) => tab.itemId !== itemId);
 
-    tabClosed(paneIndex, itemId);
+    tabClosed(itemId);
 
     if (remaining.length === 0) {
       if (onClosePane === undefined) {
@@ -83,7 +85,7 @@ export function DocumentTabStrip({
       // leftmost - the same convention VS Code's own tab strip uses.
       const neighbor = remaining[Math.max(0, index - 1)];
       if (neighbor !== undefined) {
-        select(neighbor.itemId);
+        activateTab(neighbor.itemId);
       }
     }
   }
@@ -97,7 +99,7 @@ export function DocumentTabStrip({
         orientation={orientation}
         onActivate={(itemId) => {
           if (itemId !== activeItemId) {
-            select(itemId);
+            activateTab(itemId);
           }
         }}
         onClose={handleClose}

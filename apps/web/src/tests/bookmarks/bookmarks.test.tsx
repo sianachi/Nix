@@ -138,6 +138,18 @@ describe('the bookmarks destination', () => {
     expect(within(shelf).getByText('Acquisition memo')).toBeInTheDocument();
   });
 
+  it('opens the note a bookmark points at', async () => {
+    stubCoreApi({ items: [NOTE], bookmarks: [KEPT] });
+    renderAt(<App />, '/bookmarks');
+
+    const shelf = await screen.findByRole('list', { name: 'Bookmarks' });
+    await userEvent.click(within(shelf).getByRole('button', { name: 'Acquisition memo' }));
+
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Acquisition memo',
+    );
+  });
+
   it('says a shelf with nothing on it is empty, not broken', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, '/bookmarks');
