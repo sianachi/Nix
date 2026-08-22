@@ -38,6 +38,11 @@ export function collectDependencies(node: FormulaNode): FormulaDependencies {
           walk(arg);
         }
         return;
+      // A field is a value the context supplies, not a cell this sheet holds,
+      // so it contributes no edge to the grid's dependency graph. Property
+      // formulas order themselves in `properties.ts`, where the keys are the
+      // graph nodes.
+      case 'field':
       case 'number':
       case 'string':
       case 'boolean':

@@ -53,8 +53,82 @@ public static class PropertySchemaRules
             {
                 return $"'{property.Label}' is not a select, so it cannot carry options.";
             }
+
+            if (property.Type == PropertyType.Formula)
+            {
+                if (string.IsNullOrWhiteSpace(property.Expression))
+                {
+                    return $"'{property.Label}' is a formula and needs an expression.";
+                }
+
+                if (property.Expression.Length > FormulaReferences.MaximumExpressionLength)
+                {
+                    return $"'{property.Label}' has an expression longer than "
+                        + $"{FormulaReferences.MaximumExpressionLength} characters, which is more "
+                        + "than a formula property will evaluate.";
+                }
+            }
+            else if (property.Expression is not null)
+            {
+                // Cheap to ignore and expensive to police is ADR-0020's rule for a field a kind
+                // does not use - but an expression is not inert decoration. A property carrying one
+                // while typed as text would evaluate the moment somebody retyped it to a formula,
+                // silently, with an expression nobody had looked at since.
+                return $"'{property.Label}' is not a formula, so it cannot carry an expression.";
+            }
+
+            // A computed property has no value to require: nothing writes one, so there is no
+            // write for the requirement to be about.
+            if (property.Type.IsComputed() && property.Required)
+            {
+                return $"'{property.Label}' is computed, so it cannot be required - "
+                    + "nothing writes a value for it to be missing.";
+            }
         }
 
-        return null;
+        return RefuseCycle(schema);
+    }
+
+    /// <summary>
+    /// Returns the reason a schema's formulas refer in a circle, or null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Checked over the properties this schema declares, which is not the whole graph.</b> An
+    /// effective schema merges ancestors, so a formula here can read one declared three levels up
+    /// and the pair could close a circle that neither declaration shows on its own. The engine
+    /// catches that case where it evaluates - anything on or downstream of a cycle reads
+    /// <c>#CYCLE!</c> - which is the layer that sees the merged set. Refusing here is what stops
+    /// the mistake somebody can actually see themselves making, in the editor they are making it
+    /// in, rather than leaving a schema that stores fine and reads as an error everywhere.
+    /// </para>
+    /// <para>
+    /// The alternative - resolving ancestors before accepting a schema - would make storing a
+    /// schema depend on where the item currently sits, so moving an item could retroactively
+    /// invalidate a declaration it was allowed to make. These rules are pure and stay pure.
+    /// </para>
+    /// </remarks>
+    private static string? RefuseCycle(PropertySchema schema)
+    {
+        // Only the formulas that survived the loop above, which means every one of them has an
+        // expression - so this map is non-null-valued by construction rather than by inspection.
+        Dictionary<string, string>? formulas = null;
+        foreach (var property in schema.Properties)
+        {
+            if (property.Type == PropertyType.Formula && property.Expression is { } expression)
+            {
+                formulas ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                formulas[property.Key] = expression;
+            }
+        }
+
+        if (formulas is null)
+        {
+            return null;
+        }
+
+        return FormulaReferences.FindCycle(formulas) is { } key
+            ? $"'{key}' is a formula that refers back to itself, directly or through another formula."
+            : null;
     }
 }
