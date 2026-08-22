@@ -86,6 +86,16 @@ public sealed class ListItemsHandler : IQueryHandler<ListItems, Result<IReadOnly
         // answer and a cursor, not a 400 telling it to ask again more politely.
         var capped = Math.Clamp(limit, 1, MaximumPageSize);
 
+        if (parentId is { } parent)
+        {
+            var visibleParent = await _tree.FindAsync(parent, cancellationToken).ConfigureAwait(false);
+            if (visibleParent is null || visibleParent.WorkspaceId != workspaceId)
+            {
+                return Result.Failure<IReadOnlyList<Item>>(
+                    ItemErrors.ParentNotFound($"No parent {parent} is visible in this workspace."));
+            }
+        }
+
         var page = await _tree
             .ListChildrenAsync(workspaceId, parentId, includeDeleted, afterSeq, capped, cancellationToken)
             .ConfigureAwait(false);
