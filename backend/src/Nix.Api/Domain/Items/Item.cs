@@ -101,6 +101,28 @@ public sealed class Item
     public string? Views { get; init; }
 
     /// <summary>
+    /// The item's repeating rule, when it has one, as JSON.
+    /// </summary>
+    /// <remarks>
+    /// Held as a JSON string for the same reason <see cref="Properties"/> is. Goal 3.2 will add
+    /// the typed representation and the one write path; until then nothing writes this column and
+    /// the database CHECK is its only bound. Null for the overwhelming majority of items, which
+    /// is what makes the partial index over it cheap.
+    /// </remarks>
+    public string? Recurrence { get; init; }
+
+    /// <summary>
+    /// The first ten characters of the reserved <c>due_date</c> property, maintained by Postgres.
+    /// </summary>
+    /// <remarks>
+    /// A stored generated column, never written by this application - it exists because a
+    /// predicate over <c>properties -&gt;&gt; key</c> can never be an index condition under row
+    /// security (<c>-&gt;&gt;</c> is not leakproof), while a plain column reference is. Read-only by
+    /// contract; the write paths never name it.
+    /// </remarks>
+    public string? DueDay { get; init; }
+
+    /// <summary>
     /// Gets the catalog template this hidden item belongs to, or <see langword="null"/> for an
     /// ordinary workspace item.
     /// </summary>

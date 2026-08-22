@@ -309,6 +309,73 @@ public sealed class PropertyValidatorTests
             "Field must be a link to an image, over http or https.");
     }
 
+    [Theory]
+    [InlineData("\"2026-03-17\"")]
+    [InlineData("\"1999-12-31\"")]
+    public void Due_and_start_dates_accept_exactly_what_a_date_accepts(string value)
+    {
+        // The task types refine meaning, never representation: `left(value, 10)` comparisons and
+        // the calendar's day bucketing must keep working on them unchanged.
+        AssertAccepted(PropertyType.DueDate, value);
+        AssertAccepted(PropertyType.StartDate, value);
+    }
+
+    [Theory]
+    [InlineData("\"2026-03-17T09:00:00Z\"")]
+    [InlineData("\"17/03/2026\"")]
+    [InlineData("42")]
+    public void Due_and_start_dates_refuse_what_a_date_refuses(string value)
+    {
+        AssertRefused(PropertyType.DueDate, value, "Field must be a date, as yyyy-MM-dd.");
+        AssertRefused(PropertyType.StartDate, value, "Field must be a date, as yyyy-MM-dd.");
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void Completion_accepts_a_JSON_boolean(string value) =>
+        AssertAccepted(PropertyType.Completion, value);
+
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    [InlineData("\"done\"")]
+    public void Completion_refuses_the_usual_stand_ins_for_a_boolean(string value) =>
+        AssertRefused(PropertyType.Completion, value, "Field must be true or false.");
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("2")]
+    [InlineData("4")]
+    public void Priority_accepts_the_closed_scale(string value) =>
+        AssertAccepted(PropertyType.Priority, value);
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("5")]
+    [InlineData("1.5")]
+    [InlineData("\"1\"")]
+    [InlineData("\"high\"")]
+    public void Priority_refuses_what_is_off_or_beside_the_scale(string value) =>
+        AssertRefused(
+            PropertyType.Priority,
+            value,
+            "Field must be a whole number from 1 (most urgent) to 4.");
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("2.5")]
+    [InlineData("40")]
+    public void Estimate_accepts_a_non_negative_number(string value) =>
+        AssertAccepted(PropertyType.Estimate, value);
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("\"3\"")]
+    [InlineData("true")]
+    public void Estimate_refuses_a_negative_or_non_number(string value) =>
+        AssertRefused(PropertyType.Estimate, value, "Field must be a number of zero or more.");
+
     [Fact]
     public void Every_type_this_build_defines_refuses_a_value_of_the_wrong_shape()
     {

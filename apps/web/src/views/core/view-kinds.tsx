@@ -15,6 +15,7 @@ import type { ReactNode } from 'react';
 import { BoardView } from '../board/board-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
+import { isDateShaped } from './property-types';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import { FormView } from '../form/form-view';
 import { InteractiveFormView } from '../form/interactive-form-view';
@@ -261,7 +262,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         emptyChoice: 'Choose a property',
         // Both, because a calendar places by either. A date is an all-day thing that must not
         // shift for a reader in another zone; a timestamp is a moment that must.
-        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+        accepts: (property) => isDateShaped(property.type),
       },
     ],
     chooses: [],
@@ -332,7 +333,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // Both, exactly as the calendar accepts both, and the server's requirement is the
         // calendar's verbatim. A date is an all-day thing that must not shift for a reader in
         // another zone; a timestamp is a moment that must.
-        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+        accepts: (property) => isDateShaped(property.type),
       },
       {
         field: 'endDateProperty',
@@ -344,7 +345,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // Not "Choose a property": a timeline of milestones is complete, and calling it unfinished
         // would send somebody looking for what was broken.
         emptyChoice: 'None',
-        accepts: (property) => property.type === 'date' || property.type === 'timestamp',
+        accepts: (property) => isDateShaped(property.type),
       },
     ],
     chooses: [],
