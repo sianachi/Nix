@@ -57,6 +57,12 @@ function markdownFile(name: string, text: string): File {
   return new File([text], name, { type: 'text/markdown' });
 }
 
+function vaultFile(path: string, text: string): File {
+  const file = markdownFile(path.split('/').at(-1) ?? 'note.md', text);
+  Object.defineProperty(file, 'webkitRelativePath', { value: path });
+  return file;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -65,8 +71,25 @@ describe('the import dialog', () => {
   it('says what it can import - and what it cannot yet - before anything is chosen', () => {
     open();
 
+    expect(screen.getByText(/Obsidian vault/)).toBeInTheDocument();
+    expect(screen.getByText(/every nested folder/)).toBeInTheDocument();
     expect(screen.getByText(/Archives, Word and PDF cannot be imported yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeInTheDocument();
+  });
+
+  it('previews an Obsidian vault recursively, preserving its nested folders', async () => {
+    open();
+    await pick(
+      vaultFile('Research vault/Daily/2026-08-22.md', 'Today.'),
+      vaultFile('Research vault/Projects/Nix.md', 'Project.'),
+      vaultFile('Research vault/.obsidian/config.md', 'Tool settings.'),
+    );
+
+    expect(await screen.findByRole('button', { name: 'Import 5 items' })).toBeInTheDocument();
+    expect(screen.getByText(/under a new item called “Research vault”/)).toBeInTheDocument();
+    expect(screen.getByText(/inside a hidden directory/)).toHaveTextContent(
+      'Research vault/.obsidian/config.md',
+    );
   });
 
   it('previews the mapping before creating anything, with the losses declared', async () => {
