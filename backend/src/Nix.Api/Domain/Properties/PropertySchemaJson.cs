@@ -42,6 +42,7 @@ public static class PropertySchemaJson
     private const string TypeKey = "type";
     private const string OptionsKey = "options";
     private const string RequiredKey = "required";
+    private const string ExpressionKey = "expression";
 
     /// <summary>
     /// Reads a stored schema.
@@ -134,6 +135,11 @@ public static class PropertySchemaJson
                 entry[OptionsKey] = options;
             }
 
+            if (property.Expression is not null)
+            {
+                entry[ExpressionKey] = property.Expression;
+            }
+
             properties.Add(entry);
         }
 
@@ -184,12 +190,27 @@ public static class PropertySchemaJson
 
         var required = property[RequiredKey] is JsonValue flag && flag.TryGetValue(out bool value) && value;
 
+        // Only a formula carries one. Read for any other type it would be a field the writer's own
+        // rules refuse, arriving through a hand-edited column, and keeping it would let a later
+        // retype turn text nobody had read into a live expression.
+        var expression = type == PropertyType.Formula ? ReadString(property[ExpressionKey]) : null;
+
+        // A formula with no expression is not a formula. Dropped rather than kept as a property
+        // that can only ever read as an error - the same posture as an unknown type above, and the
+        // same reason: reading is total, and what cannot be interpreted is left out rather than
+        // guessed at.
+        if (type == PropertyType.Formula && string.IsNullOrWhiteSpace(expression))
+        {
+            return null;
+        }
+
         return new PropertyDefinition(
             key,
             ReadString(property[LabelKey]) ?? key,
             type,
             options,
-            required);
+            required,
+            expression);
     }
 
     private static string? ReadString(JsonNode? node) =>

@@ -34,6 +34,19 @@ export {
 } from './model.js';
 export { parseFormula } from './parser.js';
 export {
+  PROPERTY_FORMULA_HELP,
+  PROPERTY_FORMULA_LIMITS,
+  type PropertyFormula,
+  type PropertyFormulaEvaluation,
+  type PropertyFormulaLimits,
+  type PropertyFormulaPlan,
+  type PropertyReader,
+  evaluateFormulaPlan,
+  evaluatePropertyFormulas,
+  formulaFieldNames,
+  planPropertyFormulas,
+} from './properties.js';
+export {
   type A1Ref,
   type CellRange,
   type CellRef,

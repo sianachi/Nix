@@ -1106,6 +1106,7 @@ export interface components {
       type: string;
       options: null | string[];
       required: boolean;
+      expression?: null | string;
     };
     PropertyDefinitionResponse: {
       key: string;
@@ -1113,6 +1114,7 @@ export interface components {
       type: string;
       options: string[];
       required: boolean;
+      expression: null | string;
     };
     PublicFormBlockResponse: {
       id: string;

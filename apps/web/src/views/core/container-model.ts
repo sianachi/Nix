@@ -36,9 +36,30 @@ export const PropertyDefinitionSchema = z.object({
   type: z.string(),
   options: z.array(z.string()),
   required: z.boolean(),
+
+  /**
+   * For a formula property: the expression evaluated on read, without a leading `=`.
+   *
+   * Null on every other type, and defaulted rather than merely nullable because a server from
+   * before the field answers schemas without it - absence must cost a parse nothing. There is no
+   * matching entry in an item's property bag and there never will be: the value is computed where
+   * it is drawn, by `properties/computed.ts`, and Core refuses a write that tries to store one.
+   */
+  expression: z.string().nullable().default(null),
 });
 
-export type PropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
+type ParsedPropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
+
+/**
+ * A property definition as this build holds one.
+ *
+ * `expression` is optional here and always present after a parse, exactly as `View` treats the
+ * fields added to it since it was cut, and for the same reason: a draft being built in a schema
+ * editor, a wizard recipe or a test fixture is not a server response and must not have to
+ * manufacture a wire field it has no opinion about. Absent and null both mean "not a formula".
+ */
+export type PropertyDefinition = Omit<ParsedPropertyDefinition, 'expression'> &
+  Partial<Pick<ParsedPropertyDefinition, 'expression'>>;
 
 const _propertyDefinitionContract =
   PropertyDefinitionSchema satisfies z.ZodType<PropertyDefinitionContract>;
@@ -50,7 +71,19 @@ export const EffectiveSchemaSchema = z.object({
   inherit: z.boolean(),
 });
 
-export type EffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
+type ParsedEffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
+
+/**
+ * The schema in force, holding definitions in the shape a draft can also be built in.
+ *
+ * The same relaxation `ContainerViews` makes over `View`, for the same reason: an effective schema
+ * assembled by a wizard recipe or a test fixture is not a parse of a server response, and requiring
+ * it to carry every wire field would make building one an exercise in filling in nulls.
+ */
+export type EffectiveSchema = Omit<ParsedEffectiveSchema, 'properties' | 'declared'> & {
+  readonly properties: PropertyDefinition[];
+  readonly declared: PropertyDefinition[];
+};
 
 const _effectiveSchemaContract = EffectiveSchemaSchema satisfies z.ZodType<EffectiveSchemaContract>;
 void _effectiveSchemaContract;
