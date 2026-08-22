@@ -74,7 +74,7 @@ describe('the slash menu', () => {
 
     // A person who wants a collapsible section may know it as any of these; "details" is the
     // word the schema uses, kept findable for whoever greps the storage format.
-    for (const query of ['collapse', 'fold', 'details', 'disclosure']) {
+    for (const query of ['section', 'collapse', 'fold', 'details', 'disclosure']) {
       expect(filterSlashCommands(query).map((command) => command.id)).toContain('toggle');
     }
 
