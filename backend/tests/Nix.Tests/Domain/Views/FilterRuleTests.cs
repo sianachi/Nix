@@ -88,4 +88,34 @@ public sealed class FilterRuleTests
         Assert.Null(QueryOperators.Refuse(
             new FilterRule(new string('k', QueryOperators.MaximumPropertyLength), "equals", "x")));
     }
+
+    [Fact]
+    public void The_me_token_is_a_valid_value_for_either_equality_operator()
+    {
+        Assert.Null(QueryOperators.Refuse(new FilterRule("assignee", "equals", QueryOperators.Me)));
+        Assert.Null(QueryOperators.Refuse(new FilterRule("assignee", "not-equals", QueryOperators.Me)));
+    }
+
+    [Theory]
+    [InlineData("on")]
+    [InlineData("before")]
+    [InlineData("on-or-after")]
+    public void The_me_token_is_meaningless_to_a_day_operator_and_is_refused_by_the_day_grammar(string @operator)
+    {
+        // No bespoke "me is not a day" message - it is refused the exact way any other malformed
+        // day is: it is neither `today` nor a calendar day.
+        var reason = QueryOperators.Refuse(new FilterRule("assignee", @operator, QueryOperators.Me));
+
+        Assert.NotNull(reason);
+        Assert.Contains("reads a day", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_me_token_is_meaningless_to_within_next_and_is_refused_by_the_count_grammar()
+    {
+        var reason = QueryOperators.Refuse(new FilterRule("assignee", "within-next", QueryOperators.Me));
+
+        Assert.NotNull(reason);
+        Assert.Contains("reads a number of days", reason, StringComparison.Ordinal);
+    }
 }

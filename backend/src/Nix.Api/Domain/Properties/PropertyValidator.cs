@@ -240,6 +240,7 @@ public static class PropertyValidator
         PropertyType.Completion => CheckCompletion(definition, value),
         PropertyType.Priority => CheckPriority(definition, value),
         PropertyType.Estimate => CheckEstimate(definition, value),
+        PropertyType.Assignee => CheckAssignee(definition, value),
 
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
@@ -295,6 +296,34 @@ public static class PropertyValidator
             && parsed >= 0
             ? null
             : $"{definition.Label} must be a number of zero or more.";
+    }
+
+    /// <summary>
+    /// An assignee is the assigned principal's identifier, written exactly the way
+    /// <see cref="Domain.Identity.PrincipalId"/> itself renders one - a lowercase, hyphenated UUID
+    /// with no braces. The check is a round trip rather than a loose parse: the text must read as
+    /// a UUID and, printed back in that canonical form, must equal what was written. That is what
+    /// catches the near misses a hand-written client sends - upper case hex, braces, a missing
+    /// dash, an empty string - the same way a stricter type refuses a near-miss shape elsewhere in
+    /// this file rather than normalising it on the way in.
+    /// </summary>
+    /// <remarks>
+    /// <b>Deliberately does not check that the principal exists or is a member of the
+    /// workspace.</b> This is a pure domain rule with no I/O, and membership is a fact that
+    /// changes after the value is written - a principal leaving the workspace must not turn every
+    /// item already assigned to them into a write that fails, which is the same argument ADR-0007
+    /// section 4 makes for an undeclared key surviving a schema edit. The surface that offers a
+    /// principal to assign - not this validator - is where membership belongs.
+    /// </remarks>
+    private static string? CheckAssignee(PropertyDefinition definition, JsonNode? value)
+    {
+        var text = ReadString(value);
+
+        return text is not null
+            && Guid.TryParseExact(text, "D", out var principal)
+            && string.Equals(text, principal.ToString("D", CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            ? null
+            : $"{definition.Label} must be the assigned person's id, as a lowercase UUID.";
     }
 
     private static string? CheckDate(PropertyDefinition definition, JsonNode? value)

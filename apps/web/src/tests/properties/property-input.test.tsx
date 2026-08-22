@@ -4,6 +4,21 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Item, PropertyDefinition } from '../../views/core/container-model';
 import { PropertyInput } from '../../properties/property-input';
+import {
+  useWorkspaceMembers,
+  type WorkspaceMember,
+  type WorkspaceMembersState,
+} from '../../settings/use-workspace-members';
+
+/**
+ * The hook is mocked at the module boundary rather than driven through a real fetch: everything
+ * this file needs to assert is how `PropertyInput` renders each of the hook's states, not how the
+ * hook itself reaches them - that read is `use-workspace-members.ts`'s own concern and is exercised
+ * end to end by `members-section.test.tsx`.
+ */
+vi.mock('../../settings/use-workspace-members', () => ({
+  useWorkspaceMembers: vi.fn(),
+}));
 
 /**
  * One control per property type.
@@ -464,5 +479,144 @@ describe('a property input', () => {
     await person.keyboard('{Enter}');
 
     expect(onCommit).toHaveBeenCalledWith(2.5);
+  });
+});
+
+describe('an assignee property', () => {
+  const ada: WorkspaceMember = {
+    subjectType: 'principal',
+    subjectId: '44444444-bbbb-4bbb-8bbb-444444444444',
+    subjectDisplayName: 'Ada Lovelace',
+    role: 'owner',
+    grantedAt: '2026-01-05T09:00:00+00:00',
+  };
+
+  const grace: WorkspaceMember = {
+    subjectType: 'principal',
+    subjectId: '55555555-bbbb-4bbb-8bbb-555555555555',
+    subjectDisplayName: 'Grace Hopper',
+    role: 'editor',
+    grantedAt: '2026-03-12T09:00:00+00:00',
+  };
+
+  function membersState(overrides: Partial<WorkspaceMembersState> = {}): WorkspaceMembersState {
+    return {
+      status: 'ready',
+      members: [],
+      truncated: false,
+      error: null,
+      reload: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it('offers the workspace members and a way back to unassigned', () => {
+    vi.mocked(useWorkspaceMembers).mockReturnValue(membersState({ members: [ada, grace] }));
+
+    render(
+      <PropertyInput
+        item={itemWith({ owner: ada.subjectId })}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    const control = screen.getByRole('combobox', { name: 'Owner' });
+
+    // The same word a plain select clears through, not a second one invented for people.
+    expect(
+      within(control)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Unset', 'Ada Lovelace', 'Grace Hopper']);
+    expect(control).toHaveValue(ada.subjectId);
+  });
+
+  it("commits the chosen person's identifier, not their name", async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+    vi.mocked(useWorkspaceMembers).mockReturnValue(membersState({ members: [ada, grace] }));
+
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.selectOptions(screen.getByRole('combobox', { name: 'Owner' }), 'Grace Hopper');
+
+    expect(onCommit).toHaveBeenCalledWith(grace.subjectId);
+  });
+
+  it('clears back to unassigned rather than leaving a mistake permanent', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+    vi.mocked(useWorkspaceMembers).mockReturnValue(membersState({ members: [ada] }));
+
+    render(
+      <PropertyInput
+        item={itemWith({ owner: ada.subjectId })}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.selectOptions(screen.getByRole('combobox', { name: 'Owner' }), 'Unset');
+
+    expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
+  it('says it is loading rather than showing an empty list that looks like nobody is here', () => {
+    vi.mocked(useWorkspaceMembers).mockReturnValue(membersState({ status: 'loading' }));
+
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/loading the workspace members/i)).toBeVisible();
+  });
+
+  it('says a failed member read failed, and still shows what is stored', () => {
+    vi.mocked(useWorkspaceMembers).mockReturnValue(
+      membersState({ status: 'error', error: 'Core could not be reached.' }),
+    );
+
+    render(
+      <PropertyInput
+        item={itemWith({ owner: ada.subjectId })}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    // The read failing is not a reason to also hide what the item holds.
+    expect(screen.getByText(/core could not be reached/i)).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Owner' })).toHaveValue(ada.subjectId);
+  });
+
+  it('shows an identifier the member list does not carry as the current value, not dropped or mislabelled', () => {
+    const strangerId = '99999999-bbbb-4bbb-8bbb-999999999999';
+    vi.mocked(useWorkspaceMembers).mockReturnValue(membersState({ members: [ada] }));
+
+    render(
+      <PropertyInput
+        item={itemWith({ owner: strangerId })}
+        property={propertyOf({ key: 'owner', label: 'Owner', type: 'assignee' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    const control = screen.getByRole('combobox', { name: 'Owner' });
+
+    // Neither dropped (the value stays selected, not "Unset") nor mislabelled (its own identifier,
+    // never Ada's name) - the honest answer when the list cannot vouch for who this is.
+    expect(control).toHaveValue(strangerId);
+    expect(within(control).getByRole('option', { name: strangerId })).toBeInTheDocument();
   });
 });

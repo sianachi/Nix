@@ -52,6 +52,16 @@ namespace Nix.Persistence.Sql.Statements;
 /// <c>TaskSemanticsPlanEvidenceTests</c>, which asserts the planner's choice as the runtime role.
 /// Any future index over the bag must clear the same bar.
 /// </para>
+/// <para>
+/// <b>This compiler carries no <see cref="QueryOperators.Me"/>-handling branch, unlike
+/// <see cref="QueryOperators.Today"/>'s <c>Day()</c>.</b> Not an omission: <c>Me</c> resolves to
+/// the acting principal, which lives in the request's session context, and this is a static
+/// class with nothing to read one from. <c>RunItemQueryHandler</c> resolves it and rewrites the
+/// rule before calling the query port, so a value arriving here - even the literal text
+/// <c>"me"</c>, which the injection property test exercises deliberately - is already ordinary
+/// data and takes the exact same <c>EqualTo</c>/<c>NotEqualTo</c> path as any other equality: one
+/// bound parameter, no special column or index.
+/// </para>
 /// </remarks>
 public static class QuerySql
 {
