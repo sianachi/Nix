@@ -2,6 +2,7 @@ import { workspaceCalendarSchema, type WorkspaceCalendar } from '@nix/api-client
 import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
+import { ContainerViewsSchema } from '../views/core/container-model';
 
 /**
  * Every calendar in one workspace, collated into one window.
@@ -85,6 +86,27 @@ export interface WorkspaceCalendarState {
    * optimistic copy and cannot put it back.
    */
   readonly reschedule: (itemId: string, dateProperty: string, value: string) => Promise<boolean>;
+
+  /**
+   * Makes a new item in a chosen container, dated on that container's own calendar property.
+   *
+   * **The property is resolved here, from the container's own view configuration - never from a
+   * calendar entry.** An entry's `dateProperty` only exists for a container that has already
+   * placed something in the window on screen, which is exactly the condition a container being
+   * created into for the first time does not meet, and the whole reason goal 3.10 exists: a page
+   * must be able to tell what a note places by without needing an entry to already be visible. So
+   * this reads the container's own `views` afresh, takes the first calendar-kind view exactly as
+   * `CalendarSql`'s `rank = 1` does, and writes that view's property - a value the window on screen
+   * cannot change no matter which month it happens to be showing.
+   *
+   * Two requests, because that is what already exists: create the item bare, then the same
+   * property write `reschedule` makes. A refusal names which of the two failed, in the server's own
+   * words, and an item created but left undated is said plainly rather than hidden - it will not
+   * appear on this calendar, since nothing here draws an item with no date.
+   *
+   * Answers the reason it was refused, or null when both writes stuck.
+   */
+  readonly create: (containerId: string, title: string, day: string) => Promise<string | null>;
 }
 
 /**
@@ -167,6 +189,95 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     [getAccessToken, load],
   );
 
+  const create = useCallback(
+    async (containerId: string, title: string, day: string): Promise<string | null> => {
+      const token = await getAccessToken();
+      const authHeader = token === null ? {} : { authorization: `Bearer ${token}` };
+
+      let dateProperty: string;
+      try {
+        const viewsResponse = await fetch(`/api/v1/items/${containerId}/views`, {
+          headers: { 'content-type': 'application/json', ...authHeader },
+        });
+
+        if (!viewsResponse.ok) {
+          return "This note's calendar configuration could not be read.";
+        }
+
+        const parsed = ContainerViewsSchema.safeParse(await viewsResponse.json());
+        if (!parsed.success) {
+          return "This note's calendar came back in a shape this version does not understand.";
+        }
+
+        // The first calendar-kind view, in view order - the same view `CalendarSql`'s
+        // `rank = 1` picks server-side, so this build and Core agree on which property a
+        // container with several calendar views actually places by.
+        const resolved =
+          parsed.data.views.find((view) => view.kind === 'calendar')?.dateProperty ?? null;
+        if (resolved === null) {
+          return "This note's calendar no longer names a date property, so nothing can be placed there.";
+        }
+
+        dateProperty = resolved;
+      } catch {
+        return "This note's calendar configuration could not be read.";
+      }
+
+      try {
+        const createResponse = await fetch(`/api/v1/workspaces/${WORKSPACE_ID}/items`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...authHeader },
+          body: JSON.stringify({ type: 'note', title, parentId: containerId, properties: null }),
+        });
+
+        if (!createResponse.ok) {
+          const problem = (await createResponse.json().catch(() => null)) as {
+            detail?: string;
+          } | null;
+          return (
+            problem?.detail ?? `The item could not be created (${String(createResponse.status)}).`
+          );
+        }
+
+        const createdBody: unknown = await createResponse.json();
+        const createdId =
+          typeof createdBody === 'object' && createdBody !== null && 'id' in createdBody
+            ? createdBody.id
+            : null;
+
+        if (typeof createdId !== 'string') {
+          return 'The item was created, but the response could not be understood.';
+        }
+
+        const propertiesResponse = await fetch(`/api/v1/items/${createdId}/properties`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', ...authHeader },
+          body: JSON.stringify({ properties: { [dateProperty]: day } }),
+        });
+
+        if (!propertiesResponse.ok) {
+          const problem = (await propertiesResponse.json().catch(() => null)) as {
+            detail?: string;
+          } | null;
+          const reason =
+            problem?.detail ??
+            `The date could not be saved (${String(propertiesResponse.status)}).`;
+          // The item exists but carries no date, so it will not appear on this calendar - there is
+          // no phantom entry, only an orphan the reader now knows to go find.
+          return `"${title}" was created, but its date could not be set: ${reason}`;
+        }
+
+        // Re-read rather than inserting the new entry in place, matching `reschedule`: the window
+        // may now hold a different set, and only the server knows.
+        await load();
+        return null;
+      } catch {
+        return 'The entry could not be created.';
+      }
+    },
+    [getAccessToken, load],
+  );
+
   // Deferred a microtask, the same way `use-current-principal.ts` defers its own first read.
   // `load` sets state on its first line, and doing that synchronously inside an effect body is the
   // cascading-render pattern `react-hooks/set-state-in-effect` exists to stop.
@@ -176,5 +287,5 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     });
   }, [load]);
 
-  return { status, calendar, error, reload: load, reschedule };
+  return { status, calendar, error, reload: load, reschedule, create };
 }

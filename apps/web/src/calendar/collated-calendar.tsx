@@ -16,9 +16,16 @@ import {
   type CalendarDay,
 } from '../views/core/calendar-dates';
 import { readerZone } from '../views/core/timestamps';
-import { bucketByDay, containersById, COLLATED_DATE_KEY, toGridItems } from './collated-entries';
-import { valueForDay, valueForHour } from './reschedule';
 import type { CalendarGrain } from './calendar-window';
+import {
+  bucketByDay,
+  containersById,
+  noteOptions,
+  COLLATED_DATE_KEY,
+  toGridItems,
+} from './collated-entries';
+import { CreateEntryButton } from './create-entry-button';
+import { valueForDay, valueForHour } from './reschedule';
 
 /**
  * Every calendar in the workspace, drawn as one.
@@ -28,10 +35,14 @@ import type { CalendarGrain } from './calendar-window';
  * both places at once. What differs is what a day cell says: an entry here came from somewhere, and
  * saying which container is the whole point of collating.
  *
- * **Read-only, deliberately.** The container calendar can create and reschedule because it knows
- * which property it places by. This one does not: entries arrive placed by whatever their own
- * container names, so "create here" has no answer and a control that appeared and did nothing would
- * be worse than none. The grids take their write affordances as optional for exactly this caller.
+ * **Rescheduling was always answerable; creating now is too, the same way.** The container calendar
+ * can create and reschedule because it knows which property it places by. This one used to say
+ * creating had no answer, because entries arrive placed by whatever their own container names. Goal
+ * 3.10 answers it: `onCreate` asks which container first, then resolves *that* container's own date
+ * property from its own view configuration - never a guess from whichever entries are on screen,
+ * which is what would make the destination depend on the month being looked at. `onCreate` stays
+ * optional, matching the grids' own `onCreate`/`onMove`: a caller that has not wired it gets a
+ * calendar with no way to create, not a control that appeared and did nothing.
  */
 
 export interface CollatedCalendarProps {
@@ -60,11 +71,20 @@ export interface CollatedCalendarProps {
   /**
    * Writes an entry's own date property.
    *
-   * The one write this view can make. Creating has no answer here - entries arrive from containers
-   * that place by differently named properties - but moving one does, because the entry carries the
-   * key its own container placed it by.
+   * Answerable because the entry carries the key its own container placed it by.
    */
   readonly onReschedule: (entry: CalendarEntry, value: string) => void;
+
+  /**
+   * Makes a new item in a chosen container, dated on that container's own calendar property.
+   *
+   * Optional, matching the grids' own `onCreate` - absent means this caller offers no way to
+   * create, rather than a button that would have nothing to do. Wired to
+   * `useWorkspaceCalendar`'s `create`, which is what actually resolves the container's property and
+   * writes it; this view only asks which container and which day.
+   */
+  readonly onCreate?:
+    ((containerId: string, title: string, day: string) => Promise<string | null>) | undefined;
 }
 
 const GRAINS = [
@@ -74,12 +94,18 @@ const GRAINS = [
 ] as const satisfies readonly { value: CalendarGrain; label: string }[];
 
 export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
-  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen, onReschedule } = props;
+  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen, onReschedule, onCreate } =
+    props;
 
   // Keyed on the payload, so stepping the grain does not rebucket entries that have not changed.
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
   const items = useMemo(() => toGridItems(entries), [entries]);
   const containers = useMemo(() => containersById(entries), [entries]);
+
+  // The containers a new entry may land in - the same notes the filter above offers, since every
+  // one of them is already known to place by a real property (an entry could not exist otherwise).
+  // Not memoised: it is a map and a sort over what is already in hand, not a cost worth guarding.
+  const destinations = noteOptions(entries);
 
   // One clock reading for the whole grid rather than one per cell: the answer cannot change halfway
   // through a render, and forty-two of them would be forty-two allocations for one fact.
@@ -174,6 +200,17 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
         <Text as="span" variant="note" tone="muted" aria-live="polite">
           {label}
         </Text>
+
+        {/* Absent entirely when the caller has not wired a way to create - see this component's own
+            docblock and the grids' own optional `onCreate` for why silence is the right answer
+            rather than a button with nothing to do. */}
+        {onCreate !== undefined && (
+          <CreateEntryButton
+            destinations={destinations}
+            day={dayText(anchor)}
+            onCreate={onCreate}
+          />
+        )}
       </div>
 
       {grain === 'month' ? (
@@ -249,8 +286,11 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             zone={zone}
             today={todayText}
             onOpen={onOpen}
-            // No create - this view cannot know which container a new item would belong to - but
-            // moving is fully determined, because the entry carries its own property key.
+            // Still no per-slot create here: `HourGrid`'s own control takes one property bag and
+            // has nowhere to ask which container, and this view has no cell-sized way to add a
+            // destination picker to a shared control other views also use. The toolbar's
+            // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
+            // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
             onMove={(itemId, value) => {
               const entry = entries.find((candidate) => candidate.itemId === itemId);
