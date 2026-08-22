@@ -195,6 +195,9 @@ public sealed class StructuredItemSetupTests
         public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
             ValueTask.FromResult(item?.Id == id ? item : null);
 
+        public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken) =>
+            FindAsync(id, cancellationToken);
+
         public ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
             WorkspaceId workspaceId,
             IReadOnlyList<ItemId> parents,

@@ -179,6 +179,9 @@ public sealed class CompleteRecurrenceOccurrenceTests
         public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
             ValueTask.FromResult(row is not null && row.Base.Id == id ? WithRecurrence(row) : null);
 
+        public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken) =>
+            FindAsync(id, cancellationToken);
+
         /// <summary>
         /// A fresh copy of the row's base item carrying its current recurrence JSON. <see cref="Item"/>
         /// is a plain class rather than a record, so this rebuilds it field by field instead of using
