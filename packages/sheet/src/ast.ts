@@ -25,6 +25,18 @@ export interface RefNode {
   readonly ref: A1Ref;
 }
 
+/**
+ * A named value supplied by the evaluation context rather than read out of the
+ * grid: `[estimate]` in a formula property, resolved against the item's own
+ * properties. A sheet body never produces one - the lexer only emits a field
+ * token for bracketed text, which no stored sheet formula can contain - so the
+ * node is inert on that surface and `readField` may be absent there.
+ */
+export interface FieldNode {
+  readonly kind: 'field';
+  readonly name: string;
+}
+
 export interface RangeNode {
   readonly kind: 'range';
   readonly start: A1Ref;
@@ -65,6 +77,7 @@ export type FormulaNode =
   | StringNode
   | BooleanNode
   | RefNode
+  | FieldNode
   | RangeNode
   | UnaryNode
   | PercentNode

@@ -4,6 +4,7 @@ import type {
   InteractiveFormDefinition,
   PropertyDefinition,
 } from '../core/container-model';
+import { isComputedType } from '../core/property-types';
 
 const CONDITION_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'checked', 'not_checked']);
 
@@ -30,6 +31,15 @@ export function normalizeInteractiveForm(
       fields.add(block.id);
       earlier.add(block.id);
       const property = block.propertyKey === null ? undefined : properties.get(block.propertyKey);
+
+      // A form is a write surface (ADR-0040) and a computed property is never written, so a field
+      // bound to one is a question with no answer: no control renders for it, and Core refuses the
+      // key outright. Unbound here rather than only filtered out of the picker, because a property
+      // can become computed after the form was built - and a `required` block in that state can
+      // never be submitted, on a link that may already be public.
+      if (property !== undefined && isComputedType(property.type)) {
+        return { ...normalized, propertyKey: null, required: false, identityRole: null };
+      }
       const role = block.identityRole;
       if (
         role === null ||
