@@ -74,7 +74,7 @@ async function withSourceTree(): Promise<{ dir: string; done: () => Promise<void
   await writeFile(
     join(dir, 'a-first.md'),
     '---\ntitle: First Note\nstatus: done\ncount: 5\n- a list item\n---\n' +
-      'Hello **world**, a [[Wiki Link]], a local image ![pic](./img.png) and a remote one ![web](https://example.test/a.png).\n',
+      'Hello **world**, a [[Wiki Link]], an ![[Embedded note]], a local image ![pic](./img.png) and an inline remote one ![web](https://example.test/a.png).\n',
     'utf8',
   );
   await writeFile(join(dir, 'notes.txt'), 'not markdown', 'utf8');
@@ -156,7 +156,10 @@ describe('nixctl import --dry-run', () => {
         properties: string[];
         sourceBytes: number;
         unresolvedWikiLinks: number;
+        unresolvedObsidianEmbeds: number;
         unresolvedLocalImages: number;
+        unsupportedImageAddresses: number;
+        inlineImagesFlattened: number;
       }[];
       skipped: { path: string; reason: string }[];
       failed: unknown[];
@@ -173,14 +176,38 @@ describe('nixctl import --dry-run', () => {
     expect(first?.properties).toEqual(['status', 'count']);
     expect(first?.sourceBytes).toBeGreaterThan(0);
     expect(first?.unresolvedWikiLinks).toBe(1);
-    // The local image counts; the https one is an address the workspace can keep.
+    expect(first?.unresolvedObsidianEmbeds).toBe(1);
+    // The local image is unresolved; the inline https image becomes a recoverable link.
     expect(first?.unresolvedLocalImages).toBe(1);
+    expect(first?.unsupportedImageAddresses).toBe(0);
+    expect(first?.inlineImagesFlattened).toBe(1);
     expect(printed.skipped).toEqual([
       { path: join(dir, 'notes.txt'), reason: 'not a Markdown file' },
     ]);
     expect(printed.failed).toEqual([]);
     expect(process.exitCode ?? 0).toBe(0);
     await dropTree();
+    await done();
+  });
+
+  it('orders source names by code unit independently of the host locale', async () => {
+    const { env, done } = await withProfile();
+    const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-order-'));
+    await writeFile(join(dir, 'ä.md'), 'A.', 'utf8');
+    await writeFile(join(dir, 'a.md'), 'A.', 'utf8');
+    await writeFile(join(dir, 'Z.md'), 'Z.', 'utf8');
+
+    const printed = (await capture((json) =>
+      runImport(
+        'default',
+        { path: dir, workspaceId: WS, parentId: undefined, dryRun: true },
+        json,
+        { env },
+      ),
+    )) as { planned: { title: string }[] };
+
+    expect(printed.planned.map((entry) => entry.title)).toEqual([basename(dir), 'Z', 'a', 'ä']);
+    await rm(dir, { recursive: true, force: true });
     await done();
   });
 });
@@ -213,6 +240,11 @@ describe('nixctl import', () => {
         title: string;
         properties: string[];
         bodyBytes: number;
+        unresolvedWikiLinks: number;
+        unresolvedObsidianEmbeds: number;
+        unresolvedLocalImages: number;
+        unsupportedImageAddresses: number;
+        inlineImagesFlattened: number;
       }[];
     };
 
@@ -230,6 +262,13 @@ describe('nixctl import', () => {
     expect(propertyPatches).toEqual([{ status: 'done', count: 5 }]);
     const first = printed.created.find((entry) => entry.title === 'First Note');
     expect(first?.bodyBytes).toBeGreaterThan(0);
+    expect(first).toMatchObject({
+      unresolvedWikiLinks: 1,
+      unresolvedObsidianEmbeds: 1,
+      unresolvedLocalImages: 1,
+      unsupportedImageAddresses: 0,
+      inlineImagesFlattened: 1,
+    });
     // A whole import is a success a script can branch on.
     expect(process.exitCode ?? 0).toBe(0);
     await done();

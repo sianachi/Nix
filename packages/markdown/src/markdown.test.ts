@@ -406,6 +406,79 @@ describe('markdownToDocument', () => {
       expect(allText(result.doc)).toContain('and a local image');
       expect(allText(result.doc)).toContain('Wiki Link');
       expect(linkHrefs(result.doc)).toContain('./img.png');
+      expect(result.scan).toEqual({
+        unresolvedWikiLinks: 1,
+        unresolvedObsidianEmbeds: 0,
+        unresolvedLocalImages: 1,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
+    }
+  });
+
+  it('degrades a standalone local image to a link instead of a broken image node', () => {
+    const result = markdownToDocument('![diagram](./assets/diagram.png "Architecture")');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual([]);
+      expect(linkHrefs(result.doc)).toEqual(['./assets/diagram.png']);
+      expect(allText(result.doc)).toContain('diagram');
+      expect(result.scan.unresolvedLocalImages).toBe(1);
+    }
+  });
+
+  it('preserves a titled reference-style local image address while declaring it once', () => {
+    const result = markdownToDocument(
+      'Before ![architecture][diagram] after.\n\n[diagram]: <./space image.png> "System map"',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual([]);
+      expect(linkHrefs(result.doc)).toEqual(['./space%20image.png']);
+      expect(linkTitles(result.doc)).toEqual(['System map']);
+      expect(allText(result.doc)).toContain('Before architecture after.');
+      expect(result.scan.unresolvedLocalImages).toBe(1);
+    }
+  });
+
+  it('keeps neighbours when local images appear in rich block contexts', () => {
+    const result = markdownToDocument(
+      '# Heading ![one](./one.png) tail\n\n- Before ![two](./two.png) after\n\n> Around ![three](./three.png) text',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(allText(result.doc)).toContain('Heading one tail');
+      expect(allText(result.doc)).toContain('Before two after');
+      expect(allText(result.doc)).toContain('Around three text');
+      expect(linkHrefs(result.doc)).toEqual(['./one.png', './two.png', './three.png']);
+      expect(result.scan.unresolvedLocalImages).toBe(3);
+    }
+  });
+
+  it('keeps empty, Windows, file, and unsupported image targets out of image nodes', () => {
+    const result = markdownToDocument(
+      [
+        '![empty]()',
+        '',
+        '![windows](C:\\Pictures\\image.png)',
+        '',
+        '![file](file:///tmp/image.png)',
+        '',
+        '![nix](nix://item/image)',
+        '',
+        '![protocol](//example.test/image.png)',
+        '',
+        '![blob](blob:https://example.test/id)',
+      ].join('\n'),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual([]);
+      expect(allText(result.doc)).toContain('file:///tmp/image.png');
+      expect(allText(result.doc)).toContain('C:%5CPictures%5Cimage.png');
+      expect(allText(result.doc)).toContain('//example.test/image.png');
+      expect(result.scan.unresolvedLocalImages).toBe(2);
+      expect(result.scan.unsupportedImageAddresses).toBe(4);
     }
   });
 
@@ -419,33 +492,140 @@ describe('markdownToDocument', () => {
     }
   });
 
-  it('rewrites image syntax even inside code, the pinned cost of the text-level pass', () => {
-    // Known limitation, deliberately pinned rather than hidden: the image degrade runs over the
-    // raw source and cannot see where markdown-it would have said "code", so image syntax in a
-    // fence or an inline code span is rewritten too. If either assertion here starts failing, the
-    // pass changed reach - make that change on purpose (the docblock names the token-level shape
-    // that removes the limitation entirely).
-    const fenced = markdownToDocument('```markdown\nUse ![alt](pic.png) here.\n```');
+  it('leaves image syntax inside fenced and inline code unchanged and uncounted', () => {
+    const fenced = markdownToDocument(
+      '```markdown\nUse ![alt](pic.png), [[Wiki]], and ![[Embed]] here.\n```',
+    );
     expect(fenced.ok).toBe(true);
     if (fenced.ok) {
-      expect(allText(fenced.doc)).toContain('Use [alt](pic.png) here.');
+      expect(allText(fenced.doc)).toContain('Use ![alt](pic.png), [[Wiki]], and ![[Embed]] here.');
+      expect(fenced.scan).toEqual({
+        unresolvedWikiLinks: 0,
+        unresolvedObsidianEmbeds: 0,
+        unresolvedLocalImages: 0,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
     }
 
-    const span = markdownToDocument('Write `![alt](pic.png)` to embed.');
+    const span = markdownToDocument('Write `![alt](pic.png) [[Wiki]] ![[Embed]]` to embed.');
     expect(span.ok).toBe(true);
     if (span.ok) {
-      expect(allText(span.doc)).toContain('[alt](pic.png)');
+      expect(allText(span.doc)).toContain('![alt](pic.png)');
+      expect(span.scan).toEqual({
+        unresolvedWikiLinks: 0,
+        unresolvedObsidianEmbeds: 0,
+        unresolvedLocalImages: 0,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
     }
   });
 
-  it('leaves an Obsidian ![[embed]] as literal text - an honest unresolved reference', () => {
-    const result = markdownToDocument('Before ![[Pasted image 1.png]] after.');
+  it('reports wiki links and Obsidian embeds without overlap while keeping their source text', () => {
+    const result = markdownToDocument(
+      '[[Project]] ![[Pasted image 1.png|300]] ![[Note#Section]], \\[[literal wiki]], and \\![[literal embed]].',
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(allText(result.doc)).toContain('Pasted image 1.png');
-      expect(allText(result.doc)).toContain('Before');
-      expect(allText(result.doc)).toContain('after.');
+      expect(allText(result.doc)).toContain('[[Project]]');
+      expect(allText(result.doc)).toContain('![[Pasted image 1.png|300]]');
+      expect(allText(result.doc)).toContain('![[Note#Section]]');
       expect(imageSrcs(result.doc)).toEqual([]);
+      expect(result.scan).toEqual({
+        unresolvedWikiLinks: 1,
+        unresolvedObsidianEmbeds: 2,
+        unresolvedLocalImages: 0,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
+    }
+  });
+
+  it('counts a wiki link nested in an ordinary Markdown link without stalling inline parsing', () => {
+    const result = markdownToDocument('[outer [[Wiki]]](https://example.test)');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(allText(result.doc)).toContain('outer [[Wiki]]');
+      expect(linkHrefs(result.doc)).toEqual(['https://example.test']);
+      expect(result.scan.unresolvedWikiLinks).toBe(1);
+    }
+  });
+
+  it('reports an inline network image flattened to a link', () => {
+    const result = markdownToDocument('Before ![plot](https://x.test/plot.png "Plot") after.');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual([]);
+      expect(linkHrefs(result.doc)).toEqual(['https://x.test/plot.png']);
+      expect(allText(result.doc)).toContain('Before plot after.');
+      expect(result.scan.inlineImagesFlattened).toBe(1);
+    }
+  });
+
+  it('keeps a nested local image as readable source without creating a nested link', () => {
+    const result = markdownToDocument('[![diagram](./local.png)](https://example.test/diagram)');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(linkHrefs(result.doc)).toEqual(['https://example.test/diagram']);
+      expect(allText(result.doc)).toContain('![diagram](./local.png)');
+      expect(result.scan.unresolvedLocalImages).toBe(1);
+    }
+  });
+
+  it('keeps the address when an inline image cannot safely become a link', () => {
+    const result = markdownToDocument('Before ![pixel](data:image/png;base64,eA==) after.');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(linkHrefs(result.doc)).toEqual([]);
+      expect(allText(result.doc)).toContain('![pixel](data:image/png;base64,eA==)');
+      expect(result.scan.inlineImagesFlattened).toBe(1);
+    }
+  });
+
+  it('preserves the existing standalone safe data-image mapping', () => {
+    const result = markdownToDocument('![pixel](data:image/png;base64,eA==)');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(imageSrcs(result.doc)).toEqual(['data:image/png;base64,eA==']);
+      expect(result.scan.unresolvedLocalImages).toBe(0);
+      expect(result.scan.inlineImagesFlattened).toBe(0);
+    }
+  });
+
+  it('does not reuse scan state between parser calls', () => {
+    const first = markdownToDocument('[[One]] ![[Two]] ![local](./local.png)');
+    const second = markdownToDocument('Plain text.');
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (first.ok) {
+      expect(first.scan).toEqual({
+        unresolvedWikiLinks: 1,
+        unresolvedObsidianEmbeds: 1,
+        unresolvedLocalImages: 1,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
+    }
+    if (second.ok) {
+      expect(second.scan).toEqual({
+        unresolvedWikiLinks: 0,
+        unresolvedObsidianEmbeds: 0,
+        unresolvedLocalImages: 0,
+        unsupportedImageAddresses: 0,
+        inlineImagesFlattened: 0,
+      });
+    }
+  });
+
+  it('handles a large malformed bracket run without rescanning each suffix', () => {
+    const source = '['.repeat(100_000);
+    const result = markdownToDocument(source);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(allText(result.doc)).toHaveLength(source.length);
+      expect(result.scan.unresolvedWikiLinks).toBe(0);
+      expect(result.scan.unresolvedObsidianEmbeds).toBe(0);
     }
   });
 });
@@ -522,4 +702,20 @@ function linkHrefs(docJson: unknown): string[] {
   };
   walk(docJson as LooseNode);
   return hrefs;
+}
+
+function linkTitles(docJson: unknown): (string | null)[] {
+  const titles: (string | null)[] = [];
+  const walk = (node: LooseNode): void => {
+    for (const mark of node.marks ?? []) {
+      if (mark.type === 'link') {
+        titles.push(typeof mark.attrs?.title === 'string' ? mark.attrs.title : null);
+      }
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  walk(docJson as LooseNode);
+  return titles;
 }

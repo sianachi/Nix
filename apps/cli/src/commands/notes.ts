@@ -73,7 +73,12 @@ export async function readNote(
   }
 
   printResult(
-    { markdown: body.markdown, schemaVersion: body.schemaVersion, empty: body.empty, losses: body.losses },
+    {
+      markdown: body.markdown,
+      schemaVersion: body.schemaVersion,
+      empty: body.empty,
+      losses: body.losses,
+    },
     output,
   );
 }
@@ -91,7 +96,10 @@ export async function writeNote(
   output: OutputOptions,
   deps: SessionDeps & { readonly readStdin?: () => Promise<string> } = {},
 ): Promise<void> {
-  const markdown = options.file !== undefined ? await readFile(options.file, 'utf8') : await (deps.readStdin ?? readStdin)();
+  const markdown =
+    options.file !== undefined
+      ? await readFile(options.file, 'utf8')
+      : await (deps.readStdin ?? readStdin)();
 
   const session = await resolveSession(profileName, deps);
   const token = await session.tokens.getAccessToken();
@@ -108,7 +116,10 @@ export async function writeNote(
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
-  printResult({ id: itemId, written: true, updateBytes: result.bytes }, output);
+  printResult(
+    { id: itemId, written: true, updateBytes: result.bytes, markdownChanges: result.scan },
+    output,
+  );
 }
 
 /** Reads all of stdin as UTF-8, for `nixctl note write <id> < body.md`. */

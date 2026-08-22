@@ -6,8 +6,8 @@
  * exactly one place: a planned note, a skipped row with its reason (not Markdown, inside a hidden
  * directory), or a failed row (a body the document model rejects). Front matter becomes
  * properties by the same shared rule the CLI applies (`@nix/markdown/front-matter`), and the
- * unresolved counts (`[[wiki links]]`, local image paths) use the same shared counting, so the two
- * surfaces cannot disagree about what a file becomes.
+ * inbound changes (wiki links, embeds, and image fallbacks) come from the same parser that produced
+ * the validated body, so the web and CLI cannot disagree about what a file becomes.
  *
  * Everything is planned under one root container - the picked folder's name, or a plain "Imported
  * notes" for loose files - so the whole import has a single handle: one item to open, and one item
@@ -15,7 +15,8 @@
  */
 
 import { noteFromMarkdown } from '@nix/markdown/front-matter';
-import { countLocalImages, countWikiLinks } from '@nix/markdown/scan';
+import { EMPTY_MARKDOWN_IMPORT_SCAN, type MarkdownImportScan } from '@nix/markdown/scan';
+import type { FromMarkdownResult } from '@nix/markdown/from-markdown';
 
 /** One chosen file, already read: its source-relative path and its text. */
 export interface ImportSource {
@@ -39,8 +40,7 @@ export interface PlannedNode {
   /** The validated body, ready to write; null when there is nothing to write. */
   readonly doc: unknown;
   readonly droppedFrontMatter: readonly string[];
-  readonly unresolvedWikiLinks: number;
-  readonly unresolvedLocalImages: number;
+  readonly scan: MarkdownImportScan;
   readonly children: readonly PlannedNode[];
 }
 
@@ -54,9 +54,7 @@ export interface ImportPlan {
 }
 
 /** The parser seam: `markdownToDocument`'s shape, injected so the plan is testable without it. */
-export type ParseBody = (
-  markdown: string,
-) => { readonly ok: true; readonly doc: unknown } | { readonly ok: false; readonly reason: string };
+export type ParseBody = (markdown: string) => FromMarkdownResult;
 
 interface DraftFolder {
   readonly name: string;
@@ -198,6 +196,7 @@ function planNote(
   const { title, properties, body, dropped } = noteFromMarkdown(text, fileName);
 
   let doc: unknown = null;
+  let scan = EMPTY_MARKDOWN_IMPORT_SCAN;
   if (body.trim().length > 0) {
     const parsed = parse(body);
     if (!parsed.ok) {
@@ -205,6 +204,7 @@ function planNote(
       return null;
     }
     doc = parsed.doc;
+    scan = parsed.scan;
   }
 
   return {
@@ -214,8 +214,7 @@ function planNote(
     properties,
     doc,
     droppedFrontMatter: dropped,
-    unresolvedWikiLinks: countWikiLinks(body),
-    unresolvedLocalImages: countLocalImages(body),
+    scan,
     children: [],
   };
 }
@@ -225,7 +224,7 @@ function toNode(folder: DraftFolder, path: string): PlannedNode {
   const children: PlannedNode[] = [
     ...[...folder.folders.values()].map((child) => toNode(child, `${path}/${child.name}`)),
     ...folder.notes,
-  ].sort((left, right) => left.title.localeCompare(right.title));
+  ].sort((left, right) => compareCodeUnits(left.title, right.title));
 
   return {
     path,
@@ -234,10 +233,13 @@ function toNode(folder: DraftFolder, path: string): PlannedNode {
     properties: {},
     doc: null,
     droppedFrontMatter: [],
-    unresolvedWikiLinks: 0,
-    unresolvedLocalImages: 0,
+    scan: EMPTY_MARKDOWN_IMPORT_SCAN,
     children,
   };
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function countNodes(node: PlannedNode): number {
