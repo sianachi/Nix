@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { percentile, seed, stressRun } from './stress.ts';
+import { percentile, seed, seededProperties, stressRun } from './stress.ts';
 
 const API = 'http://nix.test';
 const WS = '22222222-2222-4222-8222-222222222222';
@@ -329,5 +329,34 @@ describe('nixctl stress run query-storm', () => {
       ),
     ).rejects.toThrow(/needs --item .*--view .*--today/);
     await done();
+  });
+});
+
+describe('seeded properties', () => {
+  it('gives every child the same value when the value is a literal', () => {
+    expect(seededProperties(['status=Todo'], 7)).toEqual({ status: 'Todo' });
+  });
+
+  it('gives each child its own index, so a seed is a spread rather than one repeated number', () => {
+    // An average over three thousand copies of one value measures nothing, and a chart grouped by
+    // a constant has one bar.
+    expect(seededProperties(['n=#n'], 41)).toEqual({ n: 41 });
+  });
+
+  it('wraps the index at a bound, for a spread across a set of known size', () => {
+    expect(seededProperties(['estimate=#n%13'], 41)).toEqual({ estimate: 2 });
+  });
+
+  it('parses a literal the way props set does, so a seeded value is a stored one', () => {
+    expect(seededProperties(['done=true', 'hours=3.5'], 0)).toEqual({ done: true, hours: 3.5 });
+  });
+
+  it('refuses a pair with no key rather than storing one called nothing', () => {
+    expect(() => seededProperties(['=Todo'], 0)).toThrow(/key is required/i);
+  });
+
+  it('costs nothing when no properties were asked for', () => {
+    expect(seededProperties(undefined, 3)).toBeUndefined();
+    expect(seededProperties([], 3)).toBeUndefined();
   });
 });
