@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 
 import type { PropertyDefinition, ViewFilterRule } from '../core/container-model';
+import { isComputedType } from '../core/property-types';
 
 /**
  * The smallest honest editor for a query view's filters: one row per rule - property, operator,
@@ -61,11 +62,18 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
       </Text>
 
       <datalist id={listId}>
-        {schema.map((property) => (
-          <option key={property.key} value={property.key}>
-            {property.label}
-          </option>
-        ))}
+        {/* Computed properties are not suggested: a filter is compiled and run by the server
+            against stored values, and a formula has none - it is evaluated where it is drawn.
+            A rule over one would match nothing, forever, with nothing on screen to say why.
+            Suggestions are still only suggestions; the box stays free text, so nothing here
+            stops somebody typing a key that lives in another container. */}
+        {schema
+          .filter((property) => !isComputedType(property.type))
+          .map((property) => (
+            <option key={property.key} value={property.key}>
+              {property.label}
+            </option>
+          ))}
       </datalist>
 
       {rules.map((rule, index) => {

@@ -310,3 +310,30 @@ describe('display', () => {
     expect(coerceCellText('2026-09-01', 'due_date')).toEqual({ ok: true, value: '2026-09-01' });
   });
 });
+
+describe('a computed column in the grid', () => {
+  it('is not editable, so a paste over it is skipped rather than refused per row', () => {
+    // Stated rather than inherited from a shape switch's default: a formula column came out
+    // uneditable only because 'formula' happens not to be a text-editable shape, and that would
+    // reverse the day that list grew.
+    const columns = resolveColumns(
+      aView({ kind: 'sheet', columns: ['total'] }),
+      schemaOf(property('total', 'Total', 'formula')),
+    );
+
+    expect(columnFor(columns, 'total').editable).toBe(false);
+  });
+
+  it('reports a paste into it as read-only rather than writing a computed key', () => {
+    const columns = resolveColumns(
+      aView({ kind: 'sheet', columns: ['total', 'count'] }),
+      schemaOf(property('total', 'Total', 'formula'), property('count', 'Count', 'number')),
+    );
+    const rows = [item('item-1', 'One')];
+
+    const plan = pastePlan({ row: 0, col: 1 }, [['9', '4']], rows, columns);
+
+    expect(plan.writes.map((write) => write.bag)).toEqual([{ count: 4 }]);
+    expect(plan.readOnly).toBe(1);
+  });
+});

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
 import { resolveConfiguredColumns } from '../core/columns';
+import { isComputedType } from '../core/property-types';
 import {
   type EffectiveSchema,
   type PropertyDefinition,
@@ -76,6 +77,15 @@ function resolveFields(
     // silently dropped, so a renamed property is a stated gap instead of a field that vanished.
     if (definition === undefined || !isKnownPropertyType(definition.type)) {
       unavailable.push(key);
+      continue;
+    }
+
+    // A computed property is skipped rather than named as unavailable, and the difference is the
+    // sentence a person reads. "Unavailable" is for a field that was meant to be an input and is
+    // not one - a renamed property, a type this build cannot draw. A formula is working exactly as
+    // declared and simply is not an input: a form writes children, and nothing writes a computed
+    // value. Listing it would report a fault that does not exist.
+    if (isComputedType(definition.type)) {
       continue;
     }
 

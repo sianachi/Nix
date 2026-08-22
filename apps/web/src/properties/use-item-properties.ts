@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
+import { decorateItem, keepComputed } from './computed';
 import {
   EffectiveSchemaSchema,
   ItemSchema,
@@ -127,7 +128,10 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       // something on the way in.
       const written = ItemSchema.safeParse(await response.json());
       if (written.success) {
-        setItem(written.data);
+        // The write answers with the item and not with a fresh fold of its children, so the
+        // rollups come back null; keeping the last folded values is more honest than blanking the
+        // panel's rollup rows on every edit.
+        setItem((previous) => keepComputed(previous ?? undefined, written.data));
       }
 
       return null;
@@ -135,7 +139,21 @@ export function useItemProperties(itemId: string | null): ItemProperties {
     [itemId, request],
   );
 
-  return { loading, schema, item, write };
+  /**
+   * The item as the panel reads it: what the server sent, plus the properties this build computes.
+   *
+   * Derived rather than merged into state, so `write` keeps sending only the keys somebody edited
+   * and a computed value can never be posted back as a stored one. Memoised for identity: the
+   * panel's controls take this object as a prop, and `useDraft` compares the value it reads off it
+   * against what it last sent - a fresh object each render is a fresh prop, which is the identity
+   * that comparison hangs on.
+   */
+  const computed = useMemo(
+    () => (item === null ? null : decorateItem(item, schema?.properties)),
+    [item, schema?.properties],
+  );
+
+  return { loading, schema, item: computed, write };
 }
 
 /** Reads a response the panel can do without, reporting a contract mismatch rather than hiding it. */

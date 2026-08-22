@@ -46,6 +46,20 @@ public static class ViewDefinitionRules
                 return $"'{view.Name}': {requirement.Missing}.";
             }
 
+            if (view.Measure is { } measure && !ChartMeasures.IsValid(measure))
+            {
+                return $"'{view.Name}': '{measure}' is not a measure a chart can draw; "
+                    + $"use '{ChartMeasures.Count}' or '{ChartMeasures.Sum}'.";
+            }
+
+            if (view.Kind == ViewKind.Chart
+                && string.Equals(view.Measure, ChartMeasures.Sum, StringComparison.Ordinal)
+                && string.IsNullOrEmpty(view.MeasureProperty))
+            {
+                // A total with nothing to total draws every bar at zero, which looks like data.
+                return $"'{view.Name}' totals a property, so it needs one to total.";
+            }
+
             if (view.CardSize is { } size && !GalleryCardSizes.IsValid(size))
             {
                 return $"'{view.Name}': '{size}' is not a card size; "

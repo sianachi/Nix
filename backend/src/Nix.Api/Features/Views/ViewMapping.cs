@@ -32,7 +32,9 @@ internal static class ViewMapping
                 : [.. view.Filters.Select(rule => new FilterRuleContract(rule.Property, rule.Operator, rule.Value))],
             view.CompanionViewId,
             view.CompanionPlacement,
-            ToContract(view.InteractiveForm));
+            ToContract(view.InteractiveForm),
+            view.Measure,
+            view.MeasureProperty);
     }
 
     /// <summary>
@@ -80,7 +82,9 @@ internal static class ViewMapping
                         : [.. view.Filters.Select(rule => new FilterRule(rule.Property, rule.Operator, rule.Value))],
                     view.CompanionViewId,
                     view.CompanionPlacement,
-                    ToDomain(view.InteractiveForm)));
+                    ToDomain(view.InteractiveForm),
+                    view.Measure,
+                    view.MeasureProperty));
         }
 
         views = mapped.ToImmutable();

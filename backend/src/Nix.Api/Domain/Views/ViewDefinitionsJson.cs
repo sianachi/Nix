@@ -90,6 +90,8 @@ public static class ViewDefinitionsJson
     private const string EndDatePropertyKey = "endDateProperty";
     private const string CoverPropertyKey = "coverProperty";
     private const string CardSizeKey = "cardSize";
+    private const string MeasureKey = "measure";
+    private const string MeasurePropertyKey = "measureProperty";
     private const string ModeKey = "mode";
     private const string SortByKey = "sortBy";
     private const string SortDescendingKey = "sortDescending";
@@ -211,6 +213,16 @@ public static class ViewDefinitionsJson
                 entry[ModeKey] = view.Mode;
             }
 
+            if (view.Measure is not null)
+            {
+                entry[MeasureKey] = view.Measure;
+            }
+
+            if (view.MeasureProperty is not null)
+            {
+                entry[MeasurePropertyKey] = view.MeasureProperty;
+            }
+
             if (view.CardSize is not null)
             {
                 entry[CardSizeKey] = view.CardSize;
@@ -323,7 +335,9 @@ public static class ViewDefinitionsJson
             ReadFilters(view[FiltersKey]),
             ReadString(view[CompanionViewIdKey]),
             ReadString(view[CompanionPlacementKey]),
-            ReadInteractiveForm(view[InteractiveFormKey]));
+            ReadInteractiveForm(view[InteractiveFormKey]),
+            ReadMeasure(view[MeasureKey]),
+            ReadString(view[MeasurePropertyKey]));
     }
 
     private static InteractiveFormDefinition? ReadInteractiveForm(JsonNode? node)
@@ -386,6 +400,17 @@ public static class ViewDefinitionsJson
     /// Costing the size, never the view: the reader's contract is that a malformed field is a
     /// malformed field, not a dropped switcher entry.
     /// </remarks>
+    /// <summary>
+    /// Reads a chart's measure, defaulting anything unrecognised to absent.
+    /// </summary>
+    /// <remarks>
+    /// Defaulted rather than refused on the read path, unlike a card size: absent already means
+    /// "count", so a measure a newer build wrote costs an older one the total and not the chart.
+    /// The write path refuses an unknown value, which is where somebody can be told.
+    /// </remarks>
+    private static string? ReadMeasure(JsonNode? node) =>
+        ReadString(node) is { } measure && ChartMeasures.IsValid(measure) ? measure : null;
+
     private static string? ReadCardSize(JsonNode? node) =>
         ReadString(node) is { } size && GalleryCardSizes.IsValid(size) ? size : null;
 

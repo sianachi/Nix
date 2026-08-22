@@ -365,6 +365,11 @@ export function buildProgram(): Command {
     .option('--parent <id>', 'the container to seed under (default: create a new one)')
     .option('--title-prefix <p>', 'the prefix each child title carries', 'Item')
     .option('--type <type>', 'the body kind of each child', 'note')
+    .option(
+      '--prop <key=value...>',
+      "a property each child carries; '#n' is the child's index and '#n%<k>' its index modulo k, "
+        + 'so a seed produces a spread rather than one repeated value',
+    )
     .action(async (options: SeedCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
@@ -376,6 +381,7 @@ export function buildProgram(): Command {
             parentId: options.parent,
             titlePrefix: options.titlePrefix,
             type: options.type,
+            properties: options.prop,
           },
           outputOptions(flags.json),
         ),
@@ -387,17 +393,25 @@ export function buildProgram(): Command {
     .description('Run a stress scenario and print a machine-readable report.')
     .requiredOption(
       '--scenario <name>',
-      'the scenario to run (read-storm, search-storm, query-storm)',
+      'the scenario to run (read-storm, list-storm, chart-storm, search-storm, query-storm)',
     )
     .requiredOption('--iterations <n>', 'how many reads to make', (value) =>
       Number.parseInt(value, 10),
     )
-    .option('--item <id>', 'read-storm/query-storm: the item (a container for query-storm) to read')
+    .option(
+      '--item <id>',
+      'read-storm/list-storm/chart-storm/query-storm: the item to read (a container for all but '
+        + 'read-storm)',
+    )
+    .option('--workspace <id>', 'list-storm: the workspace the container lives in')
+    .option('--page-size <n>', 'list-storm: how many children to ask for per page', (value) =>
+      Number.parseInt(value, 10),
+    )
     .option('--query <text>', 'search-storm: the query to run each iteration')
     .option('--limit <n>', 'search-storm: cap the hits per query', (value) =>
       Number.parseInt(value, 10),
     )
-    .option('--view <viewId>', "query-storm: which of the container's views to run")
+    .option('--view <viewId>', "query-storm/chart-storm: which of the container's views to run")
     .option('--today <yyyy-mm-dd>', "query-storm: the caller's own day, for relative rules")
     .action(async (options: RunCliOptions, command: Command) => {
       const flags = globalFlags(command);
@@ -408,6 +422,8 @@ export function buildProgram(): Command {
             scenario: options.scenario,
             iterations: options.iterations,
             itemId: options.item,
+            workspaceId: options.workspace,
+            pageSize: options.pageSize,
             query: options.query,
             limit: options.limit,
             viewId: options.view,
@@ -574,12 +590,15 @@ interface SeedCliOptions {
   readonly parent?: string;
   readonly titlePrefix?: string;
   readonly type?: string;
+  readonly prop?: readonly string[];
 }
 
 interface RunCliOptions {
   readonly scenario: string;
   readonly iterations: number;
   readonly item?: string;
+  readonly workspace?: string;
+  readonly pageSize?: number;
   readonly query?: string;
   readonly limit?: number;
   readonly view?: string;

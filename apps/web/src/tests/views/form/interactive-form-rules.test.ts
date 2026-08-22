@@ -111,3 +111,39 @@ describe('interactive form authoring rules', () => {
     ).toMatch(/must use one of this item’s fields/i);
   });
 });
+
+describe('a field bound to a computed property', () => {
+  it('is unbound and made optional, so a public form cannot carry a question nobody can answer', () => {
+    // A form is a write surface and a computed value is never written: no control renders for it,
+    // and Core refuses the key outright. Left bound and required, the form could never be
+    // submitted - on a link that may already be public. Normalised here rather than only filtered
+    // out of the editor's picker, because a property can become computed after the form was built.
+    const computed: readonly PropertyDefinition[] = [
+      ...SCHEMA,
+      { key: 'score', label: 'Score', type: 'formula', options: [], required: false, expression: '1' },
+    ];
+
+    const built = form();
+    const withComputedField: InteractiveFormDefinition = {
+      ...built,
+      pages: built.pages.map((page, index) =>
+        index !== 0
+          ? page
+          : {
+              ...page,
+              blocks: page.blocks.map((block) =>
+                block.id !== 'mood-field'
+                  ? block
+                  : { ...block, propertyKey: 'score', required: true },
+              ),
+            },
+      ),
+    };
+
+    const normalized = normalizeInteractiveForm(withComputedField, computed);
+    const field = normalized.pages[0]?.blocks.find((block) => block.id === 'mood-field');
+
+    expect(field?.propertyKey).toBeNull();
+    expect(field?.required).toBe(false);
+  });
+});
