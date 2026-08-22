@@ -1,12 +1,15 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useNavigate } from 'react-router';
 
 import { App } from '../../app';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { useTabOrientationStore } from '../../tabs/tab-orientation-store';
 import { useTabStore } from '../../tabs/tab-store';
+import { useOpenItem } from '../../tabs/use-open-item';
+import { stubViewport } from '../stub-viewport';
 
 /**
  * Documents opened as tabs within a pane - previewed, pinned, closed, and kept straight across
@@ -18,6 +21,26 @@ import { useTabStore } from '../../tabs/tab-store';
 const ALPHA = item({ id: '0a0a0a0a-0000-4000-8000-00000000000a', title: 'Alpha' });
 const BRAVO = item({ id: '0b0b0b0b-0000-4000-8000-00000000000b', title: 'Bravo' });
 const CHARLIE = item({ id: '0c0c0c0c-0000-4000-8000-00000000000c', title: 'Charlie' });
+
+function HistoryControls() {
+  const navigate = useNavigate();
+  const { openPreview } = useOpenItem();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          openPreview(BRAVO.id);
+        }}
+      >
+        Open Bravo
+      </button>
+      <button type="button" onClick={() => void navigate(-1)}>
+        Browser back
+      </button>
+    </>
+  );
+}
 
 beforeEach(() => {
   signedIn();
@@ -184,6 +207,86 @@ describe('a document already open elsewhere', () => {
       'true',
     );
     expect(within(secondPane).getByRole('tab', { name: 'Bravo' })).toBeInTheDocument();
+  });
+
+  it('does not expose the same document in two tab strips when Back restores a split', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    useTabStore.setState({
+      byPane: {
+        0: [{ itemId: ALPHA.id, pinned: true }],
+        1: [{ itemId: BRAVO.id, pinned: true }],
+      },
+    });
+    const user = userEvent.setup();
+    renderAt(
+      <>
+        <App />
+        <HistoryControls />
+      </>,
+      `/?item=${ALPHA.id}&item2=${BRAVO.id}`,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Open Bravo' }));
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Bravo');
+
+    await user.click(screen.getByRole('button', { name: 'Browser back' }));
+
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Alpha');
+    expect(screen.queryByRole('tab', { name: 'Bravo' })).not.toBeInTheDocument();
+  });
+
+  it('closes a Back-restored tab from both its visible and stale working sets', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: ALPHA.id, pinned: true },
+          { itemId: BRAVO.id, pinned: true },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const secondPane = await screen.findByRole('article', { name: /Pane 2 of 2: Bravo/ });
+    await user.click(within(secondPane).getByTitle('Close Bravo (Delete)'));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('article')).toHaveLength(1);
+    });
+    expect(screen.queryByRole('tab', { name: 'Bravo' })).not.toBeInTheDocument();
+    expect(
+      Object.values(useTabStore.getState().byPane).some((tabs) =>
+        tabs.some((tab) => tab.itemId === BRAVO.id),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('activating a tab', () => {
+  it('keeps keyboard focus in the tablist and does not announce an already-open detour', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: ALPHA.id, pinned: true },
+          { itemId: BRAVO.id, pinned: true },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderAt(<App />, `/?item=${ALPHA.id}`);
+
+    const bravo = await screen.findByRole('tab', { name: 'Bravo' });
+    bravo.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(bravo).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(bravo).toHaveFocus();
+    expect(screen.queryByText(/Already open in pane/i)).not.toBeInTheDocument();
   });
 });
 
