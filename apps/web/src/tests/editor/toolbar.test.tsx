@@ -206,6 +206,29 @@ describe('running a command', () => {
     expect(onUndo).toHaveBeenCalled();
     expect(ran).toEqual([]);
   });
+
+  it('discloses the history keys to sighted and assistive-technology users', () => {
+    renderToolbar();
+
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+    const redoButton = screen.getByRole('button', { name: 'Redo' });
+    const navigatorPlatform: unknown = Reflect.get(navigator, 'platform');
+    const applePlatform =
+      typeof navigatorPlatform === 'string' && /Mac|iP(hone|[oa]d)/.test(navigatorPlatform);
+    const ariaModifier = applePlatform ? 'Meta' : 'Control';
+    const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
+
+    expect(undoButton).toHaveAttribute('title', `Undo (${visibleModifier}+Z)`);
+    expect(undoButton).toHaveAttribute('aria-keyshortcuts', `${ariaModifier}+Z`);
+    expect(redoButton).toHaveAttribute(
+      'title',
+      `Redo (${visibleModifier}+Shift+Z or ${visibleModifier}+Y)`,
+    );
+    expect(redoButton).toHaveAttribute(
+      'aria-keyshortcuts',
+      `${ariaModifier}+Shift+Z ${ariaModifier}+Y`,
+    );
+  });
 });
 
 describe('saying what is on', () => {
