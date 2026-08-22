@@ -44,7 +44,12 @@ export {
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
 export { workspaceSchema, type Workspace } from './workspaces.js';
-export { containerViewsSchema, viewSummarySchema, type ContainerViews, type ViewSummary } from './views.js';
+export {
+  containerViewsSchema,
+  viewSummarySchema,
+  type ContainerViews,
+  type ViewSummary,
+} from './views.js';
 export {
   effectiveSchemaSchema,
   propertyDefinitionSchema,
@@ -91,6 +96,18 @@ export {
   type TemplatePreflightInput,
   type TemplateSummary,
 } from './templates.js';
+export {
+  completeOccurrenceResultSchema,
+  recurrenceFreqSchema,
+  recurrenceRuleSchema,
+  recurrenceWeekdaySchema,
+  setRecurrenceResultSchema,
+  type CompleteOccurrenceResult,
+  type RecurrenceFreq,
+  type RecurrenceRule,
+  type RecurrenceWeekday,
+  type SetRecurrenceResult,
+} from './recurrence.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport
