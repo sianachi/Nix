@@ -1,8 +1,8 @@
 import { useSearchParams } from 'react-router';
 
 import { parsePanes } from '../panes/pane-state';
-import { ownerOfItem } from './tab-ownership';
-import { itemIsPinned, useTabStore, type OpenTab } from './tab-store';
+import { tabsForPane } from './tab-ownership';
+import { useTabStore, type OpenTab } from './tab-store';
 
 /**
  * The tab strip a pane actually draws.
@@ -24,23 +24,11 @@ export function useDocumentTabs(paneIndex: number, activeItemId: string): Docume
   const [searchParams] = useSearchParams();
   const byPane = useTabStore((state) => state.byPane);
   const addressed = parsePanes(searchParams).panes;
-  const stored = byPane[paneIndex] ?? [];
 
   // Browser history can restore a multi-pane address after a destination or hidden-pane open
   // collapsed the working set into pane zero. Active URL state owns a document ahead of stale
   // session tabs, and a background tab with no active owner belongs to the first addressed pane
   // that still records it. Deriving that ownership here prevents the same tab being activated in
   // two strips and mounting two collaboration sessions for one document.
-  const owned = stored.filter((tab) => {
-    const owner = ownerOfItem(tab.itemId, addressed, byPane);
-    return owner === null || owner === paneIndex;
-  });
-
-  if (owned.some((tab) => tab.itemId === activeItemId)) {
-    return { tabs: owned };
-  }
-
-  return {
-    tabs: [...owned, { itemId: activeItemId, pinned: itemIsPinned(byPane, activeItemId) }],
-  };
+  return { tabs: tabsForPane(paneIndex, activeItemId, addressed, byPane) };
 }

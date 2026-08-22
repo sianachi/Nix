@@ -63,6 +63,16 @@ interface TabsState {
   readonly tabActivated: (pane: number, itemId: string) => void;
 
   /**
+   * A cross-pane move installed one already-validated, globally unique working set.
+   *
+   * The transfer planner owns the multi-pane arithmetic because it must change the URL and this
+   * store from the same materialized strips. This event keeps the store mutation atomic rather
+   * than composing pin, close and pane-close events that each observe a different intermediate
+   * owner.
+   */
+  readonly tabsTransferred: (nextByPane: Readonly<Record<number, readonly OpenTab[]>>) => void;
+
+  /**
    * Removes one document from every pane's working set. Ownership is globally unique, and a stale
    * record may still sit under its former pane after Back restores an older address.
    */
@@ -176,6 +186,10 @@ export const useTabStore = create<TabsState>((set) => ({
 
       return { byPane: claimItem(state.byPane, pane, itemId, next) };
     });
+  },
+
+  tabsTransferred: (nextByPane) => {
+    set({ byPane: nextByPane });
   },
 
   tabClosed: (itemId) => {

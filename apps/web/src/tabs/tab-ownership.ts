@@ -1,5 +1,5 @@
 import type { PaneState } from '../panes/pane-state';
-import type { OpenTab } from './tab-store';
+import { itemIsPinned, type OpenTab } from './tab-store';
 
 /**
  * Finds the one addressed pane that owns a document.
@@ -22,4 +22,30 @@ export function ownerOfItem(
     (byPane[pane.index] ?? []).some((tab) => tab.itemId === itemId),
   );
   return background?.index ?? null;
+}
+
+/**
+ * Materializes one pane's complete strip from its session tabs and URL-owned active document.
+ *
+ * Kept pure because tab transfer needs the same answer for both source and destination before it
+ * changes either owner. A fresh split link has no Zustand records at all, so transferring from the
+ * stored arrays alone would silently lose the destination's old active document.
+ */
+export function tabsForPane(
+  paneIndex: number,
+  activeItemId: string,
+  addressed: readonly PaneState[],
+  byPane: Readonly<Record<number, readonly OpenTab[]>>,
+): readonly OpenTab[] {
+  const stored = byPane[paneIndex] ?? [];
+  const owned = stored.filter((tab) => {
+    const owner = ownerOfItem(tab.itemId, addressed, byPane);
+    return owner === null || owner === paneIndex;
+  });
+
+  if (owned.some((tab) => tab.itemId === activeItemId)) {
+    return owned;
+  }
+
+  return [...owned, { itemId: activeItemId, pinned: itemIsPinned(byPane, activeItemId) }];
 }

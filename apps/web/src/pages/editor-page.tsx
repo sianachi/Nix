@@ -39,8 +39,10 @@ import { usePaneCycling } from '../panes/use-pane-cycling';
 import { useItemProperties } from '../properties/use-item-properties';
 import { useTabOrientationStore } from '../tabs/tab-orientation-store';
 import { DocumentTabStrip } from '../tabs/document-tab-strip';
+import type { TabTransferPayload } from '../tabs/tab-transfer';
 import { useTabStore } from '../tabs/tab-store';
 import { useOpenItem } from '../tabs/use-open-item';
+import { useTabTransfer } from '../tabs/use-tab-transfer';
 import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
@@ -77,8 +79,10 @@ export function EditorPage(): ReactNode {
   const { panes, split, sizes, requested, closePane, setSplit, setSizes } = usePanes();
   const paneClosed = useTabStore((state) => state.paneClosed);
   const narrow = useNarrowViewport();
+  const [draggedTab, setDraggedTab] = useState<TabTransferPayload | null>(null);
 
   const paneCount = panes.length;
+  const { moveTab } = useTabTransfer(panes.map((pane) => pane.index));
 
   // F6 and Shift F6 cycle focus between the pane regions - see the hook for why it is claimed
   // only while there is more than one pane to cycle.
@@ -151,6 +155,13 @@ export function EditorPage(): ReactNode {
           <PaneContents
             pane={pane}
             tree={tree}
+            visiblePanes={panes}
+            draggedTab={draggedTab}
+            onTabDragStarted={setDraggedTab}
+            onTabDragEnded={() => {
+              setDraggedTab(null);
+            }}
+            onMoveTab={moveTab}
             canManageTemplates={templateLibrary.capabilities.canManage}
             canApplyTemplates={
               templateLibrary.status === 'ready' &&
@@ -190,6 +201,15 @@ function describe(title: string | undefined, index: number): string {
 interface PaneContentsProps {
   readonly pane: PaneState;
   readonly tree: ShellContext['tree'];
+  readonly visiblePanes: readonly PaneState[];
+  readonly draggedTab: TabTransferPayload | null;
+  readonly onTabDragStarted: (payload: TabTransferPayload) => void;
+  readonly onTabDragEnded: () => void;
+  readonly onMoveTab: (
+    payload: TabTransferPayload,
+    destinationPane: number,
+    title: string,
+  ) => boolean;
 
   /** How many panes this address holds that this window is too narrow to draw. */
   readonly hiddenPanes: number;
@@ -213,6 +233,11 @@ interface PaneContentsProps {
 function PaneContents({
   pane,
   tree,
+  visiblePanes,
+  draggedTab,
+  onTabDragStarted,
+  onTabDragEnded,
+  onMoveTab,
   onClose,
   paneLabel,
   hiddenPanes,
@@ -248,6 +273,11 @@ function PaneContents({
           paneIndex={pane.index}
           tree={tree}
           activeItemId={pane.itemId}
+          visiblePanes={visiblePanes}
+          draggedTab={draggedTab}
+          onTabDragStarted={onTabDragStarted}
+          onTabDragEnded={onTabDragEnded}
+          onMoveTab={onMoveTab}
           onClosePane={onClose}
         />
 

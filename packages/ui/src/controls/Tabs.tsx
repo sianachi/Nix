@@ -1,6 +1,6 @@
 import { cva } from 'class-variance-authority';
 import { X } from 'lucide-react';
-import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useRef, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
 import { Icon } from '../primitives/Icon';
@@ -51,6 +51,11 @@ export interface TabItem {
 
 export type TabsOrientation = 'horizontal' | 'vertical';
 
+export interface TabsDrag {
+  readonly onStart: (id: string, event: DragEvent<HTMLElement>) => void;
+  readonly onEnd: () => void;
+}
+
 export interface TabsProps {
   /** What the strip as a whole is for. Becomes the tablist's accessible name. */
   readonly label: string;
@@ -66,6 +71,9 @@ export interface TabsProps {
 
   /** A row above its content, or a rail beside it. Defaults to horizontal. */
   readonly orientation?: TabsOrientation;
+
+  /** Its presence enables native dragging; callers omit it for coarse-pointer surfaces. */
+  readonly drag?: TabsDrag;
 
   /** Layout only. */
   readonly className?: string;
@@ -108,6 +116,7 @@ export function Tabs(props: TabsProps): ReactNode {
     onActivate,
     onClose,
     orientation = 'horizontal',
+    drag,
     className,
   } = props;
   const listRef = useRef<HTMLDivElement>(null);
@@ -176,6 +185,7 @@ export function Tabs(props: TabsProps): ReactNode {
           <div
             key={item.id}
             role="tab"
+            draggable={drag === undefined ? undefined : true}
             tabIndex={active ? 0 : -1}
             aria-selected={active}
             // Two shortcuts, space-separated, because the handler accepts both and the physical
@@ -187,14 +197,27 @@ export function Tabs(props: TabsProps): ReactNode {
             // already names itself through its own text, so this tooltip is additive rather than
             // the accessible name - it exists so the Delete shortcut is discoverable without a
             // screen reader reading `aria-keyshortcuts` aloud.
-            title={closable ? `${item.label} (Delete to close)` : undefined}
+            title={
+              drag !== undefined
+                ? `${item.label} (Drag to another pane${closable ? '; Delete to close' : ''})`
+                : closable
+                  ? `${item.label} (Delete to close)`
+                  : undefined
+            }
+            onDragStart={(event) => {
+              drag?.onStart(item.id, event);
+            }}
+            onDragEnd={drag?.onEnd}
             onClick={() => {
               onActivate(item.id);
             }}
             onKeyDown={(event) => {
               handleKeyDown(event, index, item);
             }}
-            className={tabVariants({ orientation, active })}
+            className={cn(
+              tabVariants({ orientation, active }),
+              drag !== undefined && 'cursor-grab',
+            )}
           >
             <span className={cn('truncate', item.pinned !== true && 'italic')}>{item.label}</span>
 
