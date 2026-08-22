@@ -1,12 +1,13 @@
 import { useCallback } from 'react';
-import { useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams, type NavigateFunction } from 'react-router';
 
 import { announce } from '../a11y/announcer';
 import { usePaneIndex } from '../panes/pane-context';
 import { focusPane } from '../panes/pane-params';
-import { usePanes, type BesideRefusal } from '../panes/pane-state';
+import { BESIDE_REFUSAL_COPY, parsePanes, usePanes, type BesideRefusal } from '../panes/pane-state';
 import { useSelectedItem, writeSelectedItem } from '../routing/selected-item';
-import { useTabStore } from './tab-store';
+import { ownerOfItem } from './tab-ownership';
+import { useTabStore, type OpenTab } from './tab-store';
 
 /**
  * The one door a document is opened through - previewed, pinned, or opened beside - and the
@@ -31,36 +32,77 @@ export interface OpenItemControl {
   /** Opens in another pane, pinned immediately - an explicit "beside" is already deliberate. */
   readonly openBeside: (itemId: string) => number | null;
 
+  /** Activates a tab without moving focus away from its tablist or announcing a duplicate open. */
+  readonly activateTab: (itemId: string) => void;
+
   readonly canOpenBeside: boolean;
-  readonly besideRefusal: BesideRefusal | null;
+  readonly besideRefusal: OpenBesideRefusal | null;
+}
+
+export type OpenBesideRefusal = BesideRefusal | 'destination';
+
+export const OPEN_BESIDE_REFUSAL_COPY: Readonly<Record<OpenBesideRefusal, string>> = {
+  ...BESIDE_REFUSAL_COPY,
+  destination: 'Open a note before opening another beside it.',
+};
+
+/**
+ * Replaces any addressed pane arrangement with one visible document.
+ *
+ * A module function rather than another memoized hook callback: it owns no state and callers pass
+ * every effect explicitly, so it has stable identity without adding a manual-memoization contract.
+ */
+function openAsOnlyPane(
+  itemId: string,
+  pinned: boolean,
+  navigate: NavigateFunction,
+  itemOpenedAlone: (itemId: string, pinned: boolean) => void,
+): number {
+  const next = new URLSearchParams();
+  writeSelectedItem(next, 0, itemId);
+  itemOpenedAlone(itemId, pinned);
+  void navigate(`/?${next.toString()}`);
+  focusPane(0);
+  return 0;
+}
+
+/** Claims a history-restored active tab for this pane before another document replaces it. */
+function claimRestoredActiveTab(
+  searchParams: URLSearchParams,
+  byPane: Readonly<Record<number, readonly OpenTab[]>>,
+  pane: number,
+  tabActivated: (pane: number, itemId: string) => void,
+): void {
+  const active = parsePanes(searchParams).panes.find((candidate) => candidate.index === pane);
+  const recordedElsewhere =
+    active !== undefined &&
+    Object.entries(byPane).some(
+      ([key, tabs]) => Number(key) !== pane && tabs.some((tab) => tab.itemId === active.itemId),
+    );
+  if (active !== undefined && recordedElsewhere) {
+    tabActivated(pane, active.itemId);
+  }
 }
 
 export function useOpenItem(): OpenItemControl {
   const pane = usePaneIndex();
   const { select } = useSelectedItem();
   const paneControl = usePanes();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const byPane = useTabStore((state) => state.byPane);
+  const itemOpenedAlone = useTabStore((state) => state.itemOpenedAlone);
   const tabPreviewed = useTabStore((state) => state.tabPreviewed);
   const tabPinned = useTabStore((state) => state.tabPinned);
-
+  const tabActivated = useTabStore((state) => state.tabActivated);
   /** Which pane already has this document open, active or backgrounded - null if none does. */
   const locate = useCallback(
     (itemId: string): number | null => {
-      const active = paneControl.panes.find((candidate) => candidate.itemId === itemId);
-      if (active !== undefined) {
-        return active.index;
-      }
-
-      for (const [key, tabs] of Object.entries(byPane)) {
-        if (tabs.some((tab) => tab.itemId === itemId)) {
-          return Number(key);
-        }
-      }
-
-      return null;
+      const addressedPanes = parsePanes(searchParams).panes;
+      return ownerOfItem(itemId, addressedPanes, byPane);
     },
-    [paneControl.panes, byPane],
+    [searchParams, byPane],
   );
 
   /** Makes an already-open document the pane's active tab and moves focus there. */
@@ -82,37 +124,117 @@ export function useOpenItem(): OpenItemControl {
     [paneControl.panes, searchParams, setSearchParams],
   );
 
-  const openPreview = useCallback(
+  const activateTab = useCallback(
     (itemId: string): void => {
       const found = locate(itemId);
-      if (found !== null) {
+      if (found !== null && found !== pane) {
         focusExisting(found, itemId);
         return;
       }
 
       select(itemId);
+      tabActivated(pane, itemId);
+    },
+    [locate, pane, focusExisting, select, tabActivated],
+  );
+
+  const openPreview = useCallback(
+    (itemId: string): void => {
+      if (location.pathname !== '/') {
+        openAsOnlyPane(itemId, false, navigate, itemOpenedAlone);
+        return;
+      }
+
+      const found = locate(itemId);
+      if (found !== null) {
+        if (!paneControl.panes.some((candidate) => candidate.index === found)) {
+          openAsOnlyPane(itemId, false, navigate, itemOpenedAlone);
+          return;
+        }
+        focusExisting(found, itemId);
+        return;
+      }
+
+      claimRestoredActiveTab(searchParams, byPane, pane, tabActivated);
+      select(itemId);
       tabPreviewed(pane, itemId);
     },
-    [locate, focusExisting, select, tabPreviewed, pane],
+    [
+      location.pathname,
+      navigate,
+      itemOpenedAlone,
+      locate,
+      paneControl.panes,
+      focusExisting,
+      searchParams,
+      byPane,
+      tabActivated,
+      select,
+      tabPreviewed,
+      pane,
+    ],
   );
 
   const openPinned = useCallback(
     (itemId: string): void => {
+      if (location.pathname !== '/') {
+        openAsOnlyPane(itemId, true, navigate, itemOpenedAlone);
+        return;
+      }
+
       const found = locate(itemId);
       if (found !== null) {
+        if (!paneControl.panes.some((candidate) => candidate.index === found)) {
+          openAsOnlyPane(itemId, true, navigate, itemOpenedAlone);
+          return;
+        }
         focusExisting(found, itemId);
         tabPinned(found, itemId);
         return;
       }
 
+      claimRestoredActiveTab(searchParams, byPane, pane, tabActivated);
       select(itemId);
       tabPinned(pane, itemId);
     },
-    [locate, focusExisting, select, tabPinned, pane],
+    [
+      location.pathname,
+      navigate,
+      itemOpenedAlone,
+      locate,
+      paneControl.panes,
+      focusExisting,
+      searchParams,
+      byPane,
+      tabActivated,
+      select,
+      tabPinned,
+      pane,
+    ],
   );
+
+  const besideRefusal: OpenBesideRefusal | null =
+    location.pathname === '/'
+      ? paneControl.besideRefusal
+      : paneControl.besideRefusal === 'narrow'
+        ? 'narrow'
+        : 'destination';
 
   const openBeside = useCallback(
     (itemId: string): number | null => {
+      if (location.pathname !== '/') {
+        announce(OPEN_BESIDE_REFUSAL_COPY[besideRefusal ?? 'destination']);
+        return null;
+      }
+
+      // A later addressed pane may be hidden at this viewport width. Treat the gesture as the
+      // narrow refusal before locating it, or focusing the hidden pane loses focus and still does
+      // not satisfy the request to open something beside the visible document.
+      if (besideRefusal === 'narrow') {
+        announce(BESIDE_REFUSAL_COPY.narrow);
+        return null;
+      }
+
       const found = locate(itemId);
       if (found !== null) {
         focusExisting(found, itemId);
@@ -126,14 +248,15 @@ export function useOpenItem(): OpenItemControl {
       }
       return index;
     },
-    [locate, focusExisting, tabPinned, paneControl],
+    [location.pathname, locate, focusExisting, tabPinned, paneControl, besideRefusal],
   );
 
   return {
     openPreview,
     openPinned,
     openBeside,
-    canOpenBeside: paneControl.canOpenBeside,
-    besideRefusal: paneControl.besideRefusal,
+    activateTab,
+    canOpenBeside: besideRefusal === null,
+    besideRefusal,
   };
 }

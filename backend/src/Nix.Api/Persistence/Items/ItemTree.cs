@@ -22,11 +22,12 @@ namespace Nix.Persistence.Items;
 /// there is one unit of work and one <c>SET LOCAL</c> tenant scope covering both.
 /// </para>
 /// <para>
-/// <b>Nothing here filters by tenant explicitly, and everything is tenant-scoped anyway.</b> The
-/// row-level security policies do it, from the session context the request pipeline established.
-/// The SQL statements additionally bind <c>@tenant_id</c> - not because the policy might fail, but
-/// because a predicate the planner can see lets it use an index instead of evaluating the policy
-/// per row, and because the security model asks for the assertion as defence in depth.
+/// <b>Everything is tenant-scoped, and every hot read states the tenant explicitly.</b> Row-level
+/// security still enforces the session context the request pipeline established. The EF point
+/// reads and the hand-written SQL additionally predicate or bind the tenant - not because the
+/// policy might fail, but because a condition the planner can see lets it use an index instead of
+/// evaluating the policy per row, and because the security model asks for the assertion as defence
+/// in depth.
 /// </para>
 /// </remarks>
 public sealed class ItemTree : IItemTree
@@ -61,9 +62,31 @@ public sealed class ItemTree : IItemTree
             + "is tenant-scoped and there is no unscoped path.");
 
     /// <inheritdoc />
-    public async ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
+    public async ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken)
+    {
+        var tenant = Tenant;
+
+        // Visibility is derived from the whole path, not only the row itself. The subject
+        // predicate excludes direct deletion; the proper-ancestor closure range excludes an
+        // otherwise-active descendant whose ancestor is hidden. This is the closure half of the
+        // store and is hand-written for the same reason as closure maintenance: the measured LINQ
+        // anti-join started from every lifecycle candidate in the tenant rather than from this
+        // item's descendant range.
+        return await _dbContext.Items
+            .FromSqlRaw(
+                ItemVisibilitySql.FindVisible,
+                Uuid("tenant_id", tenant.Value),
+                Uuid("item_id", id.Value))
+            .IgnoreQueryFilters()
+            .TagWith("ItemTree.FindAsync")
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken) =>
         await _dbContext.Items
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(item => item.TenantId == Tenant && item.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
     /// <inheritdoc />

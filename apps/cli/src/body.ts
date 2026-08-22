@@ -19,7 +19,12 @@ import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { updateYFragment, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
-import { documentToMarkdown, markdownToDocument, type MarkdownLoss } from '@nix/markdown';
+import {
+  documentToMarkdown,
+  markdownToDocument,
+  type MarkdownImportScan,
+  type MarkdownLoss,
+} from '@nix/markdown';
 import type { FetchImpl } from './session.ts';
 
 /** The Yjs fragment a note's prose binds to; must match the collaboration service's own. */
@@ -91,6 +96,7 @@ export async function readBodyMarkdown(input: {
 export interface BodyWrite {
   readonly seq: string;
   readonly bytes: number;
+  readonly scan: MarkdownImportScan;
 }
 
 /**
@@ -103,8 +109,8 @@ export async function writeBodyMarkdown(input: {
   readonly itemId: string;
   readonly token: string;
   readonly markdown: string;
-  /** The already-parsed document for `markdown`, when the caller validated it; skips the re-parse. */
-  readonly parsedDoc?: unknown;
+  /** The already-parsed document and its inseparable scan, when the caller validated it. */
+  readonly parsed?: { readonly doc: unknown; readonly scan: MarkdownImportScan };
   /**
    * Skip the catch-up read because the caller knows the update log is empty - an item it created
    * moments ago. Against an empty base the full state is the delta, so nothing changes in what is
@@ -115,12 +121,15 @@ export async function writeBodyMarkdown(input: {
   readonly assumeEmpty?: boolean;
   readonly fetchImpl?: FetchImpl;
 }): Promise<BodyWrite> {
-  const parsed =
-    input.parsedDoc !== undefined
-      ? { ok: true as const, doc: input.parsedDoc }
-      : markdownToDocument(input.markdown);
-  if (!parsed.ok) {
-    throw new Error(`The Markdown does not make a valid note body: ${parsed.reason}`);
+  let parsed: { readonly doc: unknown; readonly scan: MarkdownImportScan };
+  if (input.parsed !== undefined) {
+    parsed = input.parsed;
+  } else {
+    const converted = markdownToDocument(input.markdown);
+    if (!converted.ok) {
+      throw new Error(`The Markdown does not make a valid note body: ${converted.reason}`);
+    }
+    parsed = converted;
   }
 
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
@@ -164,7 +173,11 @@ export async function writeBodyMarkdown(input: {
   }
 
   const body = (await response.json()) as { seq?: unknown };
-  return { seq: typeof body.seq === 'string' ? body.seq : '', bytes: delta.byteLength };
+  return {
+    seq: typeof body.seq === 'string' ? body.seq : '',
+    bytes: delta.byteLength,
+    scan: parsed.scan,
+  };
 }
 
 async function fetchUpdates(

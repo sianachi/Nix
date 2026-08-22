@@ -10,7 +10,6 @@ import {
 import { GraphView } from '../graph/graph-view';
 import { useWorkspaceGraph } from '../graph/use-workspace-graph';
 import { paneScroller } from '../layout/regions';
-import { useSelectedItem } from '../routing/selected-item';
 import { useOpenItem } from '../tabs/use-open-item';
 
 /**
@@ -48,7 +47,6 @@ function GraphFrame({ children }: { readonly children: ReactNode }): ReactElemen
 export function GraphPage(): ReactElement {
   const { status, graph, error, reload } = useWorkspaceGraph();
   const { openPreview } = useOpenItem();
-  const { selectedId } = useSelectedItem();
 
   if (status === 'loading') {
     return (
@@ -102,12 +100,7 @@ export function GraphPage(): ReactElement {
         />
       )}
 
-      <GraphView
-        nodes={graph.nodes}
-        links={graph.links}
-        onOpen={openPreview}
-        selectedId={selectedId}
-      />
+      <GraphView nodes={graph.nodes} links={graph.links} onOpen={openPreview} />
     </GraphFrame>
   );
 }

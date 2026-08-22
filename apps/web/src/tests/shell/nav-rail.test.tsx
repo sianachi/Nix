@@ -1,7 +1,8 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as importRun from '../../import/import-run';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
@@ -13,11 +14,15 @@ import { App } from '../../app';
  * Driven through the whole application rather than the component in isolation, because half of
  * what the rail promises is only true in a router - which link the URL makes current, and what
  * following one does to the address. The rail's own keyboard contract is asserted here too, on
- * the real links, since a roving tabindex is a claim about the document's tab order and nothing
- * short of tabbing through it checks that.
+ * the real controls, since a roving tabindex is a claim about the document's tab order and
+ * nothing short of tabbing through it checks that.
  */
 beforeEach(() => {
   signedIn();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 const NOTE = item({
@@ -30,24 +35,31 @@ function rail(): HTMLElement {
 }
 
 describe('the navigation rail', () => {
-  it('offers every named destination, so an icon is never the only thing a link says', async () => {
+  it('names every control, so an icon is never the only thing it says', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    const links = within(rail()).getAllByRole('link');
-    expect(links.map((link) => link.textContent)).toEqual([
+    const items = within(rail()).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
       'Notes',
       'Calendar',
       'Graph',
       'Bookmarks',
       'Templates',
+      'Import',
+      'Settings',
     ]);
     expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute('href', '/');
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
       'href',
       '/calendar',
+    );
+    expect(within(rail()).getByRole('button', { name: 'Import' })).toBeInTheDocument();
+    expect(within(rail()).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/settings',
     );
   });
 
@@ -63,6 +75,8 @@ describe('the navigation rail', () => {
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const importControl = within(rail()).getByRole('button', { name: 'Import' });
+    const settings = within(rail()).getByRole('link', { name: 'Settings' });
 
     // Only the entry point is in the tab order; the others are reachable by arrow key alone.
     expect(notes).toHaveAttribute('tabindex', '-1');
@@ -70,6 +84,8 @@ describe('the navigation rail', () => {
     expect(graph).toHaveAttribute('tabindex', '-1');
     expect(bookmarks).toHaveAttribute('tabindex', '-1');
     expect(templates).toHaveAttribute('tabindex', '-1');
+    expect(importControl).toHaveAttribute('tabindex', '-1');
+    expect(settings).toHaveAttribute('tabindex', '-1');
 
     // Tab reaches the skip link, then the rail, then leaves it - every destination, one stop.
     await user.tab();
@@ -91,6 +107,8 @@ describe('the navigation rail', () => {
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const importControl = within(rail()).getByRole('button', { name: 'Import' });
+    const settings = within(rail()).getByRole('link', { name: 'Settings' });
 
     calendar.focus();
 
@@ -107,11 +125,18 @@ describe('the navigation rail', () => {
     await user.keyboard('{ArrowDown}');
     expect(graph).toHaveFocus();
 
-    await user.keyboard('{End}');
-    expect(templates).toHaveFocus();
+    templates.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(importControl).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
-    expect(templates).toHaveFocus();
+    expect(settings).toHaveFocus();
+
+    await user.keyboard('{End}');
+    expect(settings).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(settings).toHaveFocus();
 
     await user.keyboard('{Home}');
     expect(notes).toHaveFocus();
@@ -173,9 +198,38 @@ describe('the navigation rail', () => {
       'aria-current',
       'page',
     );
-    for (const label of ['Calendar', 'Graph', 'Bookmarks', 'Templates']) {
+    for (const label of ['Calendar', 'Graph', 'Bookmarks', 'Templates', 'Settings']) {
       expect(within(rail()).getByRole('link', { name: label })).not.toHaveAttribute('aria-current');
     }
+    expect(within(rail()).getByRole('button', { name: 'Import' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('opens a workspace-level import without requiring a note to be open', async () => {
+    const user = userEvent.setup();
+    const run = vi.spyOn(importRun, 'runImportPlan').mockResolvedValue({
+      rootItemId: null,
+      created: [],
+      failed: [],
+      notAttempted: [],
+      stoppedEarly: false,
+      couldNotStart: 'Stopped after the request was captured.',
+    });
+    stubCoreApi();
+    renderAt(<App />);
+
+    await user.click(within(rail()).getByRole('button', { name: 'Import' }));
+    const dialog = screen.getByRole('dialog', { name: 'Import' });
+    expect(within(dialog).getByText(/Obsidian vault/i)).toBeVisible();
+
+    await user.upload(
+      within(dialog).getByLabelText('Markdown files to import'),
+      new File(['Body.'], 'note.md', { type: 'text/markdown' }),
+    );
+    await user.click(await within(dialog).findByRole('button', { name: 'Import 2 items' }));
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ parentId: null }));
   });
 
   it('changes the address when a destination is followed', async () => {
@@ -214,7 +268,8 @@ describe('the navigation rail on a narrow screen', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
-    expect(within(rail()).getAllByRole('link')).toHaveLength(5);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(6);
+    expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
   });
 
   it('dismisses the tree drawer on the way to a destination, rather than leaving it over the top', async () => {
@@ -229,6 +284,21 @@ describe('the navigation rail on a narrow screen', () => {
     await user.click(within(rail()).getByRole('link', { name: 'Graph' }));
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
+  });
+
+  it('dismisses the tree drawer before opening the import dialog', async () => {
+    const user = userEvent.setup();
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
+
+    await user.click(within(rail()).getByRole('button', { name: 'Import' }));
+
+    expect(screen.getByRole('dialog', { name: 'Import' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
   });
 });

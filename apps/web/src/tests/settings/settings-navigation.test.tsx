@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -7,9 +7,9 @@ import { renderAt, signedIn } from '../render-with-router';
 import { App } from '../../app';
 
 /**
- * How the settings screen is reached: by address, and through the profile menu - the menu that
- * holds what belongs to the person rather than to the document, which is exactly what a personal
- * access token is.
+ * How the settings screen is reached: by address, from the persistent rail, and through the
+ * profile menu. The rail makes workspace administration findable; the account menu keeps the
+ * personal-token path available where somebody already expects it.
  */
 
 beforeEach(() => {
@@ -22,6 +22,7 @@ describe('reaching the settings screen', () => {
     renderAt(<App />, '/settings');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Members' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Access tokens' })).toBeVisible();
   });
@@ -35,5 +36,19 @@ describe('reaching the settings screen', () => {
     await user.click(screen.getByRole('menuitem', { name: /settings/i }));
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+  });
+
+  it('is reachable from the left rail and becomes its current destination', async () => {
+    const user = userEvent.setup();
+    renderAt(<App />, '/');
+
+    const rail = screen.getByRole('navigation', { name: /destinations/i });
+    await user.click(within(rail).getByRole('link', { name: 'Settings' }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+    expect(within(rail).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 });

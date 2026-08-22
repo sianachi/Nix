@@ -30,6 +30,8 @@ import { Button } from './Button';
  *   sends the next Tab to the top of the page, which is nowhere near where the person was.
  * - **A visible way out.** Escape and the backdrop are invisible affordances; the close control in
  *   the corner is the one a pointer user can see. It is not optional, because `actions` is.
+ * - **Escape stays in this layer.** The platform still turns Escape into `cancel`, but the keydown
+ *   does not bubble to an outer non-modal overlay and close two layers at once.
  *
  * **Open is the caller's, not the element's.** Escape and backdrop clicks are intercepted and
  * reported through `onClose` rather than allowed to close the element, so the DOM can never be
@@ -148,12 +150,20 @@ export function Dialog(props: DialogProps): ReactNode {
       return;
     }
 
-    // The listeners are attached to the element rather than written as JSX handlers because both
-    // of them need the native event's target: a backdrop click is dispatched at the `<dialog>`
-    // itself, and telling it apart from a click on the content is the whole test.
+    // The listeners are attached to the element rather than written as JSX handlers. Backdrop
+    // handling needs the native event's target, and Escape containment belongs to the modal layer
+    // without recasting the semantic dialog as a generic keyboard control.
     const onCancel = (event: Event): void => {
       event.preventDefault();
       onClose();
+    };
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        // Do not prevent the default: the browser must still translate this press into the
+        // dialog's native `cancel` event. Only the outer overlay is not entitled to the key.
+        event.stopPropagation();
+      }
     };
 
     // A press that starts inside and finishes on the backdrop is a text selection that overshot,
@@ -173,11 +183,13 @@ export function Dialog(props: DialogProps): ReactNode {
     };
 
     element.addEventListener('cancel', onCancel);
+    element.addEventListener('keydown', onKeyDown);
     element.addEventListener('mousedown', onPointerDown);
     element.addEventListener('click', onClick);
 
     return () => {
       element.removeEventListener('cancel', onCancel);
+      element.removeEventListener('keydown', onKeyDown);
       element.removeEventListener('mousedown', onPointerDown);
       element.removeEventListener('click', onClick);
     };

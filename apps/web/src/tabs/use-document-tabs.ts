@@ -1,3 +1,7 @@
+import { useSearchParams } from 'react-router';
+
+import { parsePanes } from '../panes/pane-state';
+import { tabsForPane } from './tab-ownership';
 import { useTabStore, type OpenTab } from './tab-store';
 
 /**
@@ -17,11 +21,14 @@ export interface DocumentTabsResult {
 }
 
 export function useDocumentTabs(paneIndex: number, activeItemId: string): DocumentTabsResult {
-  const stored = useTabStore((state) => state.byPane[paneIndex]) ?? [];
+  const [searchParams] = useSearchParams();
+  const byPane = useTabStore((state) => state.byPane);
+  const addressed = parsePanes(searchParams).panes;
 
-  if (stored.some((tab) => tab.itemId === activeItemId)) {
-    return { tabs: stored };
-  }
-
-  return { tabs: [...stored, { itemId: activeItemId, pinned: false }] };
+  // Browser history can restore a multi-pane address after a destination or hidden-pane open
+  // collapsed the working set into pane zero. Active URL state owns a document ahead of stale
+  // session tabs, and a background tab with no active owner belongs to the first addressed pane
+  // that still records it. Deriving that ownership here prevents the same tab being activated in
+  // two strips and mounting two collaboration sessions for one document.
+  return { tabs: tabsForPane(paneIndex, activeItemId, addressed, byPane) };
 }

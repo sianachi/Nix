@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import type * as collabSync from '../../editor/collab-sync';
+import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { NoteEditor } from '../../editor/note-editor';
 
 /**
@@ -16,6 +17,27 @@ import { NoteEditor } from '../../editor/note-editor';
  */
 let captured: Y.Doc | null = null;
 
+const NAVIGATOR_PLATFORM: unknown = Reflect.get(navigator, 'platform');
+const MODIFIER: KeyboardEventInit =
+  typeof NAVIGATOR_PLATFORM === 'string' && /Mac|iP(hone|[oa]d)/.test(NAVIGATOR_PLATFORM)
+    ? { metaKey: true }
+    : { ctrlKey: true };
+
+function pluginKey(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || !('key' in value)) {
+    return null;
+  }
+  return typeof value.key === 'string' ? value.key : null;
+}
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const result: unknown = Reflect.get(value, key);
+  return result;
+}
+
 vi.mock('../../editor/collab-sync', async () => {
   const actual = await vi.importActual<typeof collabSync>('../../editor/collab-sync');
   return {
@@ -26,6 +48,10 @@ vi.mock('../../editor/collab-sync', async () => {
     },
   };
 });
+
+// BubbleMenu has its own real-editor suite. Its only extra work here would be measuring a text
+// selection through `coordsAtPos`, a browser-layout API jsdom cannot implement.
+vi.mock('../../editor/bubble-menu', () => ({ BubbleMenu: () => null }));
 
 vi.mock('../../auth/auth-provider', () => ({
   useAuth: () => ({ getAccessToken: () => Promise.resolve('token') }),
@@ -50,6 +76,7 @@ vi.mock('../../auth/auth-provider', () => ({
 
 beforeEach(() => {
   captured = null;
+  useKeyboardModeStore.setState({ mode: 'standard', persistence: 'stored' });
 });
 
 /** Renders the editor and returns the shared document it handed the provider. */
@@ -120,6 +147,416 @@ describe('a note nobody has typed into yet', () => {
 
     await waitFor(() => {
       expect(updates).toBeGreaterThan(0);
+    });
+  });
+
+  it('inserts an accessible image through the shared form', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+
+    // Give the image a real insertion point. The collaboration fragment starts empty in this
+    // harness until the first local transaction; production notes open with a schema-valid block.
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/roadmap.png',
+    );
+    await user.type(
+      screen.getByRole('textbox', { name: 'Description' }),
+      'Product roadmap drawn as a timeline',
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    await waitFor(() => {
+      const body = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(body).toContain('https://images.example.test/roadmap.png');
+      expect(body).toContain('Product roadmap drawn as a timeline');
+      expect(body.match(/https:\/\/images\.example\.test\/roadmap\.png/g)).toHaveLength(1);
+      expect(body).toContain('paragraph');
+    });
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Note body')).toHaveFocus();
+    });
+  });
+
+  it('commits a submitted image before the deferred focus frame can be interrupted', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    );
+    const doc = await open();
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/committed-before-focus.png',
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    // The frame is deliberately never run. A tab change can unmount the editor at this exact
+    // point, so a command queued beside focus would lose an already accepted submission.
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain(
+      'https://images.example.test/committed-before-focus.png',
+    );
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+  });
+
+  it('leaves the document untouched and restores the image button when insertion is cancelled', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const imageButton = screen.getByRole('button', { name: 'Image' });
+    const before = JSON.stringify(doc.getXmlFragment('default').toJSON());
+
+    await user.click(imageButton);
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/unused.png',
+    );
+    await user.click(screen.getByRole('button', { name: /^Cancel$/ }));
+
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toBe(before);
+    expect(imageButton).toHaveFocus();
+  });
+
+  it('keeps a selected link anchored while a peer edits and writes the mark to the shared document', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    doc.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Roadmap')]);
+      doc.getXmlFragment('default').push([paragraph]);
+    });
+    await waitFor(() => {
+      expect(body).toHaveTextContent('Roadmap');
+    });
+    body.focus();
+    const text = body.querySelector('p')?.firstChild;
+    if (text === null || text === undefined) {
+      throw new Error('The shared paragraph did not render a text node.');
+    }
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 'Roadmap'.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    await user.click(screen.getByRole('button', { name: 'Add link' }));
+
+    // The modal preserves an editor selection while collaboration continues behind it. A peer
+    // appending a block exercises the Yjs mapping boundary before the delayed command consumes
+    // that selection; the link must stay on the local text rather than disappear or move.
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Peer note')]);
+      peer.getXmlFragment('default').push([paragraph]);
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Link address' }),
+      'https://example.test/roadmap',
+    );
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Add link' })).getByRole('button', {
+        name: 'Add link',
+      }),
+    );
+
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('Roadmap');
+      expect(shared).toContain('Peer note');
+      expect(shared).toContain('https://example.test/roadmap');
+      expect(shared.match(/https:\/\/example\.test\/roadmap/g)).toHaveLength(1);
+    });
+    expect(screen.queryByRole('dialog', { name: 'Add link' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+    });
+    peer.destroy();
+  });
+});
+
+describe('collaborative history keys', () => {
+  it.each([
+    ['undo', 'z', false],
+    ['shift redo', 'z', true],
+    ['alternate redo', 'y', false],
+  ])(
+    'claims empty %s instead of falling through to browser contenteditable history',
+    async (_name, key, shiftKey) => {
+      await open();
+      const body = screen.getByLabelText('Note body');
+      const event = new KeyboardEvent('keydown', {
+        key,
+        ...MODIFIER,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+
+      body.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  it('installs only collaborative history', async () => {
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const editor: unknown = Reflect.get(body, 'editor');
+    const extensions = property(property(editor, 'extensionManager'), 'extensions');
+    const plugins = property(property(editor, 'state'), 'plugins');
+    if (!Array.isArray(extensions) || !Array.isArray(plugins)) {
+      throw new Error('TipTap did not expose its editor state on the ProseMirror element.');
+    }
+
+    expect(extensions.some((extension) => property(extension, 'name') === 'undoRedo')).toBe(false);
+    expect(plugins.some((plugin) => pluginKey(plugin)?.startsWith('history$') === true)).toBe(
+      false,
+    );
+  });
+
+  it('returns focus to the note after toolbar undo', async () => {
+    const user = userEvent.setup();
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(undoButton);
+
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+      expect(body.querySelector('h1')).not.toBeNull();
+    });
+  });
+
+  it('keeps focus on an unavailable history action', async () => {
+    const user = userEvent.setup();
+    await open();
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+
+    await user.click(undoButton);
+
+    expect(undoButton).toHaveFocus();
+  });
+
+  it('keeps redo available when a peer edits after this writer undoes', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('heading');
+    });
+
+    useKeyboardModeStore.setState({ mode: 'emacs' });
+    body.focus();
+    fireEvent.keyDown(body, { key: '/', ctrlKey: true });
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
+    });
+
+    // The remote transaction deliberately lands between undo and redo. It must neither enter this
+    // client's history nor clear the redo stack that belongs to the local heading change.
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(peer);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      peer.getXmlFragment('default').push([paragraph]);
+      const text = new Y.XmlText();
+      paragraph.push([text]);
+      text.insert(0, 'Peer note');
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER, shiftKey: true });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+
+    fireEvent.keyDown(body, { key: '_', ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+    fireEvent.keyDown(body, { key: 'y', ...MODIFIER });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+    peer.destroy();
+  });
+
+  it('clears redo when this writer makes a new change after undo', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    body.focus();
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Heading 2' }));
+    await waitFor(() => {
+      expect(body.querySelector('h2')).not.toBeNull();
+    });
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER, shiftKey: true });
+    expect(body.querySelector('h2')).not.toBeNull();
+    expect(body.querySelector('h1')).toBeNull();
+  });
+});
+
+describe('Vim basics in a note', () => {
+  it('shows and announces the pane-local mode while describing how to leave it', async () => {
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const descriptionId = body.getAttribute('aria-describedby');
+
+    expect(descriptionId).not.toBeNull();
+    expect(document.getElementById(descriptionId ?? '')).toHaveTextContent(/Press i.*Escape/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+
+    fireEvent.keyDown(body, { key: 'i' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
+    });
+    fireEvent.keyDown(body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+  });
+
+  it('switches the same collaborative editor live and resets each Vim session to Normal', async () => {
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const editor: unknown = Reflect.get(body, 'editor');
+
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'vim' });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+    fireEvent.keyDown(body, { key: 'i' });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
+    });
+
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'standard' });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => {
+      useKeyboardModeStore.setState({ mode: 'vim' });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+
+    expect(screen.getByLabelText('Note body')).toBe(body);
+    expect(Reflect.get(body, 'editor')).toBe(editor);
+  });
+
+  it('keeps Normal inert and records Insert typing in local collaborative history', async () => {
+    const user = userEvent.setup();
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+    body.focus();
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim normal/i);
+    });
+    const beforeNormal = JSON.stringify(doc.getXmlFragment('default').toJSON());
+
+    fireEvent.keyDown(body, { key: 'q' });
+    body.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: 'blocked',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    fireEvent.paste(body, {
+      clipboardData: { getData: () => 'blocked', types: ['text/plain'] },
+    });
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toBe(beforeNormal);
+
+    fireEvent.keyDown(body, { key: 'i' });
+    await user.keyboard('x');
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('x');
+    });
+    fireEvent.keyDown(body, { key: 'Escape' });
+
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Peer note')]);
+      peer.getXmlFragment('default').push([paragraph]);
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('x');
+      expect(shared).toContain('Peer note');
+    });
+    peer.destroy();
+  });
+
+  it('lets an open slash menu consume Escape before Vim leaves Insert', async () => {
+    const user = userEvent.setup();
+    useKeyboardModeStore.setState({ mode: 'vim' });
+    await open();
+    const body = screen.getByLabelText('Note body');
+    body.focus();
+    fireEvent.keyDown(body, { key: 'i' });
+
+    await user.keyboard('/');
+    expect(await screen.findByRole('listbox')).toBeVisible();
+    fireEvent.keyDown(body, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent(/Vim insert/i);
     });
   });
 });

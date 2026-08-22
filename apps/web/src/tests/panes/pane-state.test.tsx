@@ -1,5 +1,5 @@
-import { renderHook } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { act, renderHook } from '@testing-library/react';
+import { MemoryRouter, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { stubViewport } from '../stub-viewport';
@@ -165,6 +165,9 @@ describe('clearing one pane’s view state', () => {
 });
 
 describe('the split orientation', () => {
+  const first = '00000000-0000-4000-8000-000000000001';
+  const second = '00000000-0000-4000-8000-000000000002';
+
   it('reads both spellings', () => {
     expect(parseSplit('h')).toBe('horizontal');
     expect(parseSplit('horizontal')).toBe('horizontal');
@@ -181,6 +184,47 @@ describe('the split orientation', () => {
     expect(parseSplit('diagonal')).toBe('vertical');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('replaces only the layout parameter and keeps Back for the preceding navigation', () => {
+    const editor =
+      `/?item=${first}&view=board&f.status=open&item2=${second}` +
+      '&view2=calendar&f2.owner=ada&sizes=60,40&keep=present';
+    const { result } = renderHook(
+      () => ({
+        panes: usePanes(),
+        params: useSearchParams()[0],
+        location: useLocation(),
+        navigate: useNavigate(),
+      }),
+      {
+        wrapper: ({ children }) => (
+          <MemoryRouter initialEntries={['/calendar', editor]} initialIndex={1}>
+            {children}
+          </MemoryRouter>
+        ),
+      },
+    );
+
+    act(() => {
+      result.current.panes.setSplit('horizontal');
+    });
+
+    expect(result.current.params.get('split')).toBe('h');
+    expect(result.current.params.get('item')).toBe(first);
+    expect(result.current.params.get('view')).toBe('board');
+    expect(result.current.params.getAll('f.status')).toEqual(['open']);
+    expect(result.current.params.get('item2')).toBe(second);
+    expect(result.current.params.get('view2')).toBe('calendar');
+    expect(result.current.params.getAll('f2.owner')).toEqual(['ada']);
+    expect(result.current.params.get('sizes')).toBe('60,40');
+    expect(result.current.params.get('keep')).toBe('present');
+
+    act(() => {
+      void result.current.navigate(-1);
+    });
+
+    expect(result.current.location.pathname).toBe('/calendar');
   });
 });
 

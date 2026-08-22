@@ -4,9 +4,9 @@ import { mergeAttributes } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { NodeRange } from '@tiptap/extension-node-range';
 import { Dropcursor, Gapcursor } from '@tiptap/extensions';
-import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import type { Plugin, Transaction } from '@tiptap/pm/state';
 import { Awareness } from 'y-protocols/awareness';
 import { redo, undo, yCursorPlugin, ySyncPluginKey, yUndoPlugin, ySyncPlugin } from 'y-prosemirror';
@@ -16,7 +16,11 @@ import { useAuth } from '../auth/auth-provider';
 import { ColumnControls } from './column-controls';
 import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
+import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
+import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
+import { EmacsKeymap } from './emacs-keymap';
+import { useKeyboardModeStore } from './keyboard-mode-store';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
@@ -26,6 +30,7 @@ import { ReferenceResolutionProvider } from './reference-resolution';
 import { ReferenceView } from './reference-view';
 import { SlashMenu } from './slash-menu';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
+import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -268,6 +273,20 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
  */
 const RESTORE_ORIGIN = Symbol('nix.editor.restore');
 
+function describeEditorWith(element: HTMLElement, id: string, enabled: boolean): void {
+  const ids = (element.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/)
+    .filter((candidate) => candidate.length > 0 && candidate !== id);
+  if (enabled) {
+    ids.push(id);
+  }
+  if (ids.length === 0) {
+    element.removeAttribute('aria-describedby');
+  } else {
+    element.setAttribute('aria-describedby', ids.join(' '));
+  }
+}
+
 export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
@@ -277,6 +296,9 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
   // event: the document on screen still shows the edit, and the only honest thing to do is say
   // it did not stick.
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [addressRequest, setAddressRequest] = useState<EditorAddressKind | null>(null);
+  const keyboardMode = useKeyboardModeStore((state) => state.mode);
+  const vimDescriptionId = useId();
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -299,6 +321,13 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
         // service builds the same schema in Node and has no use for a gap cursor.
         Gapcursor,
         Dropcursor,
+        // The platform history keys must reach the same client-local Yjs history as the toolbar.
+        // ProseMirror history is intentionally not installed in a collaborative document.
+        CollaborationHistoryKeymap,
+        // A live browser-local preference. The extension stays installed so changing the preset
+        // never rebuilds this editor or its Yjs binding.
+        EmacsKeymap,
+        VimMotions,
         // Lets the drag handle select and move a whole block as a node range rather than a text
         // span - without it, grabbing a block would drag whatever text selection happened to
         // exist. The handle itself is the <DragHandle> component below, which registers its own
@@ -331,6 +360,19 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
     },
     [fragment, awareness],
   );
+
+  const activeVimMode = useEditorState({
+    editor,
+    selector: ({ editor: current }) => vimStatusMode(current.state),
+  });
+
+  useEffect(() => {
+    setVimEnabled(editor.view, keyboardMode === 'vim');
+    describeEditorWith(editor.view.dom, vimDescriptionId, keyboardMode === 'vim');
+    return () => {
+      describeEditorWith(editor.view.dom, vimDescriptionId, false);
+    };
+  }, [editor, keyboardMode, vimDescriptionId]);
 
   // The one document shape the schema refuses outright is an empty one - `doc` is `block+` -
   // and the Yjs undo manager can produce it. ProseMirror editing cannot: deleting everything
@@ -469,17 +511,30 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
     // forty links and opening forty connections.
     <ReferenceResolutionProvider>
       <div className="flex min-h-0 flex-1 flex-col">
+        <Text id={vimDescriptionId} variant="note" className="sr-only">
+          Vim basics starts in Normal mode. Press i to insert text and Escape to return to Normal.
+        </Text>
         <div className="flex items-center justify-between pr-8">
           <EditorToolbar
             editor={editor}
+            onInsertImage={() => {
+              setAddressRequest('image');
+            }}
+            onInsertLink={() => {
+              setAddressRequest('link');
+            }}
             // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
             // rather than imported by the toolbar, which has no business knowing the document is a
             // CRDT.
             onUndo={() => {
-              undo(editor.state);
+              if (undo(editor.state)) {
+                editor.view.focus();
+              }
             }}
             onRedo={() => {
-              redo(editor.state);
+              if (redo(editor.state)) {
+                editor.view.focus();
+              }
             }}
           />
           <PresenceList awareness={awareness} />
@@ -498,7 +553,12 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-          <SlashMenu editor={editor} />
+          <SlashMenu
+            editor={editor}
+            onInsertImage={() => {
+              setAddressRequest('image');
+            }}
+          />
           <ReferenceMenu editor={editor} />
           {/*
             The block handle: hover a block and a grip appears in the margin; dragging it moves
@@ -530,6 +590,66 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
           {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
           <BubbleMenu editor={editor} />
         </div>
+
+        {addressRequest === null ? null : (
+          <EditorAddressDialog
+            kind={addressRequest}
+            onCancel={() => {
+              setAddressRequest(null);
+            }}
+            onSubmit={({ address, description }) => {
+              const request = addressRequest;
+              if (editor.isDestroyed) {
+                return;
+              }
+
+              // Commit before closing. Deferring the document mutation would create a gap where
+              // changing tabs can unmount this editor after the validated form has disappeared but
+              // before its command runs, silently losing the submission. The command itself does
+              // not focus, so it is safe while the modal still makes the editor inert.
+              if (request === 'image') {
+                // Leave a text block after the image. Besides giving the writer somewhere obvious
+                // to continue, this keeps the collaborative selection inside an inline-capable
+                // node instead of forcing it onto the document boundary.
+                editor
+                  .chain()
+                  .setImage({ src: address, alt: description })
+                  .createParagraphNear()
+                  .run();
+              } else {
+                editor.chain().setLink({ href: address }).run();
+              }
+
+              setAddressRequest(null);
+              // A modal makes the editor inert. Wait until React has removed it and Dialog has
+              // restored the invoker before focusing the editor, or the browser may refuse focus
+              // and leave the caret stranded on the toolbar button.
+              requestAnimationFrame(() => {
+                // Dialog restores its invoker in an effect cleanup after the unmount paints. The
+                // second frame runs after that cleanup, so editor focus is the final focus rather
+                // than being overwritten by the modal's return-to-invoker guarantee.
+                requestAnimationFrame(() => {
+                  if (!editor.isDestroyed) {
+                    editor.view.focus();
+                  }
+                });
+              });
+            }}
+          />
+        )}
+
+        {activeVimMode === null ? null : (
+          <Text
+            variant="caption"
+            as="p"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
+          >
+            Vim {activeVimMode}
+          </Text>
+        )}
 
         <SyncFooter state={syncState} />
       </div>
