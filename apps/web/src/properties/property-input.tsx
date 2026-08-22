@@ -10,6 +10,7 @@ import {
 } from '@nix/ui';
 import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
+import { useWorkspaceMembers } from '../settings/use-workspace-members';
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 
 import { ImageValue } from './image-value';
@@ -94,6 +95,7 @@ const KNOWN_TYPES = [
   'completion',
   'priority',
   'estimate',
+  'assignee',
 ] as const;
 
 export function isKnownPropertyType(type: string): boolean {
@@ -170,6 +172,11 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
 
     case 'estimate':
       return <TypedValue {...props} kind="number" />;
+
+    // A person, chosen from the workspace rather than typed as their identifier - see
+    // `AssigneeValue` for why this is not just another select.
+    case 'assignee':
+      return <AssigneeValue {...props} />;
 
     default:
       return (
@@ -409,6 +416,88 @@ function SelectValue(props: PropertyInputProps): ReactNode {
           {options.map((option) => (
             <option key={option} value={option}>
               {option}
+            </option>
+          ))}
+        </select>
+      )}
+    </ValueShell>
+  );
+}
+
+/** One assignee option offered by the picker: an identifier, and what to call it. */
+interface AssigneeOption {
+  readonly id: string;
+  readonly label: string;
+}
+
+/**
+ * The assignee property: a picker over the workspace's members, storing a principal's identifier
+ * rather than a box somebody types one into.
+ *
+ * **Three states a plain select never has to hold, all told apart in words.** The member list can
+ * still be loading, which says so rather than showing an empty list that reads as "nobody is
+ * here". Its read can fail, which says that too and keeps showing whatever is stored - a lookup
+ * failing is not a reason to also hide the value. And the item can hold an identifier the list does
+ * not currently carry, because the person left the workspace or the value predates them: that
+ * identifier is offered as its own option and shown as the current selection rather than dropped or
+ * quietly reported as somebody else. A control that reassigns an item because a lookup failed is
+ * worse than one that admits it does not know the name.
+ *
+ * The unset option is the same word and the same value SelectValue clears through - one vocabulary
+ * for "nothing chosen" rather than a second one invented for people.
+ */
+function AssigneeValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
+
+  const { status, members, error: membersError } = useWorkspaceMembers();
+  const current = readSelectValue(item, property.key);
+
+  const known =
+    current === null ? null : (members.find((member) => member.subjectId === current) ?? null);
+
+  // The declared members, plus the item's own identifier when the list cannot vouch for it. Same
+  // reasoning as `SelectValue`'s stored-but-undeclared option: dropping it would make the control
+  // report the item as unassigned, which is a lie about the item rather than a gap in the roster.
+  const memberOptions: readonly AssigneeOption[] = members.map((member) => ({
+    id: member.subjectId,
+    label: member.subjectDisplayName,
+  }));
+
+  const options: readonly AssigneeOption[] =
+    current !== null && known === null
+      ? [{ id: current, label: current }, ...memberOptions]
+      : memberOptions;
+
+  const hint =
+    status === 'loading'
+      ? 'Loading the workspace members.'
+      : status === 'error'
+        ? `${membersError ?? 'The workspace members could not be loaded.'} Showing what is stored.`
+        : current !== null && known === null
+          ? 'This identifier is not among the workspace members currently loaded.'
+          : undefined;
+
+  return (
+    <ValueShell {...props} {...(hint === undefined ? {} : { hint })}>
+      {(control) => (
+        <select
+          {...control}
+          value={current ?? UNSET_VALUE}
+          required={property.required}
+          disabled={disabled}
+          onChange={(event) => {
+            const next = event.target.value;
+            onCommit(next === UNSET_VALUE ? null : next);
+          }}
+          className={selectBox(density)}
+        >
+          {/* Clearing has to be reachable from the control that set it: a property somebody
+              filled in by mistake is otherwise permanent. */}
+          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
             </option>
           ))}
         </select>

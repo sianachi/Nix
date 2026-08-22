@@ -36,6 +36,10 @@ export const PROPERTY_TYPES = [
   { value: 'completion', label: 'Completion' },
   { value: 'priority', label: 'Priority (1 to 4)' },
   { value: 'estimate', label: 'Estimate' },
+  // Also goal 3.1's shape-versus-meaning split, arriving with 3.5: stored as a principal's
+  // identifier, a canonical lowercase UUID string (or null when unassigned), so it shares its shape
+  // with every other string property while its type says the string names a person.
+  { value: 'assignee', label: 'Assignee' },
 ] as const;
 
 /**
@@ -66,6 +70,11 @@ export function valueShapeOf(type: string): PropertyValueShape {
     case 'priority':
     case 'estimate':
       return 'number';
+    // A principal's identifier is stored exactly as a select's value is: a string, or null when
+    // unset. The meaning - "this string names a person" - lives in the type, not the shape, which
+    // is what keeps width and clearing on the same one switch as everything else string-shaped.
+    case 'assignee':
+      return 'text';
     default:
       return type;
   }

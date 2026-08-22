@@ -56,6 +56,18 @@ const TEXT_EDITABLE_TYPES: readonly string[] = [
 ];
 
 /**
+ * Types whose *shape* is text but whose values are not something a person should type free-form.
+ *
+ * `assignee` shares its shape with plain `text` on purpose - see `valueShapeOf` - so width and
+ * clearing stay on one switch with everything else string-shaped. But its value is a principal's
+ * identifier, a canonical lowercase UUID, and a person typing one into a cell is not a workflow:
+ * the picker that turns a name into that identifier lives in the property panel, not here. Named by
+ * type rather than by shape, unlike `TEXT_EDITABLE_TYPES` above, because there is nothing left in
+ * the shape itself to tell `assignee` apart from an ordinary string.
+ */
+const TEXT_SHAPED_BUT_NOT_TEXT_EDITABLE: readonly string[] = ['assignee'];
+
+/**
  * The columns, in order: the title first, then the properties.
  *
  * Resolution is the shared rule (`views/core/columns.ts`); what stays here is this view's answer
@@ -79,7 +91,10 @@ export function resolveColumns(
         key,
         label: definition?.label ?? key,
         type,
-        editable: type !== null && TEXT_EDITABLE_TYPES.includes(valueShapeOf(type)),
+        editable:
+          type !== null &&
+          TEXT_EDITABLE_TYPES.includes(valueShapeOf(type)) &&
+          !TEXT_SHAPED_BUT_NOT_TEXT_EDITABLE.includes(type),
       };
     }),
   ];

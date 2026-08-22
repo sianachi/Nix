@@ -19,7 +19,8 @@ public sealed class PropertySchemaRulesTests
             Property("start_date", PropertyType.StartDate, "Kickoff"),
             Property("completion", PropertyType.Completion, "Shipped"),
             Property("priority", PropertyType.Priority, "Urgency"),
-            Property("estimate", PropertyType.Estimate, "Hours"));
+            Property("estimate", PropertyType.Estimate, "Hours"),
+            Property("assignee", PropertyType.Assignee, "Owner"));
 
         Assert.Null(PropertySchemaRules.Refuse(schema));
     }
@@ -30,6 +31,7 @@ public sealed class PropertySchemaRulesTests
     [InlineData(PropertyType.Completion, "completion")]
     [InlineData(PropertyType.Priority, "priority")]
     [InlineData(PropertyType.Estimate, "estimate")]
+    [InlineData(PropertyType.Assignee, "assignee")]
     public void A_task_type_under_any_other_key_is_refused_naming_the_required_one(
         PropertyType type,
         string requiredKey)
@@ -84,6 +86,17 @@ public sealed class PropertySchemaRulesTests
         // key), so refusing it would break workspaces that adopted the convention before the
         // types existed - the exact people 3.1 is for.
         var schema = SchemaOf(Property("due_date", PropertyType.Date, "Due"));
+
+        Assert.Null(PropertySchemaRules.Refuse(schema));
+    }
+
+    [Fact]
+    public void A_plain_text_property_may_sit_on_the_assignee_key()
+    {
+        // The same reasoning as the due_date case above, for the newer reserved key: a workspace
+        // that was already keying a free-text owner field "assignee" before this type existed must
+        // not have that schema retroactively refused.
+        var schema = SchemaOf(Property("assignee", PropertyType.Text, "Owner"));
 
         Assert.Null(PropertySchemaRules.Refuse(schema));
     }
