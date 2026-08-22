@@ -171,6 +171,7 @@ describe('finding an open slash trigger', () => {
  */
 
 let captured: Editor | null = null;
+let insertImage: ReturnType<typeof vi.fn>;
 
 function Harness(): ReactNode {
   const editor = useEditor({
@@ -185,7 +186,7 @@ function Harness(): ReactNode {
 
   return (
     <>
-      <SlashMenu editor={editor} />
+      <SlashMenu editor={editor} onInsertImage={insertImage} />
       <EditorContent editor={editor} />
     </>
   );
@@ -193,6 +194,7 @@ function Harness(): ReactNode {
 
 beforeEach(() => {
   captured = null;
+  insertImage = vi.fn();
 });
 
 /** Renders the harness and types `content` into the document as one insertion. */
@@ -265,6 +267,16 @@ describe('the slash menu over a real document', () => {
     // opens that picker rather than owning a picker of its own.
     expect(editor.getText()).toContain('[[');
     expect(editor.getText()).not.toContain('/link');
+  });
+
+  it('opens the image form and removes the committed slash command', async () => {
+    const editor = await openWith('/image');
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    expect(insertImage).toHaveBeenCalledOnce();
+    expect(editor.getText()).not.toContain('/image');
   });
 
   it('inserts a row of two columns from the columns command', async () => {

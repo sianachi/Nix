@@ -43,7 +43,12 @@ export interface SlashCommand {
   readonly hint: string;
   readonly icon: LucideIcon;
   readonly keywords: readonly string[];
-  readonly run: (editor: Editor) => void;
+  readonly run: (editor: Editor, actions: SlashCommandActions) => void;
+}
+
+/** Actions whose UI is owned outside the caret menu. */
+export interface SlashCommandActions {
+  readonly insertImage: () => void;
 }
 
 /**
@@ -207,16 +212,13 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     id: 'image',
     label: 'Image',
-    hint: 'By URL',
+    hint: 'From a web address',
     icon: ImageIcon,
     keywords: ['image', 'picture', 'photo', 'figure'],
-    run: (editor: Editor): void => {
-      // By URL in this phase. Uploads need the media service, and offering a file picker that
-      // cannot upload would be worse than not offering one.
-      const src: string | null = globalThis.prompt('Image URL');
-      if (src !== null && src.length > 0) {
-        editor.chain().focus().setImage({ src }).run();
-      }
+    // The modal is owned by the note editor, so toolbar and slash insertion share one form and
+    // one document-selection boundary instead of growing two almost-identical dialogs.
+    run: (_editor: Editor, actions: SlashCommandActions): void => {
+      actions.insertImage();
     },
   },
   {
@@ -329,7 +331,13 @@ interface OpenTrigger {
  * Escape closes it without unwriting anything: the `/` somebody typed is theirs. Committing a
  * command removes the trigger text and inserts the block in its place.
  */
-export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
+export function SlashMenu({
+  editor,
+  onInsertImage,
+}: {
+  readonly editor: Editor;
+  readonly onInsertImage: () => void;
+}): ReactNode {
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
 
@@ -419,7 +427,7 @@ export function SlashMenu({ editor }: { readonly editor: Editor }): ReactNode {
     // touched, which is what the field-based version got wrong: its arithmetic deleted characters
     // the document actually owned.
     editor.chain().focus().deleteRange({ from: trigger.from, to: trigger.to }).run();
-    command.run(editor);
+    command.run(editor, { insertImage: onInsertImage });
   });
 
   // The keys are taken off the editor's own element, because that is what holds the focus. Capture

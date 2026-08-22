@@ -232,6 +232,33 @@ describe('Dialog', () => {
     expect(dialog).toHaveAttribute('open');
   });
 
+  it('keeps Escape inside the modal even from its corner close control', () => {
+    const onWindowKeyDown = vi.fn();
+    window.addEventListener('keydown', onWindowKeyDown);
+
+    try {
+      render(
+        <Dialog open title="Rename document" onClose={vi.fn()}>
+          <p>Pick a new name.</p>
+        </Dialog>,
+      );
+
+      const close = screen.getByRole('button', { name: 'Close' });
+      close.focus();
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      close.dispatchEvent(escape);
+
+      expect(onWindowKeyDown).not.toHaveBeenCalled();
+      expect(escape.defaultPrevented).toBe(false);
+    } finally {
+      window.removeEventListener('keydown', onWindowKeyDown);
+    }
+  });
+
   it('asks the caller to close when the backdrop is clicked', async () => {
     const onClose = vi.fn();
     render(
