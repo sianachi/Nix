@@ -16,6 +16,7 @@ import { useAuth } from '../auth/auth-provider';
 import { ColumnControls } from './column-controls';
 import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
+import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
@@ -301,6 +302,9 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
         // service builds the same schema in Node and has no use for a gap cursor.
         Gapcursor,
         Dropcursor,
+        // The platform history keys must reach the same client-local Yjs history as the toolbar.
+        // ProseMirror history is intentionally not installed in a collaborative document.
+        CollaborationHistoryKeymap,
         // Lets the drag handle select and move a whole block as a node range rather than a text
         // span - without it, grabbing a block would drag whatever text selection happened to
         // exist. The handle itself is the <DragHandle> component below, which registers its own
@@ -484,10 +488,14 @@ export function NoteEditor({ itemId, documentPath, onSync }: NoteEditorProps): R
             // rather than imported by the toolbar, which has no business knowing the document is a
             // CRDT.
             onUndo={() => {
-              undo(editor.state);
+              if (undo(editor.state)) {
+                editor.view.focus();
+              }
             }}
             onRedo={() => {
-              redo(editor.state);
+              if (redo(editor.state)) {
+                editor.view.focus();
+              }
             }}
           />
           <PresenceList awareness={awareness} />

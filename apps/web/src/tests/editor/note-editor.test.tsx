@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -15,6 +15,27 @@ import { NoteEditor } from '../../editor/note-editor';
  * the real component's real document what is in it.
  */
 let captured: Y.Doc | null = null;
+
+const NAVIGATOR_PLATFORM: unknown = Reflect.get(navigator, 'platform');
+const MODIFIER: KeyboardEventInit =
+  typeof NAVIGATOR_PLATFORM === 'string' && /Mac|iP(hone|[oa]d)/.test(NAVIGATOR_PLATFORM)
+    ? { metaKey: true }
+    : { ctrlKey: true };
+
+function pluginKey(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || !('key' in value)) {
+    return null;
+  }
+  return typeof value.key === 'string' ? value.key : null;
+}
+
+function property(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const result: unknown = Reflect.get(value, key);
+  return result;
+}
 
 vi.mock('../../editor/collab-sync', async () => {
   const actual = await vi.importActual<typeof collabSync>('../../editor/collab-sync');
@@ -262,6 +283,157 @@ describe('a note nobody has typed into yet', () => {
       expect(body).toHaveFocus();
     });
     peer.destroy();
+  });
+});
+
+describe('collaborative history keys', () => {
+  it.each([
+    ['undo', 'z', false],
+    ['shift redo', 'z', true],
+    ['alternate redo', 'y', false],
+  ])(
+    'claims empty %s instead of falling through to browser contenteditable history',
+    async (_name, key, shiftKey) => {
+      await open();
+      const body = screen.getByLabelText('Note body');
+      const event = new KeyboardEvent('keydown', {
+        key,
+        ...MODIFIER,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+
+      body.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  it('installs only collaborative history', async () => {
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const editor: unknown = Reflect.get(body, 'editor');
+    const extensions = property(property(editor, 'extensionManager'), 'extensions');
+    const plugins = property(property(editor, 'state'), 'plugins');
+    if (!Array.isArray(extensions) || !Array.isArray(plugins)) {
+      throw new Error('TipTap did not expose its editor state on the ProseMirror element.');
+    }
+
+    expect(extensions.some((extension) => property(extension, 'name') === 'undoRedo')).toBe(false);
+    expect(plugins.some((plugin) => pluginKey(plugin)?.startsWith('history$') === true)).toBe(
+      false,
+    );
+  });
+
+  it('returns focus to the note after toolbar undo', async () => {
+    const user = userEvent.setup();
+    await open();
+    const body = screen.getByLabelText('Note body');
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(undoButton);
+
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+      expect(body.querySelector('h1')).not.toBeNull();
+    });
+  });
+
+  it('keeps focus on an unavailable history action', async () => {
+    const user = userEvent.setup();
+    await open();
+    const undoButton = screen.getByRole('button', { name: 'Undo' });
+
+    await user.click(undoButton);
+
+    expect(undoButton).toHaveFocus();
+  });
+
+  it('keeps redo available when a peer edits after this writer undoes', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('heading');
+    });
+
+    body.focus();
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
+    });
+
+    // The remote transaction deliberately lands between undo and redo. It must neither enter this
+    // client's history nor clear the redo stack that belongs to the local heading change.
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(peer);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      peer.getXmlFragment('default').push([paragraph]);
+      const text = new Y.XmlText();
+      paragraph.push([text]);
+      text.insert(0, 'Peer note');
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER, shiftKey: true });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).not.toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+    fireEvent.keyDown(body, { key: 'y', ...MODIFIER });
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('heading');
+      expect(shared).toContain('Peer note');
+    });
+    peer.destroy();
+  });
+
+  it('clears redo when this writer makes a new change after undo', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    body.focus();
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Heading 2' }));
+    await waitFor(() => {
+      expect(body.querySelector('h2')).not.toBeNull();
+    });
+
+    fireEvent.keyDown(body, { key: 'z', ...MODIFIER, shiftKey: true });
+    expect(body.querySelector('h2')).not.toBeNull();
+    expect(body.querySelector('h1')).toBeNull();
   });
 });
 
