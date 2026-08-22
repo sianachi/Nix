@@ -64,6 +64,11 @@ public sealed class AccessTokenScopePolicyTests
         ["DeleteItem"] = Requirement.Write,
         ["KeepItem"] = Requirement.Write,
         ["ReleaseItem"] = Requirement.Write,
+        // Both recurrence writes are ordinary item edits under a token's write scope: setting a
+        // rule changes what an item does, and completing an occurrence records work against it.
+        // Neither is administrative - a token that may edit an item may schedule it.
+        ["SetItemRecurrence"] = Requirement.Write,
+        ["CompleteRecurrenceOccurrence"] = Requirement.Write,
         ["SetItemProperties"] = Requirement.Write,
         ["RestoreItem"] = Requirement.Write,
         ["SetItemSchema"] = Requirement.Write,
