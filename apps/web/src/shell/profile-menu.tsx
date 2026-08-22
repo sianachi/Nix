@@ -101,10 +101,10 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
 
           <ThemeChoice />
 
-          {/* In this menu rather than on the nav rail, because the rail is only ways of looking
-              at the workspace's notes and this is not one: members and access tokens are about
-              who may act here, and the tokens half belongs to the person - exactly what this menu
-              holds. A real link, so it can be opened in a new tab and revisited by address. */}
+          {/* Kept here as well as on the nav rail. The rail makes workspace administration
+              findable from anywhere; this path keeps personal access tokens beside the identity
+              they belong to. A real link, so it can be opened in a new tab and revisited by
+              address. */}
           <Link
             role="menuitem"
             to="/settings"
