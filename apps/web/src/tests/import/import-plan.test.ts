@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
 
 import { planImport, screenPaths, type ParseBody } from '../../import/import-plan';
 
 /** The happy parser: everything is a valid body. Tests that need a failure inject their own. */
-const parseOk: ParseBody = () => ({ ok: true, doc: { type: 'doc' } });
+const parseOk: ParseBody = () => ({
+  ok: true,
+  doc: { type: 'doc' },
+  scan: EMPTY_MARKDOWN_IMPORT_SCAN,
+});
 
 describe('screening a selection before reading it', () => {
   it('turns away what planning would skip, with the same reasons, before a byte is read', () => {
@@ -28,7 +33,7 @@ describe('screening a selection before reading it', () => {
     const screened = screenPaths(['vault/a.md', 'vault/pic.png']);
     const plan = planImport(
       [{ path: 'vault/a.md', text: 'Body.' }],
-      () => ({ ok: true, doc: {} }),
+      () => ({ ok: true, doc: {}, scan: EMPTY_MARKDOWN_IMPORT_SCAN }),
       undefined,
       screened.skipped,
     );
@@ -70,6 +75,19 @@ describe('planning an import', () => {
     expect(plan.root?.children.map((child) => child.title)).toEqual(['one', 'two']);
   });
 
+  it('orders titles by code unit so hosts and locales produce the same plan', () => {
+    const plan = planImport(
+      [
+        { path: 'ä.md', text: 'A.' },
+        { path: 'a.md', text: 'A.' },
+        { path: 'Z.md', text: 'Z.' },
+      ],
+      parseOk,
+    );
+
+    expect(plan.root?.children.map((child) => child.title)).toEqual(['Z', 'a', 'ä']);
+  });
+
   it('maps front matter to properties, with the title key naming the note', () => {
     const plan = planImport(
       [{ path: 'a.md', text: '---\ntitle: Named\nstatus: done\ncount: 5\n---\nBody.' }],
@@ -100,7 +118,9 @@ describe('planning an import', () => {
 
   it('reports a body the document model rejects as failed, and keeps planning the rest', () => {
     const parse: ParseBody = (markdown) =>
-      markdown.includes('bad') ? { ok: false, reason: 'no home for that' } : { ok: true, doc: {} };
+      markdown.includes('bad')
+        ? { ok: false, reason: 'no home for that' }
+        : { ok: true, doc: {}, scan: EMPTY_MARKDOWN_IMPORT_SCAN };
     const plan = planImport(
       [
         { path: 'good.md', text: 'Fine.' },
@@ -115,7 +135,14 @@ describe('planning an import', () => {
     ]);
   });
 
-  it('counts unresolved wiki links and local image references so the preview can declare them', () => {
+  it('uses the parser scan instead of guessing losses from the source again', () => {
+    const observed = {
+      unresolvedWikiLinks: 2,
+      unresolvedObsidianEmbeds: 3,
+      unresolvedLocalImages: 4,
+      unsupportedImageAddresses: 6,
+      inlineImagesFlattened: 5,
+    };
     const plan = planImport(
       [
         {
@@ -123,12 +150,12 @@ describe('planning an import', () => {
           text: 'A [[Link]] and ![pic](./img.png) and ![web](https://example.test/x.png).',
         },
       ],
-      parseOk,
+      () => ({ ok: true, doc: { type: 'doc' }, scan: observed }),
     );
 
     const note = plan.root?.children[0];
-    expect(note?.unresolvedWikiLinks).toBe(1);
-    expect(note?.unresolvedLocalImages).toBe(1);
+    expect(note?.scan).toBe(observed);
+    expect(plan.root?.scan).toBe(EMPTY_MARKDOWN_IMPORT_SCAN);
   });
 
   it('returns no root when nothing importable was chosen', () => {

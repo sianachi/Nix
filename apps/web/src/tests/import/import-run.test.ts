@@ -1,4 +1,5 @@
 import { NixApiError, NixErrorKind, type NixClient } from '@nix/api-client';
+import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runImportPlan } from '../../import/import-run';
@@ -18,8 +19,7 @@ function note(path: string, title: string, overrides: Partial<PlannedNode> = {})
     properties: {},
     doc: DOC,
     droppedFrontMatter: [],
-    unresolvedWikiLinks: 0,
-    unresolvedLocalImages: 0,
+    scan: EMPTY_MARKDOWN_IMPORT_SCAN,
     children: [],
     ...overrides,
   };

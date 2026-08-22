@@ -14,6 +14,7 @@
  */
 
 import { isNixApiError, items, structure, type NixClient } from '@nix/api-client';
+import type { MarkdownImportScan } from '@nix/markdown/scan';
 
 import { writeImportedBody } from './note-body-writer';
 import type { PlannedNode } from './import-plan';
@@ -36,6 +37,8 @@ export interface CreatedRow {
   readonly path: string;
   readonly itemId: string;
   readonly title: string;
+  readonly scan: MarkdownImportScan;
+  readonly droppedFrontMatter: readonly string[];
   readonly bodyError?: string;
   readonly propertiesError?: string;
 }
@@ -187,9 +190,17 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
       path: string;
       itemId: string;
       title: string;
+      scan: MarkdownImportScan;
+      droppedFrontMatter: readonly string[];
       bodyError?: string;
       propertiesError?: string;
-    } = { path: next.node.path, itemId, title: next.node.title };
+    } = {
+      path: next.node.path,
+      itemId,
+      title: next.node.title,
+      scan: next.node.scan,
+      droppedFrontMatter: next.node.droppedFrontMatter,
+    };
     created.push(row);
 
     if (next.node.doc !== null) {
