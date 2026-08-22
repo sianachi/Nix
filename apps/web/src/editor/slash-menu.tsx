@@ -57,6 +57,7 @@ export interface SlashCommandActions {
  * findable for whoever greps the storage format.
  */
 const TOGGLE_KEYWORDS = [
+  'section',
   'toggle',
   'details',
   'collapse',
