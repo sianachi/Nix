@@ -270,6 +270,20 @@ describe('display', () => {
     expect(columnFor(columns, 'shot').editable).toBe(false);
   });
 
+  it('reads and copies an assignee but never offers it as free text, though its shape is text', () => {
+    // `valueShapeOf('assignee')` is `text`, deliberately - so width and clearing stay on the same
+    // switch as every other string-shaped property - but a person typing a UUID into a cell is not
+    // a workflow, so this column reads and copies exactly like a timestamp or an image column.
+    const assigneeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const alpha = item('a', 'Alpha', { owner: assigneeId });
+    const columns = resolveColumns(aView(), schemaOf(property('owner', 'Owner', 'assignee')));
+    const owner = columnFor(columns, 'owner');
+
+    expect(owner.editable).toBe(false);
+    expect(cellText(alpha, owner)).toBe(assigneeId);
+    expect(cellDisplay(alpha, owner)).toBe(assigneeId);
+  });
+
   it('treats the task types exactly as the shapes they store, in editing and coercion alike', () => {
     // The type carries the meaning; the value keeps the plain shape - so a due-date cell edits
     // like a date cell, a completion cell clears to false like a checkbox, and a priority cell

@@ -129,6 +129,33 @@ public sealed class QueryStatementTests
     }
 
     [Fact]
+    public void A_resolved_caller_identifier_compiles_exactly_like_any_other_equality()
+    {
+        // "me" is resolved to the caller's own id upstream, in RunItemQueryHandler - this compiler
+        // has no session to resolve it from, and never sees the token unresolved in production.
+        // By the time a value gets here it is an ordinary literal, so it takes the exact same
+        // shape as any other equality: one bound parameter, no special column or index.
+        const string callerId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+        var compiled = Compile(new FilterRule("assignee", "equals", callerId));
+
+        Assert.Contains("item.properties ->> @p0_key = @p0_value", compiled.Sql, StringComparison.Ordinal);
+        Assert.Equal(callerId, Assert.Single(compiled.Parameters, p => p.ParameterName == "p0_value").Value);
+        Assert.DoesNotContain(callerId, compiled.Sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Not_equals_on_the_resolved_caller_identifier_keeps_is_distinct_from()
+    {
+        // The point of not-equals-me: an item nobody assigned counts as "not mine", the same
+        // absence-is-not-equal rule Overdue relies on for done.
+        const string callerId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+        var compiled = Compile(new FilterRule("assignee", "not-equals", callerId));
+
+        Assert.Contains("IS DISTINCT FROM", compiled.Sql, StringComparison.Ordinal);
+        Assert.Equal(callerId, Assert.Single(compiled.Parameters, p => p.ParameterName == "p0_value").Value);
+    }
+
+    [Fact]
     public void The_ordering_is_stable_whatever_orders_it()
     {
         Assert.Contains(
@@ -186,7 +213,12 @@ public sealed class QueryStatementTests
             new FilterRule("k", "on", "today"),
             new FilterRule("k", "before", "today"),
             new FilterRule("k", "on-or-after", "today"),
-            new FilterRule("k", "within-next", "7"));
+            new FilterRule("k", "within-next", "7"),
+            // The new token, exercised on both an equality operator (its real grammar) and a day
+            // operator (meaningless, refused upstream by QueryOperators.Refuse - but this compiler
+            // never re-checks that, so it must stay just as inert here as any other string).
+            new FilterRule("k", "equals", QueryOperators.Me),
+            new FilterRule("k", "before", QueryOperators.Me));
 
         for (var round = 0; round < 200; round++)
         {
@@ -199,12 +231,18 @@ public sealed class QueryStatementTests
                 new FilterRule(key, "on", "today"),
                 new FilterRule(key, "before", "today"),
                 new FilterRule(key, "on-or-after", "today"),
-                new FilterRule(key, "within-next", "7"));
+                new FilterRule(key, "within-next", "7"),
+                new FilterRule(key, "equals", QueryOperators.Me),
+                new FilterRule(key, "before", QueryOperators.Me));
 
             Assert.Equal(tame.Sql, compiled.Sql);
             Assert.Equal(key, compiled.Parameters[0].Value);
             Assert.Equal(value, compiled.Parameters[1].Value);
         }
+
+        // The token's own literal text is never embedded as SQL either - only ever a parameter
+        // value, exactly like the hostile strings above.
+        Assert.DoesNotContain(QueryOperators.Me, tame.Sql, StringComparison.Ordinal);
 #pragma warning restore CA5394
     }
 

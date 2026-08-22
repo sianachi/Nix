@@ -9,8 +9,8 @@ namespace Nix.Domain.Views;
 /// <param name="Operator">One of <see cref="QueryOperators"/>' closed set.</param>
 /// <param name="Value">
 /// What the operator compares against, in the operator's own grammar - a literal for the equality
-/// pair, <c>today</c> or <c>yyyy-MM-dd</c> for the date trio, a day count for
-/// <c>within-next</c>.
+/// pair (or <c>me</c>, resolved to the calling principal), <c>today</c> or <c>yyyy-MM-dd</c> for
+/// the date trio, a day count for <c>within-next</c>.
 /// </param>
 /// <remarks>
 /// <para>
@@ -68,6 +68,30 @@ public static class QueryOperators
     /// saved as the rule rather than as whichever day it was written on.
     /// </remarks>
     public const string Today = "today";
+
+    /// <summary>The token a stored rule keeps where the calling principal's identifier would go.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Valid only as the value of <see cref="EqualTo"/> or <see cref="NotEqualTo"/>.</b> None
+    /// of the day operators or <see cref="WithinNext"/> read an identity, so a rule that names
+    /// <c>me</c> there is refused by the same grammar that refuses any other malformed day or
+    /// count - it is neither <see cref="Today"/> nor a calendar day, and it does not parse as a
+    /// number, so no separate check is needed to keep it out of those arms.
+    /// </para>
+    /// <para>
+    /// <b>Resolved from the session context the request pipeline established, never from
+    /// anything a client sends.</b> This is the one place the parallel with <see cref="Today"/>
+    /// breaks: <c>today</c>'s caller is the reader's own clock, sent because only the reader's
+    /// zone knows the day, but letting a client assert <em>its own identity</em> inside a filter
+    /// value would make "assigned to me" mean whatever the request claimed rather than who
+    /// actually asked. <c>RunItemQueryHandler</c> resolves it from the acting principal and
+    /// rewrites the rule before the compiled statement ever sees it, so by the time a value
+    /// reaches <c>QuerySql</c> it is already a literal - the same reason <c>QuerySql</c> carries
+    /// no <c>me</c>-handling branch of its own; it is a static compiler with no session to read
+    /// one from.
+    /// </para>
+    /// </remarks>
+    public const string Me = "me";
 
     /// <summary>The most days <see cref="WithinNext"/> may look ahead.</summary>
     public const int MaximumWithinDays = 365;

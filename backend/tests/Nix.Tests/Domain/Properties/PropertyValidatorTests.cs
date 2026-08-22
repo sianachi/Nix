@@ -376,6 +376,25 @@ public sealed class PropertyValidatorTests
     public void Estimate_refuses_a_negative_or_non_number(string value) =>
         AssertRefused(PropertyType.Estimate, value, "Field must be a number of zero or more.");
 
+    [Theory]
+    [InlineData("\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"")]
+    [InlineData("\"00000000-0000-0000-0000-000000000000\"")]
+    public void Assignee_accepts_the_principal_id_s_own_canonical_lowercase_form(string value) =>
+        AssertAccepted(PropertyType.Assignee, value);
+
+    [Theory]
+    [InlineData("\"3FA85F64-5717-4562-B3FC-2C963F66AFA6\"")] // uppercase hex
+    [InlineData("\"{3fa85f64-5717-4562-b3fc-2c963f66afa6}\"")] // braced
+    [InlineData("\"3fa85f64-5717-4562-b3fc-2c963f66afa\"")] // malformed: one hex digit short
+    [InlineData("\"\"")] // empty
+    [InlineData("true")] // not a string at all
+    [InlineData("42")] // a number
+    public void Assignee_refuses_anything_that_is_not_exactly_a_canonical_lowercase_uuid(string value) =>
+        AssertRefused(
+            PropertyType.Assignee,
+            value,
+            "Field must be the assigned person's id, as a lowercase UUID.");
+
     [Fact]
     public void Every_type_this_build_defines_refuses_a_value_of_the_wrong_shape()
     {

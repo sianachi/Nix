@@ -119,6 +119,34 @@ public enum PropertyType
     /// typically) - the type promises only that estimates are numbers a rollup can sum.
     /// </summary>
     Estimate = 13,
+
+    /// <summary>
+    /// Who the item is for: the assigned principal's identifier, as a canonical lowercase UUID
+    /// string identifying a <see cref="Domain.Identity.PrincipalId"/>. What an assignee filter and
+    /// a workload read bind to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An identifier, never a display name.</b> A name is not an identity: it changes when
+    /// somebody is renamed, and two people can share one, so a filter or a workload read compiled
+    /// against a name would silently drift onto the wrong person or merge two people into one
+    /// bucket. The identifier is stable and unique for exactly as long as the principal exists,
+    /// which is the property a binding actually needs.
+    /// </para>
+    /// <para>
+    /// <b>Not groupable and not calendar-placeable.</b> Grouping a board by a raw identifier would
+    /// title every column with a UUID nobody can read - the same reason <see cref="Select"/> and
+    /// not <see cref="Text"/> is what a board groups by. It carries no options either: the set of
+    /// principals somebody could assign to is a workspace membership fact, not a per-schema
+    /// declared list, and offering it belongs to the surface that reads membership.
+    /// </para>
+    /// <para>
+    /// <b>Task-semantic</b>, taking the reserved key <c>assignee</c> under ADR-0042's rule: a
+    /// cross-workspace smart list for "assigned to me" compiles against a key, the same argument
+    /// that reserves <see cref="DueDate"/>'s.
+    /// </para>
+    /// </remarks>
+    Assignee = 14,
 }
 
 /// <summary>
@@ -183,6 +211,9 @@ public static class PropertyTypes
             case "estimate":
                 type = PropertyType.Estimate;
                 return true;
+            case "assignee":
+                type = PropertyType.Assignee;
+                return true;
             default:
                 type = default;
                 return false;
@@ -209,6 +240,7 @@ public static class PropertyTypes
         PropertyType.Completion => "completion",
         PropertyType.Priority => "priority",
         PropertyType.Estimate => "estimate",
+        PropertyType.Assignee => "assignee",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -243,7 +275,7 @@ public static class PropertyTypes
     /// Whether a type names a task-semantic role, of which a schema may declare at most one.
     /// </summary>
     /// <param name="type">The type.</param>
-    /// <returns><see langword="true"/> for the five task types.</returns>
+    /// <returns><see langword="true"/> for a type that names a task-semantic role.</returns>
     /// <remarks>
     /// "The due date" is singular by meaning: two properties both claiming to be it would leave
     /// every view that binds to the meaning choosing arbitrarily. Ordinary types carry no such
@@ -251,5 +283,5 @@ public static class PropertyTypes
     /// </remarks>
     public static bool IsTaskSemantic(this PropertyType type) =>
         type is PropertyType.DueDate or PropertyType.StartDate or PropertyType.Completion
-            or PropertyType.Priority or PropertyType.Estimate;
+            or PropertyType.Priority or PropertyType.Estimate or PropertyType.Assignee;
 }
