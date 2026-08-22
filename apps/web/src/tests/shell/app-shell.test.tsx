@@ -99,6 +99,32 @@ describe('the shell', () => {
     expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
   });
 
+  it('does not open search when the focused control already handled the shortcut', async () => {
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+    const innerControl = await screen.findByRole('button', { name: /^search/i });
+    innerControl.addEventListener(
+      'keydown',
+      (event) => {
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    innerControl.focus();
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    innerControl.dispatchEvent(event);
+
+    expect(innerControl).toHaveFocus();
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
+  });
+
   it('closes search on Escape without navigating anywhere', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
