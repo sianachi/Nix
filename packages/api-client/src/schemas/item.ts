@@ -94,6 +94,19 @@ export const itemSchema = z.object({
   seq: itemSequenceSchema,
   lifecycleState: itemLifecycleStateSchema,
   properties: itemPropertiesSchema,
+
+  /**
+   * The values the item has without storing one: every rollup the schema in force declares, folded
+   * across this item's own children.
+   *
+   * **Null is not empty, and the difference is load-bearing.** A read that did not fold children
+   * sends null - a write response answers with the item, not with a fresh fold of its children -
+   * and a read that folded and found no rollups sends `{}`. A client that conflated the two would
+   * draw a rollup column blank after every edit. Defaulted as well as nullable, so a server from
+   * before the field still parses.
+   */
+  computed: itemPropertiesSchema.nullable().default(null),
+
   // `offset: true`, because the server sends one. Core serialises a `DateTimeOffset`, which
   // reaches the wire as `2026-07-26T21:59:30.648333+00:00` - and Zod's default rejects anything
   // that is not `Z`, so every single item response was failing this check and logging it. The

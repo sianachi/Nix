@@ -20,6 +20,10 @@ namespace Nix.Features.Items;
 /// <param name="Properties">
 /// Its property values, keyed by the schema's property keys. Empty when it has none.
 /// </param>
+/// <param name="Computed">
+/// The values this item has without storing one: every rollup the schema in force declares, folded
+/// across this item's own children. Null when the read did not compute them.
+/// </param>
 /// <param name="CreatedAt">When it was created.</param>
 /// <param name="UpdatedAt">When it was last modified.</param>
 /// <remarks>
@@ -54,5 +58,6 @@ internal sealed record ItemResponse(
     long Seq,
     string LifecycleState,
     JsonObject Properties,
+    JsonObject? Computed,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);

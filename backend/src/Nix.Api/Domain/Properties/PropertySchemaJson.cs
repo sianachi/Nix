@@ -43,6 +43,8 @@ public static class PropertySchemaJson
     private const string OptionsKey = "options";
     private const string RequiredKey = "required";
     private const string ExpressionKey = "expression";
+    private const string AggregateKey = "aggregate";
+    private const string SourceKey = "source";
 
     /// <summary>
     /// Reads a stored schema.
@@ -140,6 +142,16 @@ public static class PropertySchemaJson
                 entry[ExpressionKey] = property.Expression;
             }
 
+            if (property.Aggregate is { } aggregate)
+            {
+                entry[AggregateKey] = RollupAggregates.ToText(aggregate);
+            }
+
+            if (property.Source is not null)
+            {
+                entry[SourceKey] = property.Source;
+            }
+
             properties.Add(entry);
         }
 
@@ -204,13 +216,39 @@ public static class PropertySchemaJson
             return null;
         }
 
+        RollupAggregate? aggregate = null;
+        string? source = null;
+        if (type == PropertyType.Rollup)
+        {
+            if (!RollupAggregates.TryParse(ReadString(property[AggregateKey]), out var parsed))
+            {
+                // A reduction this build does not know is not a reduction. Dropped rather than
+                // guessed at, the same posture an unknown type takes and for the same reason: an
+                // older instance stops showing a rollup instead of folding it a way nobody chose.
+                return null;
+            }
+
+            aggregate = parsed;
+            source = ReadString(property[SourceKey]);
+
+            // Only a count can fold nothing. Anything else with no property to reduce is a
+            // declaration that cannot mean anything, so it is left out rather than kept as a
+            // property that can only ever read as empty.
+            if (source is null && !parsed.CountsChildren())
+            {
+                return null;
+            }
+        }
+
         return new PropertyDefinition(
             key,
             ReadString(property[LabelKey]) ?? key,
             type,
             options,
             required,
-            expression);
+            expression,
+            aggregate,
+            source);
     }
 
     private static string? ReadString(JsonNode? node) =>

@@ -77,6 +77,52 @@ public static class PropertySchemaRules
                 return $"'{property.Label}' is not a formula, so it cannot carry an expression.";
             }
 
+            if (property.Type == PropertyType.Rollup)
+            {
+                if (property.Aggregate is not { } aggregate)
+                {
+                    return $"'{property.Label}' is a rollup and needs to say how it folds its "
+                        + "children.";
+                }
+
+                if (property.Source is null && !aggregate.CountsChildren())
+                {
+                    return $"'{property.Label}' folds its children with "
+                        + $"{RollupAggregates.ToText(aggregate)}, which needs a property to fold. "
+                        + "Only a count can be taken of the children themselves.";
+                }
+
+                // A rollup reads the *children's* property of that name, not its own - but a
+                // rollup keyed the same as what it folds is a declaration nobody can read, and on
+                // a schema that cascades it is one the children inherit too, where it would then
+                // fold itself. Refused as the confusion it is rather than resolved silently.
+                if (string.Equals(property.Source, property.Key, StringComparison.Ordinal))
+                {
+                    return $"'{property.Label}' folds a property with its own key, which would "
+                        + "fold itself in every item beneath this one. Give the rollup its own key.";
+                }
+
+                // Checked only when this schema declares the folded property itself, which is the
+                // common case: a rollup folds the *children's* values, and a schema that cascades
+                // is what the children carry. Where the source is declared further down it cannot
+                // be checked here at all - the rules are pure and see one item's declaration - and
+                // the fold then answers honestly for a value of the wrong kind rather than
+                // guessing. What this catches is the case somebody can see themselves making.
+                if (Find(schema, property.Source) is { } folded && !Fits(aggregate, folded.Type))
+                {
+                    return $"'{property.Label}' folds '{folded.Label}' with "
+                        + $"{RollupAggregates.ToText(aggregate)}, which needs "
+                        + (aggregate.IsNumeric() ? "a number." : "a checkbox.");
+                }
+            }
+            else if (property.Aggregate is not null || property.Source is not null)
+            {
+                // The expression rule's argument, for the other computed type: a fold left on a
+                // property retyped away from a rollup would start folding again the moment
+                // somebody retyped it back, having been out of sight in between.
+                return $"'{property.Label}' is not a rollup, so it cannot say how to fold children.";
+            }
+
             // A computed property has no value to require: nothing writes one, so there is no
             // write for the requirement to be about.
             if (property.Type.IsComputed() && property.Required)
@@ -87,6 +133,47 @@ public static class PropertySchemaRules
         }
 
         return RefuseCycle(schema);
+    }
+
+    /// <summary>The property a schema declares under a key, or null.</summary>
+    private static PropertyDefinition? Find(PropertySchema schema, string? key)
+    {
+        if (key is null)
+        {
+            return null;
+        }
+
+        foreach (var property in schema.Properties)
+        {
+            if (string.Equals(property.Key, key, StringComparison.Ordinal))
+            {
+                return property;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a fold can reduce values of a type.
+    /// </summary>
+    /// <remarks>
+    /// <b>A count fits anything</b>, because counting how many children carry a value asks nothing
+    /// of the value. Everything else needs a shape: the four numeric reductions need a number, and
+    /// any/all need a true-or-false. A sum over text answering zero forever is bad; an "all" over a
+    /// select answering <em>true</em> - "everything is done" - is worse, and is what this refuses
+    /// where it can see it.
+    /// </remarks>
+    private static bool Fits(RollupAggregate aggregate, PropertyType type)
+    {
+        if (aggregate == RollupAggregate.Count)
+        {
+            return true;
+        }
+
+        return aggregate.IsNumeric()
+            ? type is PropertyType.Number or PropertyType.Priority or PropertyType.Estimate
+            : type is PropertyType.Checkbox or PropertyType.Completion;
     }
 
     /// <summary>

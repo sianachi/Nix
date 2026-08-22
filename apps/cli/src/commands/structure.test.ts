@@ -31,11 +31,29 @@ function item(props: Record<string, unknown>): Record<string, unknown> {
 function propertyDef(key: string, type: string): Record<string, unknown> {
   // `expression` is what a formula property carries and null on every other type; the client's
   // parse fills it in, so a file that omits it is still sent with it.
-  return { key, label: key, type, options: [], required: false, expression: null };
+  return {
+    key,
+    label: key,
+    type,
+    options: [],
+    required: false,
+    expression: null,
+    aggregate: null,
+    source: null,
+  };
 }
 
 function formulaDef(key: string, expression: string): Record<string, unknown> {
-  return { key, label: key, type: 'formula', options: [], required: false, expression };
+  return {
+    key,
+    label: key,
+    type: 'formula',
+    options: [],
+    required: false,
+    expression,
+    aggregate: null,
+    source: null,
+  };
 }
 
 const server = setupServer(
@@ -208,6 +226,34 @@ describe('nixctl schema set', () => {
     expect(sentBody).toEqual({ properties: [propertyDef('status', 'select')], inherit: false });
     expect(printed.count).toBe(1);
     expect(printed.inherit).toBe(false);
+    await done();
+  });
+
+  it('carries a rollup property fold through to Core', async () => {
+    const { env, dir, done } = await withProfile();
+    const file = join(dir, 'schema.json');
+    const rollup = {
+      key: 'hours',
+      label: 'hours',
+      type: 'rollup',
+      options: [],
+      required: false,
+      expression: null,
+      aggregate: 'sum',
+      source: 'estimate',
+    };
+    await writeFile(file, JSON.stringify({ properties: [rollup], inherit: true }), 'utf8');
+    let sentBody: unknown;
+    server.use(
+      http.put(`${API}/api/v1/items/:itemId/schema`, async ({ request }) => {
+        sentBody = await request.json();
+        return HttpResponse.json({ properties: [rollup], declared: [rollup], inherit: true });
+      }),
+    );
+
+    await capture((json) => setSchema('default', ITEM, file, json, { env }));
+
+    expect(sentBody).toEqual({ properties: [rollup], inherit: true });
     await done();
   });
 

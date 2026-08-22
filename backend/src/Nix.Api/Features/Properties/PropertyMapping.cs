@@ -27,7 +27,9 @@ internal static class PropertyMapping
             PropertyTypes.ToText(definition.Type),
             definition.Options,
             definition.Required,
-            definition.Expression);
+            definition.Expression,
+            definition.Aggregate is { } aggregate ? RollupAggregates.ToText(aggregate) : null,
+            definition.Source);
     }
 
     /// <summary>Maps a resolved schema onto the published shape.</summary>
@@ -81,11 +83,30 @@ internal static class PropertyMapping
                     // property rather than omitting the field would otherwise declare an
                     // expression on each of them, which PropertySchemaRules then refuses on types
                     // that cannot carry one - a refusal about a field the caller never filled in.
-                    string.IsNullOrWhiteSpace(property.Expression) ? null : property.Expression));
+                    string.IsNullOrWhiteSpace(property.Expression) ? null : property.Expression,
+                    ReadAggregate(property),
+
+                    // Empty and absent are one thing here too. A count of the children is written
+                    // with no source, and a client sending "" for it must mean the same as one
+                    // that omits it - otherwise a count would be refused for naming a property
+                    // called nothing.
+                    string.IsNullOrWhiteSpace(property.Source) ? null : property.Source));
         }
 
         schema = new PropertySchema { Properties = properties.ToImmutable(), Inherit = request.Inherit };
         unknownType = null;
         return true;
     }
+
+    /// <summary>
+    /// Reads a requested fold, or null when none was named.
+    /// </summary>
+    /// <remarks>
+    /// <b>An unrecognised name reads as null rather than being refused here</b>, and
+    /// <see cref="PropertySchemaRules"/> then refuses the rollup for having no fold - which is the
+    /// same refusal in words the caller can act on. Refusing at this layer would need a second
+    /// out-parameter and a second error path to say the same sentence.
+    /// </remarks>
+    private static RollupAggregate? ReadAggregate(PropertyDefinitionRequest property) =>
+        RollupAggregates.TryParse(property.Aggregate, out var aggregate) ? aggregate : null;
 }

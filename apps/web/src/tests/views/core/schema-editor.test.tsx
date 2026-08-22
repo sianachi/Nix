@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -377,6 +377,8 @@ describe('the schema editor', () => {
           options: [],
           required: false,
           expression: '[price] * 2',
+          aggregate: null,
+          source: null,
         },
       ],
     });
@@ -412,6 +414,8 @@ describe('the schema editor', () => {
           options: [],
           required: false,
           expression: null,
+          aggregate: null,
+          source: null,
         },
       ],
     });
@@ -481,5 +485,141 @@ describe('the schema editor', () => {
     await user.type(screen.getByRole('textbox', { name: /formula for total/i }), '[[prise] * 2');
 
     expect(screen.getByRole('alert')).toHaveTextContent(/\[prise\].*#NAME\?/);
+  });
+
+  it('offers a fold and a property to fold once a property is a rollup', async () => {
+    const user = userEvent.setup();
+    const declared = [
+      propertyOf({ key: 'estimate', label: 'Estimate', type: 'number' }),
+      propertyOf({ key: 'hours', label: 'Hours' }),
+    ];
+
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+
+    const fold = screen.getByRole('combobox', { name: /how hours folds the children/i });
+    expect(fold).toBeVisible();
+
+    await user.selectOptions(fold, 'sum');
+
+    expect(screen.getByRole('combobox', { name: /which property hours folds/i })).toBeVisible();
+  });
+
+  it('does not ask which property a count of the children folds', async () => {
+    const user = userEvent.setup();
+    const declared = [propertyOf({ key: 'hours', label: 'Hours' })];
+
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole('combobox', { name: /type/i }), 'rollup');
+
+    // "How many" is the one fold that answers a question about the container rather than about a
+    // property of its contents, so there is nothing for a picker to mean.
+    expect(screen.getByRole('combobox', { name: /how hours folds/i })).toHaveValue('count');
+    expect(screen.queryByRole('combobox', { name: /which property/i })).not.toBeInTheDocument();
+  });
+
+  it('says so while a rollup that needs a property has not been given one', async () => {
+    const user = userEvent.setup();
+    const declared = [
+      propertyOf({ key: 'estimate', label: 'Estimate', type: 'number' }),
+      propertyOf({ key: 'hours', label: 'Hours' }),
+    ];
+
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+    await user.selectOptions(screen.getByRole('combobox', { name: /how hours folds/i }), 'sum');
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/Choose a property to fold/);
+  });
+
+  it('sends the fold and the folded property with the rollup', async () => {
+    const user = userEvent.setup();
+    const setSchema = vi.fn(() => Promise.resolve(null));
+    const declared = [
+      propertyOf({ key: 'estimate', label: 'Estimate', type: 'number' }),
+      propertyOf({ key: 'hours', label: 'Hours' }),
+    ];
+
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true }, setSchema)}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+    await user.selectOptions(screen.getByRole('combobox', { name: /how hours folds/i }), 'sum');
+    await user.selectOptions(screen.getByRole('combobox', { name: /which property hours folds/i }), 'estimate');
+    await user.click(screen.getByRole('button', { name: /save fields/i }));
+
+    expect(setSchema).toHaveBeenCalledWith({
+      inherit: true,
+      properties: [
+        declared[0],
+        {
+          key: 'hours',
+          label: 'Hours',
+          type: 'rollup',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: 'sum',
+          source: 'estimate',
+        },
+      ],
+    });
+  });
+
+  it('does not offer a computed property as something to fold', async () => {
+    const user = userEvent.setup();
+    const declared = [
+      propertyOf({ key: 'estimate', label: 'Estimate', type: 'number' }),
+      propertyOf({ key: 'double', label: 'Double', type: 'formula', expression: '[estimate] * 2' }),
+      propertyOf({ key: 'hours', label: 'Hours' }),
+    ];
+
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    const types = screen.getAllByRole('combobox', { name: /type/i });
+    const third = types[2];
+    if (third === undefined) {
+      throw new Error('Expected three type controls.');
+    }
+    await user.selectOptions(third, 'rollup');
+    await user.selectOptions(screen.getByRole('combobox', { name: /how hours folds/i }), 'sum');
+
+    // Folding a formula would be a dependency walk over rows the server does not hold, and folding
+    // a rollup would be folding a fold.
+    const picker = screen.getByRole('combobox', { name: /which property hours folds/i });
+    expect(within(picker).queryByRole('option', { name: 'double' })).not.toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: 'estimate' })).toBeInTheDocument();
   });
 });

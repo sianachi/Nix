@@ -20,6 +20,14 @@ namespace Nix.Domain.Properties;
 /// For a <see cref="PropertyType.Formula"/>: the expression evaluated on read, without a leading
 /// <c>=</c>. Null for every other type.
 /// </param>
+/// <param name="Aggregate">
+/// For a <see cref="PropertyType.Rollup"/>: which reduction is folded across the children. Null for
+/// every other type.
+/// </param>
+/// <param name="Source">
+/// For a <see cref="PropertyType.Rollup"/>: the children's property key being folded, or null for a
+/// count of the children themselves. Null for every other type.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b><see cref="Key"/> and <see cref="Label"/> are separate on purpose.</b> A property bag is keyed
@@ -44,7 +52,9 @@ public sealed record PropertyDefinition(
     PropertyType Type,
     ImmutableArray<string> Options,
     bool Required,
-    string? Expression = null)
+    string? Expression = null,
+    RollupAggregate? Aggregate = null,
+    string? Source = null)
 {
     /// <summary>Whether this property's declared options include a value.</summary>
     /// <param name="value">The value to look for.</param>

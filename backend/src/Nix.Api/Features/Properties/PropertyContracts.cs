@@ -19,6 +19,14 @@ namespace Nix.Features.Properties;
 /// For a formula property: the expression evaluated on read, without a leading <c>=</c>. Null for
 /// every other type.
 /// </param>
+/// <param name="Aggregate">
+/// For a rollup property: how the children are folded - the stored name of a
+/// <see cref="Nix.Domain.Properties.RollupAggregate"/>. Null for every other type.
+/// </param>
+/// <param name="Source">
+/// For a rollup property: the children's property key being folded, or null for a count of the
+/// children themselves. Null for every other type.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>The expression is published and the value is not.</b> A formula property has no stored value
@@ -45,7 +53,9 @@ internal sealed record PropertyDefinitionResponse(
     string Type,
     IReadOnlyList<string> Options,
     bool Required,
-    string? Expression);
+    string? Expression,
+    string? Aggregate,
+    string? Source);
 
 /// <summary>
 /// The property schema in force at an item.
@@ -91,13 +101,23 @@ internal sealed record SetSchemaRequest(
 /// For a formula property: the expression to evaluate on read, without a leading <c>=</c>. Refused
 /// on any other type, and refused when a formula omits it.
 /// </param>
+/// <param name="Aggregate">
+/// For a rollup property: how to fold the children. Refused on any other type, refused when a
+/// rollup omits it, and refused when the name is not one this build knows.
+/// </param>
+/// <param name="Source">
+/// For a rollup property: the children's property key to fold. Optional only for a count, which can
+/// be taken of the children themselves.
+/// </param>
 internal sealed record PropertyDefinitionRequest(
     string Key,
     string Label,
     string Type,
     IReadOnlyList<string>? Options,
     bool Required,
-    string? Expression = null);
+    string? Expression = null,
+    string? Aggregate = null,
+    string? Source = null);
 
 /// <summary>
 /// Writes property values onto an item.
