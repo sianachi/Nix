@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
 
+import { Select } from './Select';
 import { Tabs, type TabItem, type TabsOrientation } from './Tabs';
 
 /**
@@ -55,6 +56,97 @@ function Example({
       {...(orientation === undefined ? {} : { orientation })}
       {...(closable ? { onClose } : {})}
     />
+  );
+}
+
+/** Two strips exercising the primitive's generic drag callbacks; the product owns transfer state. */
+function TransferExample(): ReactNode {
+  const [left, setLeft] = useState<readonly TabItem[]>([
+    { id: 'a', label: 'Meeting notes', pinned: true },
+    { id: 'b', label: 'Roadmap', pinned: true },
+  ]);
+  const [right, setRight] = useState<readonly TabItem[]>([
+    { id: 'c', label: 'Design review', pinned: true },
+  ]);
+  const dragged = useRef<string | null>(null);
+
+  function move(id: string | null, destination: 'left' | 'right'): void {
+    if (id === null) return;
+    const item = [...left, ...right].find((candidate) => candidate.id === id);
+    if (item === undefined) return;
+    setLeft((current) =>
+      destination === 'left'
+        ? [...current.filter((candidate) => candidate.id !== id), item]
+        : current.filter((candidate) => candidate.id !== id),
+    );
+    setRight((current) =>
+      destination === 'right'
+        ? [...current.filter((candidate) => candidate.id !== id), item]
+        : current.filter((candidate) => candidate.id !== id),
+    );
+    dragged.current = null;
+  }
+
+  function accept(event: DragEvent<HTMLDivElement>, destination: 'left' | 'right'): void {
+    event.preventDefault();
+    move(dragged.current, destination);
+  }
+
+  function strip(
+    items: readonly TabItem[],
+    activeId: string,
+    destination: 'left' | 'right',
+  ): ReactNode {
+    return (
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- This story-only wrapper demonstrates pointer drop plumbing; its sibling native Select supplies the keyboard path outside Tabs.
+      <div
+        className="min-w-0 flex-1"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          accept(event, destination);
+        }}
+      >
+        <Tabs
+          label={`${destination === 'left' ? 'Left' : 'Right'} documents`}
+          items={items}
+          activeId={activeId}
+          onActivate={() => undefined}
+          drag={{
+            onStart: (id) => {
+              dragged.current = id;
+            },
+            onEnd: () => {
+              dragged.current = null;
+            },
+          }}
+        />
+        <Select
+          value=""
+          disabled={items.length === 0}
+          aria-label={`Move active tab to ${destination === 'left' ? 'right' : 'left'} documents`}
+          onChange={() => {
+            move(activeId, destination === 'left' ? 'right' : 'left');
+          }}
+          className="mt-2"
+        >
+          <option value="" disabled>
+            Move active tab…
+          </option>
+          <option value="move">
+            Move to {destination === 'left' ? 'right' : 'left'} documents
+          </option>
+        </Select>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-3">
+      {strip(left, left[0]?.id ?? '', 'left')}
+      {strip(right, right[0]?.id ?? '', 'right')}
+    </div>
   );
 }
 
@@ -144,4 +236,9 @@ export const Vertical: Story = {
       initial="a"
     />
   ),
+};
+
+/** Drag a tab from either strip to the other; app code decides what the move means. */
+export const DraggableBetweenStrips: Story = {
+  render: () => <TransferExample />,
 };
