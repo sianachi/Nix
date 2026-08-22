@@ -99,6 +99,32 @@ describe('the shell', () => {
     expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
   });
 
+  it('does not open search when the focused control already handled the shortcut', async () => {
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+    const innerControl = await screen.findByRole('button', { name: /^search/i });
+    innerControl.addEventListener(
+      'keydown',
+      (event) => {
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    innerControl.focus();
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    innerControl.dispatchEvent(event);
+
+    expect(innerControl).toHaveFocus();
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
+  });
+
   it('closes search on Escape without navigating anywhere', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
@@ -112,10 +138,10 @@ describe('the shell', () => {
     });
   });
 
-  it('finds a note by title and opens it', async () => {
+  it('finds a note by title and opens it from any workspace destination', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
-    renderAt(<App />);
+    renderAt(<App />, '/calendar');
 
     await screen.findByRole('button', { name: 'Acquisition memo' });
     await user.click(screen.getByRole('button', { name: /^search/i }));
@@ -132,6 +158,9 @@ describe('the shell', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
     });
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Acquisition memo',
+    );
   });
 
   it('says a search failed rather than reporting an empty workspace', async () => {

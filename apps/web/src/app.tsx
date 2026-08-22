@@ -83,12 +83,12 @@ export function App(): ReactElement {
                     element={<CreationStudioPage />}
                   />
 
-                  {/* The rail's three destinations. These *are* places, unlike a board or a
-                    search: each is a way of looking at the whole workspace rather than at one
-                    container, so none of them has an item to hang off and each needs an address
-                    of its own. Not lazy-loaded, unlike the token specimens: the placeholders are
-                    a few lines each, and a Suspense boundary around nothing is a fallback that
-                    can only ever flash. */}
+                  {/* The rail's workspace-view destinations. These *are* places, unlike a board
+                    or a search: each is a way of looking at the whole workspace rather than at
+                    one container, so none of them has an item to hang off and each needs an
+                    address of its own. Not lazy-loaded, unlike the token specimens: the screens
+                    are small, and a Suspense boundary around nothing is a fallback that can only
+                    ever flash. */}
                   <Route path="calendar" element={<CalendarPage />} />
                   <Route path="graph" element={<GraphPage />} />
                   <Route path="bookmarks" element={<BookmarksPage />} />
@@ -102,11 +102,11 @@ export function App(): ReactElement {
                     element={<TemplateStudioPage />}
                   />
 
-                  {/* Reached from the profile menu rather than the rail: members and access tokens
-                    are about who may act here, not a way of looking at the workspace's notes, and
-                    the rail is deliberately only the latter. Not lazy-loaded, for the rail
-                    destinations' reason - the screen is small, and a Suspense boundary around
-                    nothing is a fallback that can only ever flash. */}
+                  {/* Reached from both the persistent rail and the profile menu: the rail makes
+                    workspace administration findable, while the profile menu keeps personal
+                    access tokens where somebody already expects account-level controls. Not
+                    lazy-loaded, for the rail destinations' reason - the screen is small, and a
+                    Suspense boundary around nothing is a fallback that can only ever flash. */}
                   <Route path="settings" element={<SettingsPage />} />
 
                   {/* The boundary is per-route rather than around the whole tree: a fallback over

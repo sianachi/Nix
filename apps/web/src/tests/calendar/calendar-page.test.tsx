@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { stubCoreApi } from '../api-stub';
+import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
@@ -147,15 +147,22 @@ describe('the calendar destination', () => {
   });
 
   it('opens the item an entry stands for', async () => {
-    stubCoreApi({ calendarEntries: ENTRIES });
+    stubCoreApi({
+      items: [item({ id: ONE, title: 'Filing deadline' })],
+      calendarEntries: ENTRIES,
+    });
     renderAt(<App />, '/calendar');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-    await userEvent.click(await screen.findByRole('button', { name: /Filing deadline/i }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Filing deadline, in Deadlines' }),
+    );
 
-    // The collated calendar does not own a second idea of what is open - it goes through the same
-    // useOpenItem the tree uses, which writes the selection into the address.
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // An item id in `/calendar`'s query would still render the calendar. The editable title proves
+    // this crossed back to the document route and mounted the note it points at.
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Filing deadline',
+    );
   });
 
   /**

@@ -331,7 +331,7 @@ export function buildProgram(): Command {
     .command('import <path>')
     .description(
       'Import a Markdown file or folder tree as items (client-side). Front matter becomes properties; ' +
-        'wiki links and local image paths are counted as unresolved, not resolved; ' +
+        'wiki links, Obsidian embeds, local or unsupported images, and inline image flattening are reported; ' +
         '.nix/docx/pdf need the server import, not built yet.',
     )
     .requiredOption('--workspace <id>', 'the workspace to import into')

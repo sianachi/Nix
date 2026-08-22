@@ -28,8 +28,12 @@ namespace Nix.Persistence.Sql.Statements;
 /// than an invisible dependency on server configuration.
 /// </para>
 /// <para>
-/// Index dependencies: <c>ix_item_title_trgm</c> for the title arm, <c>ix_item_search_body_vector</c>
-/// for the body arm, and <c>IX_item_tenant_id_workspace_id</c> for the workspace restriction.
+/// The measured runtime-role plan at the phase corpus uses
+/// <c>IX_item_tenant_id_workspace_id</c> to bound the title arm and a bounded
+/// <c>item_search</c> scan for the body arm. The expression indexes remain available to a future
+/// planner, but are not claimed as runtime dependencies. Derived visibility additionally depends
+/// on the closure descendant index and the item point key; <c>BulkItemVisibilityPlanEvidenceTests</c>
+/// records the exact RLS plan.
 /// </para>
 /// </remarks>
 public static class SearchSql
@@ -47,11 +51,11 @@ public static class SearchSql
     /// <para>
     /// <b>Two arms unioned, rather than one scan with an <c>OR</c>.</b> The obvious shape - join
     /// <c>item_search</c> and write <c>title ILIKE ... OR body_vector @@ ...</c> - cannot use
-    /// either index. No single index spans two tables, so Postgres reads every item in the readable
-    /// workspaces and applies both conditions as a filter; the plan confirms it, and the cost grows
-    /// with the workspace rather than with the number of matches. Split, each arm is driven by the
-    /// index built for it - <c>ix_item_title_trgm</c> and <c>ix_item_search_body_vector</c> - and
-    /// the aggregate merges the two.
+    /// one combined index. No single index spans two tables, and one joined arm would make the
+    /// permission and match predicates inseparable. Split, each source keeps its own permission
+    /// predicate and physical plan, and the aggregate merges the two. The runtime-role evidence at
+    /// the current corpus uses the workspace index for titles and scans the bounded search table
+    /// for bodies; it does not pretend the two expression indexes were selected when they were not.
     /// </para>
     /// <para>
     /// <b>The permission predicate appears in both arms, and must.</b> It is stated twice because
@@ -125,6 +129,24 @@ public static class SearchSql
          AND item.id = ranked.item_id
          AND item.template_id IS NULL
          AND item.lifecycle_state = 'active'
+         AND NOT EXISTS (
+             SELECT 1
+             FROM item_closure AS visibility_edge
+             LEFT JOIN LATERAL (
+                 SELECT visibility_ancestor.template_id,
+                        visibility_ancestor.lifecycle_state
+                 FROM item AS visibility_ancestor
+                 WHERE visibility_ancestor.tenant_id = @tenant_id
+                   AND visibility_ancestor.id = visibility_edge.ancestor_id
+                 LIMIT 1
+             ) AS stored_ancestor ON TRUE
+             WHERE visibility_edge.tenant_id = @tenant_id
+               AND visibility_edge.descendant_id = item.id
+               AND visibility_edge.depth > 0
+               AND (stored_ancestor.template_id IS NOT NULL
+                    OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+             OFFSET 0
+         )
         ORDER BY ranked.title_matched DESC, ranked.rank DESC, item.id
         LIMIT @limit
         """;
@@ -162,6 +184,24 @@ public static class SearchSql
           AND item.workspace_id = ANY(@workspace_ids)
           AND item.lifecycle_state = 'active'
           AND item.template_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM item_closure AS visibility_edge
+              LEFT JOIN LATERAL (
+                  SELECT visibility_ancestor.template_id,
+                         visibility_ancestor.lifecycle_state
+                  FROM item AS visibility_ancestor
+                  WHERE visibility_ancestor.tenant_id = @tenant_id
+                    AND visibility_ancestor.id = visibility_edge.ancestor_id
+                  LIMIT 1
+              ) AS stored_ancestor ON TRUE
+              WHERE visibility_edge.tenant_id = @tenant_id
+                AND visibility_edge.descendant_id = item.id
+                AND visibility_edge.depth > 0
+                AND (stored_ancestor.template_id IS NOT NULL
+                     OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+              OFFSET 0
+          )
         """;
 
     /// <summary>
@@ -200,6 +240,24 @@ public static class SearchSql
           AND source.workspace_id = ANY(@workspace_ids)
           AND source.lifecycle_state = 'active'
           AND source.template_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM item_closure AS visibility_edge
+              LEFT JOIN LATERAL (
+                  SELECT visibility_ancestor.template_id,
+                         visibility_ancestor.lifecycle_state
+                  FROM item AS visibility_ancestor
+                  WHERE visibility_ancestor.tenant_id = @tenant_id
+                    AND visibility_ancestor.id = visibility_edge.ancestor_id
+                  LIMIT 1
+              ) AS stored_ancestor ON TRUE
+              WHERE visibility_edge.tenant_id = @tenant_id
+                AND visibility_edge.descendant_id = source.id
+                AND visibility_edge.depth > 0
+                AND (stored_ancestor.template_id IS NOT NULL
+                     OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+              OFFSET 0
+          )
         ORDER BY link.occurrences DESC, title, source.id
         LIMIT @limit
         """;

@@ -78,20 +78,104 @@ describe('pinning a document', () => {
   });
 });
 
-describe('closing a tab', () => {
-  it('removes only that tab', () => {
+describe('activating a tab', () => {
+  it('claims a restored tab for its addressed pane and preserves its pinned state', () => {
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: 'a', pinned: true },
+          { itemId: 'b', pinned: true },
+        ],
+        1: [],
+      },
+    });
+
+    useTabStore.getState().tabActivated(1, 'b');
+
+    expect(tabs(0)).toEqual([{ itemId: 'a', pinned: true }]);
+    expect(tabs(1)).toEqual([{ itemId: 'b', pinned: true }]);
+  });
+});
+
+describe('installing a planned tab transfer', () => {
+  it('commits the complete working set in one store event', () => {
+    const next = {
+      0: [{ itemId: 'a', pinned: true }],
+      1: [
+        { itemId: 'b', pinned: false },
+        { itemId: 'c', pinned: true },
+      ],
+    } as const;
+
+    useTabStore.getState().tabsTransferred(next);
+
+    expect(useTabStore.getState().byPane).toEqual(next);
+  });
+});
+
+describe('opening as the only pane', () => {
+  it('reuses pane zero preview rules and drops every unaddressed pane', () => {
     useTabStore.setState({
       byPane: {
         0: [
           { itemId: 'a', pinned: true },
           { itemId: 'b', pinned: false },
         ],
+        1: [{ itemId: 'z', pinned: true }],
       },
     });
 
-    useTabStore.getState().tabClosed(0, 'a');
+    useTabStore.getState().itemOpenedAlone('c', false);
+
+    expect(useTabStore.getState().byPane).toEqual({
+      0: [
+        { itemId: 'a', pinned: true },
+        { itemId: 'c', pinned: false },
+      ],
+    });
+  });
+
+  it('preserves a pinned tab when its former pane is no longer addressed', () => {
+    useTabStore.setState({
+      byPane: {
+        0: [{ itemId: 'a', pinned: true }],
+        1: [{ itemId: 'b', pinned: true }],
+      },
+    });
+
+    useTabStore.getState().itemOpenedAlone('b', false);
+
+    expect(useTabStore.getState().byPane).toEqual({
+      0: [
+        { itemId: 'a', pinned: true },
+        { itemId: 'b', pinned: true },
+      ],
+    });
+  });
+
+  it('pins a newly opened tab when the opening gesture commits to it', () => {
+    useTabStore.getState().itemOpenedAlone('a', true);
+
+    expect(tabs(0)).toEqual([{ itemId: 'a', pinned: true }]);
+  });
+});
+
+describe('closing a tab', () => {
+  it('removes only that document, including a stale record under another pane', () => {
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: 'a', pinned: true },
+          { itemId: 'b', pinned: false },
+        ],
+        1: [{ itemId: 'a', pinned: true }],
+      },
+    });
+
+    useTabStore.getState().tabClosed('a');
 
     expect(tabs(0)).toEqual([{ itemId: 'b', pinned: false }]);
+    expect(tabs(1)).toEqual([]);
   });
 });
 

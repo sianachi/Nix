@@ -2,6 +2,7 @@ import { Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
+import { isFetchableImageAddress } from '../../lib/image-address';
 import {
   readPropertyText,
   type Item,
@@ -550,7 +551,7 @@ function CoverPane({
     );
   }
 
-  if (!isFetchableAddress(src)) {
+  if (!isFetchableImageAddress(src)) {
     // **Its own state, and never handed to an `img`.** A schema retype does not revalidate values
     // already stored, so a property that was text yesterday can hold "draft notes" and be a picture
     // property today - the server's write-time scheme check never saw it. Given to an `img` that
@@ -654,22 +655,4 @@ function CoverFrame({
       {children}
     </div>
   );
-}
-
-/**
- * Whether a stored value is something a browser may be asked to fetch.
- *
- * The same rule the server applies on write, applied again at the render because the server's copy
- * does not cover values that predate the declaration: a retype changes what a property means
- * without revalidating what is already in it. Two checks rather than one, deliberately - this is
- * the layer that is true regardless of the order somebody edited things in.
- */
-function isFetchableAddress(value: string): boolean {
-  try {
-    const { protocol } = new URL(value);
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    // Not absolute, so not something to resolve against this origin and hope.
-    return false;
-  }
 }

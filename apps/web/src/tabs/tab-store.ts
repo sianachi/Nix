@@ -32,6 +32,16 @@ interface TabsState {
   readonly byPane: Readonly<Record<number, readonly OpenTab[]>>;
 
   /**
+   * A document became the only addressed pane.
+   *
+   * Destination routes and hidden-pane opens both collapse to one visible pane. Only pane zero can
+   * be resumed without inventing which document was active elsewhere, so its working set is kept
+   * while tabs belonging to now-unaddressed panes are dropped. A later history navigation can
+   * restore those addresses, but not revive duplicate document ownership from the session store.
+   */
+  readonly itemOpenedAlone: (itemId: string, pinned: boolean) => void;
+
+  /**
    * A document was opened lightly - a sidebar click, a breadcrumb, a link. Reuses the pane's
    * existing preview tab if it has one, in place, rather than moving it to the end of the strip;
    * appends a new one otherwise. A no-op when the document is already pinned in this pane - an
@@ -47,11 +57,26 @@ interface TabsState {
   readonly tabPinned: (pane: number, itemId: string) => void;
 
   /**
-   * Removes one tab from a pane's strip. Deciding what to activate next, or whether closing the
-   * last tab should close the pane itself, is the caller's job - this stays a pure list edit, the
-   * same division `pane-state.ts`'s `closePane` keeps from its own side effects.
+   * A tab in a pane was activated. Claims its global ownership for that pane without announcing
+   * or moving focus away from the tablist, preserving whether it was already pinned.
    */
-  readonly tabClosed: (pane: number, itemId: string) => void;
+  readonly tabActivated: (pane: number, itemId: string) => void;
+
+  /**
+   * A cross-pane move installed one already-validated, globally unique working set.
+   *
+   * The transfer planner owns the multi-pane arithmetic because it must change the URL and this
+   * store from the same materialized strips. This event keeps the store mutation atomic rather
+   * than composing pin, close and pane-close events that each observe a different intermediate
+   * owner.
+   */
+  readonly tabsTransferred: (nextByPane: Readonly<Record<number, readonly OpenTab[]>>) => void;
+
+  /**
+   * Removes one document from every pane's working set. Ownership is globally unique, and a stale
+   * record may still sit under its former pane after Back restores an older address.
+   */
+  readonly tabClosed: (itemId: string) => void;
 
   /**
    * A pane closed. Mirrors `closePaneParams`/`shiftPane` in `pane-params.ts` exactly: the closed
@@ -62,54 +87,118 @@ interface TabsState {
   readonly paneClosed: (index: number, count: number) => void;
 }
 
+/** Applies the one-preview-tab rule without knowing which pane owns the list. */
+function previewTabs(tabs: readonly OpenTab[], itemId: string): readonly OpenTab[] {
+  const existing = tabs.find((tab) => tab.itemId === itemId);
+  if (existing !== undefined) {
+    return tabs;
+  }
+
+  const previewIndex = tabs.findIndex((tab) => !tab.pinned);
+  if (previewIndex === -1) {
+    return [...tabs, { itemId, pinned: false }];
+  }
+
+  return tabs.map((tab, index) => (index === previewIndex ? { itemId, pinned: false } : tab));
+}
+
+/** Promotes or appends one tab without knowing which pane owns the list. */
+function pinTabs(tabs: readonly OpenTab[], itemId: string): readonly OpenTab[] {
+  const index = tabs.findIndex((tab) => tab.itemId === itemId);
+  if (index === -1) {
+    return [...tabs, { itemId, pinned: true }];
+  }
+
+  if (tabs[index]?.pinned === true) {
+    return tabs;
+  }
+
+  return tabs.map((tab, offset) => (offset === index ? { itemId, pinned: true } : tab));
+}
+
+export function itemIsPinned(
+  byPane: Readonly<Record<number, readonly OpenTab[]>>,
+  itemId: string,
+): boolean {
+  return Object.values(byPane).some((tabs) =>
+    tabs.some((tab) => tab.itemId === itemId && tab.pinned),
+  );
+}
+
+/** Moves one document's session-local ownership to a pane and removes every stale copy. */
+function claimItem(
+  byPane: Readonly<Record<number, readonly OpenTab[]>>,
+  pane: number,
+  itemId: string,
+  claimedTabs: readonly OpenTab[],
+): Readonly<Record<number, readonly OpenTab[]>> {
+  const next: Record<number, readonly OpenTab[]> = {};
+
+  for (const [key, tabs] of Object.entries(byPane)) {
+    const index = Number(key);
+    next[index] = index === pane ? claimedTabs : tabs.filter((tab) => tab.itemId !== itemId);
+  }
+  next[pane] = claimedTabs;
+
+  return next;
+}
+
 export const useTabStore = create<TabsState>((set) => ({
   byPane: {},
+
+  itemOpenedAlone: (itemId, pinned) => {
+    set((state) => {
+      const tabs = state.byPane[0] ?? [];
+      const wasPinned = itemIsPinned(state.byPane, itemId);
+      const committed = pinned || wasPinned;
+      const next = committed ? pinTabs(tabs, itemId) : previewTabs(tabs, itemId);
+
+      return { byPane: { 0: next } };
+    });
+  },
 
   tabPreviewed: (pane, itemId) => {
     set((state) => {
       const tabs = state.byPane[pane] ?? [];
-      const existing = tabs.find((tab) => tab.itemId === itemId);
-      if (existing?.pinned === true) {
-        return state;
-      }
+      const next = itemIsPinned(state.byPane, itemId)
+        ? pinTabs(tabs, itemId)
+        : previewTabs(tabs, itemId);
 
-      const previewIndex = tabs.findIndex((tab) => !tab.pinned);
-      const next = [...tabs];
-      if (previewIndex === -1) {
-        next.push({ itemId, pinned: false });
-      } else {
-        next[previewIndex] = { itemId, pinned: false };
-      }
-
-      return { byPane: { ...state.byPane, [pane]: next } };
+      return { byPane: claimItem(state.byPane, pane, itemId, next) };
     });
   },
 
   tabPinned: (pane, itemId) => {
     set((state) => {
       const tabs = state.byPane[pane] ?? [];
-      const index = tabs.findIndex((tab) => tab.itemId === itemId);
+      const next = pinTabs(tabs, itemId);
 
-      if (index === -1) {
-        return { byPane: { ...state.byPane, [pane]: [...tabs, { itemId, pinned: true }] } };
-      }
-
-      if (tabs[index]?.pinned === true) {
-        return state;
-      }
-
-      const next = [...tabs];
-      next[index] = { itemId, pinned: true };
-      return { byPane: { ...state.byPane, [pane]: next } };
+      return { byPane: claimItem(state.byPane, pane, itemId, next) };
     });
   },
 
-  tabClosed: (pane, itemId) => {
+  tabActivated: (pane, itemId) => {
     set((state) => {
       const tabs = state.byPane[pane] ?? [];
-      return {
-        byPane: { ...state.byPane, [pane]: tabs.filter((tab) => tab.itemId !== itemId) },
-      };
+      const next = itemIsPinned(state.byPane, itemId)
+        ? pinTabs(tabs, itemId)
+        : previewTabs(tabs, itemId);
+
+      return { byPane: claimItem(state.byPane, pane, itemId, next) };
+    });
+  },
+
+  tabsTransferred: (nextByPane) => {
+    set({ byPane: nextByPane });
+  },
+
+  tabClosed: (itemId) => {
+    set((state) => {
+      const next: Record<number, readonly OpenTab[]> = {};
+      for (const [key, tabs] of Object.entries(state.byPane)) {
+        next[Number(key)] = tabs.filter((tab) => tab.itemId !== itemId);
+      }
+      return { byPane: next };
     });
   },
 
