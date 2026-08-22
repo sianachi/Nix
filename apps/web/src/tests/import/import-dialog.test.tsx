@@ -72,7 +72,11 @@ describe('the import dialog', () => {
     open();
 
     expect(screen.getByText(/Obsidian vault/)).toBeInTheDocument();
-    expect(screen.getByText(/every nested folder/)).toBeInTheDocument();
+    expect(screen.getByText(/folders containing Markdown notes/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Headings, lists, tables and inline formatting are kept/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Simple front matter fields/)).toBeInTheDocument();
     expect(screen.getByText(/Archives, Word and PDF cannot be imported yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeInTheDocument();
   });
@@ -105,6 +109,23 @@ describe('the import dialog', () => {
     expect(screen.getByText(/1 wiki link kept as text/)).toBeInTheDocument();
     // Nothing ran: the preview is a plan, not a receipt.
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('hands Markdown tables to the import run as editor table nodes', async () => {
+    const spy = vi.spyOn(run, 'runImportPlan').mockResolvedValue(report());
+
+    open();
+    await pick(
+      markdownFile('comparison.md', '| Project | Status |\n| :--- | ---: |\n| Nix | Ready |'),
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
+
+    const options = spy.mock.calls[0]?.[0];
+    const note = options?.plan.children[0];
+    expect(note?.kind).toBe('note');
+    expect(JSON.stringify(note?.doc)).toContain('"type":"table"');
+    expect(JSON.stringify(note?.doc)).toContain('"type":"tableHeader"');
+    expect(JSON.stringify(note?.doc)).toContain('"align":"right"');
   });
 
   it('offers a way back from the preview without closing the dialog', async () => {

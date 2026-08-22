@@ -3,25 +3,27 @@
  *
  * **Built on `prosemirror-markdown`'s `MarkdownParser` against the real `nixSchema`, then gated
  * through `parseDocument`.** markdown-it tokenises, the parser maps its tokens onto Nix's own node
- * names, and a short post-pass rebuilds the two custom constructs `documentToMarkdown` emits with a
+ * names, and a short post-pass rebuilds the custom constructs `documentToMarkdown` emits with a
  * plain-Markdown spelling - a `nix://` link back into a reference node, a `[!tone]` blockquote back
- * into a callout. Anything the round trip cannot rebuild degrades to the nearest standard node
- * rather than failing, and the final document is always validated: an input that would produce a
- * body the schema rejects returns `{ ok: false }` with the reason, never a silently broken doc.
+ * into a callout, and a GFM pipe grid back into a table. Anything the round trip cannot rebuild
+ * degrades to the nearest standard node rather than failing, and the final document is always
+ * validated: an input that would produce a body the schema rejects returns `{ ok: false }` with
+ * the reason, never a silently broken doc.
  *
- * The constructs `documentToMarkdown` flattens on the way out - a column layout, a table, a task
- * list's checkboxes - do not come back as themselves here, by construction: they were written as
- * their nearest Markdown form and that is what parses. Those are the declared losses, reported on
- * the outbound side.
+ * A column layout and task-list checkbox state still do not come back as themselves: those were
+ * written as their nearest Markdown form. GFM tables import with rows, cells, alignment and inline
+ * marks. Exporting a richer Nix table first may already have changed its header roles, merged-cell
+ * geometry, column widths, per-cell alignment, cell blocks and marks; those remain the table's
+ * declared losses.
  */
 
 import MarkdownIt from 'markdown-it';
+import type Token from 'markdown-it/lib/token.mjs';
 import { MarkdownParser, type ParseSpec } from 'prosemirror-markdown';
 import { nixSchema, parseDocument, REFERENCE_KINDS } from '@nix/editor-schema';
 
 export type FromMarkdownResult =
-  | { readonly ok: true; readonly doc: unknown }
-  | { readonly ok: false; readonly reason: string };
+  { readonly ok: true; readonly doc: unknown } | { readonly ok: false; readonly reason: string };
 
 /** The minimal shape of a ProseMirror node in its JSON form, for the post-pass. */
 interface JsonNode {
@@ -32,12 +34,29 @@ interface JsonNode {
   marks?: { type: string; attrs?: Record<string, unknown> }[];
 }
 
-// GFM-ish: strikethrough is on, HTML is off so a stray tag is escaped text rather than an injected
-// node the schema has no home for. Tables are deliberately NOT enabled: `documentToMarkdown`
-// flattens a table to a pipe grid and declares the loss, so a pipe grid coming back in should read
-// as the plain text it now is rather than re-tokenise into a `table_open` this parser has no node
-// for. The details block and standalone images are pre-processed below before this ever runs.
-const tokenizer = MarkdownIt('commonmark', { html: false }).enable(['strikethrough']);
+// GFM-ish: strikethrough and pipe tables are on; HTML is off so a stray tag is escaped text rather
+// than an injected node the schema has no home for. The details block and standalone images are
+// pre-processed below before this ever runs.
+const tokenizer = MarkdownIt('commonmark', { html: false }).enable(['strikethrough', 'table']);
+
+// markdown-it represents a table cell as inline tokens directly inside `th` or `td`. Nix's table
+// schema correctly requires block content in every cell, so a direct MarkdownParser mapping drops
+// those cells when `createAndFill` refuses the invalid shape. Injecting a paragraph pair around the
+// inline stream expresses the structure Markdown already implied. Because this runs over tokens,
+// not source text, pipe-like text inside a code fence is never mistaken for a table.
+tokenizer.core.ruler.after('inline', 'nix_table_cell_blocks', (state) => {
+  const wrapped: Token[] = [];
+  for (const token of state.tokens) {
+    if (token.type === 'th_close' || token.type === 'td_close') {
+      wrapped.push(new state.Token('paragraph_close', 'p', -1));
+    }
+    wrapped.push(token);
+    if (token.type === 'th_open' || token.type === 'td_open') {
+      wrapped.push(new state.Token('paragraph_open', 'p', 1));
+    }
+  }
+  state.tokens = wrapped;
+});
 
 // A block image survives Markdown's round trip only with help: `documentToMarkdown` writes a
 // block-level image as `![alt](src)` on its own line, but re-parsing puts an image inline, where
@@ -77,6 +96,12 @@ const INLINE_IMAGE = /!\[([^\]]*)]\(([^)\n]+)\)/g;
 const tokens: Record<string, ParseSpec> = {
   blockquote: { block: 'blockquote' },
   paragraph: { block: 'paragraph' },
+  table: { block: 'table' },
+  thead: { ignore: true },
+  tbody: { ignore: true },
+  tr: { block: 'tableRow' },
+  th: { block: 'tableHeader', getAttrs: tableCellAttrs },
+  td: { block: 'tableCell', getAttrs: tableCellAttrs },
   list_item: { block: 'listItem' },
   bullet_list: { block: 'bulletList' },
   ordered_list: {
@@ -119,6 +144,20 @@ const tokens: Record<string, ParseSpec> = {
   code_inline: { mark: 'code', noCloseToken: true },
 };
 
+/** The editor table attributes a Markdown cell can carry. */
+function tableCellAttrs(token: Token): Record<string, unknown> {
+  const alignment = /(?:^|;)\s*text-align:\s*(left|center|right)\s*(?:;|$)/i.exec(
+    token.attrGet('style') ?? '',
+  )?.[1];
+
+  return {
+    colspan: 1,
+    rowspan: 1,
+    colwidth: null,
+    align: alignment?.toLowerCase() ?? null,
+  };
+}
+
 const parser = new MarkdownParser(nixSchema, tokenizer, tokens);
 
 /** `nix://<kind>/<targetId>` - the spelling `documentToMarkdown` gives a reference. */
@@ -142,13 +181,19 @@ function isKnownReferenceKind(kind: string): boolean {
 function stripDetails(markdown: string): string {
   return markdown
     .replace(/<details(?: data-toggle-level="\d+")?>\s*/g, '')
-    .replace(/<summary>([\s\S]*?)<\/summary>/g, (_match, summary: string) => `**${summary.trim()}**\n`)
+    .replace(
+      /<summary>([\s\S]*?)<\/summary>/g,
+      (_match, summary: string) => `**${summary.trim()}**\n`,
+    )
     .replace(/\s*<\/details>/g, '');
 }
 
 /** Depth-first rewrite of the parsed JSON: link -> reference, `[!tone]` blockquote -> callout,
  *  image sentinel paragraph -> block image. */
-function rebuildCustomNodes(node: JsonNode, images: readonly { src: string; alt: string }[]): JsonNode {
+function rebuildCustomNodes(
+  node: JsonNode,
+  images: readonly { src: string; alt: string }[],
+): JsonNode {
   const reference = asReference(node);
   if (reference !== null) {
     return reference;
@@ -213,7 +258,8 @@ function asCallout(node: JsonNode): JsonNode | null {
   if (first === undefined) {
     return null;
   }
-  const firstInline = first.type === 'paragraph' && first.content?.length === 1 ? first.content[0] : undefined;
+  const firstInline =
+    first.type === 'paragraph' && first.content?.length === 1 ? first.content[0] : undefined;
   const markerText = firstInline?.type === 'text' ? (firstInline.text ?? '') : null;
   const tone = markerText === null ? undefined : CALLOUT_MARKER.exec(markerText)?.[1];
   if (tone === undefined) {
@@ -243,14 +289,20 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
       const index = images.push({ src, alt }) - 1;
       return ` nix-image:${String(index)} `;
     })
-    .replace(INLINE_IMAGE, (_match, alt: string, src: string) => `[${alt.length > 0 ? alt : src}](${src})`);
+    .replace(
+      INLINE_IMAGE,
+      (_match, alt: string, src: string) => `[${alt.length > 0 ? alt : src}](${src})`,
+    );
 
   let json: JsonNode;
   try {
     // MarkdownParser.parse returns a document node or throws; it never returns null.
     json = parser.parse(sentinelled).toJSON() as JsonNode;
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : 'The Markdown could not be parsed.' };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'The Markdown could not be parsed.',
+    };
   }
 
   const rebuilt = rebuildCustomNodes(json, images);
