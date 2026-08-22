@@ -1,4 +1,5 @@
 import {
+  ChartColumnBig,
   ClipboardList,
   Columns3,
   LayoutGrid,
@@ -13,6 +14,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { BoardView } from '../board/board-view';
+import { ChartView } from '../chart/chart-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { isDateShaped } from './property-types';
@@ -69,7 +71,7 @@ export interface ViewRendererProps {
  */
 export interface ViewConfiguration {
   /** The field on the view that names the property. */
-  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty';
+  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty' | 'measureProperty';
 
   readonly label: string;
 
@@ -127,6 +129,7 @@ export interface ViewConfiguration {
  */
 interface ChoiceTokens {
   readonly cardSize: CardSize;
+  readonly measure: ChartMeasure;
 }
 
 type ChoiceField = keyof ChoiceTokens;
@@ -219,6 +222,22 @@ const CARD_SIZE_LABELS: Record<CardSize, string> = {
   small: 'Small',
   medium: 'Medium',
   large: 'Large',
+};
+
+/**
+ * What a chart's bars measure.
+ *
+ * Two, and both always have an answer: counting needs nothing configured and totalling needs a
+ * numeric property. The server's `ChartMeasures` is the authority on the tokens; this is what a
+ * person chooses from, and the `ChoiceTokens` join above is what stops the two lists drifting.
+ */
+export const CHART_MEASURES = ['count', 'sum'] as const;
+export type ChartMeasure = (typeof CHART_MEASURES)[number];
+export const DEFAULT_CHART_MEASURE: ChartMeasure = 'count';
+
+const CHART_MEASURE_LABELS: Record<ChartMeasure, string> = {
+  count: 'How many items',
+  sum: 'Total of a property',
 };
 
 export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
@@ -397,6 +416,55 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     render: (props) => <InteractiveFormView {...props} />,
     configures: [],
     chooses: [],
+  },
+  {
+    // The third kind whose data is not the loaded children: its buckets come from the server,
+    // computed over every child, because a chart tallied from a loaded page of a large container
+    // would be a picture of the first page presented as a picture of the whole.
+    //
+    // It groups by the property a board groups by, under the board's own field name - which is
+    // what makes switching a view between the two lossless, exactly as the calendar and the
+    // timeline share their date property.
+    kind: 'chart',
+    label: 'Chart',
+    icon: ChartColumnBig,
+    render: (props) => <ChartView {...props} />,
+    configures: [
+      {
+        field: 'groupBy',
+        label: 'Group by',
+        emptyHint: 'There is no select property yet. Add one under Properties first.',
+        hint: 'Each value of this property becomes a bar.',
+        // The view is genuinely waiting on this one: with nothing to group by there are no bars,
+        // and the server refuses to draw rather than answering with none.
+        emptyChoice: 'Choose a property',
+        accepts: (property) => property.type === 'select',
+      },
+      {
+        field: 'measureProperty',
+        label: 'Total',
+        // Neither hint sends somebody to add a property first: a chart that counts is complete.
+        emptyHint:
+          'There is no number property yet. Without one this chart counts items rather than totalling anything.',
+        hint: 'Each bar adds up this property across the items in it.',
+        emptyChoice: 'None',
+        accepts: (property) =>
+          property.type === 'number' ||
+          property.type === 'estimate' ||
+          property.type === 'priority',
+      },
+    ],
+    chooses: [
+      {
+        field: 'measure',
+        label: 'Bars show',
+        hint: 'Counting needs nothing else chosen; totalling needs a number property to add up.',
+        options: CHART_MEASURES.map((value) => ({ value, label: CHART_MEASURE_LABELS[value] })),
+        // What a chart that has never been asked already draws, so the control marking it current
+        // is a description rather than a change waiting to be saved.
+        fallback: DEFAULT_CHART_MEASURE,
+      },
+    ],
   },
 ];
 

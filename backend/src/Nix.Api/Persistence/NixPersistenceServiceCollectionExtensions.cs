@@ -14,6 +14,7 @@ using Nix.Domain.Views;
 using Nix.Features.Bookmarks;
 using Nix.Features.Calendar;
 using Nix.Features.Canvas;
+using Nix.Features.Charts;
 using Nix.Features.Graph;
 using Nix.Features.Internal;
 using Nix.Features.Items;
@@ -222,6 +223,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SetItemSchema, PropertySchema>, SetItemSchemaHandler>();
         services.AddScoped<ICommandHandler<SetItemProperties, Item>, SetItemPropertiesHandler>();
         services.AddScoped<IQueryHandler<ItemRollups, IReadOnlyDictionary<ItemId, JsonObject>>, ItemRollupsHandler>();
+        services.AddScoped<IQueryHandler<RunItemChart, Result<ItemChart>>, RunItemChartHandler>();
 
         services.AddScoped<IQueryHandler<GetContainerViews, Result<ContainerViewSet>>, GetContainerViewsHandler>();
         services.AddScoped<ICommandHandler<SetContainerViews, ImmutableArray<ViewDefinition>>, SetContainerViewsHandler>();
