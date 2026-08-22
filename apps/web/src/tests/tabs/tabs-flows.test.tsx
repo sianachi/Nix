@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useNavigate } from 'react-router';
@@ -22,6 +22,23 @@ const ALPHA = item({ id: '0a0a0a0a-0000-4000-8000-00000000000a', title: 'Alpha' 
 const BRAVO = item({ id: '0b0b0b0b-0000-4000-8000-00000000000b', title: 'Bravo' });
 const CHARLIE = item({ id: '0c0c0c0c-0000-4000-8000-00000000000c', title: 'Charlie' });
 
+function tabDataTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+  return {
+    effectAllowed: 'all',
+    dropEffect: 'none',
+    get types() {
+      return [...values.keys()];
+    },
+    setData(type: string, value: string) {
+      values.set(type, value);
+    },
+    getData(type: string) {
+      return values.get(type) ?? '';
+    },
+  } as unknown as DataTransfer;
+}
+
 function HistoryControls() {
   const navigate = useNavigate();
   const { openPreview } = useOpenItem();
@@ -44,6 +61,7 @@ function HistoryControls() {
 
 beforeEach(() => {
   signedIn();
+  stubViewport(true);
   useTabStore.setState({ byPane: {} });
   useTabOrientationStore.setState({ orientation: 'horizontal' });
 });
@@ -287,6 +305,173 @@ describe('activating a tab', () => {
     });
     expect(bravo).toHaveFocus();
     expect(screen.queryByText(/Already open in pane/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('moving a tab between panes', () => {
+  it('drags a background tab to another strip, activates it once, and preserves both old actives', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: ALPHA.id, pinned: true },
+          { itemId: CHARLIE.id, pinned: true },
+        ],
+        1: [{ itemId: BRAVO.id, pinned: true }],
+      },
+    });
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    const secondPane = screen.getByRole('article', { name: /Pane 2 of 2/ });
+    const dataTransfer = tabDataTransfer();
+    fireEvent.dragStart(within(firstPane).getByRole('tab', { name: 'Charlie' }), { dataTransfer });
+    const target = within(secondPane).getByRole('tablist', { name: 'Open documents' });
+    fireEvent.dragEnter(target, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer });
+
+    expect(dataTransfer.dropEffect).toBe('move');
+    expect(screen.getByText('Drop tab here')).toBeInTheDocument();
+
+    fireEvent.drop(target, { dataTransfer });
+
+    const movedPane = await screen.findByRole('article', { name: /Pane 2 of 2: Charlie/ });
+    expect(within(firstPane).getByRole('tab', { name: 'Alpha' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(within(movedPane).getByRole('tab', { name: 'Bravo' })).toBeInTheDocument();
+    expect(within(movedPane).getByRole('tab', { name: 'Charlie' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getAllByRole('tab', { name: 'Charlie' })).toHaveLength(1);
+    await waitFor(() => {
+      expect(within(movedPane).getByRole('tab', { name: 'Charlie' })).toHaveFocus();
+    });
+    expect(screen.getByText('Moved Charlie to pane 2.')).toBeInTheDocument();
+    expect(useTabStore.getState().byPane).toEqual({
+      0: [{ itemId: ALPHA.id, pinned: true }],
+      1: [
+        { itemId: BRAVO.id, pinned: true },
+        { itemId: CHARLIE.id, pinned: true },
+      ],
+    });
+  });
+
+  it('moves the active tab with the native picker and closes an empty source pane', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    const user = userEvent.setup();
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    await user.selectOptions(
+      within(firstPane).getByRole('combobox', {
+        name: 'Move active tab, Alpha, to another pane',
+      }),
+      '1',
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('article')).toHaveLength(1);
+    });
+    const onlyPane = screen.getByRole('article');
+    expect(within(onlyPane).getByRole('tab', { name: 'Bravo' })).toBeInTheDocument();
+    expect(within(onlyPane).getByRole('tab', { name: 'Alpha' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(
+      within(onlyPane).queryByRole('combobox', { name: /Move active tab.*to another pane/ }),
+    ).toBeNull();
+    await waitFor(() => {
+      expect(within(onlyPane).getByRole('tab', { name: 'Alpha' })).toHaveFocus();
+    });
+    expect(screen.getByText('Moved Alpha to pane 1.')).toBeInTheDocument();
+  });
+
+  it('lists every other visible pane in visual order and keeps the picker outside the tablist', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}&item3=${CHARLIE.id}`);
+
+    const firstPane = await screen.findByRole('article', { name: /Pane 1 of 3/ });
+    const picker = within(firstPane).getByRole('combobox', {
+      name: 'Move active tab, Alpha, to another pane',
+    });
+    expect(picker).toHaveClass('focus-visible:-outline-offset-2');
+    expect(
+      within(picker)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Move active tab…', 'Pane 2: Bravo', 'Pane 3: Charlie']);
+    expect(
+      within(firstPane).getByRole('tablist', { name: 'Open documents' }).contains(picker),
+    ).toBe(false);
+  });
+
+  it('ignores external and same-pane drops, and clears a cancelled target highlight', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    const secondPane = screen.getByRole('article', { name: /Pane 2 of 2/ });
+    const source = within(firstPane).getByRole('tab', { name: 'Alpha' });
+    const sourceStrip = within(firstPane).getByRole('tablist');
+    const targetStrip = within(secondPane).getByRole('tablist');
+
+    const external = tabDataTransfer();
+    external.setData('text/plain', ALPHA.id);
+    fireEvent.dragEnter(targetStrip, { dataTransfer: external });
+    fireEvent.drop(targetStrip, { dataTransfer: external });
+    expect(screen.queryByText('Drop tab here')).toBeNull();
+
+    const internal = tabDataTransfer();
+    fireEvent.dragStart(source, { dataTransfer: internal });
+    fireEvent.dragEnter(sourceStrip, { dataTransfer: internal });
+    expect(screen.queryByText('Drop tab here')).toBeNull();
+
+    fireEvent.dragEnter(targetStrip, { dataTransfer: internal });
+    expect(screen.getByText('Drop tab here')).toBeVisible();
+    fireEvent.dragEnd(source, { dataTransfer: internal });
+    expect(screen.queryByText('Drop tab here')).toBeNull();
+    expect(useTabStore.getState().byPane).toEqual({});
+  });
+
+  it('offers neither dragging nor a move picker when later addressed panes are hidden', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const tab = await screen.findByRole('tab', { name: 'Alpha' });
+    expect(tab).not.toHaveAttribute('draggable');
+    expect(
+      screen.queryByRole('combobox', { name: /Move active tab.*to another pane/ }),
+    ).toBeNull();
+    expect(screen.getByText('One more pane in this link opens on a wider screen.')).toBeVisible();
+  });
+
+  it('keeps the native move picker on a coarse pointer without making tabs draggable', async () => {
+    globalThis.matchMedia = (query: string): MediaQueryList =>
+      ({
+        matches: query === '(pointer: fine)' ? false : true,
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }) as MediaQueryList;
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
+
+    const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    expect(within(firstPane).getByRole('tab', { name: 'Alpha' })).not.toHaveAttribute('draggable');
+    expect(
+      within(firstPane).getByRole('combobox', {
+        name: 'Move active tab, Alpha, to another pane',
+      }),
+    ).toBeVisible();
   });
 });
 

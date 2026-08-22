@@ -97,6 +97,22 @@ describe('activating a tab', () => {
   });
 });
 
+describe('installing a planned tab transfer', () => {
+  it('commits the complete working set in one store event', () => {
+    const next = {
+      0: [{ itemId: 'a', pinned: true }],
+      1: [
+        { itemId: 'b', pinned: false },
+        { itemId: 'c', pinned: true },
+      ],
+    } as const;
+
+    useTabStore.getState().tabsTransferred(next);
+
+    expect(useTabStore.getState().byPane).toEqual(next);
+  });
+});
+
 describe('opening as the only pane', () => {
   it('reuses pane zero preview rules and drops every unaddressed pane', () => {
     useTabStore.setState({
