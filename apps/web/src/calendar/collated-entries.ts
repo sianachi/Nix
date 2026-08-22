@@ -167,6 +167,13 @@ export function filterByNotes(
  * **Offered from the payload rather than from the workspace tree.** A picker listing every note in
  * the workspace would be mostly notes with nothing on this calendar, and choosing one would appear
  * to do nothing. These are exactly the notes that placed something in the window.
+ *
+ * **A second caller besides the filter: `CreateEntryButton`'s destinations.** Every note here has,
+ * by construction, a calendar view and a real date property - an entry could not exist otherwise -
+ * so this doubles as "notes it is safe to create into" without a second read. What it cannot offer
+ * is a note with a calendar view and nothing placed on it yet in this window; there is no
+ * workspace-wide read this build can ask for that list without a bulk read of every container's own
+ * views, which is out of reach for now.
  */
 export function noteOptions(
   entries: readonly CalendarEntry[],

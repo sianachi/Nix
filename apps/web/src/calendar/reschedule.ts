@@ -5,10 +5,12 @@ import { readTimestampValue, writeTimestampValue } from '../views/core/timestamp
 /**
  * What to write when an entry is dragged somewhere else.
  *
- * **The one write the collated calendar can make.** Creating here has no answer - entries arrive
- * from containers that place by differently named properties, so there is no one property a new
- * item would belong to. Rescheduling does: each entry carries the key its own container placed it
- * by, so moving it writes that key on that item and nothing has to be guessed.
+ * **Rescheduling is answerable from the entry alone.** Each entry carries the key its own container
+ * placed it by, so moving it writes that key on that item and nothing has to be guessed. Creating
+ * used to have no answer here for the same reason in reverse - a brand new item carries no entry to
+ * read a key from - but goal 3.10 answers it a different way: `use-workspace-calendar.ts`'s
+ * `create` asks the chosen container's own view configuration directly, rather than reading
+ * anything off an entry.
  *
  * Nothing here reads a clock. The target and the reader's zone are both given, so the same drag
  * produces the same value twice and it can be tested without a browser.
