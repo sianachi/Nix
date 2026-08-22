@@ -39,6 +39,10 @@ public sealed class AccessTokenScopePolicyTests
         ["GetBacklinks"] = Requirement.Read,
         ["GetItemPermissions"] = Requirement.Read,
         ["RunItemQuery"] = Requirement.Read,
+
+        // A summary of children the caller can already list. Nothing about a chart discloses more
+        // than the listing beside it, so it is a read like the listing.
+        ["RunItemChart"] = Requirement.Read,
         ["GetEffectiveSchema"] = Requirement.Read,
         ["GetContainerViews"] = Requirement.Read,
         ["GetCurrentPrincipal"] = Requirement.Read,

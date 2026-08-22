@@ -74,6 +74,12 @@ export {
   type TokenExchangeResponse,
 } from './access-tokens.js';
 export {
+  chartBucketSchema,
+  itemChartSchema,
+  type ChartBucket,
+  type ItemChart,
+} from './item-chart.js';
+export {
   itemQueryResultsSchema,
   queryResultSchema,
   type ItemQueryResults,

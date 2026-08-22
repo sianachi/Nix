@@ -218,6 +218,17 @@ export const ViewSchema = z.object({
     // Defaulted, unlike its siblings: a server from before the field answers views without it,
     // and absence must cost nothing - the parse fills the empty set the contract now always sends.
     .default([]),
+  /**
+   * For a chart: what each bar measures, and which property it totals.
+   *
+   * `measure` is an open string, matching `mode` and `cardSize` and for the same reason: the server
+   * polices the closed set on write, and a measure a newer build admits must cost an older one the
+   * total rather than the parse of the whole view set. Null means `count`, which is what a chart
+   * with nothing configured draws and the only measure that always has an answer.
+   */
+  measure: z.string().nullable().default(null),
+  measureProperty: z.string().nullable().default(null),
+
   companionViewId: z.string().nullable().default(null),
   companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
   interactiveForm: InteractiveFormSchema.nullable().default(null),
@@ -226,8 +237,16 @@ export const ViewSchema = z.object({
 type ParsedView = z.infer<typeof ViewSchema>;
 
 /** New layout/form fields are optional in drafts; parsed server views always receive null defaults. */
-export type View = Omit<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'> &
-  Partial<Pick<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'>>;
+export type View = Omit<
+  ParsedView,
+  'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+> &
+  Partial<
+    Pick<
+      ParsedView,
+      'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+    >
+  >;
 
 /** One condition of a query view. */
 export type ViewFilterRule = View['filters'][number];

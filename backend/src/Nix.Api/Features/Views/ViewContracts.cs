@@ -40,6 +40,13 @@ namespace Nix.Features.Views;
 /// before its start is stored as it is and reported by the view; two independent property writes
 /// cannot both be valid at every instant.
 /// </param>
+/// <param name="Measure">
+/// For a chart: what each bar measures - <c>count</c> or <c>sum</c>. Null means <c>count</c>, which
+/// is what a chart with nothing configured draws.
+/// </param>
+/// <param name="MeasureProperty">
+/// For a chart totalling a property: which numeric property is totalled per bucket.
+/// </param>
 /// <param name="CardSize">
 /// Gallery views: how large each card is drawn - <c>small</c>, <c>medium</c> or <c>large</c>. Null
 /// means <c>medium</c>, which is what every gallery stored before this field existed has always
@@ -73,7 +80,9 @@ internal sealed record ViewResponse(
     IReadOnlyList<FilterRuleContract> Filters,
     string? CompanionViewId,
     string? CompanionPlacement,
-    InteractiveFormContract? InteractiveForm);
+    InteractiveFormContract? InteractiveForm,
+    string? Measure,
+    string? MeasureProperty);
 
 /// <summary>One condition of a query view.</summary>
 /// <param name="Property">The property key the condition tests, matched across containers.</param>
@@ -201,4 +210,6 @@ internal sealed record ViewRequest(
     IReadOnlyList<FilterRuleContract>? Filters,
     string? CompanionViewId,
     string? CompanionPlacement,
-    InteractiveFormContract? InteractiveForm);
+    InteractiveFormContract? InteractiveForm,
+    string? Measure = null,
+    string? MeasureProperty = null);

@@ -378,7 +378,7 @@ export interface paths {
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query' or 'interactive_form'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property and a timeline needs a date to start from), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -648,6 +648,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/chart': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Draw one of an item's chart views
+     * @description Summarises every active child of the item into buckets, the way the named chart view says to: grouped by the view's grouping property, counted, or totalled by the view's measured property. The client names the view and never sends the grouping - the stored view is the whole configuration, edited through PUT /items/{itemId}/views like any other view. Children with no value for the grouping property are their own bucket rather than being dropped, because unset is a real and often large group and hiding it would misreport every proportion drawn beside it. Computed over every child rather than over a page, which is what a chart tallied in the browser could not honestly claim. At most 100 buckets are returned, largest first; 'truncated', 'distinctValues' and 'children' say what did not fit, so a bounded chart can say so rather than drawing its top few as though they were all of them.
+     */
+    get: operations['RunItemChart'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/bookmarks': {
     parameters: {
       query?: never;
@@ -909,6 +929,27 @@ export interface components {
     };
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
+    };
+    ChartBucketResponse: {
+      value: null | string;
+      /** Format: int64 */
+      children: number | string;
+      /** Format: double */
+      total: null | number | string;
+    };
+    ChartResponse: {
+      /** Format: uuid */
+      itemId: string;
+      viewId: string;
+      groupBy: string;
+      measure: string;
+      measureProperty: null | string;
+      buckets: components['schemas']['ChartBucketResponse'][];
+      /** Format: int64 */
+      children: number | string;
+      /** Format: int64 */
+      distinctValues: number | string;
+      truncated: boolean;
     };
     CompleteOccurrenceRequest: {
       occurredOn: string;
@@ -1491,6 +1532,8 @@ export interface components {
       companionViewId: null | string;
       companionPlacement: null | string;
       interactiveForm: null | components['schemas']['InteractiveFormContract'];
+      measure?: null | string;
+      measureProperty?: null | string;
     };
     ViewResponse: {
       id: string;
@@ -1510,6 +1553,8 @@ export interface components {
       companionViewId: null | string;
       companionPlacement: null | string;
       interactiveForm: null | components['schemas']['InteractiveFormContract'];
+      measure: null | string;
+      measureProperty: null | string;
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -3165,6 +3210,30 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['QueryResultsResponse'];
+        };
+      };
+    };
+  };
+  RunItemChart: {
+    parameters: {
+      query?: {
+        view?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ChartResponse'];
         };
       };
     };
