@@ -63,6 +63,12 @@ interface Control {
 export interface ToolbarProps {
   readonly editor: Editor;
 
+  /** Opens the editor-owned image form without making this toolbar own modal state. */
+  readonly onInsertImage: () => void;
+
+  /** Opens the editor-owned link form for the current selection. */
+  readonly onInsertLink: () => void;
+
   /**
    * The document's own history.
    *
@@ -74,7 +80,13 @@ export interface ToolbarProps {
   readonly onRedo: () => void;
 }
 
-export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNode {
+export function EditorToolbar({
+  editor,
+  onInsertImage,
+  onInsertLink,
+  onUndo,
+  onRedo,
+}: ToolbarProps): ReactNode {
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
   // and React's strict mode does that on every mount in development. `destroy()` sets the
@@ -215,13 +227,7 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
           return;
         }
 
-        // A prompt rather than a popover, for now. It is the honest placeholder: a link needs a
-        // destination typed somewhere, and a half-built inline editor that loses what you typed is
-        // worse than the browser's own box.
-        const href = globalThis.prompt('Link to');
-        if (href !== null && href.trim().length > 0) {
-          editor.chain().focus().setLink({ href: href.trim() }).run();
-        }
+        onInsertLink();
       },
     },
   ];
@@ -237,12 +243,7 @@ export function EditorToolbar({ editor, onUndo, onRedo }: ToolbarProps): ReactNo
       id: 'image',
       label: 'Image',
       icon: ImageIcon,
-      run: () => {
-        const src = globalThis.prompt('Image address');
-        if (src !== null && src.trim().length > 0) {
-          editor.chain().focus().setImage({ src: src.trim() }).run();
-        }
-      },
+      run: onInsertImage,
     },
     {
       id: 'table',

@@ -78,15 +78,27 @@ function editorStub(
 
 function renderToolbar(options: Parameters<typeof editorStub>[0] = {}): {
   ran: string[];
+  onInsertImage: ReturnType<typeof vi.fn>;
+  onInsertLink: ReturnType<typeof vi.fn>;
   onUndo: ReturnType<typeof vi.fn>;
   onRedo: ReturnType<typeof vi.fn>;
 } {
   const { editor, ran } = editorStub(options);
+  const onInsertImage = vi.fn();
+  const onInsertLink = vi.fn();
   const onUndo = vi.fn();
   const onRedo = vi.fn();
 
-  render(<EditorToolbar editor={editor} onUndo={onUndo} onRedo={onRedo} />);
-  return { ran, onUndo, onRedo };
+  render(
+    <EditorToolbar
+      editor={editor}
+      onInsertImage={onInsertImage}
+      onInsertLink={onInsertLink}
+      onUndo={onUndo}
+      onRedo={onRedo}
+    />,
+  );
+  return { ran, onInsertImage, onInsertLink, onUndo, onRedo };
 }
 
 describe('what the toolbar offers', () => {
@@ -157,6 +169,30 @@ describe('running a command', () => {
     // A table whose first row is not a header is a grid, and the schema carries tableHeader for
     // exactly this reason.
     expect(ran[0]).toContain('withHeaderRow":true');
+  });
+
+  it('opens the image form instead of asking the browser for an address', async () => {
+    const user = userEvent.setup();
+    const { onInsertImage, ran } = renderToolbar();
+
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+
+    expect(onInsertImage).toHaveBeenCalledOnce();
+    expect(ran).toEqual([]);
+  });
+
+  it('opens the link form for a selection and removes an existing link directly', async () => {
+    const user = userEvent.setup();
+    const first = renderToolbar();
+
+    await user.click(screen.getByRole('button', { name: 'Add link' }));
+    expect(first.onInsertLink).toHaveBeenCalledOnce();
+    expect(first.ran).toEqual([]);
+
+    const existing = renderToolbar({ active: ['link'] });
+    await user.click(screen.getByRole('button', { name: 'Remove link' }));
+    expect(existing.onInsertLink).not.toHaveBeenCalled();
+    expect(existing.ran).toEqual(['unsetLink']);
   });
 
   it('sends undo to the document history rather than the editor', async () => {
@@ -239,7 +275,13 @@ describe('an editor that has been torn down', () => {
 
     expect(() => {
       render(
-        <EditorToolbar editor={destroyed} onUndo={() => undefined} onRedo={() => undefined} />,
+        <EditorToolbar
+          editor={destroyed}
+          onInsertImage={() => undefined}
+          onInsertLink={() => undefined}
+          onUndo={() => undefined}
+          onRedo={() => undefined}
+        />,
       );
     }).not.toThrow();
 

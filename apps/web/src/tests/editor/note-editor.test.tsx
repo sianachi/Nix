@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -26,6 +26,10 @@ vi.mock('../../editor/collab-sync', async () => {
     },
   };
 });
+
+// BubbleMenu has its own real-editor suite. Its only extra work here would be measuring a text
+// selection through `coordsAtPos`, a browser-layout API jsdom cannot implement.
+vi.mock('../../editor/bubble-menu', () => ({ BubbleMenu: () => null }));
 
 vi.mock('../../auth/auth-provider', () => ({
   useAuth: () => ({ getAccessToken: () => Promise.resolve('token') }),
@@ -121,6 +125,143 @@ describe('a note nobody has typed into yet', () => {
     await waitFor(() => {
       expect(updates).toBeGreaterThan(0);
     });
+  });
+
+  it('inserts an accessible image through the shared form', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+
+    // Give the image a real insertion point. The collaboration fragment starts empty in this
+    // harness until the first local transaction; production notes open with a schema-valid block.
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/roadmap.png',
+    );
+    await user.type(
+      screen.getByRole('textbox', { name: 'Description' }),
+      'Product roadmap drawn as a timeline',
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    await waitFor(() => {
+      const body = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(body).toContain('https://images.example.test/roadmap.png');
+      expect(body).toContain('Product roadmap drawn as a timeline');
+      expect(body.match(/https:\/\/images\.example\.test\/roadmap\.png/g)).toHaveLength(1);
+      expect(body).toContain('paragraph');
+    });
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Note body')).toHaveFocus();
+    });
+  });
+
+  it('commits a submitted image before the deferred focus frame can be interrupted', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    );
+    const doc = await open();
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/committed-before-focus.png',
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    // The frame is deliberately never run. A tab change can unmount the editor at this exact
+    // point, so a command queued beside focus would lose an already accepted submission.
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain(
+      'https://images.example.test/committed-before-focus.png',
+    );
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+  });
+
+  it('leaves the document untouched and restores the image button when insertion is cancelled', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const imageButton = screen.getByRole('button', { name: 'Image' });
+    const before = JSON.stringify(doc.getXmlFragment('default').toJSON());
+
+    await user.click(imageButton);
+    await user.type(
+      screen.getByRole('textbox', { name: 'Image address' }),
+      'https://images.example.test/unused.png',
+    );
+    await user.click(screen.getByRole('button', { name: /^Cancel$/ }));
+
+    expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toBe(before);
+    expect(imageButton).toHaveFocus();
+  });
+
+  it('keeps a selected link anchored while a peer edits and writes the mark to the shared document', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const body = screen.getByLabelText('Note body');
+
+    doc.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Roadmap')]);
+      doc.getXmlFragment('default').push([paragraph]);
+    });
+    await waitFor(() => {
+      expect(body).toHaveTextContent('Roadmap');
+    });
+    body.focus();
+    const text = body.querySelector('p')?.firstChild;
+    if (text === null || text === undefined) {
+      throw new Error('The shared paragraph did not render a text node.');
+    }
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 'Roadmap'.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    await user.click(screen.getByRole('button', { name: 'Add link' }));
+
+    // The modal preserves an editor selection while collaboration continues behind it. A peer
+    // appending a block exercises the Yjs mapping boundary before the delayed command consumes
+    // that selection; the link must stay on the local text rather than disappear or move.
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const beforePeerEdit = Y.encodeStateVector(doc);
+    peer.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText('Peer note')]);
+      peer.getXmlFragment('default').push([paragraph]);
+    });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, beforePeerEdit));
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Link address' }),
+      'https://example.test/roadmap',
+    );
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Add link' })).getByRole('button', {
+        name: 'Add link',
+      }),
+    );
+
+    await waitFor(() => {
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain('Roadmap');
+      expect(shared).toContain('Peer note');
+      expect(shared).toContain('https://example.test/roadmap');
+      expect(shared.match(/https:\/\/example\.test\/roadmap/g)).toHaveLength(1);
+    });
+    expect(screen.queryByRole('dialog', { name: 'Add link' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(body).toHaveFocus();
+    });
+    peer.destroy();
   });
 });
 
