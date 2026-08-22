@@ -107,7 +107,7 @@ export function AppShell(): ReactNode {
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
-  const { selectedId, select } = useSelectedItem();
+  const { selectedId } = useSelectedItem();
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
@@ -597,7 +597,7 @@ export function AppShell(): ReactNode {
             // "Untitled". The sidebar's own create has handled both since U8; this now does too.
             void tree.create(null, 'Untitled note').then((outcome) => {
               if (outcome.id !== null) {
-                select(outcome.id);
+                openPreview(outcome.id);
                 return;
               }
 
@@ -616,7 +616,7 @@ export function AppShell(): ReactNode {
                 },
           openItemIsKept: selectedIsKept,
         })}
-        onSelectItem={select}
+        onSelectItem={openPreview}
         onClose={() => {
           setSearchOpen(false);
         }}
