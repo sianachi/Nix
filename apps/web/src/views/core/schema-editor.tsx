@@ -5,7 +5,13 @@ import { useState, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from './container-model';
 import { EditorShell } from './editor-shell';
-import { PROPERTY_TYPES, isComputedType, propertyTypeLabel } from './property-types';
+import {
+  PROPERTY_TYPES,
+  ROLLUP_AGGREGATES,
+  foldNeedsProperty,
+  isComputedType,
+  propertyTypeLabel,
+} from './property-types';
 import type { ContainerData } from './use-container';
 
 /**
@@ -172,6 +178,19 @@ export function SchemaEditor({
   // keystroke, and building them per row made the work quadratic in the number of properties.
   const available = referenceable(draft, inheritedOnly);
 
+  /**
+   * What a rollup may fold.
+   *
+   * The properties declared here, because a rollup folds the *children's* values and the children
+   * carry exactly this schema - which is what this dialog's own title says it is for. A computed
+   * property is left out: folding a formula would mean evaluating one per child, which is a
+   * dependency walk over rows the server does not hold, and folding a rollup would mean folding a
+   * fold. ADR-0044 records why that stays out of scope.
+   */
+  const foldable = draft
+    .filter((property) => property.key.length > 0 && !isComputedType(property.type))
+    .map((property) => property.key);
+
   function update(index: number, change: Partial<PropertyDefinition>): void {
     setDraft((current) =>
       current.map((property, position) =>
@@ -260,6 +279,16 @@ export function SchemaEditor({
                         // been out of sight in between.
                         expression: type === 'formula' ? (property.expression ?? '') : null,
 
+                        // The fold is the rollup's own, by the same argument: left behind on a
+                        // property retyped away, it would start folding again the moment somebody
+                        // retyped it back. A rollup arriving with no fold defaults to counting the
+                        // children, which is the one fold that needs nothing else chosen.
+                        aggregate: type === 'rollup' ? (property.aggregate ?? 'count') : null,
+                        source:
+                          type === 'rollup' && foldNeedsProperty(property.aggregate ?? 'count')
+                            ? (property.source ?? null)
+                            : null,
+
                         // A computed property has no value to require. Left set, the save would be
                         // refused for a box the person ticked before they chose the type.
                         required: isComputedType(type) ? false : property.required,
@@ -307,6 +336,16 @@ export function SchemaEditor({
                   />
                 )}
               </Field>
+            ) : null}
+
+            {property.type === 'rollup' ? (
+              <RollupFields
+                property={property}
+                foldable={foldable.filter((key) => key !== property.key)}
+                onChange={(change) => {
+                  update(index, change);
+                }}
+              />
             ) : null}
 
             {property.type === 'formula' ? (
@@ -418,5 +457,96 @@ function FormulaField({
         />
       )}
     </Field>
+  );
+}
+
+/**
+ * A rollup's two choices: how the children are folded, and which of their properties.
+ *
+ * **The property list is the schema being edited, because that is what the children carry.** A
+ * rollup declared here folds the values of the items inside this one, and those items carry exactly
+ * the properties this dialog declares - which is what its own title says. Computed properties are
+ * left out: folding a formula would be a dependency walk over rows the server does not hold, and
+ * folding a rollup would be folding a fold.
+ *
+ * **A count is offered alone**, because it is the one fold that answers a question about the
+ * container rather than about a property of its contents - "how many things are in here". Choosing
+ * it hides the property picker rather than disabling it, for the reason the Required checkbox is
+ * hidden on a computed property: a control that cannot mean anything is a question with no answer.
+ */
+function RollupFields({
+  property,
+  foldable,
+  onChange,
+}: {
+  readonly property: PropertyDefinition;
+  readonly foldable: readonly string[];
+  readonly onChange: (change: Partial<PropertyDefinition>) => void;
+}): ReactNode {
+  const aggregate = property.aggregate ?? 'count';
+  const needsProperty = foldNeedsProperty(aggregate);
+  const source = property.source ?? '';
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Field label={`How ${property.label || 'this field'} folds the children`}>
+        {(control) => (
+          <Select
+            {...control}
+            value={aggregate}
+            onChange={(event) => {
+              const next = event.target.value;
+              onChange({
+                aggregate: next,
+                // A count of the children needs no property, and one left behind would be stored
+                // against a fold that ignores it - then read back the day somebody changed the
+                // fold, having been out of sight in between.
+                source: foldNeedsProperty(next) ? (property.source ?? null) : null,
+              });
+            }}
+          >
+            {ROLLUP_AGGREGATES.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+
+      {needsProperty ? (
+        <Field
+          label={`Which property ${property.label || 'this field'} folds`}
+          hint="A property of the items inside this one."
+          error={
+            source.length === 0
+              ? 'Choose a property to fold. Only "How many" can be taken of the children themselves.'
+              : null
+          }
+        >
+          {(control) => (
+            <Select
+              {...control}
+              value={source}
+              onChange={(event) => {
+                onChange({ source: event.target.value.length === 0 ? null : event.target.value });
+              }}
+            >
+              <option value="">Choose a property</option>
+              {/* The stored key too, if the schema has moved on since the rollup was written -
+                  dropping it would report the rollup as folding something else. */}
+              {(source.length > 0 && !foldable.includes(source)
+                ? [source, ...foldable]
+                : foldable
+              ).map((key) => (
+                <option key={key} value={key}>
+                  {key}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      ) : null}
+    </div>
   );
 }

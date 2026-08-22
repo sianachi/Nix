@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -153,6 +154,11 @@ public static class NixPersistenceServiceCollectionExtensions
         // twenty items under one parent resolves one schema rather than twenty.
         services.AddScoped<ISchemaResolver, SchemaResolver>();
 
+        // Scoped like the stores, and stateless: it holds no answers between calls because a fold
+        // is over rows this same unit of work may be changing - the argument SchemaResolver makes
+        // for not memoising, arriving at the same conclusion from the other direction.
+        services.AddScoped<IChildAggregates, ChildAggregateReader>();
+
         // The one authorization code path. Scoped like the stores, and for a stronger reason: it
         // memoises answers for the lifetime of the unit of work, and a unit of work is one request
         // acting as one principal in one tenant.
@@ -215,6 +221,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetEffectiveSchema, Result<EffectiveSchema>>, GetEffectiveSchemaHandler>();
         services.AddScoped<ICommandHandler<SetItemSchema, PropertySchema>, SetItemSchemaHandler>();
         services.AddScoped<ICommandHandler<SetItemProperties, Item>, SetItemPropertiesHandler>();
+        services.AddScoped<IQueryHandler<ItemRollups, IReadOnlyDictionary<ItemId, JsonObject>>, ItemRollupsHandler>();
 
         services.AddScoped<IQueryHandler<GetContainerViews, Result<ContainerViewSet>>, GetContainerViewsHandler>();
         services.AddScoped<ICommandHandler<SetContainerViews, ImmutableArray<ViewDefinition>>, SetContainerViewsHandler>();

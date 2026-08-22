@@ -1048,6 +1048,7 @@ export interface components {
       seq: number | string;
       lifecycleState: string;
       properties: components['schemas']['JsonObject'];
+      computed: null | components['schemas']['JsonObject'];
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
@@ -1107,6 +1108,8 @@ export interface components {
       options: null | string[];
       required: boolean;
       expression?: null | string;
+      aggregate?: null | string;
+      source?: null | string;
     };
     PropertyDefinitionResponse: {
       key: string;
@@ -1115,6 +1118,8 @@ export interface components {
       options: string[];
       required: boolean;
       expression: null | string;
+      aggregate: null | string;
+      source: null | string;
     };
     PublicFormBlockResponse: {
       id: string;

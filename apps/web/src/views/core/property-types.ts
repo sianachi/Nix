@@ -43,6 +43,9 @@ export const PROPERTY_TYPES = [
   // Goal 2.1. The only type whose declaration carries an expression and whose values are never
   // stored: it is computed wherever it is read, from the item's other properties.
   { value: 'formula', label: 'Formula' },
+  // Goal 2.2, and the other half of the computed pair: folded across the item's children by the
+  // server, because an aggregate belongs where the rows are (ADR-0044).
+  { value: 'rollup', label: 'Rollup (across children)' },
 ] as const;
 
 /**
@@ -98,9 +101,12 @@ export function isDateShaped(type: string): boolean {
  * The server's counterpart is `PropertyTypes.IsComputed` (PropertyType.cs), and the two must widen
  * together: a type this build thinks is writable but Core refuses would leave somebody typing into
  * a control whose every commit is rejected.
+ *
+ * *Where* a computed value comes from differs between the two - a formula is evaluated here and a
+ * rollup arrives folded from the server - but nothing that asks this question cares which.
  */
 export function isComputedType(type: string): boolean {
-  return type === 'formula';
+  return type === 'formula' || type === 'rollup';
 }
 
 /**
@@ -123,4 +129,38 @@ export function propertyTypeLabel(type: string): string {
 export function propertyTypeWord(type: string): string {
   const label = propertyTypeLabel(type);
   return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/**
+ * The folds a rollup may take, and what each is called.
+ *
+ * The vocabulary is the server's (`RollupAggregate`), which is where it is declared and policed;
+ * these are the words a person chooses from. `count` is the one fold that needs no property, which
+ * is what {@link foldNeedsProperty} answers.
+ */
+export const ROLLUP_AGGREGATES = [
+  { value: 'count', label: 'How many' },
+  { value: 'sum', label: 'Total' },
+  { value: 'average', label: 'Average' },
+  { value: 'min', label: 'Smallest' },
+  { value: 'max', label: 'Largest' },
+  { value: 'any', label: 'Any of them' },
+  { value: 'all', label: 'All of them' },
+] as const;
+
+/** What to call a fold. Falls back to the stored name, for the reason `propertyTypeLabel` does. */
+export function rollupAggregateLabel(aggregate: string): string {
+  return ROLLUP_AGGREGATES.find((entry) => entry.value === aggregate)?.label ?? aggregate;
+}
+
+/**
+ * Whether a fold needs a property of the children to fold.
+ *
+ * Only a count does not: "how many things are in here" is a question about the container rather
+ * than about any property of its contents. The server's counterpart is
+ * `RollupAggregates.CountsChildren`, and the two must agree - a fold this build offers without a
+ * property that Core requires one for would be a schema refused after it was composed.
+ */
+export function foldNeedsProperty(aggregate: string): boolean {
+  return aggregate !== 'count';
 }
