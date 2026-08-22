@@ -3,15 +3,15 @@ import type { ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
+import { EditorPreferencesSection } from '../settings/editor-preferences-section';
 import { MembersSection } from '../settings/members-section';
 
 /**
- * The settings destination: the workspace's members, and the caller's personal access tokens.
+ * The settings destination: personal editor preferences, workspace members, and access tokens.
  *
- * One screen on purpose. A token is issued per principal but it acts inside this workspace's
- * permission model, so issuing, auditing and revoking credentials happens on the same screen that
- * shows who holds a role - the person deciding whether a token is safe to mint is looking at who
- * else can reach what it can touch.
+ * One screen on purpose. Personal note-body behavior leads; workspace administration follows. A
+ * token is issued per principal but acts inside this workspace's permission model, so issuing,
+ * auditing and revoking credentials stays beside the list of people who hold roles.
  *
  * Each section owns its own load and its own honest states, because the two reads fail
  * independently: a members endpoint that refuses says nothing about whether the token list is
@@ -27,6 +27,7 @@ export function SettingsPage(): ReactElement {
         Settings
       </Text>
 
+      <EditorPreferencesSection />
       <MembersSection />
       <AccessTokensSection />
     </div>
