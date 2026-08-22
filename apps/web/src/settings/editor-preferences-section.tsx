@@ -5,6 +5,7 @@ import { KeyboardModeSchema, useKeyboardModeStore } from '../editor/keyboard-mod
 
 const modeGuidance = {
   standard: 'Uses the editor and platform shortcuts shown throughout Nix.',
+  vim: 'Normal and Insert modes. h/l move by character; w/b/e move by language word within the current text block; 0/$ move within that block; gg/G move across the document; i/a/I/A enter Insert; Escape returns to Normal. Visual mode, j/k, operators, counts, registers, search, macros, and : commands are not included.',
   emacs:
     'Ctrl+A and Ctrl+E move to the start or end of the current text block. Ctrl+/ and Ctrl+_ undo your last local edit. Prefixes, search, visual-line movement, and kill/yank are not included.',
 } as const;
@@ -43,7 +44,7 @@ export function EditorPreferencesSection(): ReactElement {
         {persistence === 'session-only'
           ? mode === 'standard'
             ? 'Browser storage is unavailable. Standard remains the default; another choice may reset when this page reloads.'
-            : 'Browser storage is unavailable. Emacs basics may reset when this page reloads.'
+            : `Browser storage is unavailable. ${mode === 'vim' ? 'Vim basics' : 'Emacs basics'} may reset when this page reloads.`
           : ''}
       </Text>
 
@@ -51,6 +52,7 @@ export function EditorPreferencesSection(): ReactElement {
         {(control) => (
           <Select {...control} value={mode} onChange={onModeChange}>
             <option value="standard">Standard</option>
+            <option value="vim">Vim basics</option>
             <option value="emacs">Emacs basics</option>
           </Select>
         )}

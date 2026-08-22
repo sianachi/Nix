@@ -3,7 +3,7 @@ import { create } from 'zustand';
 
 import { browserStorage } from '../lib/browser-storage';
 
-export const KeyboardModeSchema = z.enum(['standard', 'emacs']);
+export const KeyboardModeSchema = z.enum(['standard', 'vim', 'emacs']);
 export type KeyboardMode = z.infer<typeof KeyboardModeSchema>;
 
 export const DEFAULT_KEYBOARD_MODE: KeyboardMode = 'standard';
