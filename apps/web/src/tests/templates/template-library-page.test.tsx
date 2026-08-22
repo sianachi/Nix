@@ -94,6 +94,12 @@ describe('the workspace template library', () => {
     expect(views?.views?.[0]).toMatchObject({ name: 'Delivery board', kind: 'board' });
   });
 
+  // 30s rather than the file-wide 15s, and the number is measured rather than guessed: this case
+  // drives eight recipes through the staged editor and takes 4.3s alone, consistently. The suite
+  // runs its files in parallel, and the load factor on this machine is about 3.5x - which left it
+  // inside the ceiling at 1,532 tests and outside it at 1,584, so goal 2.1-2.3's own tests are what
+  // tipped it. Raising this one test's ceiling rather than the file's keeps every other case here
+  // held to the tighter bound; the standing note about Vitest timeouts under load is in CLAUDE.md.
   it('adds and configures every structured view type in the staged editor', async () => {
     const user = userEvent.setup();
     const writes = stubCoreApi({ templates: [USER_TEMPLATE] });
@@ -177,7 +183,7 @@ describe('the workspace template library', () => {
         expect.objectContaining({ key: 'response', type: 'text' }),
       ]),
     );
-  });
+  }, 30_000);
 
   it('opens the staged document editor for body content included in a template', async () => {
     const user = userEvent.setup();
