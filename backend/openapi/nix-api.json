@@ -3596,6 +3596,7 @@
           "seq",
           "lifecycleState",
           "properties",
+          "computed",
           "createdAt",
           "updatedAt"
         ],
@@ -3638,6 +3639,16 @@
           },
           "properties": {
             "$ref": "#/components/schemas/JsonObject"
+          },
+          "computed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
           },
           "createdAt": {
             "type": "string",
@@ -3857,6 +3868,18 @@
               "null",
               "string"
             ]
+          },
+          "aggregate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3867,7 +3890,9 @@
           "type",
           "options",
           "required",
-          "expression"
+          "expression",
+          "aggregate",
+          "source"
         ],
         "type": "object",
         "properties": {
@@ -3890,6 +3915,18 @@
             "type": "boolean"
           },
           "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aggregate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "source": {
             "type": [
               "null",
               "string"

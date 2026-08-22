@@ -673,3 +673,62 @@ describe('a formula property', () => {
     expect(screen.queryByText(/divides by zero/)).not.toBeInTheDocument();
   });
 });
+
+describe('a rollup property', () => {
+  it('shows the folded value as a result rather than as a box to type in', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ tasks: 12 })}
+        property={propertyOf({
+          key: 'tasks',
+          label: 'Tasks',
+          type: 'rollup',
+          aggregate: 'count',
+          source: null,
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Tasks' })).toHaveTextContent('12');
+    expect(screen.queryByRole('textbox', { name: 'Tasks' })).not.toBeInTheDocument();
+  });
+
+  it('says the value is about the items inside this one, not about this one', () => {
+    // A formula is about this item and a rollup is about its children. Somebody reading a number
+    // they cannot edit needs to know which.
+    render(
+      <PropertyInput
+        item={itemWith({ hours: 40 })}
+        property={propertyOf({
+          key: 'hours',
+          label: 'Hours',
+          type: 'rollup',
+          aggregate: 'sum',
+          source: 'estimate',
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Total of "estimate" across the items inside this one/)).toBeVisible();
+  });
+
+  it('names a count of the children without naming a property', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ tasks: 3 })}
+        property={propertyOf({
+          key: 'tasks',
+          label: 'Tasks',
+          type: 'rollup',
+          aggregate: 'count',
+          source: null,
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/How many of the items inside this one/)).toBeVisible();
+  });
+});

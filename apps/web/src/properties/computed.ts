@@ -28,6 +28,12 @@ import type {
  * storage. The merge is a read-side decoration and the item in state stays exactly as the server
  * sent it.
  *
+ * **A rollup arrives folded; a formula is evaluated here.** The two computed types are computed in
+ * different places, because a rollup is an aggregate over rows this build does not hold and a
+ * formula is an expression over values it does - ADR-0044 records the split. The rollups the server
+ * sent are merged first, so a formula may read one as an ordinary field and "percent complete" is a
+ * formula over a rollup rather than a third mechanism.
+ *
  * **The engine is `@nix/sheet` and there is only one of it.** The same tokenizer, parser, operators,
  * coercions and functions run here as run in a spreadsheet body, which is why a formula reads the
  * same way in both places. This module's whole job is the two conversions the engine cannot make
@@ -143,16 +149,28 @@ export function planFor(properties: readonly PropertyDefinition[] | undefined): 
   return { plan: planPropertyFormulas(formulas), declared, empty: false };
 }
 
-/** One item's computed values, keyed by property key. */
+/**
+ * One item's computed values, keyed by property key: the folds the server sent, plus the formulas
+ * evaluated over them.
+ */
 export function computedValues(
   item: PropertyOwner,
   prepared: ComputedPlan,
 ): Readonly<Record<string, PropertyValue>> {
+  const folded = item.computed ?? null;
+
   if (prepared.empty) {
-    return EMPTY;
+    return folded === null ? EMPTY : (folded as Record<string, PropertyValue>);
   }
 
   const { values } = evaluateFormulaPlan(prepared.plan, (key) => {
+    // A rollup first: it is a value this item has, and a formula reading one should see the number
+    // rather than the empty slot the stored bag has where a rollup would be.
+    const rolled = folded?.[key];
+    if (rolled !== undefined) {
+      return toCellValue(rolled);
+    }
+
     const stored = item.properties[key];
     if (stored !== undefined) {
       return toCellValue(stored);
@@ -161,7 +179,7 @@ export function computedValues(
     return prepared.declared.has(key) ? null : undefined;
   });
 
-  const computed: Record<string, PropertyValue> = {};
+  const computed: Record<string, PropertyValue> = { ...(folded as Record<string, PropertyValue>) };
   for (const [key, value] of values) {
     computed[key] = toPropertyValue(value);
   }
@@ -185,7 +203,10 @@ export function decorateItems<TItem extends PropertyOwner>(
   properties: readonly PropertyDefinition[] | undefined,
 ): readonly TItem[] {
   const prepared = planFor(properties);
-  if (prepared.empty) {
+
+  // Nothing to evaluate *and* nothing folded: the array comes back as it was, identity included.
+  // A page carrying folds still has to be merged even with no formulas in the schema.
+  if (prepared.empty && !items.some((item) => item.computed != null)) {
     return items;
   }
 
@@ -207,7 +228,7 @@ export function decorateItem<TItem extends PropertyOwner>(
   properties: readonly PropertyDefinition[] | undefined,
 ): TItem {
   const prepared = planFor(properties);
-  if (prepared.empty) {
+  if (prepared.empty && item.computed == null) {
     return item;
   }
 
@@ -226,3 +247,22 @@ const NOTHING_TO_COMPUTE: ComputedPlan = {
 
 /** Frozen so a caller cannot make the no-formulas case a shared mutable bag. */
 const EMPTY: Readonly<Record<string, PropertyValue>> = Object.freeze({});
+
+/**
+ * The item as it now stands, keeping the folds the read that produced it did not compute.
+ *
+ * **Null means "this response did not fold children", not "there are none."** A write answers with
+ * the item, not with a fresh fold of its children, so a rename, a move, a restore or a property
+ * edit all come back carrying null - and replacing the row in state with that response would blank
+ * every rollup column on it until the next full load. The contract keeps null and `{}` apart for
+ * exactly this reason; this is the half of it the client owes.
+ *
+ * The values are the ones folded when the item was last read, which may now be one edit stale. That
+ * is the honest trade against blanking them: a rollup is a summary of other rows, and the write
+ * that just happened may or may not have changed them.
+ */
+export function keepComputed<TItem extends PropertyOwner>(previous: TItem | undefined, next: TItem): TItem {
+  return next.computed == null && previous?.computed != null
+    ? { ...next, computed: previous.computed }
+    : next;
+}

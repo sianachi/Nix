@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
@@ -5,6 +6,7 @@ using Nix.Contracts;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
+using Nix.Features.Properties;
 using Nix.Messaging;
 
 namespace Nix.Features.Items;
@@ -158,9 +160,26 @@ internal static class ListItemsEndpoint
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
+        // The same shape again, and the same reason: one fold for the whole page, not one per row.
+        // The declarations come from the container being listed, whose own schema is exactly what
+        // its children carry; the workspace roots have no container and so no rollups.
+        var rollups = await dispatcher
+            .QueryAsync<ItemRollups, IReadOnlyDictionary<ItemId, JsonObject>>(
+                new ItemRollups(
+                    WorkspaceId.From(workspaceId),
+                    [.. page.Select(item => item.Id)],
+                    parentId is { } container ? ItemId.From(container) : null),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
         return TypedResults.Ok(
             new CursorPage<ItemResponse>(
-                [.. page.Select(item => ItemMapping.ToResponse(item, withChildren.Contains(item.Id)))],
+                [
+                    .. page.Select(item => ItemMapping.ToResponse(
+                        item,
+                        withChildren.Contains(item.Id),
+                        rollups.TryGetValue(item.Id, out var computed) ? computed : new JsonObject())),
+                ],
                 ItemCursor.NextFrom(page, limit)));
     }
 }

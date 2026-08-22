@@ -20,8 +20,15 @@ function formula(key: string, expression: string): PropertyDefinition {
   return property({ key, label: key, type: 'formula', expression });
 }
 
-function owner(properties: Record<string, unknown>): PropertyOwner {
-  return { title: 'An item', properties };
+function owner(
+  properties: Record<string, unknown>,
+  computed: Record<string, unknown> | null = null,
+): PropertyOwner {
+  return { title: 'An item', properties, computed };
+}
+
+function rollup(key: string, aggregate: string, source: string | null): PropertyDefinition {
+  return property({ key, label: key, type: 'rollup', aggregate, source });
 }
 
 describe('computing a property from an item', () => {
@@ -138,5 +145,50 @@ describe('reading a stored property as the engine sees it', () => {
 
   it('reports a value with no scalar reading as the wrong kind rather than stringifying it', () => {
     expect(toCellValue({ nested: true })).toEqual({ error: '#VALUE!' });
+  });
+});
+
+describe('the rollups the server folded', () => {
+  it('reach the property bag every view already reads', () => {
+    const [item] = decorateItems([owner({}, { tasks: 4 })], [rollup('tasks', 'count', null)]);
+
+    expect(item?.properties.tasks).toBe(4);
+  });
+
+  it('are readable by a formula, so a percentage is a formula over a rollup', () => {
+    // The composition ADR-0044 is built for: the fold arrives from the server and the expression
+    // is evaluated here, and neither has to know about the other.
+    const [item] = decorateItems(
+      [owner({}, { done: 3, tasks: 4 })],
+      [
+        rollup('done', 'count', 'completion'),
+        rollup('tasks', 'count', null),
+        formula('progress', 'ROUND([done] / [tasks] * 100, 0)'),
+      ],
+    );
+
+    expect(item?.properties.progress).toBe(75);
+  });
+
+  it('are merged even when the schema declares no formula at all', () => {
+    const [item] = decorateItems([owner({}, { tasks: 4 })], [property({ key: 'a', type: 'number' })]);
+
+    expect(item?.properties.tasks).toBe(4);
+  });
+
+  it('leave the array identical when a page carries none', () => {
+    // A page that folded nothing must not invalidate every downstream memo for the sake of a
+    // merge with nothing to merge.
+    const items = [owner({ a: 1 })];
+
+    expect(decorateItems(items, [property({ key: 'a', type: 'number' })])).toBe(items);
+  });
+
+  it('are not invented for an item that arrived without them', () => {
+    // Null means "this read did not fold children", which a write response never does. Drawing a
+    // zero there would report an empty container after every edit.
+    const [item] = decorateItems([owner({}, null)], [rollup('tasks', 'count', null)]);
+
+    expect(item?.properties.tasks).toBeUndefined();
   });
 });

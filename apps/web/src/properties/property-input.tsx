@@ -12,6 +12,7 @@ import { PROPERTY_FORMULA_HELP, SHEET_ERROR_CODES, type SheetErrorCode } from '@
 import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
 import { useWorkspaceMembers } from '../settings/use-workspace-members';
+import { rollupAggregateLabel } from '../views/core/property-types';
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 
 import { ImageValue } from './image-value';
@@ -98,6 +99,7 @@ const KNOWN_TYPES = [
   'estimate',
   'assignee',
   'formula',
+  'rollup',
 ] as const;
 
 export function isKnownPropertyType(type: string): boolean {
@@ -180,10 +182,12 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
     case 'assignee':
       return <AssigneeValue {...props} />;
 
-    // Computed on read and never written - see `FormulaValue` for why it is a result rather than
-    // a field somebody cannot type into.
+    // Computed on read and never written - see `ComputedValue` for why both are results rather
+    // than fields somebody cannot type into. A formula is evaluated in this build and a rollup
+    // arrives folded from the server (ADR-0044); neither is anything a control could write to.
     case 'formula':
-      return <FormulaValue {...props} />;
+    case 'rollup':
+      return <ComputedValue {...props} />;
 
     default:
       return (
@@ -880,7 +884,7 @@ function CheckboxValue(props: PropertyInputProps): ReactNode {
  * and the help would print under every cell and grow every row to say what the column header could
  * say once. In a table the code itself is the value, which is what a spreadsheet shows too.
  */
-function FormulaValue(props: PropertyInputProps): ReactNode {
+function ComputedValue(props: PropertyInputProps): ReactNode {
   const { item, property, density = 'panel' } = props;
 
   const text = readPropertyText(item, property.key);
@@ -888,10 +892,7 @@ function FormulaValue(props: PropertyInputProps): ReactNode {
     ? (text as SheetErrorCode)
     : null;
 
-  const source =
-    property.expression == null
-      ? 'This is a formula property, computed from this item’s other properties.'
-      : `Computed from this item’s other properties: ${property.expression}`;
+  const source = describeSource(property);
 
   const panelError = code === null ? null : `${code} - ${PROPERTY_FORMULA_HELP[code]}`;
 
@@ -918,6 +919,30 @@ function FormulaValue(props: PropertyInputProps): ReactNode {
       )}
     </ValueShell>
   );
+}
+
+/**
+ * Where a computed value comes from, said in one sentence.
+ *
+ * Not the same sentence for the two computed types, because they do not answer the same question:
+ * a formula is about this item and a rollup is about the items inside it, and somebody reading a
+ * number they cannot edit needs to know which.
+ */
+function describeSource(property: PropertyDefinition): string {
+  if (property.type === 'rollup') {
+    const fold = rollupAggregateLabel(property.aggregate ?? 'count').toLowerCase();
+    return property.source == null
+      ? `${capitalize(fold)} of the items inside this one.`
+      : `${capitalize(fold)} of "${property.source}" across the items inside this one.`;
+  }
+
+  return property.expression == null
+    ? 'This is a formula property, computed from this item’s other properties.'
+    : `Computed from this item’s other properties: ${property.expression}`;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function ReadOnlyValue(props: PropertyInputProps & { readonly note: string }): ReactNode {
