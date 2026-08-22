@@ -183,6 +183,12 @@ export interface StubOptions {
     readonly dateProperty: string;
     readonly value: string;
     readonly kind: 'date' | 'timestamp';
+
+    /** Whether a recurrence rule produced this one; omitted means a stored entry. */
+    readonly generated?: boolean;
+
+    /** An occurrence's completion state; null for a stored entry, which cannot be "done". */
+    readonly completed?: boolean | null;
   }[];
 
   /** Containers the calendar read reports as offering a calendar it could place nothing on. */
@@ -190,6 +196,12 @@ export interface StubOptions {
     readonly containerId: string;
     readonly containerTitle: string | null;
     readonly reason: string;
+
+    /** Set for an item-level reason: a repeating item this calendar could not draw. */
+    readonly itemId?: string | null;
+
+    /** That item's title, when it has one. */
+    readonly itemTitle?: string | null;
   }[];
 
   /** What the caller has kept, as the shelf read reports it. */
@@ -567,15 +579,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           // Newest first, as the endpoint promises, so a creation test's next read sees the new
           // token at the top.
           heldTokens = [minted, ...heldTokens];
-          return Promise.resolve(
-            json({ token: `stub-secret-${minted.id}`, details: minted }, 201),
-          );
+          return Promise.resolve(json({ token: `stub-secret-${minted.id}`, details: minted }, 201));
         }
 
         return Promise.resolve(
-          tokensFail
-            ? json({ code: 'tokens.unavailable' }, 500)
-            : json({ tokens: heldTokens }),
+          tokensFail ? json({ code: 'tokens.unavailable' }, 500) : json({ tokens: heldTokens }),
         );
       }
 
@@ -1195,10 +1203,23 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             workspaceId: STUB_WORKSPACE_ID,
             from: decodeURIComponent(calendarWindow[1] ?? ''),
             to: decodeURIComponent(calendarWindow[2] ?? ''),
-            entries: calendarEntries,
-            unplaceable: calendarUnplaceable,
+            // Filled in rather than demanded of every caller: an entry is a stored one unless a
+            // test says otherwise, so the ordinary fixture stays about what it is testing.
+            entries: calendarEntries.map((entry) => ({
+              generated: false,
+              completed: null,
+              ...entry,
+            })),
+            unplaceable: calendarUnplaceable.map((row) => ({
+              itemId: null,
+              itemTitle: null,
+              ...row,
+            })),
             entryLimit: 2000,
             entriesTruncated: calendarTruncated,
+            // Recurrence is off by default in the stub: a series is a fact about a rule, and a
+            // test that wants one says so rather than every stubbed workspace repeating.
+            seriesTruncated: false,
           }),
         );
       }
