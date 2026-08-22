@@ -620,3 +620,115 @@ describe('an assignee property', () => {
     expect(within(control).getByRole('option', { name: strangerId })).toBeInTheDocument();
   });
 });
+
+describe('a formula property', () => {
+  const formula = propertyOf({
+    key: 'total',
+    label: 'Total',
+    type: 'formula',
+    expression: '[price] * 2',
+  });
+
+  it('shows the computed value as a result rather than as a box to type in', () => {
+    render(
+      <PropertyInput item={itemWith({ total: 50 })} property={formula} onCommit={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Total' })).toHaveTextContent('50');
+    expect(screen.queryByRole('textbox', { name: 'Total' })).not.toBeInTheDocument();
+  });
+
+  it('says where the value comes from', () => {
+    render(<PropertyInput item={itemWith({ total: 50 })} property={formula} onCommit={vi.fn()} />);
+
+    expect(screen.getByText(/Computed from this item.s other properties: \[price\] \* 2/)).toBeVisible();
+  });
+
+  it('explains an error code instead of showing it as though it were a value', () => {
+    // A bare #NAME? in a field called Total reads as a value to somebody who has never used a
+    // spreadsheet. The sentence is the property surface's own, not the grid's: three of the grid's
+    // are about cells and sheets, and there are none here.
+    render(
+      <PropertyInput item={itemWith({ total: '#NAME?' })} property={formula} onCommit={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '#NAME? - This formula uses a property name that nothing here declares.',
+    );
+  });
+
+  it('leaves the explanation out of a table cell, where the column header says it once', () => {
+    // A hint in a cell prints under every row and grows every one of them to repeat what a header
+    // could say once. The code itself is still the value, which is what a spreadsheet shows too.
+    render(
+      <PropertyInput
+        item={itemWith({ total: '#DIV/0!' })}
+        property={formula}
+        onCommit={vi.fn()}
+        density="cell"
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('#DIV/0!');
+    expect(screen.queryByText(/divides by zero/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a rollup property', () => {
+  it('shows the folded value as a result rather than as a box to type in', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ tasks: 12 })}
+        property={propertyOf({
+          key: 'tasks',
+          label: 'Tasks',
+          type: 'rollup',
+          aggregate: 'count',
+          source: null,
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Tasks' })).toHaveTextContent('12');
+    expect(screen.queryByRole('textbox', { name: 'Tasks' })).not.toBeInTheDocument();
+  });
+
+  it('says the value is about the items inside this one, not about this one', () => {
+    // A formula is about this item and a rollup is about its children. Somebody reading a number
+    // they cannot edit needs to know which.
+    render(
+      <PropertyInput
+        item={itemWith({ hours: 40 })}
+        property={propertyOf({
+          key: 'hours',
+          label: 'Hours',
+          type: 'rollup',
+          aggregate: 'sum',
+          source: 'estimate',
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Total of "estimate" across the items inside this one/)).toBeVisible();
+  });
+
+  it('names a count of the children without naming a property', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ tasks: 3 })}
+        property={propertyOf({
+          key: 'tasks',
+          label: 'Tasks',
+          type: 'rollup',
+          aggregate: 'count',
+          source: null,
+        })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/How many of the items inside this one/)).toBeVisible();
+  });
+});

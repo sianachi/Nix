@@ -14,6 +14,7 @@ import type {
   PropertyDefinition,
   PropertyValue,
 } from '../core/container-model';
+import { isComputedType } from '../core/property-types';
 import { changePublicFormStatus, publicFormStatus } from './public-form-api';
 import { normalizeInteractiveForm } from './interactive-form-rules';
 
@@ -785,11 +786,16 @@ function BlockEditor({
                     });
                   }}
                 >
-                  {schema.map((property) => (
-                    <option key={property.key} value={property.key}>
-                      {property.label}
-                    </option>
-                  ))}
+                  {/* Computed properties are left out: a form writes children, and nothing writes
+                      a computed value. Offering one would build a question with no control and no
+                      way to answer it. */}
+                  {schema
+                    .filter((property) => !isComputedType(property.type))
+                    .map((property) => (
+                      <option key={property.key} value={property.key}>
+                        {property.label}
+                      </option>
+                    ))}
                 </Select>
               )}
             </Field>

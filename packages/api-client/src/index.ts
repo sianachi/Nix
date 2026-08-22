@@ -80,6 +80,7 @@ export {
   itemLifecycleStateSchema,
   itemSequenceSchema,
   KNOWN_ITEM_TYPES,
+  itemChartSchema,
   itemQueryResultsSchema,
   itemSchema,
   noContentSchema,
@@ -112,6 +113,8 @@ export type {
   CursorPage,
   CalendarEntry,
   EffectiveSchema,
+  ChartBucket,
+  ItemChart,
   ItemQueryResults,
   PropertyDefinition,
   QueryResultRow,
@@ -182,6 +185,7 @@ export * as views from './resources/views.js';
 export * as structure from './resources/structure.js';
 export * as search from './resources/search.js';
 export * as canvasLibrary from './resources/canvas-library.js';
+export * as itemChart from './resources/item-chart.js';
 export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';

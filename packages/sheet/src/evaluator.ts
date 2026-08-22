@@ -42,6 +42,14 @@ function evaluateArgument(node: FormulaNode, ctx: EvaluationContext): Argument {
       return { kind: 'value', value: node.value };
     case 'ref':
       return { kind: 'value', value: ctx.readCell(node.ref.row, node.ref.col) };
+    case 'field':
+      // Called through the context rather than extracted first: a surface with no fields to
+      // resolve leaves the reader absent, and #NAME? is the honest answer for a name nothing here
+      // can know.
+      return {
+        kind: 'value',
+        value: ctx.readField === undefined ? sheetError('#NAME?') : ctx.readField(node.name),
+      };
     case 'range':
       return { kind: 'range', range: normalizeRange(node.start, node.end) };
     case 'unary': {

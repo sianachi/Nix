@@ -82,6 +82,30 @@ public enum ViewKind
 
     /// <summary>A multi-page, conditional form whose answers create a child item.</summary>
     InteractiveForm = 8,
+
+    /// <summary>Children summarised into buckets: counted, or totalled by a numeric property.</summary>
+    /// <remarks>
+    /// <para>
+    /// Goal 2.3, and a way of looking at children like every other kind on this axis - "how much of
+    /// this is Done" is the same question a board answers by eye, drawn so it can be read at a
+    /// glance instead of counted.
+    /// </para>
+    /// <para>
+    /// <b>It groups by the property a board would group by, under the board's own field.</b> The
+    /// same requirement and the same reason: grouping by free text would produce a bar per distinct
+    /// value, which is a chart nobody can read. Sharing <see cref="ViewDefinition.GroupBy"/> is what
+    /// makes switching a view between board and chart lossless, exactly as the calendar and the
+    /// timeline share their date property.
+    /// </para>
+    /// <para>
+    /// <b>Its buckets come from the server, not from the loaded page.</b> Like <see cref="Query"/>
+    /// and unlike every other kind, it does not draw what the client already holds: a chart over a
+    /// container whose children are only partly loaded would be a picture of the first page
+    /// presented as a picture of the whole. <c>GET /items/{id}/chart</c> is where the buckets come
+    /// from, and ADR-0044 records why the aggregate is computed where the rows are.
+    /// </para>
+    /// </remarks>
+    Chart = 9,
 }
 
 /// <summary>
@@ -184,6 +208,17 @@ public static class ViewKinds
         new ViewKindDescriptor(ViewKind.Query, "query", Requirement: null),
 
         new ViewKindDescriptor(ViewKind.InteractiveForm, "interactive_form", Requirement: null),
+
+        // The board's requirement, reused field for field, which is what makes switching a view
+        // between the two lossless. Only the sentence differs, because the two kinds want
+        // different things said to somebody who has not configured one yet.
+        new ViewKindDescriptor(
+            ViewKind.Chart,
+            "chart",
+            new ViewRequirement(
+                static view => view.GroupBy,
+                static type => Nix.Domain.Properties.PropertyTypes.CanGroupBy(type),
+                "a chart needs a property to group by")),
     ];
 
     /// <summary>Reads a stored kind.</summary>
@@ -249,6 +284,29 @@ public static class ViewKinds
 /// the words are the contract, and renumbering nothing can reinterpret them.
 /// </para>
 /// </remarks>
+/// <summary>What a chart's bars measure.</summary>
+/// <remarks>
+/// <b>Two, and both always have an answer.</b> A count needs nothing configured, and a total needs
+/// a numeric property. Anything else - a median, a distinct count - is a fold this build does not
+/// compute, and offering one it could not draw would be a chart that renders empty for a reason
+/// nobody can see. Stored as text, like every other vocabulary here.
+/// </remarks>
+public static class ChartMeasures
+{
+    /// <summary>How many children fall in each bucket. The default, and what absent has always meant.</summary>
+    public const string Count = "count";
+
+    /// <summary>The total of a numeric property across the children in each bucket.</summary>
+    public const string Sum = "sum";
+
+    /// <summary>Whether a stored or requested value names a measure this build defines.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns><see langword="true"/> when it is one of the two.</returns>
+    public static bool IsValid(string value) =>
+        string.Equals(value, Count, StringComparison.Ordinal)
+        || string.Equals(value, Sum, StringComparison.Ordinal);
+}
+
 public static class GalleryCardSizes
 {
     /// <summary>Denser columns and a squarer cover.</summary>
@@ -406,7 +464,14 @@ public sealed record ViewDefinition(
     ImmutableArray<FilterRule> Filters = default,
     string? CompanionViewId = null,
     string? CompanionPlacement = null,
-    InteractiveFormDefinition? InteractiveForm = null)
+    InteractiveFormDefinition? InteractiveForm = null,
+
+    // Last and defaulted like every field added since the record was cut. For a chart: what each
+    // bar measures - `count`, which needs nothing else, or `sum`, which totals MeasureProperty
+    // across the children in each bucket. Null and an unrecognised value both mean `count`, which
+    // is what a chart with nothing configured draws and the only measure that always has an answer.
+    string? Measure = null,
+    string? MeasureProperty = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

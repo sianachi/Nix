@@ -42,6 +42,9 @@ public static class PropertySchemaJson
     private const string TypeKey = "type";
     private const string OptionsKey = "options";
     private const string RequiredKey = "required";
+    private const string ExpressionKey = "expression";
+    private const string AggregateKey = "aggregate";
+    private const string SourceKey = "source";
 
     /// <summary>
     /// Reads a stored schema.
@@ -134,6 +137,21 @@ public static class PropertySchemaJson
                 entry[OptionsKey] = options;
             }
 
+            if (property.Expression is not null)
+            {
+                entry[ExpressionKey] = property.Expression;
+            }
+
+            if (property.Aggregate is { } aggregate)
+            {
+                entry[AggregateKey] = RollupAggregates.ToText(aggregate);
+            }
+
+            if (property.Source is not null)
+            {
+                entry[SourceKey] = property.Source;
+            }
+
             properties.Add(entry);
         }
 
@@ -184,12 +202,53 @@ public static class PropertySchemaJson
 
         var required = property[RequiredKey] is JsonValue flag && flag.TryGetValue(out bool value) && value;
 
+        // Only a formula carries one. Read for any other type it would be a field the writer's own
+        // rules refuse, arriving through a hand-edited column, and keeping it would let a later
+        // retype turn text nobody had read into a live expression.
+        var expression = type == PropertyType.Formula ? ReadString(property[ExpressionKey]) : null;
+
+        // A formula with no expression is not a formula. Dropped rather than kept as a property
+        // that can only ever read as an error - the same posture as an unknown type above, and the
+        // same reason: reading is total, and what cannot be interpreted is left out rather than
+        // guessed at.
+        if (type == PropertyType.Formula && string.IsNullOrWhiteSpace(expression))
+        {
+            return null;
+        }
+
+        RollupAggregate? aggregate = null;
+        string? source = null;
+        if (type == PropertyType.Rollup)
+        {
+            if (!RollupAggregates.TryParse(ReadString(property[AggregateKey]), out var parsed))
+            {
+                // A reduction this build does not know is not a reduction. Dropped rather than
+                // guessed at, the same posture an unknown type takes and for the same reason: an
+                // older instance stops showing a rollup instead of folding it a way nobody chose.
+                return null;
+            }
+
+            aggregate = parsed;
+            source = ReadString(property[SourceKey]);
+
+            // Only a count can fold nothing. Anything else with no property to reduce is a
+            // declaration that cannot mean anything, so it is left out rather than kept as a
+            // property that can only ever read as empty.
+            if (source is null && !parsed.CountsChildren())
+            {
+                return null;
+            }
+        }
+
         return new PropertyDefinition(
             key,
             ReadString(property[LabelKey]) ?? key,
             type,
             options,
-            required);
+            required,
+            expression,
+            aggregate,
+            source);
     }
 
     private static string? ReadString(JsonNode? node) =>
