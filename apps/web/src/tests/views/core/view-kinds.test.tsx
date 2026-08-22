@@ -34,10 +34,10 @@ function onlyConfiguration(kind: string): ViewConfiguration {
 }
 
 describe('the view-kind registry', () => {
-  it('knows the nine this build can draw', () => {
+  it('knows the ten this build can draw', () => {
     // The count keeps the test's name honest: a kind added without updating this sentence fails
     // here rather than leaving a name that undercounts.
-    expect(VIEW_KINDS).toHaveLength(9);
+    expect(VIEW_KINDS).toHaveLength(10);
     expect(isKnownViewKind('list')).toBe(true);
     expect(isKnownViewKind('board')).toBe(true);
     expect(isKnownViewKind('calendar')).toBe(true);
@@ -47,6 +47,7 @@ describe('the view-kind registry', () => {
     expect(isKnownViewKind('form')).toBe(true);
     expect(isKnownViewKind('query')).toBe(true);
     expect(isKnownViewKind('interactive_form')).toBe(true);
+    expect(isKnownViewKind('chart')).toBe(true);
   });
 
   it('does not claim to know a kind from a newer build', () => {

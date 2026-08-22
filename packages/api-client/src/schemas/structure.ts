@@ -18,6 +18,17 @@ export const propertyDefinitionSchema = z.object({
   type: z.string(),
   options: z.array(z.string()),
   required: z.boolean(),
+
+  // For a formula property: the expression evaluated on read. Defaulted rather than merely
+  // nullable, so a server from before the field answers schemas this still parses.
+  expression: z.string().nullable().default(null),
+
+  // For a rollup property: how the children are folded, and which of their properties. An open
+  // string for the fold, matching every other vocabulary on this wire - the server polices the
+  // closed set on write, and a fold a newer server admits must cost an older build the property,
+  // never the parse of the whole schema.
+  aggregate: z.string().nullable().default(null),
+  source: z.string().nullable().default(null),
 });
 
 export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;

@@ -156,6 +156,8 @@ class Parser {
         }
         return { kind: 'ref', ref: start };
       }
+      case 'field':
+        return { kind: 'field', name: token.text };
       case 'name': {
         const upper = token.text.toUpperCase();
         if (upper === 'TRUE') {

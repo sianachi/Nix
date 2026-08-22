@@ -54,7 +54,13 @@ internal static class ItemMapping
     /// - which looks like a working answer and is not.
     /// </param>
     /// <returns>The published shape.</returns>
-    internal static ItemResponse ToResponse(Item item, bool hasChildren)
+    /// <param name="computed">
+    /// The item's rollup values, or null when this read did not compute them. Defaulted, unlike
+    /// <paramref name="hasChildren"/>, because null is the honest answer for the reads that do not
+    /// fold children and an accidental null costs a client nothing it could mistake for data - the
+    /// opposite of the "no children" default, which looks like a working answer and is not.
+    /// </param>
+    internal static ItemResponse ToResponse(Item item, bool hasChildren, JsonObject? computed = null)
     {
         ArgumentNullException.ThrowIfNull(item);
 
@@ -68,6 +74,7 @@ internal static class ItemMapping
             item.Seq,
             ToWireName(item.LifecycleState),
             ReadProperties(item.Properties),
+            computed,
             item.CreatedAt,
             item.LastModifiedAt);
     }

@@ -242,6 +242,19 @@ public static class PropertyValidator
         PropertyType.Estimate => CheckEstimate(definition, value),
         PropertyType.Assignee => CheckAssignee(definition, value),
 
+        // The one type whose every value is wrong. A formula property is evaluated on read from
+        // the item's other properties, so a stored value for one would be a second answer able to
+        // disagree with the computed one - and the stored one would win, silently, wherever a
+        // reader took the bag at face value. Refusing the write is what keeps "computed" true.
+        PropertyType.Formula => $"{definition.Label} is computed from a formula and cannot be set.",
+
+        // Same rule, same reason: a rollup is folded from this item's children when it is read, so
+        // a stored value for one would be a second answer able to disagree with the children it
+        // claims to summarise - and the stored one would win wherever a reader took the bag at
+        // face value.
+        PropertyType.Rollup =>
+            $"{definition.Label} is rolled up from this item's children and cannot be set.",
+
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
         // It used to be `_ => null`, which is "accepted": an unhandled member let any JSON node

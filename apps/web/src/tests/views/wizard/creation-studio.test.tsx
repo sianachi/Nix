@@ -154,6 +154,8 @@ describe('the guided creation studio', () => {
       companionViewId: null,
       companionPlacement: null,
       interactiveForm: null,
+      measure: null,
+      measureProperty: null,
     });
     const primary = aView({
       id: 'delivery-board',
@@ -165,6 +167,8 @@ describe('the guided creation studio', () => {
       companionViewId: companion.id,
       companionPlacement: 'beside',
       interactiveForm: null,
+      measure: null,
+      measureProperty: null,
     });
     stubCoreApi({
       items: [DESTINATION],
@@ -221,6 +225,8 @@ describe('the guided creation studio', () => {
       companionViewId: null,
       companionPlacement: null,
       interactiveForm: null,
+      measure: null,
+      measureProperty: null,
     });
     const primary = aView({
       id: 'delivery-board',
@@ -231,6 +237,8 @@ describe('the guided creation studio', () => {
       companionViewId: companion.id,
       companionPlacement: 'below',
       interactiveForm: null,
+      measure: null,
+      measureProperty: null,
     });
     stubCoreApi({
       items: [DESTINATION],

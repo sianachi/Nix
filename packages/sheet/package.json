@@ -1,6 +1,7 @@
 {
   "name": "@nix/sheet",
   "version": "0.0.0",
+  "sideEffects": false,
   "private": true,
   "type": "module",
   "description": "The Nix spreadsheet body: the cell document model and the formula engine, shared by the web editor and the collaboration service so both compute the same values",

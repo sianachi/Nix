@@ -1,4 +1,4 @@
-import { itemSchema, type Item } from '@nix/api-client';
+import { itemSchema, type Item as ApiItem } from '@nix/api-client';
 import type {
   ContainerViewsContract,
   EffectiveSchemaContract,
@@ -36,9 +36,49 @@ export const PropertyDefinitionSchema = z.object({
   type: z.string(),
   options: z.array(z.string()),
   required: z.boolean(),
+
+  /**
+   * For a formula property: the expression evaluated on read, without a leading `=`.
+   *
+   * Null on every other type, and defaulted rather than merely nullable because a server from
+   * before the field answers schemas without it - absence must cost a parse nothing. There is no
+   * matching entry in an item's property bag and there never will be: the value is computed where
+   * it is drawn, by `properties/computed.ts`, and Core refuses a write that tries to store one.
+   */
+  expression: z.string().nullable().default(null),
+
+  /**
+   * For a rollup property: how the children are folded, and which of their properties.
+   *
+   * `aggregate` is an open string, matching `mode` and the filter operators and for the same
+   * reason: the server polices the closed set on write, and a fold a newer server admits must cost
+   * an older build the property rather than the parse of the whole schema. `source` is null for a
+   * count of the children themselves, which is the one fold that needs no property.
+   *
+   * Unlike a formula, a rollup's value arrives *from the server* in `Item.computed` - it is an
+   * aggregate over rows the client does not hold. See ADR-0044 for why the two computed types are
+   * computed in different places.
+   */
+  aggregate: z.string().nullable().default(null),
+  source: z.string().nullable().default(null),
 });
 
-export type PropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
+type ParsedPropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
+
+/**
+ * A property definition as this build holds one.
+ *
+ * The computed fields are optional here and always present after a parse, exactly as `View` treats
+ * the fields added to it since it was cut, and for the same reason: a draft being built in a schema
+ * editor, a wizard recipe or a test fixture is not a server response and must not have to
+ * manufacture wire fields it has no opinion about. Absent and null mean the same thing for each of
+ * them.
+ */
+export type PropertyDefinition = Omit<
+  ParsedPropertyDefinition,
+  'expression' | 'aggregate' | 'source'
+> &
+  Partial<Pick<ParsedPropertyDefinition, 'expression' | 'aggregate' | 'source'>>;
 
 const _propertyDefinitionContract =
   PropertyDefinitionSchema satisfies z.ZodType<PropertyDefinitionContract>;
@@ -50,7 +90,19 @@ export const EffectiveSchemaSchema = z.object({
   inherit: z.boolean(),
 });
 
-export type EffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
+type ParsedEffectiveSchema = z.infer<typeof EffectiveSchemaSchema>;
+
+/**
+ * The schema in force, holding definitions in the shape a draft can also be built in.
+ *
+ * The same relaxation `ContainerViews` makes over `View`, for the same reason: an effective schema
+ * assembled by a wizard recipe or a test fixture is not a parse of a server response, and requiring
+ * it to carry every wire field would make building one an exercise in filling in nulls.
+ */
+export type EffectiveSchema = Omit<ParsedEffectiveSchema, 'properties' | 'declared'> & {
+  readonly properties: PropertyDefinition[];
+  readonly declared: PropertyDefinition[];
+};
 
 const _effectiveSchemaContract = EffectiveSchemaSchema satisfies z.ZodType<EffectiveSchemaContract>;
 void _effectiveSchemaContract;
@@ -166,6 +218,17 @@ export const ViewSchema = z.object({
     // Defaulted, unlike its siblings: a server from before the field answers views without it,
     // and absence must cost nothing - the parse fills the empty set the contract now always sends.
     .default([]),
+  /**
+   * For a chart: what each bar measures, and which property it totals.
+   *
+   * `measure` is an open string, matching `mode` and `cardSize` and for the same reason: the server
+   * polices the closed set on write, and a measure a newer build admits must cost an older one the
+   * total rather than the parse of the whole view set. Null means `count`, which is what a chart
+   * with nothing configured draws and the only measure that always has an answer.
+   */
+  measure: z.string().nullable().default(null),
+  measureProperty: z.string().nullable().default(null),
+
   companionViewId: z.string().nullable().default(null),
   companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
   interactiveForm: InteractiveFormSchema.nullable().default(null),
@@ -174,8 +237,16 @@ export const ViewSchema = z.object({
 type ParsedView = z.infer<typeof ViewSchema>;
 
 /** New layout/form fields are optional in drafts; parsed server views always receive null defaults. */
-export type View = Omit<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'> &
-  Partial<Pick<ParsedView, 'companionViewId' | 'companionPlacement' | 'interactiveForm'>>;
+export type View = Omit<
+  ParsedView,
+  'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+> &
+  Partial<
+    Pick<
+      ParsedView,
+      'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+    >
+  >;
 
 /** One condition of a query view. */
 export type ViewFilterRule = View['filters'][number];
@@ -253,7 +324,17 @@ export const UNSET_LABEL = 'Unset';
  * cannot drift from it again.
  */
 export { itemSchema as ItemSchema };
-export type { Item };
+
+/**
+ * An item as this build holds one.
+ *
+ * `computed` is optional here and always present after a parse - the same relaxation
+ * `PropertyDefinition` and `ContainerViews` make, for the same reason: a fixture or a
+ * locally-constructed row is not a server response, and requiring it to carry a field it has no
+ * opinion about would make building one an exercise in filling in nulls. Absent and null both mean
+ * "this did not come with folded children".
+ */
+export type Item = Omit<ApiItem, 'computed'> & Partial<Pick<ApiItem, 'computed'>>;
 
 /**
  * The part of an item a property control actually touches: its name, and its bag.
@@ -267,6 +348,16 @@ export type { Item };
 export interface PropertyOwner {
   readonly title: string;
   readonly properties: Readonly<Record<string, unknown>>;
+
+  /**
+   * The rollups the server folded for this item, when the read that produced it folded any.
+   *
+   * Optional because a draft has none and never will: a rollup is an aggregate over children a
+   * draft does not have. Null and absent mean the same thing - "this did not come with folded
+   * children" - which is deliberately not the same as an empty object, which means "folded, and
+   * there were no rollups declared".
+   */
+  readonly computed?: Readonly<Record<string, unknown>> | null;
 }
 
 /**
