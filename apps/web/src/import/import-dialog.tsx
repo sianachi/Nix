@@ -256,9 +256,10 @@ export function ImportDialog({
           <>
             <Text tone="muted" variant="body">
               Choose an Obsidian vault or any folder of Markdown notes. Nix scans every nested
-              folder and recreates that structure under one new item. Front matter is kept as item
-              properties; each appears once a property of that name is declared on the item&rsquo;s
-              schema.
+              folder and recreates the folders containing Markdown notes under one new item.
+              Headings, lists, tables and inline formatting are kept. Simple front matter fields
+              become item properties; each appears once a property of that name is declared on the
+              item&rsquo;s schema.
             </Text>
             <Text tone="muted" variant="note">
               The .obsidian settings folder and non-Markdown attachments are skipped and named in
