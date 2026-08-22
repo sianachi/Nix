@@ -80,9 +80,21 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
-        var item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var visible = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var item = visible
+            ?? await _tree.FindStoredAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (item is null
             || !await _permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+        }
+
+        // An already-active row is idempotent only while it is visible. Otherwise a restore call
+        // against a guessed descendant identifier would disclose the full item through a deleted
+        // ancestor. A retry after restoring below a still-deleted parent therefore receives the
+        // same non-answer as every other direct read; there is no request token that could prove it
+        // is the caller whose earlier response was lost.
+        if (item.LifecycleState == ItemLifecycleState.Active && visible is null)
         {
             return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
         }
@@ -97,7 +109,7 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
 
         if (item.LifecycleState == ItemLifecycleState.Active)
         {
-            return Result.Success(item);
+            return Result.Success(visible!);
         }
 
         var now = _clock.GetUtcNow();
@@ -105,7 +117,9 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
             .SetLifecycleAsync(itemId, ItemLifecycleState.Active, context.PrincipalId, now, cancellationToken)
             .ConfigureAwait(false);
 
-        var restored = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        // A restored child can deliberately remain hidden below a deleted parent. Read the stored
+        // row here so that successful lifecycle transition is not misreported as disappearance.
+        var restored = await _tree.FindStoredAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         return restored is null
             ? Result.Failure<Item>(ItemErrors.NotFound($"Item {itemId} disappeared during the restore."))
