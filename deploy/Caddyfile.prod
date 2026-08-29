@@ -1,0 +1,32 @@
+# Nix production edge inside Docker. Cloudflare terminates public TLS and the
+# tunnel carries the request to this private HTTP listener.
+:8090 {
+	root * /srv/nix/web
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy nix-api:8080
+	}
+
+	handle_path /collab/* {
+		reverse_proxy nix-collab:8100
+	}
+
+	handle_path /media/* {
+		reverse_proxy nix-media:8200
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {env.NIX_OIDC_ISSUER}; frame-src 'self' {env.NIX_OIDC_ISSUER}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}
