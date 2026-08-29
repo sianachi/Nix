@@ -1,0 +1,190 @@
+name: nix
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${NIX_PG_SUPERUSER_PASSWORD:?set NIX_PG_SUPERUSER_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - nix-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - postgres
+
+  nix-api:
+    image: localhost/nix/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Nix: ${NIX_CORE_DATABASE_URL:?set NIX_CORE_DATABASE_URL}
+      Nix__InternalSecret: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      Nix__PublicForms__SigningKey: ${NIX_PUBLIC_FORMS_SIGNING_KEY:?set NIX_PUBLIC_FORMS_SIGNING_KEY}
+      Nix__ForwardedHeaders__KnownNetworks: 172.30.0.0/24
+      Nix__ForwardedHeaders__ForwardLimit: "2"
+      Nix__RateLimits__WritesPerMinute: "120"
+      Nix__RateLimits__PublicFormSubmissionsPerMinute: "20"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-api
+
+  nix-collab:
+    image: localhost/nix/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    stop_grace_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+    environment:
+      NIX_COLLAB_DATABASE_URL: ${NIX_COLLAB_DATABASE_URL:?set NIX_COLLAB_DATABASE_URL}
+      NIX_COLLAB_CORE_BASE_URL: http://nix-api:8080
+      NIX_COLLAB_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_COLLAB_OIDC_ISSUER: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
+      NIX_COLLAB_OIDC_AUDIENCE: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
+      NIX_COLLAB_REAUTH_SECONDS: "60"
+      NIX_COLLAB_MAX_RESIDENT_MB: "256"
+      NIX_COLLAB_MAX_DOCS: "200"
+      NIX_COLLAB_PORT: "8100"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8100/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 90s
+    mem_limit: 768m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-collab
+
+  nix-media:
+    image: localhost/nix/media:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      nix-collab:
+        condition: service_healthy
+    environment:
+      NIX_MEDIA_COLLAB_BASE_URL: http://nix-collab:8100
+      NIX_MEDIA_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_MEDIA_MAX_CONCURRENT_EXPORTS: "4"
+      NIX_MEDIA_JOB_TIMEOUT_MS: "30000"
+      NIX_MEDIA_PORT: "8200"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8200/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 2
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-media
+
+  nix-web:
+    image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      nix-api:
+        condition: service_started
+      nix-collab:
+        condition: service_healthy
+      nix-media:
+        condition: service_healthy
+    environment:
+      NIX_OIDC_ISSUER: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - nix-caddy-data:/data
+      - nix-caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          # Keeps the existing remotely-managed Cloudflare route valid.
+          - nix-web.nix.svc.cluster.local
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      nix-web:
+        condition: service_healthy
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  default:
+    name: nix
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  nix-postgres-data:
+    name: nix-postgres-data
+  nix-caddy-data:
+    name: nix-caddy-data
+  nix-caddy-config:
+    name: nix-caddy-config
