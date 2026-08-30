@@ -45,7 +45,6 @@ export function RequireSession(): ReactNode {
 
   return (
     <LoginPage
-      organisation="acme"
       onSignIn={() => {
         void signIn();
       }}

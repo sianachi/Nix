@@ -11,10 +11,9 @@ import { selectIsBusy, useSessionStore } from '../auth/session-store';
  * workspaces on the right. The proportions, the 34px grid, the faux desktop titlebar and the
  * hairline dividers are all from the design file rather than invented here.
  *
- * **There is no password field and there never will be.** Authentication is the tenant's identity
- * provider's job; Nix stores no credentials, and the organisation field exists only to pick which
- * issuer to redirect to. The copy says so, because a sign-in screen that looks like it might want a
- * password teaches people to type one somewhere.
+ * **There is no password field and there never will be.** Authentication is the configured identity
+ * provider's job and Nix stores no credentials. A deployment currently serves one organisation,
+ * so the screen offers no organisation picker or read-only field that suggests otherwise.
  */
 
 export interface RecentWorkspace {
@@ -25,8 +24,6 @@ export interface RecentWorkspace {
 }
 
 export interface LoginPageProps {
-  /** The organisation slug, shown before the `.nix.app` suffix. */
-  readonly organisation: string;
   /** Starts the redirect to the identity provider. */
   readonly onSignIn: () => void;
   /** Workspaces this browser has opened before. Empty on a first visit, and honestly so. */
@@ -57,7 +54,6 @@ const GRAPH_PAPER =
   'bg-[linear-gradient(to_right,var(--grid-rule)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-rule)_1px,transparent_1px)] [--grid-rule:color-mix(in_srgb,var(--color-accent)_5%,transparent)] bg-[length:34px_34px]'; // design-token-exempt: a 1px hairline and the design file's own 34px tile, neither of which is a spacing step - see above.
 
 export function LoginPage({
-  organisation,
   onSignIn,
   recentWorkspaces = [],
   serverReachable = true,
@@ -89,32 +85,8 @@ export function LoginPage({
             </Text>
 
             <Text variant="body" tone="muted" className="mb-7.5">
-              Authentication is handled by your organisation&rsquo;s identity provider. Nix stores
-              no passwords.
+              Continue to your organisation&rsquo;s sign-in service. Nix stores no passwords.
             </Text>
-
-            <div className="mb-4">
-              <label htmlFor="organisation" className={cn('mb-1.5 block', fieldLabel)}>
-                Organisation
-              </label>
-              <div className="flex items-stretch border border-divider">
-                <input
-                  id="organisation"
-                  name="organisation"
-                  readOnly
-                  value={organisation}
-                  className={`min-w-0 flex-1 bg-transparent px-3 py-2 text-sm ${focusRing}`}
-                />
-                <Text
-                  variant="note"
-                  as="span"
-                  tone="muted"
-                  className="inline-flex items-center border-l border-divider bg-surface px-3"
-                >
-                  .nix.app
-                </Text>
-              </div>
-            </div>
 
             <Button
               variant="primary"
@@ -128,8 +100,7 @@ export function LoginPage({
 
             {error === null ? (
               <Text variant="caption" as="p" tone="muted" className="mt-3">
-                Redirects to {organisation}&rsquo;s IdP (OIDC). Tokens from unregistered issuers are
-                rejected.
+                You will return here after signing in with the configured identity provider.
               </Text>
             ) : (
               <Text variant="caption" as="p" tone="accent" role="alert" className="mt-3">
@@ -145,7 +116,7 @@ export function LoginPage({
             >
               <span className="inline-flex items-center gap-1.5">
                 <Icon icon={Lock} size="sm" />
-                Single tenant &middot; RLS-isolated
+                SSO secured &middot; RLS-isolated
               </span>
               <span className="ml-auto font-mono">v{version}</span>
             </Text>
