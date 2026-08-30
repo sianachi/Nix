@@ -49,9 +49,9 @@ export function readOidcEnvironment(env: ImportMetaEnv, origin: string): OidcEnv
  *
  * - **Authorization code with PKCE**, never implicit. An access token in a URL fragment lands in
  *   browser history and in any referrer that leaks; a code exchange keeps it out of both.
- * - **No `localStorage` or `sessionStorage`.** Tokens live in memory for the tab's lifetime, so a
- *   cross-site scripting bug cannot read them out of a store that outlives the page. The cost is a
- *   silent renew on reload, which is what the hidden iframe below is for.
+ * - **Tab-scoped token persistence.** oidc-client-ts keeps its user (including the access token) in
+ *   `sessionStorage` by default. A reload in the same tab restores immediately, while closing the
+ *   tab ends that persistence. Nix does not copy the token into application state or localStorage.
  * - **Silent renew on**, so a five-to-fifteen minute access token is refreshed without interrupting
  *   the person using the application, and a revoked session stops working promptly rather than at
  *   the end of a long-lived token's life.
@@ -70,14 +70,10 @@ export function buildUserManagerSettings(environment: OidcEnvironment): UserMana
     automaticSilentRenew: true,
     monitorSession: false,
 
-    // `userStore` is deliberately left unset. oidc-client-ts then keeps the user in memory for
-    // the lifetime of the tab rather than persisting it, so a cross-site scripting bug cannot read
-    // a token out of a store that outlives the page. The cost is a silent renew on reload, which
-    // is what the hidden iframe above is for.
-    //
-    // The library still keeps transient state (the PKCE verifier and nonce) in sessionStorage,
-    // because that has to survive a full page navigation. It carries no token - only the one-time
-    // values that authorise the exchange.
+    // `userStore` is deliberately left unset to retain oidc-client-ts's default
+    // WebStorageStateStore backed by sessionStorage. It contains the serialized User, including
+    // tokens, for this tab only. The library's separate transient state store also uses
+    // sessionStorage so the PKCE verifier and nonce survive the redirect navigation.
     loadUserInfo: true,
   };
 }
