@@ -37,6 +37,46 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  nix-migrate:
+    image: localhost/nix/migrator:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NIX_MIGRATOR_CONNECTION_STRING: ${NIX_MIGRATOR_CONNECTION_STRING:?set NIX_MIGRATOR_CONNECTION_STRING}
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  nix-template-presets:
+    image: pgvector/pgvector:pg16
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nix-migrate:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: postgres
+      PGDATABASE: nix
+      PGUSER: nix_migrator
+      PGPASSWORD: ${NIX_PG_MIGRATOR_PASSWORD:?set NIX_PG_MIGRATOR_PASSWORD}
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/seed/seed_template_presets.sql"]
+    volumes:
+      - ./seed/seed_template_presets.sql:/seed/seed_template_presets.sql:ro
+    read_only: true
+    mem_limit: 128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   nix-api:
     image: localhost/nix/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
@@ -44,6 +84,8 @@ services:
       postgres:
         condition: service_healthy
       nix-api-init:
+        condition: service_completed_successfully
+      nix-template-presets:
         condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Production

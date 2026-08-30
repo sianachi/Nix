@@ -1,5 +1,6 @@
 using Nix.Abstractions;
 using Nix.Domain.Identity;
+using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
@@ -52,6 +53,8 @@ public sealed record WorkspaceInvitationMutationResult(
 /// <summary>Database operations for workspace administration.</summary>
 public sealed class WorkspaceAdministrationStore
 {
+    private static readonly string[] PresetKeys = ["seed.kanban", "seed.calendar", "seed.list"];
+
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
 
@@ -138,6 +141,39 @@ public sealed class WorkspaceAdministrationStore
                 Timestamp("now", now),
             ],
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Creates the shipped template catalog and hidden roots for one new workspace.</summary>
+    public async ValueTask SeedPresetsAsync(
+        WorkspaceId workspaceId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var parameters = new List<NpgsqlParameter>
+        {
+            Uuid("tenant_id", context.TenantId.Value),
+            Uuid("principal_id", context.PrincipalId.Value),
+            Uuid("workspace_id", workspaceId.Value),
+            Timestamp("now", now),
+        };
+
+        foreach (var key in PresetKeys)
+        {
+            var prefix = key[5..];
+            parameters.Add(Uuid(
+                $"{prefix}_template_id",
+                DeterministicProvisioningId.PresetObject(workspaceId, key, "template")));
+            parameters.Add(Uuid(
+                $"{prefix}_root_id",
+                DeterministicProvisioningId.PresetObject(workspaceId, key, "root")));
+            parameters.Add(Uuid(
+                $"{prefix}_source_id",
+                DeterministicProvisioningId.PresetObject(workspaceId, key, "source-root")));
+        }
+
+        await _sql.ExecuteAsync(ProvisioningSql.SeedPresets, [.. parameters], cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Renames a reachable workspace when the caller can administer it.</summary>
