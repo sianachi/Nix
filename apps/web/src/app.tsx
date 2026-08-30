@@ -17,6 +17,7 @@ import { TemplateLibraryPage } from './templates/template-library-page';
 import { TemplateImportPage } from './templates/template-import-page';
 import { TemplateStudioPage } from './templates/template-studio-page';
 import { CreationStudioPage } from './views/wizard/creation-studio-page';
+import { DailyNotePage } from './daily-notes/daily-note-page';
 import { AppShell } from './shell/app-shell';
 import { RequireSession } from './shell/require-session';
 
@@ -76,6 +77,7 @@ export function App(): ReactElement {
                     than a destination, and search opens over whatever is on screen, so neither
                     has a route of its own. */}
                   <Route index element={<EditorPage />} />
+                  <Route path="daily" element={<DailyNotePage />} />
                   <Route path="new/:recipe" element={<CreationStudioPage />} />
                   <Route path="items/:itemId/views/new/:recipe" element={<CreationStudioPage />} />
                   <Route
