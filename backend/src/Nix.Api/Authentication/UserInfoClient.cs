@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
 
@@ -20,6 +21,7 @@ public sealed class UserInfoClient : IUserInfoClient
     private readonly TimeSpan _requestTimeout;
 
     /// <summary>Initializes a UserInfo reader over the separately hardened client.</summary>
+    [ActivatorUtilitiesConstructor]
     public UserInfoClient(HttpClient client)
         : this(client, RequestTimeout)
     {
