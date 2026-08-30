@@ -40,6 +40,30 @@ function createdId(sequence: number): string {
 /** The workspace every stub item belongs to, matching what the app reads from its environment. */
 const STUB_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 
+export interface StubWorkspace {
+  readonly id: string;
+  readonly name: string;
+  readonly versionRetentionDays: number;
+  readonly storageQuotaBytes: string;
+  readonly createdAt: string;
+  readonly kind: 'personal' | 'shared';
+  readonly canRename: boolean;
+  readonly canManageMembers: boolean;
+  readonly canLeave: boolean;
+}
+
+export const STUB_WORKSPACE: StubWorkspace = {
+  id: STUB_WORKSPACE_ID,
+  name: "Test Person's workspace",
+  versionRetentionDays: 90,
+  storageQuotaBytes: '10737418240',
+  createdAt: '2026-08-30T09:00:00.000Z',
+  kind: 'personal',
+  canRename: true,
+  canManageMembers: true,
+  canLeave: false,
+};
+
 /** A container's views, keyed by the item that offers them. */
 export type StubViews = Readonly<Record<string, { views: readonly unknown[]; default: string }>>;
 export type StubSchemas = Readonly<
@@ -104,6 +128,9 @@ export const STUB_TEMPLATES: readonly StubTemplate[] = [
 ];
 
 export interface StubOptions {
+  readonly workspaces?: readonly StubWorkspace[];
+  readonly workspacesFail?: boolean;
+  readonly workspacesPartial?: boolean;
   readonly isTenantAdministrator?: boolean;
   readonly displayName?: string;
   readonly email?: string | null;
@@ -129,9 +156,16 @@ export interface StubOptions {
 
   /** Who holds a role in the workspace, as the members read reports them. */
   readonly members?: readonly StubMember[];
+  readonly invitations?: readonly StubInvitation[];
 
   /** Makes the members read fail. */
   readonly membersFail?: boolean;
+  /** Makes the invitations read fail independently of the members read. */
+  readonly invitationsFail?: boolean;
+  /** Makes member role/removal mutations fail while leaving both lists readable. */
+  readonly memberMutationFails?: boolean;
+  /** Makes leaving a workspace fail while preserving membership. */
+  readonly leaveFails?: boolean;
   /** Makes the tree request fail. */
   readonly treeFails?: boolean;
 
@@ -288,11 +322,27 @@ export interface StubAccessToken {
 
 /** A role grant as `GET /api/v1/workspaces/{id}/members` reports one. */
 export interface StubMember {
-  readonly subjectType: string;
+  readonly subjectType: 'principal';
   readonly subjectId: string;
   readonly subjectDisplayName: string;
+  readonly email?: string | null;
   readonly role: string;
   readonly grantedAt: string;
+  readonly canChangeRole?: boolean;
+  readonly canRemove?: boolean;
+  readonly assignableRoles?: readonly ('owner' | 'editor' | 'viewer')[];
+}
+
+export interface StubInvitation {
+  readonly id: string;
+  readonly emailNormalized: string;
+  readonly role: 'owner' | 'editor' | 'viewer';
+  readonly status: 'pending' | 'accepted' | 'revoked';
+  readonly invitedByPrincipalId: string;
+  readonly invitedAt: string;
+  readonly acceptedAt: string | null;
+  readonly acceptedByPrincipalId: string | null;
+  readonly revokedAt: string | null;
 }
 
 /** The id a minted stub token is given. Uuid-shaped, for the reason `createdId` gives. */
@@ -353,6 +403,9 @@ export interface StubWrites {
 
 export function stubCoreApi(options: StubOptions = {}): StubWrites {
   const {
+    workspaces = [STUB_WORKSPACE],
+    workspacesFail = false,
+    workspacesPartial = false,
     isTenantAdministrator = false,
     displayName = 'Test Person',
     email = 'test@example.test',
@@ -362,7 +415,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     tokensFail = false,
     createTokenProblem,
     members = [],
+    invitations = [],
     membersFail = false,
+    invitationsFail = false,
+    memberMutationFails = false,
+    leaveFails = false,
     treeFails = false,
     searchFails = false,
     backlinksFail = false,
@@ -401,6 +458,15 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // follow it - a stub whose POST returns an item that the next GET has never heard of tests the
   // opposite of what a creation test means to.
   const known = [...items];
+  let knownWorkspaces = [...workspaces];
+  let heldMembers = members.map((member) => ({
+    ...member,
+    email: member.email ?? null,
+    canChangeRole: member.canChangeRole ?? true,
+    canRemove: member.canRemove ?? true,
+    assignableRoles: member.assignableRoles ?? ['owner', 'editor', 'viewer'],
+  }));
+  let heldInvitations = [...invitations];
   let knownTemplates = [...templates];
   let exportedTemplate: StubTemplate | null = null;
   const templateDrafts = new Map<
@@ -480,15 +546,170 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
   vi.stubGlobal(
     'fetch',
-    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
+      const requestHeaders = new Headers(init?.headers ?? request?.headers);
+      const requestBody =
+        init?.body ??
+        (request === null || method === 'GET' || method === 'HEAD'
+          ? undefined
+          : requestHeaders.get('content-type')?.includes('application/json') === true
+            ? await request.clone().text()
+            : await request.clone().blob());
+      const parsedUrl = new URL(url, globalThis.location.origin);
+
+      if (parsedUrl.pathname === '/api/v1/workspaces' && method === 'GET') {
+        if (workspacesPartial) {
+          return Promise.resolve(
+            parsedUrl.searchParams.has('cursor')
+              ? json({ detail: 'The remaining workspaces could not be loaded.' }, 500)
+              : json({ items: knownWorkspaces.slice(0, 1), nextCursor: 'next-page' }),
+          );
+        }
+        return Promise.resolve(
+          workspacesFail
+            ? json({ code: 'workspaces.unavailable' }, 500)
+            : json({ items: knownWorkspaces, nextCursor: null }),
+        );
+      }
+
+      if (parsedUrl.pathname === '/api/v1/workspaces' && method === 'POST') {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          name?: string;
+        };
+        const created: StubWorkspace = {
+          ...STUB_WORKSPACE,
+          id: `eeeeeeee-0000-4000-8000-${String(knownWorkspaces.length + 1).padStart(12, '0')}`,
+          name: body.name ?? 'Untitled workspace',
+          kind: 'shared',
+          canLeave: false,
+        };
+        knownWorkspaces.push(created);
+        return Promise.resolve(json(created, 201));
+      }
+
+      const workspaceDetail = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})$/.exec(parsedUrl.pathname);
+      if (workspaceDetail !== null && method === 'GET') {
+        const workspace = knownWorkspaces.find((entry) => entry.id === workspaceDetail[1]);
+        return Promise.resolve(
+          workspace === undefined ? json({ code: 'workspaces.not_found' }, 404) : json(workspace),
+        );
+      }
+      if (workspaceDetail !== null && method === 'PATCH') {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          name?: string;
+        };
+        const workspace = knownWorkspaces.find((entry) => entry.id === workspaceDetail[1]);
+        if (workspace === undefined) {
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        }
+        const renamed = { ...workspace, name: body.name ?? workspace.name };
+        knownWorkspaces = knownWorkspaces.map((entry) =>
+          entry.id === renamed.id ? renamed : entry,
+        );
+        return Promise.resolve(json(renamed));
+      }
+
+      const leaveWorkspace = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/leave$/.exec(
+        parsedUrl.pathname,
+      );
+      if (leaveWorkspace !== null && method === 'POST') {
+        if (leaveFails) {
+          return Promise.resolve(json({ detail: 'The workspace could not be left.' }, 409));
+        }
+        knownWorkspaces = knownWorkspaces.filter((entry) => entry.id !== leaveWorkspace[1]);
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      const invitationList = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/invitations$/.exec(
+        parsedUrl.pathname,
+      );
+      if (invitationList !== null && method === 'GET') {
+        return Promise.resolve(
+          invitationsFail
+            ? json({ detail: 'Workspace invitations could not be loaded.' }, 500)
+            : json({ items: heldInvitations, nextCursor: null }),
+        );
+      }
+      if (invitationList !== null && method === 'POST') {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          email?: string;
+          role?: 'owner' | 'editor' | 'viewer';
+        };
+        const created: StubInvitation = {
+          id: `ffffffff-0000-4000-8000-${String(heldInvitations.length + 1).padStart(12, '0')}`,
+          emailNormalized: (body.email ?? '').trim().toLocaleLowerCase(),
+          role: body.role ?? 'viewer',
+          status: 'pending',
+          invitedByPrincipalId: '1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b',
+          invitedAt: '2026-08-30T09:00:00.000Z',
+          acceptedAt: null,
+          acceptedByPrincipalId: null,
+          revokedAt: null,
+        };
+        heldInvitations.push(created);
+        return Promise.resolve(json(created, 201));
+      }
+
+      const invitationDetail =
+        /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/invitations\/([0-9a-f-]{36})$/.exec(
+          parsedUrl.pathname,
+        );
+      if (invitationDetail !== null && method === 'DELETE') {
+        heldInvitations = heldInvitations.map((entry) =>
+          entry.id === invitationDetail[1]
+            ? { ...entry, status: 'revoked', revokedAt: '2026-08-30T10:00:00.000Z' }
+            : entry,
+        );
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      const memberDetail = /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/members\/([0-9a-f-]{36})$/.exec(
+        parsedUrl.pathname,
+      );
+      if (memberDetail !== null && method === 'PATCH') {
+        if (memberMutationFails) {
+          return Promise.resolve(json({ detail: 'The member change was refused.' }, 409));
+        }
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          role?: string;
+        };
+        heldMembers = heldMembers.map((entry) =>
+          entry.subjectId === memberDetail[1] ? { ...entry, role: body.role ?? entry.role } : entry,
+        );
+        const changed = heldMembers.find((entry) => entry.subjectId === memberDetail[1]);
+        return Promise.resolve(
+          changed === undefined ? json({ code: 'members.not_found' }, 404) : json(changed),
+        );
+      }
+      if (memberDetail !== null && method === 'DELETE') {
+        if (memberMutationFails) {
+          return Promise.resolve(json({ detail: 'The member could not be removed.' }, 409));
+        }
+        heldMembers = heldMembers.filter((entry) => entry.subjectId !== memberDetail[1]);
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      const dailyNote =
+        /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/daily-notes\/(\d{4}-\d{2}-\d{2})$/.exec(
+          parsedUrl.pathname,
+        );
+      if (dailyNote !== null && method === 'PUT') {
+        const date = dailyNote[2] ?? '';
+        const existing = known.find((entry) => entry.title === date);
+        if (existing !== undefined) return Promise.resolve(json({ itemId: existing.id }));
+        const created = item({ id: createdId(known.length), title: date });
+        known.push(created);
+        return Promise.resolve(json({ itemId: created.id }));
+      }
 
       // Rescheduling from the collated calendar. The stub records what was written so a test can
       // assert the *value*, which is the whole risk in a drag: the day is easy and the time is not.
       const propertyWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/properties$/.exec(url);
       if (propertyWrite !== null && method === 'PATCH') {
-        const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        const body: unknown = typeof requestBody === 'string' ? JSON.parse(requestBody) : {};
         const written =
           typeof body === 'object' && body !== null && 'properties' in body
             ? (body.properties as Record<string, unknown>)
@@ -555,7 +776,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             );
           }
 
-          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
             name?: string;
             scopes?: readonly string[];
             expiresInDays?: number;
@@ -589,11 +810,14 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
       // The workspace's members. One page with no cursor: pagination is the reader's concern and
       // walking it is covered by the page shape, not by this stub growing pages.
-      if (/\/api\/v1\/workspaces\/[0-9a-f-]{36}\/members/.test(url)) {
+      if (
+        /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/members$/.test(parsedUrl.pathname) &&
+        method === 'GET'
+      ) {
         return Promise.resolve(
           membersFail
             ? json({ code: 'workspaces.not_found' }, 404)
-            : json({ items: members, nextCursor: null }),
+            : json({ items: heldMembers, nextCursor: null }),
         );
       }
 
@@ -630,7 +854,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       const templatePreflight = /\/api\/v1\/templates\/([0-9a-f-]{36})\/preflight$/.exec(url);
       if (templatePreflight !== null && method === 'POST') {
         const template = knownTemplates.find((candidate) => candidate.id === templatePreflight[1]);
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
           string,
           unknown
         > & { mode?: 'merge' | 'create' };
@@ -681,7 +905,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         const operationId = templateDraftItem[2] ?? '';
         const draft = templateDrafts.get(operationId);
         if (draft === undefined) return Promise.resolve(json({}, 404));
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
           string,
           unknown
         >;
@@ -722,7 +946,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           method === 'PATCH'
             ? {
                 ...draft,
-                ...(JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+                ...(JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
                   title?: string;
                   description?: string | null;
                 }),
@@ -804,7 +1028,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       if (url.endsWith('/collab/templates/captures') && method === 'POST') {
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
           title?: string;
           description?: string | null;
           workspaceId?: string;
@@ -869,7 +1093,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       if (url.endsWith('/collab/templates/applications') && method === 'POST') {
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
           string,
           unknown
         > & {
@@ -907,7 +1131,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       if (url.includes('/media/templates/preview') && method === 'POST') {
-        if (init?.body instanceof Blob) templatePreviewBodies.push(init.body);
+        if (requestBody instanceof Blob) templatePreviewBodies.push(requestBody);
         return Promise.resolve(
           json({
             profile: {
@@ -929,11 +1153,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       if (url.includes('/media/templates/commit') && method === 'POST') {
-        const expectedDigest = new Headers(init?.headers).get('x-nix-template-digest') ?? '';
-        const idempotencyKey = new Headers(init?.headers).get('x-idempotency-key') ?? '';
+        const expectedDigest = requestHeaders.get('x-nix-template-digest') ?? '';
+        const idempotencyKey = requestHeaders.get('x-idempotency-key') ?? '';
         templateImportWrites.push(expectedDigest);
         templateImportIdempotencyKeys.push(idempotencyKey);
-        if (init?.body instanceof Blob) templateImportBodies.push(init.body);
+        if (requestBody instanceof Blob) templateImportBodies.push(requestBody);
         if (templateDuplicateResponseLostOnce && templateImportWrites.length === 1) {
           return Promise.reject(new TypeError('The response was lost.'));
         }
@@ -1022,7 +1246,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         const id = viewsFor[1] ?? '';
 
         if (method === 'PUT') {
-          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
             views?: readonly unknown[];
             default?: string | null;
           };
@@ -1048,7 +1272,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         const id = schemaFor[1] ?? '';
 
         if (method === 'PUT') {
-          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
             properties?: readonly unknown[];
             inherit?: boolean;
           };
@@ -1069,7 +1293,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       const appendSetupFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/view-setups$/.exec(url);
       if (appendSetupFor !== null && method === 'POST') {
         const id = appendSetupFor[1] ?? '';
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
           properties?: readonly unknown[];
           views?: readonly unknown[];
           makeDefault?: boolean;
@@ -1094,7 +1318,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
               ? ((addedViews[0] as { id?: string }).id ?? currentViews.default)
               : currentViews.default,
         };
-        return Promise.resolve(json({}));
+        const configured = known.find((candidate) => candidate.id === id);
+        return Promise.resolve(
+          configured === undefined
+            ? json({ detail: 'The item could not be found.' }, 404)
+            : json({ item: configured, publicForm: null }),
+        );
       }
 
       // Undoing a delete. Answered from the same `known` list a delete never actually removes an
@@ -1116,6 +1345,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         if (method === 'DELETE' && removeFails) {
           return Promise.resolve(json({ detail: 'The item could not be deleted.' }, 500));
         }
+        if (method === 'DELETE') {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
         const found = known.find((candidate) => candidate.id === single[1]);
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
       }
@@ -1128,7 +1360,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           return Promise.resolve(json({ detail: createRefusal }, 422));
         }
 
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
           title?: string;
           type?: string;
           parentId?: string | null;
@@ -1169,7 +1401,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
         // `BodyInit` is a union that includes Blob and FormData, neither of which stringifies to
         // anything useful. Every caller here sends JSON text, so narrowing to it says so.
-        const raw = typeof init?.body === 'string' ? init.body : '{}';
+        const raw = typeof requestBody === 'string' ? requestBody : '{}';
         const body = JSON.parse(raw) as {
           title?: string;
           type?: string;
@@ -1230,7 +1462,16 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         }
 
         if (graphFails) {
-          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Workspace not found',
+                status: 404,
+                code: 'workspaces.not_found',
+              }),
+              { status: 404, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
         }
 
         return Promise.resolve(
@@ -1312,7 +1553,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         // children and a request naming none gets the roots.
         const parent = /parentId=([^&]+)/.exec(url)?.[1] ?? null;
         return Promise.resolve(
-          json({ items: known.filter((candidate) => candidate.parentId === parent) }),
+          json({
+            items: known.filter((candidate) => candidate.parentId === parent),
+            nextCursor: null,
+          }),
         );
       }
 
@@ -1335,9 +1579,15 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 }
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+  const responseBody =
+    status >= 400 && typeof body === 'object' && body !== null
+      ? { title: 'Request failed', status, code: 'test.refused', ...body }
+      : body;
+  return new Response(JSON.stringify(responseBody), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': status >= 400 ? 'application/problem+json' : 'application/json',
+    },
   });
 }
 

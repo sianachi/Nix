@@ -6,6 +6,7 @@ import { Link } from 'react-router';
 import { useAuth } from '../auth/auth-provider';
 import { ThemeChoice } from '../theme/theme-choice';
 import type { CurrentPrincipalState } from '../session/use-current-principal';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * The profile menu, top right: who you are, and the things that belong to you rather than to the
@@ -18,6 +19,7 @@ export interface ProfileMenuProps {
 
 export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
   const { signOut } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -107,7 +109,7 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
               address. */}
           <Link
             role="menuitem"
-            to="/settings"
+            to={`/w/${workspaceId}/settings`}
             onClick={() => {
               setOpen(false);
             }}

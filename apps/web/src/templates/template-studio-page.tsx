@@ -40,7 +40,8 @@ import {
   type TemplateItemEdit,
   type TemplateItemEdits,
 } from './template-draft-editor';
-import { TEMPLATE_WORKSPACE_ID, templateFailure } from './use-templates';
+import { templateFailure } from './use-templates';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 type StudioMode = 'capture' | 'create' | 'apply' | 'edit';
 
@@ -134,8 +135,8 @@ function draftScope(
   return `template:${templateId ?? 'missing'}`;
 }
 
-function storageKey(mode: StudioMode, scope: string): string {
-  return `nix:template-studio:${mode}:${scope}`;
+function storageKey(workspaceId: string, mode: StudioMode, scope: string): string {
+  return `nix:template-studio:${workspaceId}:${mode}:${scope}`;
 }
 
 function distinctViewKinds(views: readonly View[]): readonly string[] {
@@ -191,6 +192,7 @@ export function TemplateStudioPage(): ReactNode {
 }
 
 function TemplateStudio(): ReactNode {
+  const { workspaceId } = useWorkspace();
   const { templateId, itemId } = useParams();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -198,7 +200,7 @@ function TemplateStudio(): ReactNode {
   const parentItemId = searchParams.get('parent');
   const mode = modeFromPath(location.pathname);
   const scope = draftScope(mode, templateId, sourceItemId, itemId, parentItemId);
-  const key = storageKey(mode, scope);
+  const key = storageKey(workspaceId, mode, scope);
   const { tree } = useOutletContext<ShellContext>();
   const templateLibrary = useTemplateLibrary();
   const templateCapabilities = templateLibrary.capabilities;
@@ -232,6 +234,14 @@ function TemplateStudio(): ReactNode {
   const [bodySync, setBodySync] = useState<CollabSync | null>(null);
   const stepMainRef = useRef<HTMLElement>(null);
   const previousStep = useRef(step);
+  const activeOperation = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      activeOperation.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (mode === 'capture' || templateId === undefined) return;
@@ -239,6 +249,7 @@ function TemplateStudio(): ReactNode {
     void (async () => {
       try {
         const loaded = await client.query(templateById(templateId), { signal: controller.signal });
+        if (controller.signal.aborted) return;
         setTemplate(loaded);
         let loadedEditDraft: TemplateEditDraft | null = null;
         if (mode === 'edit') {
@@ -374,7 +385,7 @@ function TemplateStudio(): ReactNode {
         title="Template unavailable"
         detail={error ?? 'This template no longer exists.'}
       >
-        <Button variant="secondary" onClick={() => void navigate('/templates')}>
+        <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
           Back to templates
         </Button>
       </StudioNotice>
@@ -423,7 +434,7 @@ function TemplateStudio(): ReactNode {
         title="Template use unavailable"
         detail="You can preview and download this template, but you cannot apply it in this workspace."
       >
-        <Button variant="secondary" onClick={() => void navigate('/templates')}>
+        <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
           Back to templates
         </Button>
       </StudioNotice>
@@ -436,7 +447,7 @@ function TemplateStudio(): ReactNode {
         title="Managed template"
         detail="Built-in and file-managed templates are read-only. Use one to create an editable workspace item; the library template stays unchanged."
       >
-        <Button variant="secondary" onClick={() => void navigate('/templates')}>
+        <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
           Back to templates
         </Button>
       </StudioNotice>
@@ -456,7 +467,7 @@ function TemplateStudio(): ReactNode {
           >
             Try again
           </Button>
-          <Button variant="secondary" onClick={() => void navigate('/templates')}>
+          <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
             Back to templates
           </Button>
         </div>
@@ -504,7 +515,7 @@ function TemplateStudio(): ReactNode {
             variant="secondary"
             onClick={() => {
               browserSessionStorage()?.removeItem(key);
-              void navigate('/templates');
+              void navigate(`/w/${workspaceId}/templates`);
             }}
           >
             Discard local recovery
@@ -545,6 +556,9 @@ function TemplateStudio(): ReactNode {
     if ((mode !== 'create' && mode !== 'apply') || templateId === undefined) return true;
     setWorking(true);
     setError(null);
+    activeOperation.current?.abort();
+    const controller = new AbortController();
+    activeOperation.current = controller;
     try {
       const result = await client.execute(
         preflightTemplate(templateId, {
@@ -552,7 +566,9 @@ function TemplateStudio(): ReactNode {
           ...(mode === 'apply' && itemId !== undefined ? { targetItemId: itemId } : {}),
           ...(mode === 'create' ? { parentItemId, title: draft.title.trim() } : {}),
         }),
+        { signal: controller.signal },
       );
+      if (controller.signal.aborted || activeOperation.current !== controller) return false;
       setPreflight(result);
       if (!result.canApply) {
         setError(
@@ -562,10 +578,14 @@ function TemplateStudio(): ReactNode {
       }
       return result.canApply;
     } catch (reason) {
+      if (controller.signal.aborted || isCanceledError(reason)) return false;
       setError(templateFailure(reason, 'This template could not be checked.'));
       return false;
     } finally {
-      setWorking(false);
+      if (activeOperation.current === controller) {
+        activeOperation.current = null;
+        setWorking(false);
+      }
     }
   }
 
@@ -576,11 +596,14 @@ function TemplateStudio(): ReactNode {
     }
     setWorking(true);
     setError(null);
+    activeOperation.current?.abort();
+    const controller = new AbortController();
+    activeOperation.current = controller;
     try {
       if (mode === 'capture' && sourceItemId !== null) {
         await client.execute(
           captureTemplate({
-            workspaceId: TEMPLATE_WORKSPACE_ID,
+            workspaceId,
             sourceItemId,
             title: draft.title.trim(),
             description: draft.description.trim() || null,
@@ -588,8 +611,10 @@ function TemplateStudio(): ReactNode {
             includeChildren: draft.includeChildren,
             idempotencyKey: draft.idempotencyKey,
           }),
+          { signal: controller.signal },
         );
-        complete('/templates');
+        if (controller.signal.aborted || activeOperation.current !== controller) return;
+        complete(`/w/${workspaceId}/templates`);
         return;
       }
 
@@ -606,6 +631,7 @@ function TemplateStudio(): ReactNode {
             title: draft.title.trim(),
             description: draft.description.trim() || null,
           }),
+          { signal: controller.signal },
         );
         for (const [sourceId, itemEdit] of Object.entries(draft.itemEdits)) {
           await client.execute(
@@ -614,10 +640,15 @@ function TemplateStudio(): ReactNode {
               schema: itemEdit.schema ?? null,
               views: itemEdit.views ?? null,
             }),
+            { signal: controller.signal },
           );
+          if (controller.signal.aborted || activeOperation.current !== controller) return;
         }
-        await client.execute(saveTemplateEditDraft(template, editOperation.operationId));
-        complete('/templates');
+        await client.execute(saveTemplateEditDraft(template, editOperation.operationId), {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || activeOperation.current !== controller) return;
+        complete(`/w/${workspaceId}/templates`);
         return;
       }
 
@@ -630,13 +661,19 @@ function TemplateStudio(): ReactNode {
             ...(mode === 'create' ? { parentItemId, title: draft.title.trim() } : {}),
             idempotencyKey: draft.idempotencyKey,
           }),
+          { signal: controller.signal },
         );
-        complete(`/?item=${encodeURIComponent(result.targetItemId)}`);
+        if (controller.signal.aborted || activeOperation.current !== controller) return;
+        complete(`/w/${workspaceId}?item=${encodeURIComponent(result.targetItemId)}`);
       }
     } catch (reason) {
+      if (controller.signal.aborted || isCanceledError(reason)) return;
       setError(templateFailure(reason, 'This template could not be saved.'));
     } finally {
-      setWorking(false);
+      if (activeOperation.current === controller) {
+        activeOperation.current = null;
+        setWorking(false);
+      }
     }
   }
 

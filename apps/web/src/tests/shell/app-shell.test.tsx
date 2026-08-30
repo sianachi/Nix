@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
+import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
 
 /**
@@ -68,7 +69,8 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    expect(await screen.findByRole('main')).toHaveClass('isolate');
+    await screen.findByRole('button', { name: 'Acquisition memo' });
+    expect(screen.getByRole('main')).toHaveClass('isolate');
   });
 
   it('keeps the workspace tree on screen rather than inside one page', async () => {
@@ -79,12 +81,23 @@ describe('the shell', () => {
     expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
   });
 
+  it('keeps the workspace and search controls shrinkable on a narrow screen', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: /show the workspace tree/i });
+    expect(screen.getByRole('banner')).toHaveClass('min-w-0', 'px-2');
+    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveClass('min-w-0', 'w-full');
+    expect(screen.getByRole('button', { name: 'Search' })).toHaveClass('shrink-0', 'px-2');
+  });
+
   it('opens search over whatever is on screen, from a control that is always there', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
 
     expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
   });
@@ -94,6 +107,7 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
+    await screen.findByRole('button', { name: /^search/i });
     await user.keyboard('{Control>}k{/Control}');
 
     expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
@@ -130,7 +144,7 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
     await user.keyboard('{Escape}');
 
     await waitFor(() => {
@@ -173,7 +187,7 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE], searchFails: true });
     renderAt(<App />);
 
-    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
     await user.type(screen.getByRole('combobox', { name: /search items/i }), 'acquisition');
 
     expect(await screen.findByText(/could not be run/i)).toBeVisible();
@@ -184,7 +198,7 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
     await user.type(screen.getByRole('combobox', { name: /search items/i }), 'note');
 
     // One list, ordered commands then items, so a single run of arrow keys walks the whole answer.
@@ -196,7 +210,7 @@ describe('the shell', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
 
-    await user.click(screen.getByRole('button', { name: /^search/i }));
+    await user.click(await screen.findByRole('button', { name: /^search/i }));
     await user.type(screen.getByRole('combobox', { name: /search items/i }), 'note');
     await user.click(await screen.findByRole('option', { name: /New note/ }));
 

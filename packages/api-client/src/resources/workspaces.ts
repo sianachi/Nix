@@ -26,10 +26,15 @@ import {
   type WorkspaceMember,
 } from '../schemas/index.js';
 import { cursorPageSchema, type CursorPage } from '../schemas/pagination.js';
-import type { components } from '../generated/api.js';
+import type {
+  ChangeWorkspaceMemberRoleRequestContract,
+  CreateWorkspaceInvitationRequestContract,
+  CreateWorkspaceRequestContract,
+  RecoverWorkspaceRequestContract,
+  RenameWorkspaceRequestContract,
+} from '../contracts.js';
 
-export type AssignableWorkspaceRole =
-  components['schemas']['ChangeWorkspaceMemberRoleRequest']['role'];
+export type AssignableWorkspaceRole = ChangeWorkspaceMemberRoleRequestContract['role'];
 
 export interface WorkspacePageOptions {
   readonly cursor?: string | undefined;
@@ -69,7 +74,7 @@ export const createWorkspace = (name: string): CommandEndpoint<Workspace> =>
     operation: 'workspaces.create',
     method: 'POST',
     path: '/api/v1/workspaces',
-    body: { name },
+    body: { name } satisfies CreateWorkspaceRequestContract,
     schema: workspaceSchema,
     invalidates: [workspaceListKey],
   });
@@ -78,7 +83,7 @@ export const renameWorkspace = (workspaceId: string, name: string): CommandEndpo
     operation: 'workspaces.rename',
     method: 'PATCH',
     path: `/api/v1/workspaces/${workspaceId}`,
-    body: { name },
+    body: { name } satisfies RenameWorkspaceRequestContract,
     schema: workspaceSchema,
     invalidates: [workspaceListKey, ['workspaces', workspaceId]],
   });
@@ -107,7 +112,7 @@ export const changeMemberRole = (
     operation: 'workspaces.members.change',
     method: 'PATCH',
     path: `/api/v1/workspaces/${workspaceId}/members/${principalId}`,
-    body: { role },
+    body: { role } satisfies ChangeWorkspaceMemberRoleRequestContract,
     schema: workspaceMemberSchema,
     invalidates: [['workspaces', workspaceId, 'members']],
   });
@@ -138,7 +143,7 @@ export const recoverWorkspace = (
     operation: 'workspaces.recover',
     method: 'POST',
     path: `/api/v1/workspaces/${workspaceId}/recover`,
-    body: { newOwnerPrincipalId },
+    body: { newOwnerPrincipalId } satisfies RecoverWorkspaceRequestContract,
     schema: workspaceSchema,
     invalidates: [workspaceListKey, ['workspaces', workspaceId]],
   });
@@ -167,7 +172,7 @@ export const createInvitation = (
     operation: 'workspaces.invitations.create',
     method: 'POST',
     path: `/api/v1/workspaces/${workspaceId}/invitations`,
-    body: { email, role },
+    body: { email, role } satisfies CreateWorkspaceInvitationRequestContract,
     schema: workspaceInvitationSchema,
     invalidates: [
       ['workspaces', workspaceId, 'invitations'],

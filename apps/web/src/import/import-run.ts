@@ -19,20 +19,6 @@ import type { MarkdownImportScan } from '@nix/markdown/scan';
 import { writeImportedBody } from './note-body-writer';
 import type { PlannedNode } from './import-plan';
 
-/**
- * The workspace the shell is scoped to - the same environment read, with the same fallback, as
- * `use-workspace-tree.ts`, which keeps its copy module-private. Real switching arrives with the
- * workspace picker, and every one of these reads collapses into it then.
- */
-function readWorkspaceId(): string {
-  const configured: unknown = import.meta.env.VITE_WORKSPACE_ID;
-  return typeof configured === 'string' && configured.length > 0
-    ? configured
-    : 'a1000000-0000-4000-8000-000000000001';
-}
-
-const WORKSPACE_ID = readWorkspaceId();
-
 export interface CreatedRow {
   readonly path: string;
   readonly itemId: string;
@@ -66,6 +52,7 @@ export interface ImportRunReport {
 }
 
 export interface ImportRunRequest {
+  readonly workspaceId: string;
   readonly plan: PlannedNode;
   /** The item the import goes under; null for the workspace root. */
   readonly parentId: string | null;
@@ -85,7 +72,7 @@ export interface ImportRunRequest {
  * escaping this function is a bug, not a case.
  */
 export async function runImportPlan(request: ImportRunRequest): Promise<ImportRunReport> {
-  const { plan, parentId, client, getAccessToken, onProgress, signal } = request;
+  const { plan, parentId, client, getAccessToken, onProgress, signal, workspaceId } = request;
 
   const created: CreatedRow[] = [];
   const failed: PathReasonRow[] = [];
@@ -149,7 +136,7 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
       // cheap invalidation walks and no refetches - if a tree subscriber ever appears, this loop
       // is the first place to revisit.
       const item = await client.execute(
-        items.createItem(WORKSPACE_ID, {
+        items.createItem(workspaceId, {
           type: 'note',
           title: next.node.title,
           ...(next.parentId !== null ? { parentId: next.parentId } : {}),
@@ -268,12 +255,13 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
 /** Soft-deletes the import's root container - the undo the report offers. */
 export async function undoImport(
   client: NixClient,
+  workspaceId: string,
   rootItemId: string,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     await client.execute(
-      items.deleteItem(WORKSPACE_ID, rootItemId),
+      items.deleteItem(workspaceId, rootItemId),
       signal === undefined ? undefined : { signal },
     );
     return { ok: true };

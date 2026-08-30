@@ -1,0 +1,176 @@
+import { Button } from '@nix/ui';
+import type { ReactNode } from 'react';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
+
+import {
+  EmptyPanel,
+  ErrorPanel,
+  LoadingPanel,
+  PartialNotice,
+} from '../components/states/status-panels';
+import { readLastWorkspaceId } from './last-workspace';
+import { useAccessibleWorkspaces, WorkspaceProvider } from './workspace-context';
+
+const INDEPENDENT_QUERY = /^(?:state|grain|on|notes|q)$/;
+const RESOURCE_QUERY =
+  /^(?:item\d*|view\d*|mode\d*|sort\d*|dir\d*|filter(?:\.|\d)|split|sizes|parent|target|sourceItem)$/;
+
+export function safeLegacySearch(search: string, preserveResources: boolean): string {
+  const params = new URLSearchParams(search);
+  for (const name of [...params.keys()]) {
+    if (!INDEPENDENT_QUERY.test(name) && !(preserveResources && RESOURCE_QUERY.test(name))) {
+      params.delete(name);
+    }
+  }
+  const value = params.toString();
+  return value.length === 0 ? '' : `?${value}`;
+}
+
+function WorkspaceStateFrame({ children }: { readonly children: ReactNode }): ReactNode {
+  return <main className="mx-auto flex min-h-dvh max-w-3xl items-center p-6">{children}</main>;
+}
+
+export function LegacyWorkspaceRedirect(): ReactNode {
+  const state = useAccessibleWorkspaces();
+  const location = useLocation();
+
+  if (state.status === 'loading') {
+    return (
+      <WorkspaceStateFrame>
+        <LoadingPanel label="your workspaces" />
+      </WorkspaceStateFrame>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <WorkspaceStateFrame>
+        <ErrorPanel
+          title="Your workspaces could not be loaded"
+          detail={state.error ?? 'Try again.'}
+          action={
+            <Button variant="secondary" onClick={state.reload}>
+              Try again
+            </Button>
+          }
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+  if (state.status === 'empty') {
+    return (
+      <WorkspaceStateFrame>
+        <EmptyPanel
+          title="No workspace is available"
+          detail="Your account is active, but no workspace is available yet. Ask a tenant administrator to check provisioning."
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+
+  const remembered = readLastWorkspaceId();
+  const rememberedWorkspace = state.workspaces.find((workspace) => workspace.id === remembered);
+  const selected =
+    rememberedWorkspace ??
+    state.workspaces.find((workspace) => workspace.kind === 'personal') ??
+    state.workspaces[0];
+  if (selected === undefined) return null;
+
+  const suffix = location.pathname === '/' ? '' : location.pathname;
+  return (
+    <Navigate
+      replace
+      to={`/w/${selected.id}${suffix}${safeLegacySearch(location.search, rememberedWorkspace !== undefined)}${location.hash}`}
+    />
+  );
+}
+
+export function WorkspaceGate({ children }: { readonly children: ReactNode }): ReactNode {
+  const state = useAccessibleWorkspaces();
+  const { workspaceId = '' } = useParams();
+  const navigate = useNavigate();
+
+  if (state.status === 'loading') {
+    return (
+      <WorkspaceStateFrame>
+        <LoadingPanel label="this workspace" />
+      </WorkspaceStateFrame>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <WorkspaceStateFrame>
+        <ErrorPanel
+          title="This workspace could not be opened"
+          detail={state.error ?? 'Try again.'}
+          action={
+            <Button variant="secondary" onClick={state.reload}>
+              Try again
+            </Button>
+          }
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+  if (state.status === 'empty') {
+    return (
+      <WorkspaceStateFrame>
+        <EmptyPanel
+          title="No workspace is available"
+          detail="Your account is active, but no workspace is available yet. Ask a tenant administrator to check provisioning."
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+
+  const current = state.workspaces.find((workspace) => workspace.id === workspaceId);
+  if (current === undefined) {
+    if (state.status === 'partial') {
+      return (
+        <WorkspaceStateFrame>
+          <ErrorPanel
+            title="Workspace access could not be checked"
+            detail="The accessible workspace list is incomplete, so Nix cannot yet tell whether this workspace is available."
+            action={
+              <Button variant="secondary" onClick={state.reload}>
+                Try again
+              </Button>
+            }
+          />
+        </WorkspaceStateFrame>
+      );
+    }
+    const fallback =
+      state.workspaces.find((workspace) => workspace.kind === 'personal') ?? state.workspaces[0];
+    return (
+      <WorkspaceStateFrame>
+        <ErrorPanel
+          title="Workspace not found"
+          detail="This workspace is unavailable or you do not have access to it."
+          action={
+            fallback === undefined ? undefined : (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void navigate(`/w/${fallback.id}`);
+                }}
+              >
+                Switch workspace
+              </Button>
+            )
+          }
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+
+  return (
+    <WorkspaceProvider key={current.id} state={state}>
+      {state.status === 'partial' ? (
+        <div className="fixed right-4 top-4 z-50 max-w-lg">
+          <PartialNotice pending={state.error ?? 'The workspace list may be incomplete.'} />
+        </div>
+      ) : null}
+      {children}
+    </WorkspaceProvider>
+  );
+}

@@ -1,7 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import { useWorkspaceCalendar } from '../../calendar/use-workspace-calendar';
+import { WorkspaceProvider } from '../../workspaces/workspace-context';
+import { item, STUB_WORKSPACE } from '../api-stub';
 
 /**
  * Creating a dated entry from the collated calendar.
@@ -65,10 +70,46 @@ function calendarResponse(): Record<string, unknown> {
 }
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+  const responseBody =
+    status >= 400 && typeof body === 'object' && body !== null
+      ? { title: 'Request failed', status, code: 'test.refused', ...body }
+      : body;
+  return new Response(JSON.stringify(responseBody), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': status >= 400 ? 'application/problem+json' : 'application/json',
+    },
   });
+}
+
+function Wrapper({ children }: { readonly children: ReactNode }): ReactNode {
+  return createElement(
+    MemoryRouter,
+    { initialEntries: [`/w/${STUB_WORKSPACE.id}`] },
+    createElement(
+      ApiClientProvider,
+      null,
+      createElement(
+        Routes,
+        null,
+        createElement(Route, {
+          path: '/w/:workspaceId',
+          element: createElement(WorkspaceProvider, {
+            state: {
+              status: 'ready',
+              workspaces: [STUB_WORKSPACE],
+              error: null,
+              reload: () => undefined,
+              workspaceCreated: () => undefined,
+              workspaceUpdated: () => undefined,
+              workspaceRemoved: () => undefined,
+            },
+            children,
+          }),
+        }),
+      ),
+    ),
+  );
 }
 
 interface FetchStubOptions {
@@ -81,6 +122,7 @@ interface FetchStubOptions {
 
 interface FetchStub {
   readonly propertyWrites: { itemId: string; properties: Record<string, unknown> }[];
+  readonly itemWrites: Record<string, unknown>[];
   readonly viewsRequested: string[];
 }
 
@@ -94,13 +136,20 @@ function stubFetch(options: FetchStubOptions = {}): FetchStub {
   } = options;
 
   const propertyWrites: { itemId: string; properties: Record<string, unknown> }[] = [];
+  const itemWrites: Record<string, unknown>[] = [];
   const viewsRequested: string[] = [];
 
   vi.stubGlobal(
     'fetch',
-    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
+      const requestBody =
+        init?.body ??
+        (request === null || method === 'GET' || method === 'HEAD'
+          ? undefined
+          : await request.clone().text());
 
       const viewsFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/views$/.exec(url);
       if (viewsFor !== null) {
@@ -110,7 +159,7 @@ function stubFetch(options: FetchStubOptions = {}): FetchStub {
 
       const propertiesFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/properties$/.exec(url);
       if (propertiesFor !== null && method === 'PATCH') {
-        const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
           properties: Record<string, unknown>;
         };
         propertyWrites.push({ itemId: propertiesFor[1] ?? '', properties: body.properties });
@@ -122,8 +171,18 @@ function stubFetch(options: FetchStubOptions = {}): FetchStub {
       }
 
       if (method === 'POST' && /\/api\/v1\/workspaces\/[0-9a-f-]{36}\/items$/.test(url)) {
+        itemWrites.push(
+          JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
+            string,
+            unknown
+          >,
+        );
         return Promise.resolve(
-          json(createBody ?? { id: CREATED_ID, title: 'Untitled' }, createStatus),
+          json(
+            createBody ??
+              item({ id: CREATED_ID, workspaceId: STUB_WORKSPACE.id, title: 'Untitled' }),
+            createStatus,
+          ),
         );
       }
 
@@ -135,7 +194,7 @@ function stubFetch(options: FetchStubOptions = {}): FetchStub {
     }),
   );
 
-  return { propertyWrites, viewsRequested };
+  return { propertyWrites, itemWrites, viewsRequested };
 }
 
 afterEach(() => {
@@ -145,7 +204,9 @@ afterEach(() => {
 describe('creating a dated entry', () => {
   it("writes the new item's date to the chosen container's own date property", async () => {
     const stub = stubFetch({ views: viewsResponse('due') });
-    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'));
+    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -154,9 +215,8 @@ describe('creating a dated entry', () => {
     const refusal = await result.current.create(CONTAINER_ID, 'Filing deadline', '2026-03-19');
 
     expect(refusal).toBeNull();
-    expect(stub.propertyWrites).toEqual([
-      { itemId: CREATED_ID, properties: { due: '2026-03-19' } },
-    ]);
+    expect(stub.itemWrites).toHaveLength(1);
+    expect(stub.itemWrites[0]?.properties).toEqual({ due: '2026-03-19' });
   });
 
   /**
@@ -166,7 +226,9 @@ describe('creating a dated entry', () => {
    */
   it("resolves the property from the container's own views, not from anything else in reach", async () => {
     const stub = stubFetch({ views: viewsResponse('due') });
-    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'));
+    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -175,12 +237,14 @@ describe('creating a dated entry', () => {
     await result.current.create(CONTAINER_ID, 'Anything', '2026-04-02');
 
     expect(stub.viewsRequested).toContain(CONTAINER_ID);
-    expect(stub.propertyWrites[0]?.properties).toEqual({ due: '2026-04-02' });
+    expect(stub.itemWrites[0]?.properties).toEqual({ due: '2026-04-02' });
   });
 
   it("refuses when the container's calendar no longer names a date property", async () => {
     const stub = stubFetch({ views: viewsResponse(null) });
-    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'));
+    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -198,7 +262,9 @@ describe('creating a dated entry', () => {
       createStatus: 422,
       createBody: { detail: 'A title is required.' },
     });
-    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'));
+    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -214,12 +280,14 @@ describe('creating a dated entry', () => {
    * not read as nothing having happened either - both would be dishonest about what the workspace
    * now holds.
    */
-  it("surfaces the service's own words when the date cannot be saved, and says the item exists", async () => {
+  it("surfaces the service's own words when the atomic dated-item write is refused", async () => {
     stubFetch({
-      propertiesStatus: 422,
-      propertiesBody: { detail: 'due must be a date, not a time.' },
+      createStatus: 422,
+      createBody: { detail: 'due must be a date, not a time.' },
     });
-    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'));
+    const { result } = renderHook(() => useWorkspaceCalendar('2026-03-01', '2026-03-31'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -227,8 +295,6 @@ describe('creating a dated entry', () => {
 
     const refusal = await result.current.create(CONTAINER_ID, 'Filing deadline', '2026-03-19');
 
-    expect(refusal).toContain('Filing deadline');
-    expect(refusal).toContain('was created');
-    expect(refusal).toContain('due must be a date, not a time.');
+    expect(refusal).toBe('due must be a date, not a time.');
   });
 });

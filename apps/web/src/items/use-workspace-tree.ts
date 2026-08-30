@@ -1,7 +1,9 @@
+import { isCanceledError, isNixApiError, items as coreItems, type Item } from '@nix/api-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useAuth } from '../auth/auth-provider';
-import type { PropertyDefinition, View } from '../views/core/container-model';
+import { useApiClient } from '../api/api-client-provider';
+import { toViewRequest, type PropertyDefinition, type View } from '../views/core/container-model';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * The workspace tree: the items, their shape, and the writes the shell performs on them.
@@ -153,40 +155,32 @@ export interface WorkspaceTree {
   readonly reload: () => Promise<void>;
 }
 
-/** The workspace the shell is scoped to. Real switching arrives with the workspace picker. */
-function readWorkspaceId(): string {
-  const configured: unknown = import.meta.env.VITE_WORKSPACE_ID;
-  return typeof configured === 'string' && configured.length > 0
-    ? configured
-    : 'a1000000-0000-4000-8000-000000000001';
-}
-
-const WORKSPACE_ID = readWorkspaceId();
-
-interface ItemPayload {
-  readonly id: string;
-  readonly title: string;
-  readonly type: string;
-  readonly parentId: string | null;
-  readonly hasChildren: boolean;
-  readonly seq: number;
-  readonly lifecycleState: string;
-}
-
-function toItem(payload: ItemPayload): TreeItem {
+function toItem(payload: Item): TreeItem {
   return {
     id: payload.id,
     title: payload.title,
     type: payload.type,
     parentId: payload.parentId,
     hasChildren: payload.hasChildren,
-    seq: payload.seq,
+    seq: Number(payload.seq),
     lifecycleState: payload.lifecycleState,
   };
 }
 
+function apiFailure(reason: unknown, fallback: string): string {
+  return isNixApiError(reason) ? (reason.detail ?? fallback) : fallback;
+}
+
+function requestCanCommit(signal: AbortSignal, mounted: boolean): boolean {
+  return !signal.aborted && mounted;
+}
+
 export function useWorkspaceTree(): WorkspaceTree {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
+  const { workspaceId } = useWorkspace();
+  const activeRequests = useRef(new Set<AbortController>());
+  const activeLoad = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
 
   const [status, setStatus] = useState<TreeStatus>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -206,36 +200,21 @@ export function useWorkspaceTree(): WorkspaceTree {
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const request = useCallback(
-    async (path: string, init?: RequestInit): Promise<Response> => {
-      const token = await getAccessToken();
-      return fetch(path, {
-        ...init,
-        headers: {
-          'content-type': 'application/json',
-          ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        },
-      });
-    },
-    [getAccessToken],
-  );
-
   const fetchChildren = useCallback(
-    async (parentId: string | null): Promise<readonly TreeItem[] | null> => {
-      const query = parentId === null ? '' : `?parentId=${parentId}`;
-      const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items${query}`);
-
-      if (!response.ok) {
-        // The stable `code` is what to branch on; the detail is for a person to read.
-        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-        setError(problem?.detail ?? `The tree could not be loaded (${String(response.status)}).`);
-        return null;
+    async (parentId: string | null, signal: AbortSignal): Promise<readonly TreeItem[]> => {
+      const children: TreeItem[] = [];
+      for await (const item of client.paginate(
+        coreItems.listItems(workspaceId, {
+          ...(parentId === null ? {} : { parentId }),
+          pageSize: 200,
+        }),
+        { signal },
+      )) {
+        children.push(toItem(item));
       }
-
-      const page = (await response.json()) as { items: ItemPayload[] };
-      return page.items.map(toItem);
+      return children;
     },
-    [request],
+    [client, workspaceId],
   );
 
   /**
@@ -249,49 +228,68 @@ export function useWorkspaceTree(): WorkspaceTree {
   }, []);
 
   const load = useCallback(async (): Promise<void> => {
+    activeLoad.current?.abort();
+    const controller = new AbortController();
+    activeLoad.current = controller;
+    activeRequests.current.add(controller);
     setStatus('loading');
     setError(null);
 
     try {
-      const roots = await fetchChildren(null);
-      if (roots === null) {
-        setStatus('error');
-        return;
-      }
+      const roots = await fetchChildren(null, controller.signal);
+      if (controller.signal.aborted || !mounted.current) return;
 
       setItems(roots);
       setExpanded(new Set());
       setStatus('ready');
-    } catch {
-      setError('Core could not be reached.');
+    } catch (reason) {
+      if (controller.signal.aborted || isCanceledError(reason) || !mounted.current) return;
+      setError(apiFailure(reason, 'Core could not be reached.'));
       setStatus('error');
+    } finally {
+      activeRequests.current.delete(controller);
+      if (activeLoad.current === controller) activeLoad.current = null;
     }
   }, [fetchChildren]);
 
   useEffect(() => {
+    mounted.current = true;
+    const pendingRequests = activeRequests.current;
     // queueMicrotask so the first setState lands after the effect returns rather than during it,
     // which is what stops the initial render cascading.
     queueMicrotask(() => {
-      void load();
+      if (mounted.current) void load();
     });
+    return () => {
+      mounted.current = false;
+      for (const controller of pendingRequests) controller.abort();
+      pendingRequests.clear();
+    };
   }, [load]);
 
   const expand = useCallback(
     async (itemId: string): Promise<void> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setExpanded((current) => new Set(current).add(itemId));
       setLoadingChildren((current) => new Set(current).add(itemId));
 
       try {
-        const children = await fetchChildren(itemId);
-        if (children !== null) {
-          absorb(itemId, children);
+        const children = await fetchChildren(itemId, controller.signal);
+        if (!controller.signal.aborted && mounted.current) absorb(itemId, children);
+      } catch (reason) {
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+          setError(apiFailure(reason, 'Core could not be reached.'));
         }
       } finally {
-        setLoadingChildren((current) => {
-          const next = new Set(current);
-          next.delete(itemId);
-          return next;
-        });
+        activeRequests.current.delete(controller);
+        if (requestCanCommit(controller.signal, mounted.current)) {
+          setLoadingChildren((current) => {
+            const next = new Set(current);
+            next.delete(itemId);
+            return next;
+          });
+        }
       }
     },
     [absorb, fetchChildren],
@@ -332,6 +330,8 @@ export function useWorkspaceTree(): WorkspaceTree {
 
       const found: TreeItem[] = [];
       const expand = new Set<string>();
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
 
       const settle = (outcome: RevealOutcome): void => {
         revealsRef.current.set(itemId, outcome);
@@ -340,12 +340,16 @@ export function useWorkspaceTree(): WorkspaceTree {
 
       try {
         await walk();
-      } catch {
+      } catch (reason) {
         // A dropped connection, a token refresh that failed, anything that rejected rather than
         // answered. Left unhandled this would keep the entry on `revealing` for the rest of the
         // session, and the screen reading from it would say "Finding this item…" forever with no
         // control on it - a dead end reached by a different road than the one this replaced.
-        settle('failed');
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+          settle('failed');
+        }
+      } finally {
+        activeRequests.current.delete(controller);
       }
 
       return;
@@ -358,25 +362,19 @@ export function useWorkspaceTree(): WorkspaceTree {
         let refusal: RevealOutcome | null = null;
 
         while (cursor !== null && guard > 0) {
-          const response = await request(`/api/v1/items/${cursor}`);
-          if (!response.ok) {
-            // Deleted, or not this caller's to see. The two are different things to tell somebody -
-            // one is gone, the other is theirs to ask about - so which it was is remembered rather
-            // than folded into one word.
-            //
-            // Break rather than return: an ancestor this caller cannot read does not make the item
-            // itself unreachable. Whatever the walk has already found is still worth showing, and
-            // discarding it would hide an item somebody has every right to open.
-            refusal =
-              response.status === 403
-                ? 'forbidden'
-                : response.status === 404
-                  ? 'missing'
-                  : 'failed';
-            break;
+          let loaded: TreeItem;
+          try {
+            loaded = toItem(
+              await client.query(coreItems.itemById(cursor), { signal: controller.signal }),
+            );
+          } catch (reason) {
+            if (isNixApiError(reason)) {
+              refusal =
+                reason.status === 403 ? 'forbidden' : reason.status === 404 ? 'missing' : 'failed';
+              break;
+            }
+            throw reason;
           }
-
-          const loaded = toItem((await response.json()) as ItemPayload);
           found.push(loaded);
 
           if (loaded.parentId !== null) {
@@ -402,16 +400,14 @@ export function useWorkspaceTree(): WorkspaceTree {
         // The ancestors are now present but their other children are not, so a revealed note would
         // appear as its parent's only child. Fetching each level puts its siblings back.
         for (const parentId of expand) {
-          const siblings = await fetchChildren(parentId);
-          if (siblings !== null) {
-            absorb(parentId, siblings);
-          }
+          const siblings = await fetchChildren(parentId, controller.signal);
+          if (!controller.signal.aborted && mounted.current) absorb(parentId, siblings);
         }
 
-        settle('found');
+        if (!controller.signal.aborted && mounted.current) settle('found');
       }
     },
-    [absorb, bumpReveals, fetchChildren, request],
+    [absorb, bumpReveals, client, fetchChildren],
   );
 
   const retryReveal = useCallback(
@@ -430,31 +426,19 @@ export function useWorkspaceTree(): WorkspaceTree {
       type = 'note',
       properties?: Record<string, unknown>,
     ): Promise<CreateOutcome> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsCreating(true);
       try {
-        const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/items`, {
-          method: 'POST',
-          // Sent explicitly as null rather than omitted, matching parentId. The contract lists it
-          // required-and-nullable, and JSON.stringify drops an undefined key entirely - so the
-          // published shape and what we actually send would quietly disagree.
-          body: JSON.stringify({ type, title, parentId, properties: properties ?? null }),
-        });
-
-        if (!response.ok) {
-          // The server names which property is wrong and why. Reporting only the status code
-          // turned "Status must be one of Todo, Doing, Done" into "(422)", which tells somebody
-          // that something failed and nothing about what to change.
-          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-          const refusal =
-            problem?.detail ?? `The item could not be created (${String(response.status)}).`;
-
-          // Returned rather than pushed into the tree-wide error, which renders at the foot of the
-          // sidebar - a long way from a gesture made inside a view. The caller is standing where
-          // the person is looking.
-          return { id: null, refusal };
+        const created = toItem(
+          await client.execute(
+            coreItems.createItem(workspaceId, { type, title, parentId, properties }),
+            { signal: controller.signal },
+          ),
+        );
+        if (controller.signal.aborted || !mounted.current) {
+          return { id: null, refusal: 'The item creation was cancelled.' };
         }
-
-        const created = toItem((await response.json()) as ItemPayload);
         setItems((current) => [...current, created]);
 
         // A child created inside a collapsed folder would otherwise be invisible, which reads as
@@ -464,11 +448,14 @@ export function useWorkspaceTree(): WorkspaceTree {
         }
 
         return { id: created.id, refusal: null };
+      } catch (reason) {
+        return { id: null, refusal: apiFailure(reason, 'The item could not be created.') };
       } finally {
-        setIsCreating(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsCreating(false);
       }
     },
-    [request],
+    [client, workspaceId],
   );
 
   const createStructured = useCallback(
@@ -480,11 +467,12 @@ export function useWorkspaceTree(): WorkspaceTree {
       readonly defaultView: string;
       readonly publishInteractiveFormViewId: string | null;
     }): Promise<CreateOutcome & { readonly publicUrl?: string | null }> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsCreating(true);
       try {
-        const response = await request(`/api/v1/workspaces/${WORKSPACE_ID}/structured-items`, {
-          method: 'POST',
-          body: JSON.stringify({
+        const result = await client.execute(
+          coreItems.createStructuredItem(workspaceId, {
             type: 'note',
             title: setup.title,
             parentId: setup.parentId,
@@ -495,22 +483,14 @@ export function useWorkspaceTree(): WorkspaceTree {
                 options: property.options.length === 0 ? null : property.options,
               })),
             },
-            views: { views: setup.views, default: setup.defaultView },
+            views: { views: setup.views.map(toViewRequest), default: setup.defaultView },
             publishInteractiveFormViewId: setup.publishInteractiveFormViewId,
           }),
-        });
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-          return {
-            id: null,
-            refusal: problem?.detail ?? 'This setup could not be created.',
-          };
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted || !mounted.current) {
+          return { id: null, refusal: 'This setup creation was cancelled.' };
         }
-
-        const result = (await response.json()) as {
-          item: ItemPayload;
-          publicForm: { url: string | null } | null;
-        };
         const created = toItem(result.item);
         setItems((current) => [...current, created]);
         const createdParent = setup.parentId;
@@ -518,129 +498,136 @@ export function useWorkspaceTree(): WorkspaceTree {
           setExpanded((current) => new Set(current).add(createdParent));
         }
         return { id: created.id, refusal: null, publicUrl: result.publicForm?.url ?? null };
-      } catch {
+      } catch (reason) {
         return {
           id: null,
-          refusal: 'This setup could not be sent. Check the connection and try again.',
+          refusal: apiFailure(
+            reason,
+            'This setup could not be sent. Check the connection and try again.',
+          ),
         };
       } finally {
-        setIsCreating(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsCreating(false);
       }
     },
-    [request],
+    [client, workspaceId],
   );
 
   const rename = useCallback(
     async (itemId: string, title: string): Promise<void> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsSaving(true);
       try {
-        const response = await request(`/api/v1/items/${itemId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ title }),
-        });
-
-        if (!response.ok) {
-          setError(`The title could not be saved (${String(response.status)}).`);
-          return;
+        const updated = toItem(
+          await client.execute(coreItems.renameItem(workspaceId, itemId, title), {
+            signal: controller.signal,
+          }),
+        );
+        if (requestCanCommit(controller.signal, mounted.current)) {
+          setItems((current) => current.map((item) => (item.id === itemId ? updated : item)));
         }
-
-        const updated = toItem((await response.json()) as ItemPayload);
-        setItems((current) => current.map((item) => (item.id === itemId ? updated : item)));
+      } catch (reason) {
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+          setError(apiFailure(reason, 'The title could not be saved.'));
+        }
       } finally {
-        setIsSaving(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsSaving(false);
       }
     },
-    [request],
+    [client, workspaceId],
   );
 
   const move = useCallback(
     async (itemId: string, parentId: string | null, afterId: string | null): Promise<void> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsSaving(true);
       try {
-        const response = await request(`/api/v1/items/${itemId}/move`, {
-          method: 'POST',
-          body: JSON.stringify({ parentId, afterId }),
-        });
-
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as {
-            code?: string;
-            detail?: string;
-          } | null;
-
-          // The cycle refusal is the one a person can act on - they dropped a folder into itself -
-          // so it is worth saying plainly rather than as a status code.
-          setError(
-            problem?.code === 'items.move_would_create_cycle'
-              ? 'An item cannot be moved inside itself.'
-              : (problem?.detail ?? `The item could not be moved (${String(response.status)}).`),
-          );
-          return;
-        }
-
-        const moved = toItem((await response.json()) as ItemPayload);
+        const moved = toItem(
+          await client.execute(coreItems.moveItem(workspaceId, itemId, { parentId, afterId }), {
+            signal: controller.signal,
+          }),
+        );
+        if (controller.signal.aborted || !mounted.current) return;
         setItems((current) => current.map((item) => (item.id === itemId ? moved : item)));
 
         // The destination's order changed for every sibling, not just the moved item, so its
         // children are re-read rather than patched.
-        const siblings = await fetchChildren(parentId);
-        if (siblings !== null) {
+        const siblings = await fetchChildren(parentId, controller.signal);
+        if (requestCanCommit(controller.signal, mounted.current)) {
           absorb(parentId, siblings);
         }
+      } catch (reason) {
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+          setError(
+            isNixApiError(reason) && reason.code === 'items.move_would_create_cycle'
+              ? 'An item cannot be moved inside itself.'
+              : apiFailure(reason, 'The item could not be moved.'),
+          );
+        }
       } finally {
-        setIsSaving(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsSaving(false);
       }
     },
-    [absorb, fetchChildren, request],
+    [absorb, client, fetchChildren, workspaceId],
   );
 
   const remove = useCallback(
     async (itemId: string): Promise<MutationOutcome> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsSaving(true);
       try {
-        const response = await request(`/api/v1/items/${itemId}`, { method: 'DELETE' });
-
-        if (!response.ok) {
-          const refusal = `The item could not be deleted (${String(response.status)}).`;
-          // Kept alongside the return value, not instead of it: this still renders at the foot of
-          // the sidebar for anything that reaches this hook without reading the outcome, and the
-          // return value is what lets a caller that does read it - `app-shell.tsx`'s `requestDelete`
-          // - refuse to report a deletion that never happened.
-          setError(refusal);
-          return { refusal };
+        await client.execute(coreItems.deleteItem(workspaceId, itemId), {
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted && mounted.current) {
+          setItems((current) => current.filter((item) => item.id !== itemId));
         }
-
-        // Descendants stay in the store and simply stop being reachable, exactly as they do in
-        // the database: deletion is a flag on one row, never a cascade.
-        setItems((current) => current.filter((item) => item.id !== itemId));
         return { refusal: null };
+      } catch (reason) {
+        const refusal = apiFailure(reason, 'The item could not be deleted.');
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current)
+          setError(refusal);
+        return { refusal };
       } finally {
-        setIsSaving(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsSaving(false);
       }
     },
-    [request],
+    [client, workspaceId],
   );
 
   const restore = useCallback(
     async (itemId: string): Promise<MutationOutcome> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       setIsSaving(true);
       try {
-        const response = await request(`/api/v1/items/${itemId}/restore`, { method: 'POST' });
-
-        if (!response.ok) {
-          const refusal = `The item could not be restored (${String(response.status)}).`;
-          setError(refusal);
-          return { refusal };
+        const restored = toItem(
+          await client.execute(coreItems.restoreItem(workspaceId, itemId), {
+            signal: controller.signal,
+          }),
+        );
+        if (!controller.signal.aborted && mounted.current) {
+          setItems((current) => [...current.filter((item) => item.id !== itemId), restored]);
         }
-
-        const restored = toItem((await response.json()) as ItemPayload);
-        setItems((current) => [...current.filter((item) => item.id !== itemId), restored]);
         return { refusal: null };
+      } catch (reason) {
+        const refusal = apiFailure(reason, 'The item could not be restored.');
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current)
+          setError(refusal);
+        return { refusal };
       } finally {
-        setIsSaving(false);
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsSaving(false);
       }
     },
-    [request],
+    [client, workspaceId],
   );
 
   const byParent = useMemo(() => {

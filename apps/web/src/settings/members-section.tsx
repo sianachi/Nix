@@ -23,13 +23,7 @@ const columns = [
     header: 'Member',
     rowHeader: true,
     cell: (member: WorkspaceMember) => (
-      <span className="inline-flex items-center gap-2">
-        {member.subjectDisplayName}
-        {/* Groups are marked because a group row grants to everybody in it, which is a different
-            fact from a person holding the role themselves. Principals are the ordinary case and
-            carry no tag - a marker on every row marks nothing. */}
-        {member.subjectType === 'group' ? <Tag tone="muted">Group</Tag> : null}
-      </span>
+      <span className="inline-flex items-center gap-2">{member.subjectDisplayName}</span>
     ),
   },
   {

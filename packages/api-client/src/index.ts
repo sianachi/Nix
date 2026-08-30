@@ -108,6 +108,10 @@ export {
   recurrenceRuleSchema,
   recurrenceWeekdaySchema,
   setRecurrenceResultSchema,
+  dailyNoteSchema,
+  workspaceInvitationSchema,
+  workspaceMemberSchema,
+  workspaceSchema,
 } from './schemas/index.js';
 export type {
   CursorPage,
@@ -142,6 +146,10 @@ export type {
   RecurrenceRule,
   RecurrenceWeekday,
   SetRecurrenceResult,
+  DailyNote,
+  Workspace,
+  WorkspaceInvitation,
+  WorkspaceMember,
 } from './schemas/index.js';
 
 /**
@@ -160,11 +168,18 @@ export type {
  */
 export type {
   CanvasLibraryContract,
+  ChangeWorkspaceMemberRoleRequestContract,
   ContainerViewsContract,
+  CreateWorkspaceInvitationRequestContract,
+  CreateWorkspaceRequestContract,
+  DailyNoteContract,
   SetViewsRequestContract,
+  StructuredItemContract,
   CurrentPrincipalContract,
   EffectiveSchemaContract,
   PropertyDefinitionContract,
+  RecoverWorkspaceRequestContract,
+  RenameWorkspaceRequestContract,
   TemplateCatalogContract,
   TemplateDetailContract,
   TemplateItemContract,
@@ -172,6 +187,9 @@ export type {
   TemplatePreflightRequestContract,
   TemplateSummaryContract,
   ViewContract,
+  ViewRequestContract,
+  WorkspaceInvitationContract,
+  WorkspaceMemberContract,
 } from './contracts.js';
 
 /**

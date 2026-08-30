@@ -1,12 +1,20 @@
+import {
+  isCanceledError,
+  isNixApiError,
+  items as coreItems,
+  structure as coreStructure,
+  views as coreViews,
+} from '@nix/api-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ZodType } from 'zod';
 
-import { useAuth } from '../../auth/auth-provider';
+import { useApiClient } from '../../api/api-client-provider';
+import { useWorkspace } from '../../workspaces/workspace-context';
 import { decorateItems, keepComputed } from '../../properties/computed';
 import {
   ContainerViewsSchema,
   EffectiveSchemaSchema,
   ItemSchema,
+  toViewRequest,
   type ContainerViews,
   type EffectiveSchema,
   type Item,
@@ -31,7 +39,7 @@ export interface SchemaDraft {
  * broken board look identical if you let them.
  */
 
-export type ContainerStatus = 'loading' | 'ready' | 'error';
+export type ContainerStatus = 'loading' | 'ready' | 'partial' | 'error';
 
 export interface ContainerData {
   /**
@@ -206,15 +214,6 @@ export const MAXIMUM_CHILDREN = 4000;
 /** The server's own page ceiling (`CursorPaging.MaximumPageSize`), asked for explicitly. */
 const PAGE_SIZE = 200;
 
-function readWorkspaceId(): string {
-  const configured: unknown = import.meta.env.VITE_WORKSPACE_ID;
-  return typeof configured === 'string' && configured.length > 0
-    ? configured
-    : 'a1000000-0000-4000-8000-000000000001';
-}
-
-const WORKSPACE_ID = readWorkspaceId();
-
 /**
  * How a container makes a child.
  *
@@ -227,7 +226,8 @@ export type CreateChild = (
 ) => Promise<string | null>;
 
 export function useContainer(containerId: string | null, createChild?: CreateChild): ContainerData {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
+  const { workspaceId } = useWorkspace();
 
   const [status, setStatus] = useState<ContainerStatus>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -238,20 +238,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const [truncated, setTruncated] = useState(false);
   const defaultViewWrite = useRef(0);
   const activeLoad = useRef<AbortController | null>(null);
-
-  const request = useCallback(
-    async (path: string, init?: RequestInit): Promise<Response> => {
-      const token = await getAccessToken();
-      return fetch(path, {
-        ...init,
-        headers: {
-          'content-type': 'application/json',
-          ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        },
-      });
-    },
-    [getAccessToken],
-  );
+  const activeRequests = useRef(new Set<AbortController>());
 
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
@@ -261,105 +248,102 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     setError(null);
 
     try {
-      const basePath =
-        containerId === null
-          ? `/api/v1/workspaces/${WORKSPACE_ID}/items?limit=${String(PAGE_SIZE)}`
-          : `/api/v1/workspaces/${WORKSPACE_ID}/items?parentId=${containerId}&limit=${String(PAGE_SIZE)}`;
-
-      // In parallel: three independent reads, and the screen needs all three before it can draw
-      // anything. Sequencing them would make opening an item three round trips deep. The children
-      // read is only the first page here; the rest are paged in below.
-      const [childrenResponse, schemaResponse, viewsResponse] = await Promise.all([
-        request(basePath, { signal: controller.signal }),
-        containerId === null
-          ? Promise.resolve(null)
-          : request(`/api/v1/items/${containerId}/schema`, { signal: controller.signal }),
-        containerId === null
-          ? Promise.resolve(null)
-          : request(`/api/v1/items/${containerId}/views`, { signal: controller.signal }),
-      ]);
-
-      // Paged until exhausted rather than one default page. The endpoint answers 50 items unless
-      // asked, and every view here draws "the children" - a grid publishing aria-rowcount, a
-      // filtered-empty state naming a total. A view asserting a count over one silent page of a
-      // larger container would be claiming to have seen items it never loaded. Past
-      // MAXIMUM_CHILDREN the list is reported truncated instead, and the views say so.
       const loaded: Item[] = [];
-      let response = childrenResponse;
       let partial = false;
-
-      for (;;) {
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as {
-            detail?: string;
-          } | null;
-          setError(
-            problem?.detail ??
-              `This item\u2019s contents could not be loaded (${String(response.status)}).`,
-          );
-          setStatus('error');
-          return;
+      const childRead = (async (): Promise<void> => {
+        for await (const item of client.paginate(
+          coreItems.listItems(workspaceId, {
+            ...(containerId === null ? {} : { parentId: containerId }),
+            pageSize: PAGE_SIZE,
+          }),
+          { signal: controller.signal },
+        )) {
+          loaded.push(ItemSchema.parse(item));
+          if (loaded.length >= MAXIMUM_CHILDREN) {
+            partial = true;
+            break;
+          }
         }
+      })();
+      const boundaryWarnings: string[] = [];
+      const schemaRead =
+        containerId === null
+          ? Promise.resolve(null)
+          : client
+              .query(coreStructure.effectiveSchema(containerId), { signal: controller.signal })
+              .then((value) => {
+                const parsed = EffectiveSchemaSchema.safeParse(value);
+                if (parsed.success) return parsed.data;
+                console.warn(
+                  'The container schema did not match the contract:',
+                  parsed.error.message,
+                );
+                boundaryWarnings.push(
+                  'The item schema could not be read, so some fields are unavailable.',
+                );
+                return null;
+              })
+              .catch((reason: unknown) => {
+                if (isNixApiError(reason) && reason.status === 404) return null;
+                throw reason;
+              });
+      const viewsRead =
+        containerId === null
+          ? Promise.resolve(null)
+          : client
+              .query(coreViews.containerViewConfigurations(containerId), {
+                signal: controller.signal,
+              })
+              .then((value) => {
+                const parsed = ContainerViewsSchema.safeParse(value);
+                if (parsed.success) return parsed.data;
+                console.warn(
+                  'The container views did not match the contract:',
+                  parsed.error.message,
+                );
+                boundaryWarnings.push(
+                  'The item views could not be read, so some views are unavailable.',
+                );
+                return null;
+              })
+              .catch((reason: unknown) => {
+                if (isNixApiError(reason) && reason.status === 404) return null;
+                throw reason;
+              });
 
-        const page = (await response.json()) as { items: unknown[]; nextCursor?: string | null };
-        const parsed = page.items.map((item) => ItemSchema.safeParse(item));
-
-        const bad = parsed.find((result) => !result.success);
-        if (bad !== undefined) {
-          // A parse failure is telemetry, not a silent fallback: it means the contract moved and
-          // this build did not.
-          console.warn('An item did not match the contract:', bad.error.message);
-          setError('This item\u2019s contents could not be read.');
-          setStatus('error');
-          return;
-        }
-
-        loaded.push(...parsed.flatMap((result) => (result.success ? [result.data] : [])));
-
-        const cursor = page.nextCursor ?? null;
-        if (cursor === null) {
-          break;
-        }
-
-        if (loaded.length >= MAXIMUM_CHILDREN) {
-          partial = true;
-          break;
-        }
-
-        response = await request(`${basePath}&cursor=${encodeURIComponent(cursor)}`, {
-          signal: controller.signal,
-        });
-      }
-
-      if (controller.signal.aborted) return;
-
+      const [, nextSchema, nextViews] = await Promise.all([childRead, schemaRead, viewsRead]);
+      if (controller.signal.aborted || activeLoad.current !== controller) return;
       setChildren(loaded);
       setTruncated(partial);
-
-      // The schema and the views are optional context. A workspace root has neither, and an item
-      // whose schema request failed can still show its children - so these degrade rather than
-      // failing the screen.
-      storeSchema(await readOptional(schemaResponse, EffectiveSchemaSchema));
-      storeViews(await readOptional(viewsResponse, ContainerViewsSchema));
-
-      setStatus('ready');
-    } catch {
-      if (controller.signal.aborted) return;
-      setError('Core could not be reached.');
+      storeSchema(nextSchema);
+      storeViews(nextViews);
+      setError(boundaryWarnings[0] ?? null);
+      setStatus(boundaryWarnings.length === 0 ? 'ready' : 'partial');
+    } catch (reason) {
+      if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
+        return;
+      setError(
+        isNixApiError(reason)
+          ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
+          : 'Core could not be reached.',
+      );
       setStatus('error');
     } finally {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
-  }, [containerId, request]);
+  }, [client, containerId, workspaceId]);
 
   useEffect(() => {
     let disposed = false;
+    const pendingRequests = activeRequests.current;
     queueMicrotask(() => {
       if (!disposed) void load();
     });
     return () => {
       disposed = true;
       activeLoad.current?.abort();
+      for (const controller of pendingRequests) controller.abort();
+      pendingRequests.clear();
     };
   }, [load]);
 
@@ -391,50 +375,34 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         }
       };
 
-      let response: Response;
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       try {
-        response = await request(`/api/v1/items/${itemId}/properties`, {
-          method: 'PATCH',
-          body: JSON.stringify({ properties }),
-        });
-      } catch {
+        const updated = ItemSchema.parse(
+          await client.execute(coreStructure.setItemProperties(itemId, properties), {
+            signal: controller.signal,
+          }),
+        );
+        if (controller.signal.aborted) return 'That change was cancelled.';
+        setChildren((current) =>
+          current.map((item) => (item.id === itemId ? keepComputed(item, updated) : item)),
+        );
+        return null;
+      } catch (reason) {
         // The request never reached the server - offline, DNS, a dropped connection. Without this
         // the promise rejected, nothing rolled back, and the cell kept showing a value the server
         // never took, with no sentence anywhere saying so.
         putBack();
-        const failure = 'That change could not be sent. Check the connection and try again.';
+        const failure = isNixApiError(reason)
+          ? (reason.detail ?? 'That change could not be saved.')
+          : 'That change could not be sent. Check the connection and try again.';
         setWriteError(failure);
         return failure;
+      } finally {
+        activeRequests.current.delete(controller);
       }
-
-      if (!response.ok) {
-        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-        const refusal = problem?.detail ?? 'That change could not be saved.';
-
-        putBack();
-
-        // Said twice, to two different kinds of caller - see the two channels on `setProperties`.
-        // Setting both is safe because no view reads both: the one that awaits the answer renders
-        // it where the edit happened, and stops reading `writeError` for exactly that reason.
-        setWriteError(refusal);
-        return refusal;
-      }
-
-      const updated = ItemSchema.safeParse(await response.json());
-      if (updated.success) {
-        // A write answers with the item, never with a fresh fold of its children, so the rollups
-        // it carries are null - and replacing the row with that would blank every rollup column on
-        // it. `keepComputed` holds the last folded values rather than reporting none.
-        setChildren((current) =>
-          current.map((item) =>
-            item.id === itemId ? keepComputed(item, updated.data) : item,
-          ),
-        );
-      }
-
-      return null;
     },
-    [children, request],
+    [children, client],
   );
 
   const setPropertiesMany = useCallback(
@@ -483,33 +451,26 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           }
 
           try {
-            const response = await request(`/api/v1/items/${write.itemId}/properties`, {
-              method: 'PATCH',
-              body: JSON.stringify({ properties: write.properties }),
-            });
-
-            if (!response.ok) {
-              const problem = (await response.json().catch(() => null)) as {
-                detail?: string;
-              } | null;
-              results[index] = {
-                write,
-                refusal: problem?.detail ?? 'That change could not be saved.',
-                stored: null,
-              };
-              continue;
-            }
-
-            const updated = ItemSchema.safeParse(await response.json());
+            const controller = new AbortController();
+            activeRequests.current.add(controller);
+            const updated = ItemSchema.safeParse(
+              await client.execute(
+                coreStructure.setItemProperties(write.itemId, write.properties),
+                { signal: controller.signal },
+              ),
+            );
+            activeRequests.current.delete(controller);
             results[index] = {
               write,
               refusal: null,
               stored: updated.success ? updated.data : null,
             };
-          } catch {
+          } catch (reason) {
             results[index] = {
               write,
-              refusal: 'that change could not be sent. Check the connection and try again.',
+              refusal: isNixApiError(reason)
+                ? (reason.detail ?? 'That change could not be saved.')
+                : 'that change could not be sent. Check the connection and try again.',
               stored: null,
             };
           }
@@ -551,29 +512,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
 
       return { saved: writes.length - refused.length, refused };
     },
-    [children, request],
-  );
-
-  /**
-   * Sends a replacement schema or view set, and reloads on success.
-   *
-   * Not optimistic, unlike a property write. A property write is a drag that has to keep up with a
-   * pointer; these are a form somebody submits and waits on, and the answer they need is whether
-   * it was accepted - which for a schema is frequently "no, and here is why".
-   */
-  const replace = useCallback(
-    async (path: string, body: unknown): Promise<string | null> => {
-      const response = await request(path, { method: 'PUT', body: JSON.stringify(body) });
-
-      if (!response.ok) {
-        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-        return problem?.detail ?? 'That could not be saved.';
-      }
-
-      await load();
-      return null;
-    },
-    [load, request],
+    [children, client],
   );
 
   const setSchema = useCallback(
@@ -582,31 +521,46 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         return 'A workspace root cannot declare a schema.';
       }
 
-      return await replace(`/api/v1/items/${containerId}/schema`, {
-        inherit: draft.inherit,
-        properties: draft.properties.map((property) => ({
-          key: property.key,
-          label: property.label,
-          type: property.type,
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
+      try {
+        await client.execute(
+          coreStructure.setItemSchema(containerId, {
+            inherit: draft.inherit,
+            properties: draft.properties.map((property) => ({
+              key: property.key,
+              label: property.label,
+              type: property.type,
 
-          // Only the select types carry options, and the server refuses a schema where anything
-          // else does. Sending an empty array for the rest would be refused on a technicality
-          // nobody typed.
-          options: property.options.length > 0 ? property.options : null,
-          required: property.required,
+              // Only the select types carry options, and the server refuses a schema where anything
+              // else does. Sending an empty array for the rest would be refused on a technicality
+              // nobody typed.
+              options: [...property.options],
+              required: property.required,
 
-          // Only a formula carries one, and the server refuses a schema where anything else does -
-          // the same technicality the options line above avoids, for the same reason.
-          expression: property.type === 'formula' ? (property.expression ?? null) : null,
+              // Only a formula carries one, and the server refuses a schema where anything else does -
+              // the same technicality the options line above avoids, for the same reason.
+              expression: property.type === 'formula' ? (property.expression ?? null) : null,
 
-          // The same rule for the rollup's pair. A count of the children carries no source, and
-          // sending one would be refused for naming a property the fold ignores.
-          aggregate: property.type === 'rollup' ? (property.aggregate ?? null) : null,
-          source: property.type === 'rollup' ? (property.source ?? null) : null,
-        })),
-      });
+              // The same rule for the rollup's pair. A count of the children carries no source, and
+              // sending one would be refused for naming a property the fold ignores.
+              aggregate: property.type === 'rollup' ? (property.aggregate ?? null) : null,
+              source: property.type === 'rollup' ? (property.source ?? null) : null,
+            })),
+          }),
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted) await load();
+        return null;
+      } catch (reason) {
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'That could not be saved.')
+          : 'That could not be saved.';
+      } finally {
+        activeRequests.current.delete(controller);
+      }
     },
-    [containerId, replace],
+    [client, containerId, load],
   );
 
   const setViews = useCallback(
@@ -618,12 +572,29 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       // The default is sent as it stands unless the caller says otherwise. Omitting it on an edit
       // that was not about the default would reset it to the document, so somebody renaming a view
       // would find the item opening somewhere else afterwards.
-      return await replace(`/api/v1/items/${containerId}/views`, {
-        views: next,
-        default: defaultView === undefined ? (views?.default ?? null) : defaultView,
-      });
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
+      try {
+        const body = ContainerViewsSchema.parse({
+          views: next,
+          unrenderable: [],
+          default: defaultView === undefined ? (views?.default ?? null) : defaultView,
+        });
+        await client.execute(
+          coreViews.setContainerViews(containerId, { views: body.views, default: body.default }),
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted) await load();
+        return null;
+      } catch (reason) {
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'That could not be saved.')
+          : 'That could not be saved.';
+      } finally {
+        activeRequests.current.delete(controller);
+      }
     },
-    [containerId, replace, views],
+    [client, containerId, load, views],
   );
 
   const appendViewSetup = useCallback(
@@ -634,30 +605,32 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       publishInteractiveFormViewId: string | null = null,
     ): Promise<string | null> => {
       if (containerId === null) return 'A workspace root cannot offer views.';
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       try {
-        const response = await request(`/api/v1/items/${containerId}/view-setups`, {
-          method: 'POST',
-          body: JSON.stringify({
+        await client.execute(
+          coreViews.appendViewSetup(containerId, {
             properties: properties.map((property) => ({
               ...property,
               options: property.options.length === 0 ? null : property.options,
             })),
-            views: addedViews,
+            views: addedViews.map(toViewRequest),
             makeDefault,
             publishInteractiveFormViewId,
           }),
-        });
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-          return problem?.detail ?? 'This view setup could not be saved.';
-        }
-        await load();
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted) await load();
         return null;
-      } catch {
-        return 'This view setup could not be sent. Check the connection and try again.';
+      } catch (reason) {
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'This view setup could not be saved.')
+          : 'This view setup could not be sent. Check the connection and try again.';
+      } finally {
+        activeRequests.current.delete(controller);
       }
     },
-    [containerId, load, request],
+    [client, containerId, load],
   );
 
   const replaceViewSetup = useCallback(
@@ -668,36 +641,35 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       publishInteractiveFormViewId: string | null = null,
     ): Promise<string | null> => {
       if (containerId === null) return 'A workspace root cannot offer views.';
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       try {
-        const response = await request(
-          `/api/v1/items/${containerId}/view-setups/${encodeURIComponent(originalViewId)}`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({
-              schema: {
-                inherit: schema?.inherit ?? true,
-                properties: properties.map((property) => ({
-                  ...property,
-                  options: property.options.length === 0 ? null : property.options,
-                })),
-              },
-              originalPropertyKeys: schema?.declared.map((property) => property.key) ?? [],
-              views: replacementViews,
-              publishInteractiveFormViewId,
-            }),
-          },
+        await client.execute(
+          coreViews.replaceViewSetup(containerId, originalViewId, {
+            schema: {
+              inherit: schema?.inherit ?? true,
+              properties: properties.map((property) => ({
+                ...property,
+                options: property.options.length === 0 ? null : property.options,
+              })),
+            },
+            originalPropertyKeys: schema?.declared.map((property) => property.key) ?? [],
+            views: replacementViews.map(toViewRequest),
+            publishInteractiveFormViewId,
+          }),
+          { signal: controller.signal },
         );
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-          return problem?.detail ?? 'This view setup could not be saved.';
-        }
-        await load();
+        if (!controller.signal.aborted) await load();
         return null;
-      } catch {
-        return 'This view setup could not be sent. Check the connection and try again.';
+      } catch (reason) {
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'This view setup could not be saved.')
+          : 'This view setup could not be sent. Check the connection and try again.';
+      } finally {
+        activeRequests.current.delete(controller);
       }
     },
-    [containerId, load, request, schema?.declared, schema?.inherit],
+    [client, containerId, load, schema?.declared, schema?.inherit],
   );
 
   /**
@@ -730,22 +702,15 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       // made rather than a stale server response.
       storeViews({ ...views, default: viewId });
 
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
       try {
-        const response = await request(`/api/v1/items/${containerId}/views`, {
-          method: 'PUT',
-          body: JSON.stringify({ views: views.views, default: viewId }),
-        });
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as {
-            detail?: string;
-          } | null;
-          if (defaultViewWrite.current === write) {
-            storeViews(previous);
-          }
-          return problem?.detail ?? 'That view could not be remembered.';
-        }
-
-        const parsed = ContainerViewsSchema.safeParse(await response.json());
+        const body = ContainerViewsSchema.parse({ ...views, default: viewId });
+        const response = await client.execute(
+          coreViews.setContainerViews(containerId, { views: body.views, default: viewId }),
+          { signal: controller.signal },
+        );
+        const parsed = ContainerViewsSchema.safeParse(response);
         if (!parsed.success) {
           console.warn('The saved views did not match the contract:', parsed.error.message);
           return 'The view was saved, but Core returned an unreadable response.';
@@ -754,14 +719,18 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           storeViews(parsed.data);
         }
         return null;
-      } catch {
+      } catch (reason) {
         if (defaultViewWrite.current === write) {
           storeViews(previous);
         }
-        return 'That view could not be remembered. Check the connection and try again.';
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'That view could not be remembered.')
+          : 'That view could not be remembered. Check the connection and try again.';
+      } finally {
+        activeRequests.current.delete(controller);
       }
     },
-    [containerId, request, views],
+    [client, containerId, views],
   );
 
   const create = useCallback(
@@ -821,29 +790,4 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     truncated,
     reload: load,
   };
-}
-
-/**
- * Reads a response that the screen can do without.
- *
- * The schema and the views are context rather than content: a workspace root has neither, and a
- * item whose schema request failed can still show its children. So these degrade to null rather
- * than failing the screen - which is the opposite of how the children are treated, and deliberately
- * so. An item with no schema is ordinary; an item whose contents would not parse is not.
- */
-async function readOptional<TValue>(
-  response: Response | null,
-  schema: ZodType<TValue>,
-): Promise<TValue | null> {
-  if (!response?.ok) {
-    return null;
-  }
-
-  const parsed = schema.safeParse(await response.json());
-  if (!parsed.success) {
-    console.warn('A container response did not match the contract:', parsed.error.message);
-    return null;
-  }
-
-  return parsed.data;
 }

@@ -11,7 +11,14 @@ import { useSessionStore } from '../auth/session-store';
  * exercised rather than mocked.
  */
 export function renderAt(ui: ReactElement, url = '/'): RenderResult {
-  return render(<MemoryRouter initialEntries={[url]}>{ui}</MemoryRouter>);
+  // A query naming workspace resources is already a workspace-scoped deep link. Older behavior
+  // tests predate routed workspaces and spell that link as `/?item=...`; resolve that shorthand
+  // here so those tests exercise the resource route instead of the deliberately lossy legacy
+  // redirect. Tests about legacy routing pass destination paths explicitly and remain untouched.
+  const resolvedUrl = url.startsWith('/?')
+    ? `/w/00000000-0000-4000-8000-000000000001${url.slice(1)}`
+    : url;
+  return render(<MemoryRouter initialEntries={[resolvedUrl]}>{ui}</MemoryRouter>);
 }
 
 /**

@@ -20,6 +20,14 @@ import {
   type QueryEndpoint,
 } from '../endpoints.js';
 import { itemSchema, noContentSchema, type Item } from '../schemas/index.js';
+import type {
+  CreateItemRequestContract,
+  CreateStructuredItemRequestContract,
+  MoveItemRequestContract,
+  StructuredItemContract,
+  UpdateItemRequestContract,
+} from '../contracts.js';
+import { z } from 'zod';
 
 /** Cache key prefix for everything under one workspace's tree. */
 const workspaceTreeKey = (workspaceId: string): readonly string[] => [
@@ -92,8 +100,38 @@ export const createItem = (workspaceId: string, input: CreateItemInput): Command
       type: input.type,
       title: input.title,
       parentId: input.parentId ?? null,
-      ...(input.properties === undefined ? {} : { properties: input.properties }),
-    },
+      properties: input.properties ?? null,
+    } satisfies CreateItemRequestContract,
+    invalidates: [workspaceTreeKey(workspaceId)],
+  });
+
+/**
+ * The write callers only consume the created item and the public form URL. Core's accompanying
+ * schema and view summary remain authoritative on their dedicated reads, so deliberately omit
+ * them here instead of maintaining a second full configuration parser.
+ */
+type StructuredItemWriteResultContract = Pick<StructuredItemContract, 'item'> & {
+  publicForm: null | Pick<Exclude<StructuredItemContract['publicForm'], null>, 'url'>;
+};
+
+export const structuredItemSchema = z.object({
+  item: itemSchema,
+  publicForm: z.object({ url: z.string().nullable() }).nullable(),
+}) satisfies z.ZodType<StructuredItemWriteResultContract>;
+
+export type StructuredItem = z.infer<typeof structuredItemSchema>;
+
+/** Atomically creates an item with its schema, views and optional published form. */
+export const createStructuredItem = (
+  workspaceId: string,
+  body: CreateStructuredItemRequestContract,
+): CommandEndpoint<StructuredItem> =>
+  defineCommand<StructuredItem>({
+    operation: 'items.createStructured',
+    method: 'POST',
+    path: `/api/v1/workspaces/${workspaceId}/structured-items`,
+    schema: structuredItemSchema,
+    body,
     invalidates: [workspaceTreeKey(workspaceId)],
   });
 
@@ -108,7 +146,7 @@ export const renameItem = (
     method: 'PATCH',
     path: `/api/v1/items/${itemId}`,
     schema: itemSchema,
-    body: { title },
+    body: { title } satisfies UpdateItemRequestContract,
     invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
   });
 
@@ -136,7 +174,10 @@ export const moveItem = (
     method: 'POST',
     path: `/api/v1/items/${itemId}/move`,
     schema: itemSchema,
-    body: { parentId: input.parentId, afterId: input.afterId ?? null },
+    body: {
+      parentId: input.parentId,
+      afterId: input.afterId ?? null,
+    } satisfies MoveItemRequestContract,
     invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
   });
 
