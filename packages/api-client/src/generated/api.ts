@@ -1808,6 +1808,7 @@ export interface components {
       canRename: boolean;
       canManageMembers: boolean;
       canLeave: boolean;
+      canUseDailyNotes: boolean;
       /** Format: uuid */
       pendingInvitationId: null | string;
     };

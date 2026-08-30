@@ -20,6 +20,7 @@ public sealed record WorkspaceSnapshot(
     bool CanRename,
     bool CanManageMembers,
     bool CanLeave,
+    bool CanUseDailyNotes,
     Guid? PendingInvitationId);
 
 /// <summary>One active human who can be offered workspace access.</summary>
@@ -492,7 +493,7 @@ public sealed class WorkspaceAdministrationStore
             reader.GetInt64(3), reader.GetFieldValue<DateTimeOffset>(4),
             reader.IsDBNull(5) ? null : PrincipalId.From(reader.GetGuid(5)),
             reader.GetBoolean(6), reader.GetBoolean(7), reader.GetBoolean(8),
-            reader.IsDBNull(9) ? null : reader.GetGuid(9));
+            reader.GetBoolean(9), reader.IsDBNull(10) ? null : reader.GetGuid(10));
     }
 
     private readonly struct MemberMapper : INixRowMapper<WorkspaceMemberSnapshot>

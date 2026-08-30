@@ -143,7 +143,8 @@ internal static class WorkspaceEndpoints
     internal static WorkspaceResponse ToResponse(WorkspaceSnapshot row) => new(
         row.Id.Value, row.Name, row.VersionRetentionDays, row.StorageQuotaBytes, row.CreatedAt,
         row.PersonalOwnerPrincipalId is null ? "shared" : "personal",
-        row.CanRename, row.CanManageMembers, row.CanLeave, row.PendingInvitationId);
+        row.CanRename, row.CanManageMembers, row.CanLeave, row.CanUseDailyNotes,
+        row.PendingInvitationId);
 
     internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext context, NixError error)
     {

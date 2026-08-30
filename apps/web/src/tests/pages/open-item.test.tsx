@@ -103,7 +103,8 @@ describe('an item nobody has configured', () => {
 });
 
 describe('an item with views', () => {
-  it('renders a beside companion as equal slots that stack before the large breakpoint', async () => {
+  it('renders a beside companion with an adjustable splitter', async () => {
+    const user = userEvent.setup();
     const primary = {
       ...BOARD,
       id: 'primary',
@@ -122,18 +123,19 @@ describe('an item with views', () => {
     const companionSlot = screen.getByRole('region', { name: 'Companion' });
     const composition = primarySlot.parentElement;
 
-    expect(composition).toHaveClass(
-      'grid',
-      'min-h-full',
-      'grid-rows-2',
-      'lg:grid-cols-2',
-      'lg:grid-rows-1',
-    );
+    expect(composition).toHaveClass('flex', 'min-h-full', 'flex-row');
     expect(primarySlot).toHaveClass('min-h-0', 'min-w-0');
     expect(companionSlot).toHaveClass('min-h-0', 'min-w-0');
+
+    const splitter = screen.getByRole('separator', { name: 'Resize Primary and Companion' });
+    expect(splitter).toHaveAttribute('aria-orientation', 'vertical');
+    expect(splitter).toHaveAttribute('aria-valuenow', '50');
+    splitter.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(splitter).toHaveAttribute('aria-valuenow', '51');
   });
 
-  it('gives below companions equal stacked tracks', async () => {
+  it('gives below companions an adjustable stacked split', async () => {
     const primary = {
       ...BOARD,
       id: 'primary',
@@ -149,7 +151,10 @@ describe('an item with views', () => {
     renderAt(<App />, `/?item=${NOTES.id}`);
 
     const primarySlot = await screen.findByRole('region', { name: 'Primary' });
-    expect(primarySlot.parentElement).toHaveClass('grid', 'min-h-full', 'grid-rows-2');
+    expect(primarySlot.parentElement).toHaveClass('flex', 'min-h-full', 'flex-col');
+    expect(
+      screen.getByRole('separator', { name: 'Resize Primary and Companion' }),
+    ).toHaveAttribute('aria-orientation', 'horizontal');
     expect(screen.getByRole('region', { name: 'Companion' })).toHaveClass('min-h-0', 'min-w-0');
   });
 

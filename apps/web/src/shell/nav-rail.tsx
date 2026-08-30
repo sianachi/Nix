@@ -158,8 +158,13 @@ export interface NavRailProps {
 
 export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   const { pathname } = useLocation();
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspace } = useWorkspace();
   const workspaceRoot = `/w/${workspaceId}`;
+  const items = workspace.canUseDailyNotes
+    ? ITEMS
+    : ITEMS.filter(
+        (item) => item.kind !== 'destination' || item.to !== '/daily',
+      );
 
   // Which control is the rail's single tab stop. Null until somebody has actually put focus in here,
   // so the entry point is the current destination by default - derived from the URL rather than
@@ -171,7 +176,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   // filling this in must not re-render.
   const controlRefs = useRef<(HTMLAnchorElement | HTMLButtonElement | null)[]>([]);
 
-  const currentIndex = ITEMS.findIndex(
+  const currentIndex = items.findIndex(
     (item) =>
       item.kind === 'destination' &&
       (item.includesChildren === true
@@ -180,7 +185,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
         : pathname === `${workspaceRoot}${item.to}` ||
           (item.to === '' && pathname === `${workspaceRoot}/`)),
   );
-  const entryIndex = focusedIndex ?? Math.max(currentIndex, 0);
+  const entryIndex = focusedIndex === null ? Math.max(currentIndex, 0) : Math.min(focusedIndex, items.length - 1);
 
   // Handled on the control rather than on the list around it: a key press acts from wherever focus
   // actually is, and hanging a keyboard listener on a `<ul>` would be putting interaction on an
@@ -192,7 +197,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
 
     switch (event.key) {
       case 'ArrowDown':
-        next = Math.min(from + 1, ITEMS.length - 1);
+        next = Math.min(from + 1, items.length - 1);
         break;
       case 'ArrowUp':
         next = Math.max(from - 1, 0);
@@ -201,7 +206,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
         next = 0;
         break;
       case 'End':
-        next = ITEMS.length - 1;
+        next = items.length - 1;
         break;
       default:
         return;
@@ -225,10 +230,10 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     // one way to move around and "navigation, navigation" is not a landmark list anybody can use.
     <nav aria-label="Destinations" className="flex shrink-0 border-r border-divider bg-surface">
       <ul className="flex min-h-0 flex-1 list-none flex-col items-center gap-1 px-1 py-2">
-        {ITEMS.map((item, index) => {
+        {items.map((item, index) => {
           const current = index === currentIndex;
           const startsUtilityGroup =
-            item.group === 'utility' && ITEMS[index - 1]?.group !== 'utility';
+            item.group === 'utility' && items[index - 1]?.group !== 'utility';
           const sharedProps = {
             title: item.label,
             tabIndex: index === entryIndex ? 0 : -1,

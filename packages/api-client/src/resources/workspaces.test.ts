@@ -122,6 +122,7 @@ describe('the workspaces resource', () => {
         canRename: true,
         canManageMembers: true,
         canLeave: false,
+        canUseDailyNotes: true,
         pendingInvitationId: null,
       }),
     ).toMatchObject({ kind: 'personal', canLeave: false });

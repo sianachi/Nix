@@ -248,17 +248,68 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Group_editor_can_open_daily_notes_but_viewer_and_commenter_cannot()
+    public async Task Only_the_personal_workspace_owner_can_open_daily_notes()
     {
+        await SetPersonalOwnerAsync();
         await SeedDailyRootAsync();
+
+        var ownerWorkspace = await FindWorkspaceAsync(Alice);
+        Assert.True(ownerWorkspace?.CanUseDailyNotes);
+        Assert.True((await ListWorkspacesAsync(Alice)).Single().CanUseDailyNotes);
+        var owner = await OpenDailyThroughCoreAsync(Alice, "2026-08-29");
+        Assert.True(owner.IsSuccess);
+
         await AddGroupMembershipAsync(Bob, "editor");
-        var editor = await OpenDailyThroughCoreAsync(Bob, "2026-08-29");
-        Assert.True(editor.IsSuccess);
+        Assert.False((await FindWorkspaceAsync(Bob))?.CanUseDailyNotes);
+        Assert.False((await ListWorkspacesAsync(Bob)).Single().CanUseDailyNotes);
+        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-28")).IsSuccess);
+
+        await GrantTenantAdminAsync(Bob);
+        Assert.False((await FindWorkspaceAsync(Bob))?.CanUseDailyNotes);
+        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-27")).IsSuccess);
 
         await SetGroupRoleAsync("viewer");
-        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-28")).IsSuccess);
+        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-26")).IsSuccess);
         await SetGroupRoleAsync("commenter");
-        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-27")).IsSuccess);
+        Assert.False((await OpenDailyThroughCoreAsync(Bob, "2026-08-25")).IsSuccess);
+
+        await ClearPersonalOwnerAsync();
+        Assert.False((await FindWorkspaceAsync(Alice))?.CanUseDailyNotes);
+        Assert.False((await OpenDailyThroughCoreAsync(Alice, "2026-08-24")).IsSuccess);
+    }
+
+    [Fact]
+    public async Task A_daily_open_cannot_commit_after_personal_ownership_is_converted()
+    {
+        await SetPersonalOwnerAsync();
+        await SeedDailyRootAsync();
+        const string date = "2026-08-23";
+        var expected = DeterministicProvisioningId.DatedDailyNote(WorkspaceId.From(Visible), date);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await using (var transaction = await connection.BeginTransactionAsync(Cancellation))
+            {
+                // This is the lock and ownership conversion performed by recovery. Keeping it open
+                // makes the concurrent Daily Notes write wait at its authoritative ownership check.
+                await RawSql.ExecuteAsync(connection, transaction, $"""
+                    SELECT workspace_id FROM workspace
+                    WHERE tenant_id = '{M0SchemaSeed.Alpha.TenantId:D}' AND workspace_id = '{Visible:D}'
+                    FOR UPDATE;
+                    UPDATE workspace SET personal_owner_principal_id = NULL
+                    WHERE tenant_id = '{M0SchemaSeed.Alpha.TenantId:D}' AND workspace_id = '{Visible:D}';
+                    """);
+
+                var opening = OpenDailyThroughCoreAndCommitAsync(Alice, date);
+                await transaction.CommitAsync(Cancellation);
+
+                Assert.False((await opening).IsSuccess);
+            }
+
+            Assert.Equal(0, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM item WHERE id = '{expected:D}'::uuid"));
+        }
     }
 
     [Fact]
@@ -287,6 +338,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     [Fact]
     public async Task Two_simultaneous_daily_opens_return_the_one_deterministic_item()
     {
+        await SetPersonalOwnerAsync();
         await SeedDailyRootAsync();
         const string date = "2026-08-30";
         var expected = DeterministicProvisioningId.DatedDailyNote(WorkspaceId.From(Visible), date);
@@ -366,6 +418,18 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         }
     }
 
+    private async Task ClearPersonalOwnerAsync()
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, $"""
+                UPDATE workspace SET personal_owner_principal_id = NULL
+                WHERE workspace_id = '{Visible:D}';
+                """);
+        }
+    }
+
     private async Task SeedDailyRootAsync()
     {
         var root = DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible));
@@ -438,6 +502,40 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         {
             return await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, Guid>(
                 new OpenDailyNote(WorkspaceId.From(Visible), date), Cancellation);
+        }
+    }
+
+    private async Task<Result<Guid>> OpenDailyThroughCoreAndCommitAsync(Guid principalId, string date)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var result = await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, Guid>(
+                new OpenDailyNote(WorkspaceId.From(Visible), date), Cancellation);
+            if (result.IsSuccess)
+            {
+                await work.CommitAsync(Cancellation);
+            }
+            return result;
+        }
+    }
+
+    private async Task<WorkspaceSnapshot?> FindWorkspaceAsync(Guid principalId)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            return await work.Resolve<WorkspaceAdministrationStore>().FindAsync(
+                WorkspaceId.From(Visible), Cancellation);
+        }
+    }
+
+    private async Task<IReadOnlyList<WorkspaceSnapshot>> ListWorkspacesAsync(Guid principalId)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            return await work.Resolve<WorkspaceAdministrationStore>().ListAsync(null, null, 20, Cancellation);
         }
     }
 
