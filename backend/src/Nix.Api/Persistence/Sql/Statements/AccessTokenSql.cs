@@ -13,7 +13,7 @@ public static class AccessTokenSql
     /// returns still has to be compared, in constant time, by the caller.
     /// </summary>
     public const string ResolveForExchange = """
-        SELECT token_id, tenant_id, principal_id, external_subject, principal_status,
+        SELECT token_id, tenant_id, principal_id, principal_status,
                secret_hash, scopes, expires_at, revoked_at
         FROM nix_resolve_access_token(@lookup)
         """;
