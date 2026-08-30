@@ -181,6 +181,7 @@ export type {
 export * as accessTokens from './resources/access-tokens.js';
 export * as items from './resources/items.js';
 export * as workspaces from './resources/workspaces.js';
+export type { AssignableWorkspaceRole } from './resources/workspaces.js';
 export * as views from './resources/views.js';
 export * as structure from './resources/structure.js';
 export * as search from './resources/search.js';

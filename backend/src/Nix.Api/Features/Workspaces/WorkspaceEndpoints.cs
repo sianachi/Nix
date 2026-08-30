@@ -1,6 +1,12 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Nix.Contracts;
+using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
 using Nix.Errors;
+using Nix.Http;
+using Nix.Messaging;
+using Nix.Persistence.Workspaces;
 
 namespace Nix.Features.Workspaces;
 
@@ -27,7 +33,7 @@ internal static class WorkspaceEndpoints
         var workspaces = endpoints.MapGroup("/api/v1/workspaces")
             .WithTags("Workspaces");
 
-        workspaces.MapGet("/", ListWorkspaces)
+        workspaces.MapGet("/", ListWorkspacesEndpoint.Handle)
             .WithName("ListWorkspaces")
             .WithSummary("Workspaces the caller can see")
             .WithDescription(
@@ -36,9 +42,9 @@ internal static class WorkspaceEndpoints
                 + "list is how you enumerate what exists, so a placeholder would leak the fact of "
                 + "them.")
             .Produces<CursorPage<WorkspaceResponse>>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
-        workspaces.MapGet("/{workspaceId:guid}", GetWorkspace)
+        workspaces.MapGet("/{workspaceId:guid}", GetWorkspaceEndpoint.Handle)
             .WithName("GetWorkspace")
             .WithSummary("One workspace")
             .WithDescription(
@@ -46,20 +52,183 @@ internal static class WorkspaceEndpoints
                 + "the caller may not see is reported as not found rather than as forbidden, so "
                 + "the response cannot be used to confirm that it exists.")
             .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        workspaces.MapPost(string.Empty, CreateWorkspaceEndpoint.Handle)
+            .WithName("CreateWorkspace")
+            .Produces<WorkspaceResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        workspaces.MapPatch("/{workspaceId:guid}", RenameWorkspaceEndpoint.Handle)
+            .WithName("RenameWorkspace")
+            .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        workspaces.MapGet("/{workspaceId:guid}/members", WorkspaceAdministrationEndpoints.ListMembers)
+            .WithName("ListWorkspaceMembers")
+            .Produces<CursorPage<WorkspaceMemberResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        workspaces.MapPatch("/{workspaceId:guid}/members/{principalId:guid}", WorkspaceAdministrationEndpoints.ChangeMember)
+            .WithName("ChangeWorkspaceMemberRole")
+            .Produces<WorkspaceMemberResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapDelete("/{workspaceId:guid}/members/{principalId:guid}", WorkspaceAdministrationEndpoints.RemoveMember)
+            .WithName("RemoveWorkspaceMember")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPost("/{workspaceId:guid}/leave", WorkspaceAdministrationEndpoints.Leave)
+            .WithName("LeaveWorkspace")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        workspaces.MapGet("/{workspaceId:guid}/invitations", WorkspaceAdministrationEndpoints.ListInvitations)
+            .WithName("ListWorkspaceInvitations")
+            .Produces<CursorPage<WorkspaceInvitationResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        workspaces.MapPost("/{workspaceId:guid}/invitations", WorkspaceAdministrationEndpoints.Invite)
+            .WithName("CreateWorkspaceInvitation")
+            .Produces<WorkspaceInvitationResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapDelete("/{workspaceId:guid}/invitations/{invitationId:guid}", WorkspaceAdministrationEndpoints.RevokeInvitation)
+            .WithName("RevokeWorkspaceInvitation")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPost("/{workspaceId:guid}/recover", WorkspaceAdministrationEndpoints.Recover)
+            .WithName("RecoverWorkspace")
+            .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPut("/{workspaceId:guid}/daily-notes/{date}", OpenDailyNoteEndpoint.Handle)
+            .WithName("OpenDailyNote")
+            .Produces<DailyNoteResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
     }
 
-    private static Results<Ok<CursorPage<WorkspaceResponse>>, ProblemHttpResult> ListWorkspaces(
-        HttpContext httpContext,
-        string? cursor = null,
-        int limit = CursorPaging.DefaultLimit) =>
-        ContractStub.NotImplemented(httpContext, "ListWorkspaces");
+    internal static WorkspaceResponse ToResponse(WorkspaceSnapshot row) => new(
+        row.Id.Value, row.Name, row.VersionRetentionDays, row.StorageQuotaBytes, row.CreatedAt,
+        row.PersonalOwnerPrincipalId is null ? "shared" : "personal",
+        row.CanRename, row.CanManageMembers, row.CanLeave);
 
-    private static Results<Ok<WorkspaceResponse>, ProblemHttpResult> GetWorkspace(
-        Guid workspaceId,
-        HttpContext httpContext) =>
-        ContractStub.NotImplemented(httpContext, "GetWorkspace");
+    internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext context, NixError error)
+    {
+        var status = error.Code switch
+        {
+            NotFoundCode => StatusCodes.Status404NotFound,
+            "workspaces.invalid_name" or
+            "workspaces.invalid_invitation" or
+            "workspaces.invalid_role" or
+            "workspaces.invalid_daily_date" or
+            "paging.invalid_cursor" => StatusCodes.Status422UnprocessableEntity,
+            "workspaces.human_required" => StatusCodes.Status403Forbidden,
+            "workspaces.recovery_forbidden" => StatusCodes.Status403Forbidden,
+            _ => StatusCodes.Status409Conflict,
+        };
+        return ApiProblem.Create(context, status, error.Code, "Workspace request refused", error.Message);
+    }
+}
+
+internal static class OpenDailyNoteEndpoint
+{
+    internal static async Task<Results<Ok<DailyNoteResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, string date, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<OpenDailyNote, Guid>(
+            new OpenDailyNote(WorkspaceId.From(workspaceId), date), context.RequestAborted)
+            .ConfigureAwait(false);
+        return result.Match<Results<Ok<DailyNoteResponse>, ProblemHttpResult>>(
+            itemId => TypedResults.Ok(new DailyNoteResponse(itemId)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class ListWorkspacesEndpoint
+{
+    internal static async Task<Results<Ok<CursorPage<WorkspaceResponse>>, ProblemHttpResult>> Handle(
+        HttpContext context,
+        [FromServices] NixDispatcher dispatcher,
+        string? cursor = null,
+        int limit = CursorPaging.DefaultLimit)
+    {
+        if (limit is < 1 or > CursorPaging.MaximumLimit
+            || !WorkspaceCursor.TryDecode(cursor, out var position))
+        {
+            return TypedResults.Problem(WorkspaceEndpoints.Problem(
+                context, WorkspaceAdministrationErrors.InvalidCursor()));
+        }
+        var take = limit;
+        var rows = await dispatcher.QueryAsync<ListWorkspaces, IReadOnlyList<WorkspaceSnapshot>>(
+            new ListWorkspaces(position?.CreatedAt, position?.Id, take + 1), context.RequestAborted)
+            .ConfigureAwait(false);
+        var hasMore = rows.Count > take;
+        var responses = new WorkspaceResponse[Math.Min(rows.Count, take)];
+        for (var index = 0; index < responses.Length; index++)
+        {
+            responses[index] = WorkspaceEndpoints.ToResponse(rows[index]);
+        }
+        return TypedResults.Ok(new CursorPage<WorkspaceResponse>(
+            responses, hasMore ? WorkspaceCursor.Encode(rows[take - 1]) : null));
+    }
+}
+
+internal static class GetWorkspaceEndpoint
+{
+    internal static async Task<Results<Ok<WorkspaceResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var row = await dispatcher.QueryAsync<GetWorkspace, WorkspaceSnapshot?>(
+            new GetWorkspace(WorkspaceId.From(workspaceId)), context.RequestAborted).ConfigureAwait(false);
+        return row is null
+            ? TypedResults.Problem(WorkspaceEndpoints.Problem(context, WorkspaceErrors.NotFound()))
+            : TypedResults.Ok(WorkspaceEndpoints.ToResponse(row));
+    }
+}
+
+internal static class CreateWorkspaceEndpoint
+{
+    internal static async Task<Results<Created<WorkspaceResponse>, ProblemHttpResult>> Handle(
+        CreateWorkspaceRequest request, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<CreateWorkspace, WorkspaceSnapshot>(
+            new CreateWorkspace(request.Name), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Created<WorkspaceResponse>, ProblemHttpResult>>(
+            row => TypedResults.Created($"/api/v1/workspaces/{row.Id}", WorkspaceEndpoints.ToResponse(row)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class RenameWorkspaceEndpoint
+{
+    internal static async Task<Results<Ok<WorkspaceResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, RenameWorkspaceRequest request, HttpContext context,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<RenameWorkspace, WorkspaceSnapshot>(
+            new RenameWorkspace(WorkspaceId.From(workspaceId), request.Name), context.RequestAborted)
+            .ConfigureAwait(false);
+        return result.Match<Results<Ok<WorkspaceResponse>, ProblemHttpResult>>(
+            row => TypedResults.Ok(WorkspaceEndpoints.ToResponse(row)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
 }
