@@ -310,17 +310,27 @@ public sealed class NixTokenValidator
             }
 
             var subject = result.ClaimsIdentity.FindFirst("sub")?.Value;
-            if (string.IsNullOrWhiteSpace(subject)
-                || !SelfIssuedTokenService.TryReadClaims(
-                    result.ClaimsIdentity,
-                    out var tenantId,
-                    out var principalId,
-                    out var accessTokenId))
+            if (string.IsNullOrWhiteSpace(subject))
             {
                 return null;
             }
 
-            return new ValidatedCoreToken(tenantId, principalId, accessTokenId);
+            if (SelfIssuedTokenService.TryReadClaims(
+                result.ClaimsIdentity,
+                out var tenantId,
+                out var principalId,
+                out var accessTokenId))
+            {
+                return new ValidatedCoreToken(tenantId, principalId, accessTokenId);
+            }
+
+            return SelfIssuedTokenService.TryReadBrowserSessionClaims(
+                result.ClaimsIdentity,
+                out tenantId,
+                out principalId,
+                out var browserSessionId)
+                    ? new ValidatedBrowserSessionToken(tenantId, principalId, browserSessionId)
+                    : null;
         }
         catch (SecurityTokenException)
         {
@@ -513,4 +523,11 @@ public sealed record ValidatedCoreToken(
     TenantId TenantId,
     PrincipalId PrincipalId,
     PersonalAccessTokenId AccessTokenId)
+    : ValidatedToken(TenantId);
+
+/// <summary>A short-lived Core JWT backed by a revocable browser session.</summary>
+public sealed record ValidatedBrowserSessionToken(
+    TenantId TenantId,
+    PrincipalId PrincipalId,
+    BrowserSessionId BrowserSessionId)
     : ValidatedToken(TenantId);

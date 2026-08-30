@@ -20,8 +20,8 @@ export function ApiClientProvider({ children }: { readonly children: ReactNode }
       baseUrl: globalThis.location.origin,
       tokens: {
         getAccessToken,
-        // `getAccessToken` asks the OIDC manager at call time. If a silent renewal has completed,
-        // this is the replacement token; if it has not, the original 401 remains the honest answer.
+        // Core renews only its own short-lived bearer token from the HttpOnly browser session;
+        // provider tokens never enter this client or JavaScript at all.
         refreshAccessToken: getAccessToken,
       },
     }),

@@ -152,6 +152,7 @@ public sealed class JitMiddlewareTransactionIntegrationTests : IAsyncLifetime
                 database,
                 new FailedAuthenticationThrottle(TimeProvider.System, 3, TimeSpan.FromMinutes(5)),
                 services.GetRequiredService<IPersonalAccessTokens>(),
+                services.GetRequiredService<IBrowserSessions>(),
                 services.GetRequiredService<AccessTokenSessionContext>(),
                 new UserInfoClient(userInfoClient, TimeSpan.FromSeconds(5)),
                 services.GetRequiredService<NixDispatcher>(),

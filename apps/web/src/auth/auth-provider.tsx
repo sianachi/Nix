@@ -1,34 +1,42 @@
-import { UserManager, type User } from 'oidc-client-ts';
-import { createContext, use, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { z } from 'zod';
 
 import { useSessionStore, type SessionProfile } from './session-store';
-import { buildUserManagerSettings, isOidcConfigured, readOidcEnvironment } from './oidc-config';
-import { forgetSession, hasSessionHint, rememberSession } from './session-hint';
 
 /**
- * Owns the OIDC user manager and keeps the session store in step with it.
- *
- * The manager's tab-scoped user store is the only place that ever holds an access token.
- * Components read who is signed in from the Zustand slice; anything that needs to *call* the API
- * asks this context for a token at the moment of the call, so a token is never copied somewhere a
- * component can accidentally render it.
+ * Browser authentication is mediated by Core. Zitadel tokens never enter JavaScript: Core keeps
+ * the provider exchange server-side, gives the browser an opaque HttpOnly session cookie, and
+ * returns only a short-lived Core JWT for the existing API and collaboration bearer boundaries.
  */
 
 export interface AuthContextValue {
-  /** Starts the redirect to the identity provider. */
+  /** Starts the server-owned authorization-code redirect. */
   readonly signIn: () => Promise<void>;
-  /** Ends the session, locally and at the provider. */
+  /** Revokes the local browser session and clears its cookie. */
   readonly signOut: () => Promise<void>;
-  /**
-   * The current access token, or null when there is no session.
-   *
-   * Async because a renew may be in flight; callers await it per request rather than caching it,
-   * which is what stops a stale token being sent after a silent renew has replaced it.
-   */
+  /** Returns a current short-lived Core access token without exposing the session cookie. */
   readonly getAccessToken: () => Promise<string | null>;
-  /** Whether the deployment has an issuer and client id configured at all. */
+  /** Whether Core has the interactive provider and its signing key configured. */
   readonly isConfigured: boolean;
 }
+
+const browserProfileSchema = z.object({
+  subject: z.string().min(1),
+  name: z.string().min(1),
+});
+
+const browserSessionSchema = z.object({
+  authenticated: z.boolean(),
+  configured: z.boolean(),
+  profile: browserProfileSchema.nullable(),
+  accessToken: z.string().min(1).nullable(),
+  expiresAt: z.iso.datetime({ offset: true }).nullable(),
+});
+
+const browserTokenSchema = z.object({
+  accessToken: z.string().min(1),
+  expiresAt: z.iso.datetime({ offset: true }),
+});
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -41,31 +49,34 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
-function toProfile(user: User): SessionProfile {
-  const claims = user.profile;
-  return {
-    subject: claims.sub,
-    // `name` is optional in OIDC; falling back to the subject keeps the shell honest rather than
-    // rendering an empty chip where a person's name should be.
-    name: claims.name ?? claims.preferred_username ?? claims.sub,
-    email: claims.email ?? null,
-  };
-}
-
 export interface AuthProviderProps {
   readonly children: ReactNode;
 }
 
+interface AccessTokenState {
+  readonly value: string;
+  readonly expiresAt: number;
+}
+
+function toProfile(profile: z.infer<typeof browserProfileSchema>): SessionProfile {
+  return { subject: profile.subject, name: profile.name, email: null };
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim();
+  if (mediaType !== 'application/json') {
+    throw new Error('Core returned an unexpected browser-session response.');
+  }
+
+  return response.json();
+}
+
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
-  const environment = useMemo(
-    () => readOidcEnvironment(import.meta.env, globalThis.location.origin),
-    [],
-  );
-
-  const configured = isOidcConfigured(environment);
-
-  const managerRef = useRef<UserManager | null>(null);
-  managerRef.current ??= configured ? new UserManager(buildUserManagerSettings(environment)) : null;
+  // True until Core answers so the login screen never flashes a false configuration warning while
+  // the session gate is still restoring. The response is authoritative before the gate settles.
+  const [configured, setConfigured] = useState(true);
+  const accessTokenRef = useRef<AccessTokenState | null>(null);
+  const refreshRef = useRef<Promise<string | null> | null>(null);
 
   const signInStarted = useSessionStore((state) => state.signInStarted);
   const sessionRestoreCancelled = useSessionStore((state) => state.sessionRestoreCancelled);
@@ -74,180 +85,146 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const signedOut = useSessionStore((state) => state.signedOut);
 
   useEffect(() => {
-    const manager = managerRef.current;
-
-    if (manager === null) {
-      // No issuer configured. Say so once, as an anonymous session, rather than leaving the shell
-      // spinning on "unknown" forever - a login screen that never becomes interactive is worse
-      // than one that explains why.
-      //
-      // Only from `unknown`, though. This provider reports what it discovers; it does not
-      // overwrite a session someone else established, which is what lets a test seed one and what
-      // stops a late-mounting provider signing a person out.
-      if (useSessionStore.getState().status === 'unknown') {
-        signedOut();
-      }
-
+    if (useSessionStore.getState().status !== 'unknown') {
       return;
     }
 
-    const onUserLoaded = (user: User): void => {
-      if (user.expired === true) {
-        forgetSession();
-        signedOut();
-        return;
-      }
+    const controller = new AbortController();
+    let settled = false;
+    signInStarted();
 
-      rememberSession();
-      signInSucceeded(toProfile(user));
-    };
-    const onUserUnloaded = (): void => {
-      forgetSession();
-      signedOut();
-    };
-    const onSilentRenewError = (error: Error): void => {
-      forgetSession();
-      signInFailed(`Session could not be renewed: ${error.message}`);
-    };
+    void fetch('/auth/session', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Core could not restore the browser session.');
+        }
 
-    manager.events.addUserLoaded(onUserLoaded);
-    manager.events.addUserUnloaded(onUserUnloaded);
-    manager.events.addSilentRenewError(onSilentRenewError);
-
-    // oidc-client-ts persists its user in sessionStorage, so consult that tab-scoped store before
-    // doing any network work. Only ask the identity provider to restore a missing stored user when
-    // this browser has completed sign-in before: an anonymous first visit cannot possibly be
-    // restored, and waiting for the hidden iframe's production timeout made the login screen
-    // appear broken for several seconds.
-    //
-    // Skipped when a session already exists, for the same reason as above.
-    if (useSessionStore.getState().status !== 'unknown') {
-      return () => {
-        manager.events.removeUserLoaded(onUserLoaded);
-        manager.events.removeUserUnloaded(onUserUnloaded);
-        manager.events.removeSilentRenewError(onSilentRenewError);
-      };
-    }
-
-    const lifecycle = { completed: false, disposed: false };
-    const isDisposed = (): boolean => lifecycle.disposed;
-    const complete = (): void => {
-      lifecycle.completed = true;
-    };
-    void (async () => {
-      let user: User | null;
-      try {
-        user = await manager.getUser();
-      } catch {
-        // A blocked or corrupt tab store is equivalent to no stored user. The non-secret hint
-        // below still determines whether the provider may have a session worth restoring.
-        user = null;
-      }
-
-      if (isDisposed()) {
-        return;
-      }
-
-      if (user !== null && user.expired !== true) {
-        complete();
-        rememberSession();
-        signInSucceeded(toProfile(user));
-        return;
-      }
-
-      const storedUserExpired = user?.expired === true;
-      if (!storedUserExpired && !hasSessionHint()) {
-        complete();
-        signedOut();
-        return;
-      }
-
-      signInStarted();
-      try {
-        user = await manager.signinSilent();
-        if (isDisposed()) {
+        return browserSessionSchema.parse(await readJson(response));
+      })
+      .then((session) => {
+        if (controller.signal.aborted) {
           return;
         }
 
-        if (user === null || user.expired === true) {
-          complete();
-          forgetSession();
-          signedOut();
+        settled = true;
+        setConfigured(session.configured);
+        if (
+          session.authenticated &&
+          session.profile !== null &&
+          session.accessToken !== null &&
+          session.expiresAt !== null
+        ) {
+          accessTokenRef.current = {
+            value: session.accessToken,
+            expiresAt: Date.parse(session.expiresAt),
+          };
+          signInSucceeded(toProfile(session.profile));
           return;
         }
 
-        complete();
-        rememberSession();
-        signInSucceeded(toProfile(user));
-      } catch {
-        if (isDisposed()) {
-          return;
-        }
-
-        complete();
-        forgetSession();
+        accessTokenRef.current = null;
         signedOut();
-      }
-    })();
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        settled = true;
+        accessTokenRef.current = null;
+        signInFailed(error instanceof Error ? error.message : 'Session could not be restored.');
+      });
 
     return () => {
-      lifecycle.disposed = true;
-      if (!lifecycle.completed) {
+      controller.abort();
+      if (!settled) {
         sessionRestoreCancelled();
       }
-      manager.events.removeUserLoaded(onUserLoaded);
-      manager.events.removeUserUnloaded(onUserUnloaded);
-      manager.events.removeSilentRenewError(onSilentRenewError);
     };
-  }, [signInStarted, sessionRestoreCancelled, signInSucceeded, signInFailed, signedOut]);
+  }, [sessionRestoreCancelled, signInFailed, signInStarted, signInSucceeded, signedOut]);
 
+  // Load-bearing identity: ApiClientProvider creates one client and retains these functions as its
+  // token contract. They read mutable refs so renewal never requires recreating that client.
   const value = useMemo<AuthContextValue>(
     () => ({
       isConfigured: configured,
 
-      signIn: async () => {
-        const manager = managerRef.current;
-        if (manager === null) {
-          signInFailed(
-            'No identity provider is configured. Run deploy/seed/zitadel-configure.sh and set VITE_OIDC_ISSUER and VITE_OIDC_CLIENT_ID.',
-          );
-          return;
+      signIn: () => {
+        if (!configured) {
+          signInFailed('Interactive sign-in is not configured on this Nix server.');
+          return Promise.resolve();
         }
 
         signInStarted();
-        try {
-          await manager.signinRedirect();
-        } catch (error) {
-          signInFailed(error instanceof Error ? error.message : 'Sign-in could not be started.');
-        }
+        const returnTo = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+        globalThis.location.assign(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
+        return Promise.resolve();
       },
 
       signOut: async () => {
-        const manager = managerRef.current;
-        forgetSession();
-        if (manager === null) {
-          signedOut();
-          return;
-        }
-
         try {
-          await manager.signoutRedirect();
+          await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/json' },
+          });
         } finally {
+          accessTokenRef.current = null;
+          refreshRef.current = null;
           signedOut();
         }
       },
 
       getAccessToken: async () => {
-        const manager = managerRef.current;
-        if (manager === null) {
-          return null;
+        const current = accessTokenRef.current;
+        if (current !== null && current.expiresAt - Date.now() > 30_000) {
+          return current.value;
         }
 
-        const user = await manager.getUser();
-        return user === null || user.expired === true ? null : user.access_token;
+        if (refreshRef.current !== null) {
+          return refreshRef.current;
+        }
+
+        const refresh = fetch('/auth/token', {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        })
+          .then(async (response) => {
+            if (response.status === 401) {
+              accessTokenRef.current = null;
+              signedOut();
+              return null;
+            }
+
+            if (!response.ok) {
+              return null;
+            }
+
+            const token = browserTokenSchema.parse(await readJson(response));
+            accessTokenRef.current = {
+              value: token.accessToken,
+              expiresAt: Date.parse(token.expiresAt),
+            };
+            return token.accessToken;
+          })
+          .catch(() => null)
+          .finally(() => {
+            refreshRef.current = null;
+          });
+        refreshRef.current = refresh;
+        return refresh;
       },
     }),
-    [configured, signInStarted, signInFailed, signedOut],
+    [configured, signInFailed, signInStarted, signedOut],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

@@ -74,6 +74,30 @@ public sealed class SelfIssuedTokenServiceTests
     }
 
     [Fact]
+    public async Task A_browser_token_carries_only_its_revocable_session_identity()
+    {
+        using var service = Service(Configuration(FreshKeyPem()));
+        var tenantId = TenantId.From(Guid.NewGuid());
+        var principalId = PrincipalId.Create();
+        var browserSessionId = BrowserSessionId.Create();
+
+        var token = service.MintBrowserSession(principalId, tenantId, browserSessionId);
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var result = await handler.ValidateTokenAsync(token, service.CreateValidationParameters());
+        Assert.True(result.IsValid);
+        Assert.True(SelfIssuedTokenService.TryReadBrowserSessionClaims(
+            result.ClaimsIdentity,
+            out var readTenant,
+            out var readPrincipal,
+            out var readSession));
+        Assert.Equal(tenantId, readTenant);
+        Assert.Equal(principalId, readPrincipal);
+        Assert.Equal(browserSessionId, readSession);
+        Assert.Null(result.ClaimsIdentity.FindFirst(SelfIssuedTokenService.AccessTokenClaim));
+    }
+
+    [Fact]
     public async Task A_token_signed_by_a_different_key_does_not_validate()
     {
         using var minter = Service(Configuration(FreshKeyPem()));

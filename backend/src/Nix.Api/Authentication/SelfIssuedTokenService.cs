@@ -75,6 +75,9 @@ public sealed class SelfIssuedTokenService : IDisposable
     /// <summary>The claim carrying the token row the session must re-check.</summary>
     public const string AccessTokenClaim = "nix_pat_id";
 
+    /// <summary>The claim carrying the revocable browser session behind an interactive token.</summary>
+    public const string BrowserSessionClaim = "nix_browser_session_id";
+
     private const int DefaultLifetimeMinutes = 10;
 
     private readonly ECDsa? _key;
@@ -203,6 +206,39 @@ public sealed class SelfIssuedTokenService : IDisposable
         return _handler.WriteToken(token);
     }
 
+    /// <summary>Mints a short-lived JWT backed by a revocable Core browser session.</summary>
+    public string MintBrowserSession(
+        PrincipalId principalId,
+        TenantId tenantId,
+        BrowserSessionId browserSessionId)
+    {
+        if (principalId.Value == Guid.Empty || browserSessionId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("The principal and browser-session identifiers cannot be empty.");
+        }
+
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException("Cannot mint a browser token while Core signing is unconfigured.");
+        }
+
+        var now = Clock.GetUtcNow();
+        var token = new JwtSecurityToken(
+            issuer: Issuer,
+            audience: Audience,
+            claims:
+            [
+                new Claim("sub", principalId.Value.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(TenantClaim, tenantId.Value.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(BrowserSessionClaim, browserSessionId.Value.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim("jti", Guid.CreateVersion7().ToString("D", CultureInfo.InvariantCulture)),
+            ],
+            notBefore: now.UtcDateTime,
+            expires: (now + Lifetime).UtcDateTime,
+            signingCredentials: new SigningCredentials(_securityKey, SecurityAlgorithms.EcdsaSha256));
+        return _handler.WriteToken(token);
+    }
+
     /// <summary>
     /// Builds the validation parameters the token validator's self-issuer branch uses.
     /// </summary>
@@ -270,6 +306,34 @@ public sealed class SelfIssuedTokenService : IDisposable
         tenantId = TenantId.From(tenant);
         principalId = PrincipalId.From(principal);
         accessTokenId = PersonalAccessTokenId.From(token);
+        return true;
+    }
+
+    /// <summary>Reads the claims carried only by a Core-owned browser-session JWT.</summary>
+    public static bool TryReadBrowserSessionClaims(
+        ClaimsIdentity identity,
+        out TenantId tenantId,
+        out PrincipalId principalId,
+        out BrowserSessionId browserSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        tenantId = default;
+        principalId = default;
+        browserSessionId = default;
+
+        if (!Guid.TryParseExact(identity.FindFirst("sub")?.Value, "D", out var principal)
+            || !Guid.TryParseExact(identity.FindFirst(TenantClaim)?.Value, "D", out var tenant)
+            || !Guid.TryParseExact(identity.FindFirst(BrowserSessionClaim)?.Value, "D", out var session)
+            || principal == Guid.Empty
+            || tenant == Guid.Empty
+            || session == Guid.Empty)
+        {
+            return false;
+        }
+
+        tenantId = TenantId.From(tenant);
+        principalId = PrincipalId.From(principal);
+        browserSessionId = BrowserSessionId.From(session);
         return true;
     }
 
