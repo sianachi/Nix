@@ -62,8 +62,18 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         {
             var store = human.Resolve<WorkspaceAdministrationStore>();
             Assert.True(await store.CreateAsync(createdId, "Alice project", DateTimeOffset.UtcNow, Cancellation));
+            await store.SeedPresetsAsync(createdId, DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("Alice project", (await store.FindAsync(createdId, Cancellation))?.Name);
             await human.CommitAsync(Cancellation);
+        }
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(3, await RawSql.CountAsync(
+                connection,
+                transaction: null,
+                $"SELECT count(*) FROM workspace_template WHERE workspace_id = '{createdId.Value:D}'"));
         }
 
         var service = await _fixture.Application.BeginUnitOfWorkAsync(Context(Service), Cancellation);
