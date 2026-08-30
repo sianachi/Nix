@@ -9,6 +9,7 @@ import {
   readOidcEnvironment,
 } from '../auth/oidc-config';
 import { useSessionStore } from '../auth/session-store';
+import { rememberSession } from '../auth/session-hint';
 
 /**
  * Where the identity provider sends the browser back to, carrying an authorization code.
@@ -54,6 +55,7 @@ export function AuthCallbackPage(): ReactNode {
         const readString = (key: string): string | null =>
           typeof claims[key] === 'string' ? claims[key] : null;
 
+        rememberSession();
         signInSucceeded({
           subject: user.profile.sub,
           name: readString('name') ?? readString('preferred_username') ?? user.profile.sub,
