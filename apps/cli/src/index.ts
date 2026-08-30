@@ -14,7 +14,18 @@
 
 import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
-import { listWorkspaces } from './commands/workspaces.ts';
+import {
+  changeWorkspaceMemberRole,
+  createWorkspace,
+  inviteWorkspaceMember,
+  leaveWorkspace,
+  listWorkspaceInvitations,
+  listWorkspaceMembers,
+  listWorkspaces,
+  removeWorkspaceMember,
+  renameWorkspace,
+  revokeWorkspaceInvitation,
+} from './commands/workspaces.ts';
 import {
   createItem,
   deleteItem,
@@ -39,6 +50,7 @@ import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
+import { runWorkspaceMcpServer } from './mcp.ts';
 
 interface GlobalFlags {
   readonly profile: string | undefined;
@@ -127,10 +139,140 @@ export function buildProgram(): Command {
   const ws = program.command('ws').description('The workspaces a token can reach.');
 
   ws.command('list')
-    .description('List every workspace the profile can reach.')
+    .description('List one page of workspaces the profile can reach.')
+    .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (options: PageCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listWorkspaces(flags.profile, options, outputOptions(flags.json)));
+    });
+
+  ws.command('create <name>')
+    .description('Create a shared workspace.')
+    .action(async (name: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => createWorkspace(flags.profile, name, outputOptions(flags.json)));
+    });
+  ws.command('rename <workspaceId> <name>')
+    .description('Rename a workspace.')
+    .action(async (workspaceId: string, name: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => renameWorkspace(flags.profile, workspaceId, name, outputOptions(flags.json)));
+    });
+  ws.command('invitations <workspaceId>')
+    .description('List invitation history.')
+    .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (workspaceId: string, options: PageCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        listWorkspaceInvitations(flags.profile, workspaceId, options, outputOptions(flags.json)),
+      );
+    });
+  ws.command('invite <workspaceId> <email>')
+    .requiredOption('--role <role>', 'owner, editor, or viewer')
+    .description('Invite a collaborator.')
+    .action(
+      async (workspaceId: string, email: string, options: { role: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          inviteWorkspaceMember(
+            flags.profile,
+            workspaceId,
+            email,
+            options.role,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  ws.command('revoke-invite <workspaceId> <invitationId>')
+    .description('Revoke a pending invitation.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(
+      async (workspaceId: string, invitationId: string, options: ConfirmCliOptions, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          revokeWorkspaceInvitation(
+            flags.profile,
+            workspaceId,
+            invitationId,
+            options.yes === true,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  ws.command('members <workspaceId>')
+    .description('List principal and group workspace grants.')
+    .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (workspaceId: string, options: PageCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        listWorkspaceMembers(flags.profile, workspaceId, options, outputOptions(flags.json)),
+      );
+    });
+  ws.command('role <workspaceId> <principalId>')
+    .requiredOption('--role <role>', 'owner, editor, or viewer')
+    .description('Change a member role.')
+    .action(
+      async (
+        workspaceId: string,
+        principalId: string,
+        options: { role: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          changeWorkspaceMemberRole(
+            flags.profile,
+            workspaceId,
+            principalId,
+            options.role,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  ws.command('remove <workspaceId> <principalId>')
+    .description('Remove a workspace member.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(
+      async (workspaceId: string, principalId: string, options: ConfirmCliOptions, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          removeWorkspaceMember(
+            flags.profile,
+            workspaceId,
+            principalId,
+            options.yes === true,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  ws.command('leave <workspaceId>')
+    .description('Leave a workspace.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (workspaceId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        leaveWorkspace(
+          flags.profile,
+          workspaceId,
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  program
+    .command('mcp')
+    .description('Serve Nix workspace tools over MCP on stdio.')
     .action(async (_options: unknown, command: Command) => {
       const flags = globalFlags(command);
-      await run(() => listWorkspaces(flags.profile, outputOptions(flags.json)));
+      await run(() => runWorkspaceMcpServer(flags.profile));
     });
 
   const note = program.command('note').description("A note's body, as Markdown.");
@@ -367,8 +509,8 @@ export function buildProgram(): Command {
     .option('--type <type>', 'the body kind of each child', 'note')
     .option(
       '--prop <key=value...>',
-      "a property each child carries; '#n' is the child's index and '#n%<k>' its index modulo k, "
-        + 'so a seed produces a spread rather than one repeated value',
+      "a property each child carries; '#n' is the child's index and '#n%<k>' its index modulo k, " +
+        'so a seed produces a spread rather than one repeated value',
     )
     .action(async (options: SeedCliOptions, command: Command) => {
       const flags = globalFlags(command);
@@ -400,8 +542,8 @@ export function buildProgram(): Command {
     )
     .option(
       '--item <id>',
-      'read-storm/list-storm/chart-storm/query-storm: the item to read (a container for all but '
-        + 'read-storm)',
+      'read-storm/list-storm/chart-storm/query-storm: the item to read (a container for all but ' +
+        'read-storm)',
     )
     .option('--workspace <id>', 'list-storm: the workspace the container lives in')
     .option('--page-size <n>', 'list-storm: how many children to ask for per page', (value) =>
@@ -576,6 +718,19 @@ interface MvOptions {
 
 interface WorkspaceOption {
   readonly workspace: string;
+}
+
+interface PageCliOptions {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+interface ConfirmCliOptions {
+  readonly yes?: boolean;
+}
+
+function parseInteger(value: string): number {
+  return Number.parseInt(value, 10);
 }
 
 interface ImportCliOptions {
