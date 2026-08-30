@@ -277,7 +277,8 @@ public sealed class NixTokenValidator
                 registration.TenantId,
                 subject,
                 registration,
-                authorizedPartyRegistration);
+                authorizedPartyRegistration,
+                !string.IsNullOrWhiteSpace(authorizedParty));
         }
         catch (SecurityTokenException)
         {
@@ -492,11 +493,16 @@ public abstract record ValidatedToken
 /// The exact signed <c>azp</c> registration, when one matched. Only this registration may authorize
 /// JIT; missing or unmatched <c>azp</c> keeps ordinary authentication valid but cannot provision.
 /// </param>
+/// <param name="HasAuthorizedPartyClaim">
+/// Whether the validated token carried a non-empty <c>azp</c>. This retains no claim data and only
+/// distinguishes a missing claim from an unregistered value in safe admission diagnostics.
+/// </param>
 public sealed record ValidatedExternalToken(
     TenantId TenantId,
     string Subject,
     IdentityProviderRegistration Registration,
-    IdentityProviderRegistration? AuthorizedPartyRegistration)
+    IdentityProviderRegistration? AuthorizedPartyRegistration,
+    bool HasAuthorizedPartyClaim = true)
     : ValidatedToken(TenantId);
 
 /// <summary>A Core-issued session obtained by exchanging a personal access token.</summary>

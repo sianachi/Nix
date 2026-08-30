@@ -370,7 +370,9 @@ public sealed class NixUnitOfWorkMiddleware
         if (authorizedParty is null)
         {
             return (
-                "authorized_party_not_registered",
+                token.HasAuthorizedPartyClaim
+                    ? "authorized_party_not_registered"
+                    : "authorized_party_claim_missing",
                 token.Registration.ProviderId.Value.ToString());
         }
 
