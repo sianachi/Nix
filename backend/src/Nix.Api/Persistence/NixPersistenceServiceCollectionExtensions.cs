@@ -27,6 +27,7 @@ using Nix.Features.Search;
 using Nix.Features.Templates;
 using Nix.Features.Tokens;
 using Nix.Features.Views;
+using Nix.Features.Workspaces;
 using Nix.Messaging;
 using Nix.Persistence.Authorization;
 using Nix.Persistence.Bookmarks;
@@ -44,6 +45,7 @@ using Nix.Persistence.Search;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Templates;
 using Nix.Persistence.Tokens;
+using Nix.Persistence.Workspaces;
 using Npgsql;
 
 namespace Nix.Persistence;
@@ -182,6 +184,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IPublicFormStore, PublicFormStore>();
         services.AddScoped<IPersonalAccessTokens, PersonalAccessTokenStore>();
+        services.AddScoped<WorkspaceAdministrationStore>();
         services.AddSingleton<TemplateDefinitionValidator>();
         services.AddSingleton<TemplateMergePlanner>();
         services.AddScoped<TemplateStore>();
@@ -256,6 +259,22 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateAccessToken, IssuedAccessToken>, CreateAccessTokenHandler>();
         services.AddScoped<IQueryHandler<ListAccessTokens, Result<IReadOnlyList<PersonalAccessToken>>>, ListAccessTokensHandler>();
         services.AddScoped<ICommandHandler<RevokeAccessToken, bool>, RevokeAccessTokenHandler>();
+
+        services.AddScoped<IQueryHandler<ListWorkspaces, IReadOnlyList<WorkspaceSnapshot>>, ListWorkspacesHandler>();
+        services.AddScoped<IQueryHandler<GetWorkspace, WorkspaceSnapshot?>, GetWorkspaceHandler>();
+        services.AddScoped<ICommandHandler<CreateWorkspace, WorkspaceSnapshot>, CreateWorkspaceHandler>();
+        services.AddScoped<ICommandHandler<RenameWorkspace, WorkspaceSnapshot>, RenameWorkspaceHandler>();
+        services.AddScoped<IQueryHandler<ListWorkspaceMembers, IReadOnlyList<WorkspaceMemberSnapshot>>, ListWorkspaceMembersHandler>();
+        services.AddScoped<IQueryHandler<ListWorkspaceInvitations, IReadOnlyList<WorkspaceInvitationSnapshot>>, ListWorkspaceInvitationsHandler>();
+        services.AddScoped<ICommandHandler<InviteWorkspaceMember, WorkspaceInvitationSnapshot>, InviteWorkspaceMemberHandler>();
+        services.AddScoped<ICommandHandler<RevokeWorkspaceInvitation, bool>, RevokeWorkspaceInvitationHandler>();
+        services.AddScoped<
+            ICommandHandler<ChangeWorkspaceMemberRole, WorkspaceMemberSnapshot>,
+            ChangeWorkspaceMemberRoleHandler>();
+        services.AddScoped<ICommandHandler<RemoveWorkspaceMember, bool>, RemoveWorkspaceMemberHandler>();
+        services.AddScoped<ICommandHandler<LeaveWorkspace, bool>, LeaveWorkspaceHandler>();
+        services.AddScoped<ICommandHandler<RecoverWorkspace, WorkspaceSnapshot>, RecoverWorkspaceHandler>();
+        services.AddScoped<ICommandHandler<OpenDailyNote, Guid>, OpenDailyNoteHandler>();
 
         services.AddScoped<IQueryHandler<ListTemplates, Result<TemplateLibrarySnapshot>>, ListTemplatesHandler>();
         services.AddScoped<IQueryHandler<GetTemplate, Result<TemplateDetailSnapshot>>, GetTemplateHandler>();
