@@ -7,8 +7,9 @@ import {
   TemplateImportPreviewSchema,
   updateTemplateEditDraftItem,
 } from '../../templates/template-api';
-import { TEMPLATE_WORKSPACE_ID } from '../../templates/use-templates';
 import { STUB_TEMPLATES, stubCoreApi } from '../api-stub';
+
+const TEMPLATE_WORKSPACE_ID = 'a1000000-0000-4000-8000-000000000001';
 
 function client() {
   return createNixClient({

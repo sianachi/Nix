@@ -1,6 +1,7 @@
 import { Icon, focusRing } from '@nix/ui';
 import {
   Bookmark,
+  CalendarClock,
   CalendarDays,
   FolderInput,
   LayoutTemplate,
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
+
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * The navigation rail: the handful of ways to look at the whole workspace at once.
@@ -101,7 +104,14 @@ type RailItem = RailDestination | RailAction;
  * edges are what the view actually shows.
  */
 const ITEMS: readonly RailItem[] = [
-  { kind: 'destination', to: '/', label: 'Notes', icon: NotebookText, group: 'workspace' },
+  { kind: 'destination', to: '', label: 'Notes', icon: NotebookText, group: 'workspace' },
+  {
+    kind: 'destination',
+    to: '/daily',
+    label: 'Daily notes',
+    icon: CalendarClock,
+    group: 'workspace',
+  },
   {
     kind: 'destination',
     to: '/calendar',
@@ -148,6 +158,8 @@ export interface NavRailProps {
 
 export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   const { pathname } = useLocation();
+  const { workspaceId } = useWorkspace();
+  const workspaceRoot = `/w/${workspaceId}`;
 
   // Which control is the rail's single tab stop. Null until somebody has actually put focus in here,
   // so the entry point is the current destination by default - derived from the URL rather than
@@ -163,8 +175,10 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     (item) =>
       item.kind === 'destination' &&
       (item.includesChildren === true
-        ? pathname === item.to || pathname.startsWith(`${item.to}/`)
-        : pathname === item.to),
+        ? pathname === `${workspaceRoot}${item.to}` ||
+          pathname.startsWith(`${workspaceRoot}${item.to}/`)
+        : pathname === `${workspaceRoot}${item.to}` ||
+          (item.to === '' && pathname === `${workspaceRoot}/`)),
   );
   const entryIndex = focusedIndex ?? Math.max(currentIndex, 0);
 
@@ -245,7 +259,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
                   ref={(node) => {
                     controlRefs.current[index] = node;
                   }}
-                  to={item.to}
+                  to={`${workspaceRoot}${item.to}`}
                   aria-current={current ? 'page' : undefined}
                   onClick={onNavigate}
                   className={className}

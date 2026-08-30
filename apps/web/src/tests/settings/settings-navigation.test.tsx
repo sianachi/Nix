@@ -23,8 +23,8 @@ describe('reaching the settings screen', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
     expect(screen.getByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 2, name: 'Members' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 2, name: 'Access tokens' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspace' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Access tokens' })).toBeVisible();
   });
 
   it('is reachable from the profile menu as a real link', async () => {
@@ -42,7 +42,7 @@ describe('reaching the settings screen', () => {
     const user = userEvent.setup();
     renderAt(<App />, '/');
 
-    const rail = screen.getByRole('navigation', { name: /destinations/i });
+    const rail = await screen.findByRole('navigation', { name: /destinations/i });
     await user.click(within(rail).getByRole('link', { name: 'Settings' }));
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();

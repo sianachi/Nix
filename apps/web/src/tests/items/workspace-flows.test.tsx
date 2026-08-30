@@ -203,7 +203,9 @@ describe('deleting an item', () => {
     // Immediate, in the row's own established grammar: the control is revealed on hover and sits
     // a few pixels from the one that opens the item, which is exactly the situation an undo -
     // rather than a native `confirm()` - is meant to answer.
-    expect(screen.queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
+    });
   });
 
   it('names what it deleted in a toast that offers Undo', async () => {
@@ -215,7 +217,7 @@ describe('deleting an item', () => {
     await screen.findByRole('button', { name: 'Notes' });
     await user.click(screen.getByRole('button', { name: /delete notes/i }));
 
-    expect(screen.getByRole('status')).toHaveTextContent('Deleted "Notes".');
+    expect(await screen.findByRole('status')).toHaveTextContent('Deleted "Notes".');
     expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
   });
 
@@ -232,7 +234,7 @@ describe('deleting an item', () => {
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
 
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(await screen.findByRole('status')).toHaveTextContent(
       'Deleted "Engineering" and everything inside it.',
     );
   });
@@ -259,6 +261,7 @@ describe('deleting an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
+    await screen.findByRole('status');
     await user.click(screen.getByRole('button', { name: 'Undo' }));
 
     // The toast that offered Undo dismisses the instant it is pressed, before the restore could
@@ -278,6 +281,7 @@ describe('deleting an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
+    await screen.findByRole('status');
     await user.click(screen.getByRole('button', { name: 'Undo' }));
 
     // Undo's own toast dismisses the instant it is pressed and correctly returns focus to the
@@ -302,7 +306,7 @@ describe('deleting an item', () => {
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toBeInTheDocument();
 
     // Closing the drawer is the very next thing a phone user does after deleting something, to
     // get back to their document - and used to unmount the toast along with the sidebar it lived
@@ -320,9 +324,13 @@ describe('deleting an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
-    expect(screen.queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Engineering' })).not.toBeInTheDocument();
+    });
 
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(
+      within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }),
+    );
 
     expect(await screen.findByRole('button', { name: 'Engineering' })).toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -335,7 +343,7 @@ describe('deleting an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toBeInTheDocument();
 
     // `act` rather than a bare `await`: the state update the timeout produces is not inside any
     // React-tracked event, so nothing else here forces React to flush it before the assertion.

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runImportPlan } from '../../import/import-run';
 import type { PlannedNode } from '../../import/import-plan';
 
+const WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
+
 /** A minimal body the editor schema accepts, so the real writer can encode it. */
 const DOC = {
   type: 'doc',
@@ -94,6 +96,7 @@ describe('running an import plan', () => {
     ]);
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan,
       parentId: 'p1000000-0000-4000-8000-000000000001',
       client,
@@ -118,6 +121,7 @@ describe('running an import plan', () => {
     );
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', [note('x/a.md', 'a')]),
       parentId: null,
       client,
@@ -147,6 +151,7 @@ describe('running an import plan', () => {
     });
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', [container('x/sub', 'sub', [note('x/sub/deep.md', 'deep')])]),
       parentId: null,
       client,
@@ -173,6 +178,7 @@ describe('running an import plan', () => {
     });
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', [note('x/a.md', 'a'), note('x/b.md', 'b')]),
       parentId: null,
       client,
@@ -195,6 +201,7 @@ describe('running an import plan', () => {
     );
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', [
         note('x/a.md', 'a', { properties: { status: 'done' } }),
         note('x/b.md', 'b'),
@@ -224,6 +231,7 @@ describe('running an import plan', () => {
     });
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', [note('x/a.md', 'a'), note('x/b.md', 'b')]),
       parentId: null,
       client,
@@ -243,6 +251,7 @@ describe('running an import plan', () => {
     const { client, calls } = clientOf(() => item());
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', []),
       parentId: null,
       client,
@@ -259,6 +268,7 @@ describe('running an import plan', () => {
     const { client, calls } = clientOf(() => item());
 
     const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
       plan: container('x', 'x', []),
       parentId: null,
       client,

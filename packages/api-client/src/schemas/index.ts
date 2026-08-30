@@ -54,8 +54,10 @@ export {
   type WorkspaceMember,
 } from './workspaces.js';
 export {
+  containerViewConfigurationsSchema,
   containerViewsSchema,
   viewSummarySchema,
+  type ContainerViewConfigurations,
   type ContainerViews,
   type ViewSummary,
 } from './views.js';

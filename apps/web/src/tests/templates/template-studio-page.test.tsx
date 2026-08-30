@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from '../../app';
-import { item, stubCoreApi } from '../api-stub';
+import { item, STUB_WORKSPACE, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 const SOURCE = item({
@@ -61,11 +61,11 @@ describe('the template studio', () => {
       },
       views: { [SOURCE.id]: { views: [CAPTURE_VIEW], default: CAPTURE_VIEW.id } },
     });
-    renderAt(<App />, `/templates/new?sourceItem=${SOURCE.id}`);
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
 
     expect(await screen.findByRole('heading', { name: 'Save as template' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Team project');
-    const preview = screen.getByLabelText('Template preview');
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue('Team project');
+    const preview = await screen.findByLabelText('Template preview');
     await waitFor(() => {
       expect(within(preview).getByText('Fields').parentElement).toHaveTextContent('1');
       expect(within(preview).getByText('Views').parentElement).toHaveTextContent('1');
@@ -87,17 +87,17 @@ describe('the template studio', () => {
 
   it('gives both narrow-screen template regions their own bounded scroller', async () => {
     stubCoreApi({ items: [SOURCE] });
-    renderAt(<App />, `/templates/new?sourceItem=${SOURCE.id}`);
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
 
     await screen.findByRole('heading', { name: 'Save as template' });
-    const preview = screen.getByLabelText('Template preview');
+    const preview = await screen.findByLabelText('Template preview');
     expect(preview.previousElementSibling).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
     expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'lg:flex-none');
   });
 
   it('recovers an unfinished draft for the same source item', async () => {
     sessionStorage.setItem(
-      `nix:template-studio:capture:source:${SOURCE.id}`,
+      `nix:template-studio:${STUB_WORKSPACE.id}:capture:source:${SOURCE.id}`,
       JSON.stringify({
         scope: `source:${SOURCE.id}`,
         title: 'Recovered project template',
@@ -112,7 +112,7 @@ describe('the template studio', () => {
       }),
     );
     stubCoreApi({ items: [SOURCE] });
-    renderAt(<App />, `/templates/new?sourceItem=${SOURCE.id}`);
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
 
     expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue(
       'Recovered project template',
@@ -120,14 +120,43 @@ describe('the template studio', () => {
     expect(screen.getByRole('textbox', { name: 'Description' })).toHaveValue('Saved in this tab.');
   });
 
+  it('does not recover a studio draft saved for another workspace', async () => {
+    const otherWorkspace = {
+      ...STUB_WORKSPACE,
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Other workspace',
+      kind: 'shared' as const,
+    };
+    sessionStorage.setItem(
+      `nix:template-studio:${STUB_WORKSPACE.id}:capture:source:${SOURCE.id}`,
+      JSON.stringify({
+        scope: `source:${SOURCE.id}`,
+        title: 'Private draft from workspace A',
+        description: '',
+        includeBody: true,
+        includeChildren: false,
+        idempotencyKey: 'a0000000-0000-4000-8000-000000000000',
+        operationId: null,
+        expiresAt: null,
+        selectedSourceId: null,
+        itemEdits: {},
+      }),
+    );
+    stubCoreApi({ items: [SOURCE], workspaces: [STUB_WORKSPACE, otherWorkspace] });
+    renderAt(<App />, `/w/${otherWorkspace.id}/templates/new?sourceItem=${SOURCE.id}`);
+
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue('Team project');
+    expect(screen.queryByDisplayValue('Private draft from workspace A')).not.toBeInTheDocument();
+  });
+
   it('offers a retry when template access cannot be checked', async () => {
     stubCoreApi({ items: [SOURCE], templatesFail: true });
-    renderAt(<App />, `/templates/new?sourceItem=${SOURCE.id}`);
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
 
     expect(
       await screen.findByRole('heading', { name: 'Template access could not be checked' }),
     ).toBeVisible();
-    expect(screen.getByText(/templates could not be loaded/i)).toBeVisible();
+    expect(await screen.findByText(/template library could not be loaded/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: 'Template creation unavailable' }),
@@ -208,7 +237,10 @@ describe('the template studio', () => {
       }),
     );
     const writes = stubCoreApi({ items: [OTHER_DESTINATION] });
-    renderAt(<App />, `/templates/${KANBAN_TEMPLATE_ID}/create?parent=${OTHER_DESTINATION.id}`);
+    renderAt(
+      <App />,
+      `/w/${STUB_WORKSPACE.id}/templates/${KANBAN_TEMPLATE_ID}/create?parent=${OTHER_DESTINATION.id}`,
+    );
 
     expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue('Kanban');
     await user.click(screen.getByRole('button', { name: /Review/ }));

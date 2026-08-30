@@ -30,6 +30,7 @@ import { z } from 'zod';
 
 import { browserSessionStorage } from '../../lib/browser-storage';
 import type { ShellContext } from '../../shell/shell-context';
+import { useWorkspace } from '../../workspaces/workspace-context';
 import {
   PropertyDefinitionSchema,
   ViewSchema,
@@ -194,6 +195,7 @@ function CreationStudio(): ReactNode {
   const parentId = searchParams.get('parent');
   const draftScope = viewId === undefined ? (itemId ?? parentId) : `${itemId ?? 'item'}:${viewId}`;
   const { tree } = useOutletContext<ShellContext>();
+  const { workspaceId } = useWorkspace();
   const targetContainer = useContainer(itemId ?? null);
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
@@ -385,7 +387,7 @@ function CreationStudio(): ReactNode {
       }
       browserSessionStorage()?.removeItem(draftKey(recipe ?? FALLBACK_RECIPE, draftScope));
       const next = new URLSearchParams({ item: itemId, view: draft.view.id });
-      void navigate(`/?${next.toString()}`);
+      void navigate(`/w/${workspaceId}?${next.toString()}`);
       return;
     }
 
@@ -405,7 +407,7 @@ function CreationStudio(): ReactNode {
     }
     browserSessionStorage()?.removeItem(draftKey(recipe ?? FALLBACK_RECIPE, draftScope));
     const next = new URLSearchParams({ item: result.id, view: draft.view.id });
-    void navigate(`/?${next.toString()}`);
+    void navigate(`/w/${workspaceId}?${next.toString()}`);
   }
 
   return (

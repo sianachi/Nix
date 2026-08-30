@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
-import { STUB_TEMPLATES, item, stubCoreApi, type StubTemplate } from '../api-stub';
+import { STUB_TEMPLATES, STUB_WORKSPACE, item, stubCoreApi, type StubTemplate } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -17,7 +17,7 @@ beforeEach(() => {
 
 const USER_TEMPLATE: StubTemplate = {
   id: 'a8888888-8888-4888-8888-888888888888',
-  workspaceId: 'a1000000-0000-4000-8000-000000000001',
+  workspaceId: STUB_WORKSPACE.id,
   title: 'Weekly planning',
   description: 'The team planning board.',
   origin: 'user',
@@ -202,7 +202,7 @@ describe('the workspace template library', () => {
   it('explains an expired recovered draft before starting a replacement', async () => {
     const user = userEvent.setup();
     sessionStorage.setItem(
-      `nix:template-studio:edit:template:${USER_TEMPLATE.id}`,
+      `nix:template-studio:${STUB_WORKSPACE.id}:edit:template:${USER_TEMPLATE.id}`,
       JSON.stringify({
         scope: `template:${USER_TEMPLATE.id}`,
         title: 'Recovered weekly planning',

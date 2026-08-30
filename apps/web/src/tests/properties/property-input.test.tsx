@@ -487,16 +487,24 @@ describe('an assignee property', () => {
     subjectType: 'principal',
     subjectId: '44444444-bbbb-4bbb-8bbb-444444444444',
     subjectDisplayName: 'Ada Lovelace',
+    email: 'ada@example.test',
     role: 'owner',
     grantedAt: '2026-01-05T09:00:00+00:00',
+    canChangeRole: false,
+    canRemove: false,
+    assignableRoles: [],
   };
 
   const grace: WorkspaceMember = {
     subjectType: 'principal',
     subjectId: '55555555-bbbb-4bbb-8bbb-555555555555',
     subjectDisplayName: 'Grace Hopper',
+    email: 'grace@example.test',
     role: 'editor',
     grantedAt: '2026-03-12T09:00:00+00:00',
+    canChangeRole: false,
+    canRemove: false,
+    assignableRoles: [],
   };
 
   function membersState(overrides: Partial<WorkspaceMembersState> = {}): WorkspaceMembersState {
@@ -630,9 +638,7 @@ describe('a formula property', () => {
   });
 
   it('shows the computed value as a result rather than as a box to type in', () => {
-    render(
-      <PropertyInput item={itemWith({ total: 50 })} property={formula} onCommit={vi.fn()} />,
-    );
+    render(<PropertyInput item={itemWith({ total: 50 })} property={formula} onCommit={vi.fn()} />);
 
     expect(screen.getByRole('status', { name: 'Total' })).toHaveTextContent('50');
     expect(screen.queryByRole('textbox', { name: 'Total' })).not.toBeInTheDocument();
@@ -641,7 +647,9 @@ describe('a formula property', () => {
   it('says where the value comes from', () => {
     render(<PropertyInput item={itemWith({ total: 50 })} property={formula} onCommit={vi.fn()} />);
 
-    expect(screen.getByText(/Computed from this item.s other properties: \[price\] \* 2/)).toBeVisible();
+    expect(
+      screen.getByText(/Computed from this item.s other properties: \[price\] \* 2/),
+    ).toBeVisible();
   });
 
   it('explains an error code instead of showing it as though it were a value', () => {

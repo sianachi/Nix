@@ -5,6 +5,7 @@ import { Route, Routes } from 'react-router';
 import { AuthProvider } from './auth/auth-provider';
 import { ApiClientProvider } from './api/api-client-provider';
 import { AppErrorBoundary } from './components/error-boundary';
+import { DailyNotePage } from './daily-notes/daily-note-page';
 import { AuthCallbackPage, SilentRenewPage } from './pages/auth-callback-page';
 import { BookmarksPage } from './pages/bookmarks-page';
 import { CalendarPage } from './pages/calendar-page';
@@ -17,8 +18,10 @@ import { TemplateLibraryPage } from './templates/template-library-page';
 import { TemplateImportPage } from './templates/template-import-page';
 import { TemplateStudioPage } from './templates/template-studio-page';
 import { CreationStudioPage } from './views/wizard/creation-studio-page';
-import { AppShell } from './shell/app-shell';
 import { RequireSession } from './shell/require-session';
+import { AppShell } from './shell/app-shell';
+import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-gate';
+import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
 
 // Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
 // reference material - every ramp step, every type scale, every rhythm demo - and nobody working
@@ -71,62 +74,77 @@ export function App(): ReactElement {
               <Route path="/forms/:token" element={<PublicFormPage />} />
 
               <Route element={<RequireSession />}>
-                <Route element={<AppShell />}>
-                  {/* One workspace, one place to be. The board is a view of a container rather
+                <Route element={<AccessibleWorkspacesProvider />}>
+                  <Route
+                    path="/w/:workspaceId"
+                    element={
+                      <WorkspaceGate>
+                        <AppShell />
+                      </WorkspaceGate>
+                    }
+                  >
+                    {/* One workspace, one place to be. The board is a view of a container rather
                     than a destination, and search opens over whatever is on screen, so neither
                     has a route of its own. */}
-                  <Route index element={<EditorPage />} />
-                  <Route path="new/:recipe" element={<CreationStudioPage />} />
-                  <Route path="items/:itemId/views/new/:recipe" element={<CreationStudioPage />} />
-                  <Route
-                    path="items/:itemId/views/:viewId/edit/:recipe"
-                    element={<CreationStudioPage />}
-                  />
+                    <Route index element={<EditorPage />} />
+                    <Route path="new/:recipe" element={<CreationStudioPage />} />
+                    <Route
+                      path="items/:itemId/views/new/:recipe"
+                      element={<CreationStudioPage />}
+                    />
+                    <Route
+                      path="items/:itemId/views/:viewId/edit/:recipe"
+                      element={<CreationStudioPage />}
+                    />
 
-                  {/* The rail's workspace-view destinations. These *are* places, unlike a board
+                    {/* The rail's workspace-view destinations. These *are* places, unlike a board
                     or a search: each is a way of looking at the whole workspace rather than at
                     one container, so none of them has an item to hang off and each needs an
                     address of its own. Not lazy-loaded, unlike the token specimens: the screens
                     are small, and a Suspense boundary around nothing is a fallback that can only
                     ever flash. */}
-                  <Route path="calendar" element={<CalendarPage />} />
-                  <Route path="graph" element={<GraphPage />} />
-                  <Route path="bookmarks" element={<BookmarksPage />} />
-                  <Route path="templates" element={<TemplateLibraryPage />} />
-                  <Route path="templates/new" element={<TemplateStudioPage />} />
-                  <Route path="templates/import" element={<TemplateImportPage />} />
-                  <Route path="templates/:templateId/create" element={<TemplateStudioPage />} />
-                  <Route path="templates/:templateId/edit" element={<TemplateStudioPage />} />
-                  <Route
-                    path="items/:itemId/templates/apply/:templateId"
-                    element={<TemplateStudioPage />}
-                  />
+                    <Route path="calendar" element={<CalendarPage />} />
+                    <Route path="daily" element={<DailyNotePage />} />
+                    <Route path="daily/:date" element={<DailyNotePage />} />
+                    <Route path="graph" element={<GraphPage />} />
+                    <Route path="bookmarks" element={<BookmarksPage />} />
+                    <Route path="templates" element={<TemplateLibraryPage />} />
+                    <Route path="templates/new" element={<TemplateStudioPage />} />
+                    <Route path="templates/import" element={<TemplateImportPage />} />
+                    <Route path="templates/:templateId/create" element={<TemplateStudioPage />} />
+                    <Route path="templates/:templateId/edit" element={<TemplateStudioPage />} />
+                    <Route
+                      path="items/:itemId/templates/apply/:templateId"
+                      element={<TemplateStudioPage />}
+                    />
 
-                  {/* Reached from both the persistent rail and the profile menu: the rail makes
+                    {/* Reached from both the persistent rail and the profile menu: the rail makes
                     workspace administration findable, while the profile menu keeps personal
                     access tokens where somebody already expects account-level controls. Not
                     lazy-loaded, for the rail destinations' reason - the screen is small, and a
                     Suspense boundary around nothing is a fallback that can only ever flash. */}
-                  <Route path="settings" element={<SettingsPage />} />
+                    <Route path="settings" element={<SettingsPage />} />
 
-                  {/* The boundary is per-route rather than around the whole tree: a fallback over
+                    {/* The boundary is per-route rather than around the whole tree: a fallback over
                     `Routes` would blank the shell while a chunk arrives. The wording matches the
                     canvas's - what is loading, named, rather than a spinner claiming nothing. */}
-                  <Route
-                    path="tokens"
-                    element={
-                      <Suspense
-                        fallback={
-                          <Text variant="note" as="div" tone="muted" className="p-8">
-                            Loading the token specimens…
-                          </Text>
-                        }
-                      >
-                        <TokensPage />
-                      </Suspense>
-                    }
-                  />
-                  <Route path="*" element={<NotFoundPage />} />
+                    <Route
+                      path="tokens"
+                      element={
+                        <Suspense
+                          fallback={
+                            <Text variant="note" as="div" tone="muted" className="p-8">
+                              Loading the token specimens…
+                            </Text>
+                          }
+                        >
+                          <TokensPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route path="*" element={<NotFoundPage />} />
+                  </Route>
+                  <Route path="*" element={<LegacyWorkspaceRedirect />} />
                 </Route>
               </Route>
             </Routes>

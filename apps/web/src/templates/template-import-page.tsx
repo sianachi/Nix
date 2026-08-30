@@ -1,10 +1,10 @@
 import { Blueprint, Button, Dialog, Icon, Tag, Text, focusRing } from '@nix/ui';
 import { ArrowLeft, FileCheck2, FileUp, ShieldCheck } from 'lucide-react';
-import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 
-import { isNixApiError } from '@nix/api-client';
+import { isCanceledError, isNixApiError } from '@nix/api-client';
 
 import { useApiClient } from '../api/api-client-provider';
 import { browserSessionStorage } from '../lib/browser-storage';
@@ -15,9 +15,10 @@ import {
   TemplateImportPreviewSchema,
   type TemplateImportPreview,
 } from './template-api';
-import { TEMPLATE_WORKSPACE_ID, templateFailure } from './use-templates';
+import { templateFailure } from './use-templates';
+import { useWorkspace } from '../workspaces/workspace-context';
 
-const DRAFT_KEY = 'nix:template-import';
+const draftKey = (workspaceId: string): string => `nix:template-import:${workspaceId}`;
 
 const FileIdentitySchema = z.object({
   name: z.string(),
@@ -59,8 +60,8 @@ function isSameFile(file: File, identity: FileIdentity): boolean {
   );
 }
 
-function readDraft(): ImportDraft {
-  const raw = browserSessionStorage()?.getItem(DRAFT_KEY);
+function readDraft(workspaceId: string): ImportDraft {
+  const raw = browserSessionStorage()?.getItem(draftKey(workspaceId));
   if (raw === null || raw === undefined) return newImportDraft();
   try {
     const parsed = ImportDraftSchema.safeParse(JSON.parse(raw));
@@ -75,10 +76,11 @@ function readDraft(): ImportDraft {
 export function TemplateImportPage(): ReactNode {
   const client = useApiClient();
   const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
   const templateLibrary = useTemplateLibrary();
   const templateCapabilities = templateLibrary.capabilities;
   const templateStatus = templateLibrary.status;
-  const [recovered] = useState(readDraft);
+  const [recovered] = useState(() => readDraft(workspaceId));
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<TemplateImportPreview | null>(recovered.preview);
   const [idempotencyKey, setIdempotencyKey] = useState(recovered.idempotencyKey);
@@ -88,6 +90,14 @@ export function TemplateImportPage(): ReactNode {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  const activeRequest = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      activeRequest.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (file === null && preview === null) return;
@@ -115,7 +125,7 @@ export function TemplateImportPage(): ReactNode {
     setPreviewFileIdentity(null);
     setIdempotencyKey(globalThis.crypto.randomUUID());
     setError(null);
-    browserSessionStorage()?.removeItem(DRAFT_KEY);
+    browserSessionStorage()?.removeItem(draftKey(workspaceId));
   }
 
   async function validate(): Promise<void> {
@@ -125,19 +135,29 @@ export function TemplateImportPage(): ReactNode {
     }
     setWorking(true);
     setError(null);
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     try {
-      const result = await client.execute(previewTemplateFile(TEMPLATE_WORKSPACE_ID, file));
+      const result = await client.execute(previewTemplateFile(workspaceId, file), {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || activeRequest.current !== controller) return;
       const fileIdentity = identify(file);
       setPreview(result);
       setPreviewFileIdentity(fileIdentity);
       browserSessionStorage()?.setItem(
-        DRAFT_KEY,
+        draftKey(workspaceId),
         JSON.stringify({ preview: result, idempotencyKey, fileIdentity }),
       );
     } catch (reason) {
+      if (controller.signal.aborted || isCanceledError(reason)) return;
       setError(templateFailure(reason, 'This template file could not be validated.'));
     } finally {
-      setWorking(false);
+      if (activeRequest.current === controller) {
+        activeRequest.current = null;
+        setWorking(false);
+      }
     }
   }
 
@@ -149,17 +169,22 @@ export function TemplateImportPage(): ReactNode {
     }
     setWorking(true);
     setError(null);
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     try {
-      await client.execute(
-        importTemplateFile(TEMPLATE_WORKSPACE_ID, file, preview.digest, idempotencyKey),
-      );
-      browserSessionStorage()?.removeItem(DRAFT_KEY);
-      void navigate('/templates');
+      await client.execute(importTemplateFile(workspaceId, file, preview.digest, idempotencyKey), {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || activeRequest.current !== controller) return;
+      browserSessionStorage()?.removeItem(draftKey(workspaceId));
+      void navigate(`/w/${workspaceId}/templates`);
     } catch (reason) {
+      if (controller.signal.aborted || isCanceledError(reason)) return;
       if (isNixApiError(reason) && reason.code === 'template.file_changed') {
         setPreview(null);
         setPreviewFileIdentity(null);
-        browserSessionStorage()?.removeItem(DRAFT_KEY);
+        browserSessionStorage()?.removeItem(draftKey(workspaceId));
         setError(
           reason.detail ??
             'The selected file changed after preview. Preview it again before importing.',
@@ -168,7 +193,10 @@ export function TemplateImportPage(): ReactNode {
       }
       setError(templateFailure(reason, 'This template could not be added to the library.'));
     } finally {
-      setWorking(false);
+      if (activeRequest.current === controller) {
+        activeRequest.current = null;
+        setWorking(false);
+      }
     }
   }
 
@@ -196,7 +224,10 @@ export function TemplateImportPage(): ReactNode {
             <Button variant="secondary" onClick={templateLibrary.reload}>
               Try again
             </Button>
-            <Button variant="secondary" onClick={() => void navigate('/templates')}>
+            <Button
+              variant="secondary"
+              onClick={() => void navigate(`/w/${workspaceId}/templates`)}
+            >
               Back to templates
             </Button>
           </div>
@@ -216,7 +247,7 @@ export function TemplateImportPage(): ReactNode {
           <Text tone="muted">
             You can browse and download workspace templates, but you cannot add or change them.
           </Text>
-          <Button variant="secondary" onClick={() => void navigate('/templates')}>
+          <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
             Back to templates
           </Button>
         </Blueprint>
@@ -356,8 +387,8 @@ export function TemplateImportPage(): ReactNode {
             </Button>
             <Button
               onClick={() => {
-                browserSessionStorage()?.removeItem(DRAFT_KEY);
-                void navigate('/templates');
+                browserSessionStorage()?.removeItem(draftKey(workspaceId));
+                void navigate(`/w/${workspaceId}/templates`);
               }}
             >
               Discard import
