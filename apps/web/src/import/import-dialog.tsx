@@ -12,6 +12,7 @@ import {
   type PlannedNode,
 } from './import-plan';
 import { runImportPlan, undoImport, type ImportRunReport } from './import-run';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * Importing Markdown into the workspace: preview first, then commit, then an honest report.
@@ -79,6 +80,7 @@ export function ImportDialog({
   onImported,
 }: ImportDialogProps): ReactNode {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
   const [phase, setPhase] = useState<Phase>({ name: 'pick', reading: false, error: null });
   const fileInput = useRef<HTMLInputElement | null>(null);
   const folderInput = useRef<HTMLInputElement | null>(null);
@@ -156,6 +158,7 @@ export function ImportDialog({
     setPhase({ name: 'working', done: 0, total: plan.totalItems });
     try {
       const report = await runImportPlan({
+        workspaceId,
         plan: plan.root,
         parentId,
         client,
@@ -192,7 +195,7 @@ export function ImportDialog({
       return;
     }
     setPhase({ ...current, undo: { name: 'working' } });
-    const outcome = await undoImport(client, current.report.rootItemId);
+    const outcome = await undoImport(client, workspaceId, current.report.rootItemId);
     setPhase({
       ...current,
       undo: outcome.ok

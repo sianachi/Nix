@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useNavigate } from 'react-router';
 
 import { App } from '../../app';
-import { item, stubCoreApi } from '../api-stub';
+import { item, STUB_WORKSPACE, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { useTabOrientationStore } from '../../tabs/tab-orientation-store';
 import { useTabStore } from '../../tabs/tab-store';
@@ -62,7 +62,7 @@ function HistoryControls() {
 beforeEach(() => {
   signedIn();
   stubViewport(true);
-  useTabStore.setState({ byPane: {} });
+  useTabStore.setState({ workspaceId: STUB_WORKSPACE.id, byPane: {} });
   useTabOrientationStore.setState({ orientation: 'horizontal' });
 });
 
@@ -163,6 +163,7 @@ describe('closing tabs and panes', () => {
   it('closing the middle pane of three renumbers the remaining panes’ tabs', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         0: [{ itemId: ALPHA.id, pinned: true }],
         1: [{ itemId: BRAVO.id, pinned: true }],
@@ -172,7 +173,7 @@ describe('closing tabs and panes', () => {
     const user = userEvent.setup();
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}&item3=${CHARLIE.id}`);
 
-    await screen.findAllByRole('tab');
+    await screen.findByRole('tab', { name: 'Bravo' });
     const middlePane = screen.getByRole('article', { name: /Pane 2 of 3/ });
 
     await user.click(within(middlePane).getByRole('button', { name: 'Close pane' }));
@@ -191,6 +192,7 @@ describe('a document already open elsewhere', () => {
   it('is focused in its own pane rather than duplicated, even when only backgrounded there', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         1: [
           { itemId: BRAVO.id, pinned: true },
@@ -203,7 +205,7 @@ describe('a document already open elsewhere', () => {
 
     await screen.findByRole('article', { name: /Pane 1 of 2/ });
 
-    await user.click(screen.getByRole('button', { name: 'Charlie' }));
+    await user.click(await screen.findByRole('button', { name: 'Charlie' }));
 
     // Still exactly two panes - a click on an already-open, backgrounded document must not open
     // a third copy of it.
@@ -231,6 +233,7 @@ describe('a document already open elsewhere', () => {
     stubViewport(false);
     stubCoreApi({ items: [ALPHA, BRAVO] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         0: [{ itemId: ALPHA.id, pinned: true }],
         1: [{ itemId: BRAVO.id, pinned: true }],
@@ -257,6 +260,7 @@ describe('a document already open elsewhere', () => {
   it('closes a Back-restored tab from both its visible and stale working sets', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         0: [
           { itemId: ALPHA.id, pinned: true },
@@ -286,6 +290,7 @@ describe('activating a tab', () => {
   it('keeps keyboard focus in the tablist and does not announce an already-open detour', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         0: [
           { itemId: ALPHA.id, pinned: true },
@@ -312,6 +317,7 @@ describe('moving a tab between panes', () => {
   it('drags a background tab to another strip, activates it once, and preserves both old actives', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
     useTabStore.setState({
+      workspaceId: STUB_WORKSPACE.id,
       byPane: {
         0: [
           { itemId: ALPHA.id, pinned: true },
@@ -325,7 +331,8 @@ describe('moving a tab between panes', () => {
     const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
     const secondPane = screen.getByRole('article', { name: /Pane 2 of 2/ });
     const dataTransfer = tabDataTransfer();
-    fireEvent.dragStart(within(firstPane).getByRole('tab', { name: 'Charlie' }), { dataTransfer });
+    const charlie = await within(firstPane).findByRole('tab', { name: 'Charlie' });
+    fireEvent.dragStart(charlie, { dataTransfer });
     const target = within(secondPane).getByRole('tablist', { name: 'Open documents' });
     fireEvent.dragEnter(target, { dataTransfer });
     fireEvent.dragOver(target, { dataTransfer });
@@ -365,6 +372,7 @@ describe('moving a tab between panes', () => {
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
 
     const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    await within(firstPane).findByRole('tab', { name: 'Alpha' });
     await user.selectOptions(
       within(firstPane).getByRole('combobox', {
         name: 'Move active tab, Alpha, to another pane',
@@ -395,7 +403,7 @@ describe('moving a tab between panes', () => {
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}&item3=${CHARLIE.id}`);
 
     const firstPane = await screen.findByRole('article', { name: /Pane 1 of 3/ });
-    const picker = within(firstPane).getByRole('combobox', {
+    const picker = await within(firstPane).findByRole('combobox', {
       name: 'Move active tab, Alpha, to another pane',
     });
     expect(picker).toHaveClass('focus-visible:-outline-offset-2');
@@ -414,6 +422,7 @@ describe('moving a tab between panes', () => {
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
 
     const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    await within(firstPane).findByRole('tab', { name: 'Alpha' });
     const secondPane = screen.getByRole('article', { name: /Pane 2 of 2/ });
     const source = within(firstPane).getByRole('tab', { name: 'Alpha' });
     const sourceStrip = within(firstPane).getByRole('tablist');
@@ -444,9 +453,7 @@ describe('moving a tab between panes', () => {
 
     const tab = await screen.findByRole('tab', { name: 'Alpha' });
     expect(tab).not.toHaveAttribute('draggable');
-    expect(
-      screen.queryByRole('combobox', { name: /Move active tab.*to another pane/ }),
-    ).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /Move active tab.*to another pane/ })).toBeNull();
     expect(screen.getByText('One more pane in this link opens on a wider screen.')).toBeVisible();
   });
 
@@ -466,6 +473,7 @@ describe('moving a tab between panes', () => {
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
 
     const firstPane = await screen.findByRole('article', { name: /Pane 1 of 2/ });
+    await within(firstPane).findByRole('tab', { name: 'Alpha' });
     expect(within(firstPane).getByRole('tab', { name: 'Alpha' })).not.toHaveAttribute('draggable');
     expect(
       within(firstPane).getByRole('combobox', {

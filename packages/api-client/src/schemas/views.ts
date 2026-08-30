@@ -33,6 +33,26 @@ export const containerViewsSchema = z.object({
 
 export type ContainerViews = z.infer<typeof containerViewsSchema>;
 
+/** The configuration fields needed when a caller must write through a view. */
+type ViewConfigurationContract = Pick<
+  components['schemas']['ViewResponse'],
+  'id' | 'name' | 'kind' | 'dateProperty'
+>;
+const viewConfigurationSchema = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  dateProperty: z.string().nullable(),
+}) satisfies z.ZodType<ViewConfigurationContract>;
+
+export const containerViewConfigurationsSchema = z.object({
+  views: z.array(viewConfigurationSchema),
+  unrenderable: z.array(z.string()),
+  default: z.string(),
+});
+
+export type ContainerViewConfigurations = z.infer<typeof containerViewConfigurationsSchema>;
+
 type ViewSummaryContract = Pick<components['schemas']['ViewResponse'], 'id' | 'name' | 'kind'>;
 const _viewContract = viewSummarySchema satisfies z.ZodType<ViewSummaryContract>;
 void _viewContract;

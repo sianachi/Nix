@@ -52,3 +52,26 @@ export type TemplatePreflightRequestContract = components['schemas']['TemplatePr
 
 /** The additions and conflicts found while validating a template application. */
 export type TemplatePreflightContract = components['schemas']['TemplatePreflightResponse'];
+
+/** Item and view write shapes, kept generated so descriptor bodies cannot drift from OpenAPI. */
+export type CreateItemRequestContract = components['schemas']['CreateItemRequest'];
+export type CreateStructuredItemRequestContract =
+  components['schemas']['CreateStructuredItemRequest'];
+export type StructuredItemContract = components['schemas']['StructuredItemResponse'];
+export type UpdateItemRequestContract = components['schemas']['UpdateItemRequest'];
+export type MoveItemRequestContract = components['schemas']['MoveItemRequest'];
+export type AppendViewSetupRequestContract = components['schemas']['AppendViewSetupRequest'];
+export type ReplaceViewSetupRequestContract = components['schemas']['ReplaceViewSetupRequest'];
+export type ViewRequestContract = components['schemas']['ViewRequest'];
+
+/** Workspace administration responses and writes, generated from the Release B contract. */
+export type WorkspaceMemberContract = components['schemas']['WorkspaceMemberResponse'];
+export type WorkspaceInvitationContract = components['schemas']['WorkspaceInvitationResponse'];
+export type DailyNoteContract = components['schemas']['DailyNoteResponse'];
+export type CreateWorkspaceRequestContract = components['schemas']['CreateWorkspaceRequest'];
+export type RenameWorkspaceRequestContract = components['schemas']['RenameWorkspaceRequest'];
+export type ChangeWorkspaceMemberRoleRequestContract =
+  components['schemas']['ChangeWorkspaceMemberRoleRequest'];
+export type CreateWorkspaceInvitationRequestContract =
+  components['schemas']['CreateWorkspaceInvitationRequest'];
+export type RecoverWorkspaceRequestContract = components['schemas']['RecoverWorkspaceRequest'];

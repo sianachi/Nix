@@ -98,8 +98,7 @@ describe('the calendar destination', () => {
     renderAt(<App />, '/calendar?grain=week');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-
-    const grains = screen.getByRole('group', { name: /calendar grain/i });
+    const grains = await screen.findByRole('group', { name: /calendar grain/i });
     expect(within(grains).getAllByRole('button')).toHaveLength(3);
     expect(within(grains).getByRole('button', { name: 'Week' })).toHaveAttribute(
       'aria-current',
@@ -113,7 +112,7 @@ describe('the calendar destination', () => {
 
     await screen.findByRole('heading', { name: 'Calendar' });
 
-    const grains = screen.getByRole('group', { name: /calendar grain/i });
+    const grains = await screen.findByRole('group', { name: /calendar grain/i });
     expect(within(grains).getByRole('button', { name: 'Month' })).toHaveAttribute(
       'aria-current',
       'true',
@@ -129,7 +128,7 @@ describe('the calendar destination', () => {
     // The grid's own region name, rather than the live label beside it: the month appears in
     // three places on screen (the label, the region's name, the table's caption) and the region is
     // the one that says what is actually drawn.
-    expect(screen.getByRole('region', { name: /July 2026/i })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: /July 2026/i })).toBeInTheDocument();
   });
 
   it('steps through time and says where it got to', async () => {
@@ -137,7 +136,7 @@ describe('the calendar destination', () => {
     renderAt(<App />, '/calendar');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-    expect(screen.getByRole('region', { name: /March 2026/i })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: /March 2026/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /next month/i }));
     expect(await screen.findByRole('region', { name: /April 2026/i })).toBeInTheDocument();

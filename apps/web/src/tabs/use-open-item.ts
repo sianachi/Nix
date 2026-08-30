@@ -55,13 +55,14 @@ export const OPEN_BESIDE_REFUSAL_COPY: Readonly<Record<OpenBesideRefusal, string
 function openAsOnlyPane(
   itemId: string,
   pinned: boolean,
+  editorPath: string,
   navigate: NavigateFunction,
   itemOpenedAlone: (itemId: string, pinned: boolean) => void,
 ): number {
   const next = new URLSearchParams();
   writeSelectedItem(next, 0, itemId);
   itemOpenedAlone(itemId, pinned);
-  void navigate(`/?${next.toString()}`);
+  void navigate(`${editorPath}?${next.toString()}`);
   focusPane(0);
   return 0;
 }
@@ -91,6 +92,8 @@ export function useOpenItem(): OpenItemControl {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const editorPath = /^\/w\/[^/]+/.exec(location.pathname)?.[0] ?? '/';
+  const isEditorRoute = location.pathname === editorPath;
   const byPane = useTabStore((state) => state.byPane);
   const itemOpenedAlone = useTabStore((state) => state.itemOpenedAlone);
   const tabPreviewed = useTabStore((state) => state.tabPreviewed);
@@ -140,15 +143,15 @@ export function useOpenItem(): OpenItemControl {
 
   const openPreview = useCallback(
     (itemId: string): void => {
-      if (location.pathname !== '/') {
-        openAsOnlyPane(itemId, false, navigate, itemOpenedAlone);
+      if (!isEditorRoute) {
+        openAsOnlyPane(itemId, false, editorPath, navigate, itemOpenedAlone);
         return;
       }
 
       const found = locate(itemId);
       if (found !== null) {
         if (!paneControl.panes.some((candidate) => candidate.index === found)) {
-          openAsOnlyPane(itemId, false, navigate, itemOpenedAlone);
+          openAsOnlyPane(itemId, false, editorPath, navigate, itemOpenedAlone);
           return;
         }
         focusExisting(found, itemId);
@@ -160,7 +163,8 @@ export function useOpenItem(): OpenItemControl {
       tabPreviewed(pane, itemId);
     },
     [
-      location.pathname,
+      isEditorRoute,
+      editorPath,
       navigate,
       itemOpenedAlone,
       locate,
@@ -177,15 +181,15 @@ export function useOpenItem(): OpenItemControl {
 
   const openPinned = useCallback(
     (itemId: string): void => {
-      if (location.pathname !== '/') {
-        openAsOnlyPane(itemId, true, navigate, itemOpenedAlone);
+      if (!isEditorRoute) {
+        openAsOnlyPane(itemId, true, editorPath, navigate, itemOpenedAlone);
         return;
       }
 
       const found = locate(itemId);
       if (found !== null) {
         if (!paneControl.panes.some((candidate) => candidate.index === found)) {
-          openAsOnlyPane(itemId, true, navigate, itemOpenedAlone);
+          openAsOnlyPane(itemId, true, editorPath, navigate, itemOpenedAlone);
           return;
         }
         focusExisting(found, itemId);
@@ -198,7 +202,8 @@ export function useOpenItem(): OpenItemControl {
       tabPinned(pane, itemId);
     },
     [
-      location.pathname,
+      isEditorRoute,
+      editorPath,
       navigate,
       itemOpenedAlone,
       locate,
@@ -213,16 +218,15 @@ export function useOpenItem(): OpenItemControl {
     ],
   );
 
-  const besideRefusal: OpenBesideRefusal | null =
-    location.pathname === '/'
-      ? paneControl.besideRefusal
-      : paneControl.besideRefusal === 'narrow'
-        ? 'narrow'
-        : 'destination';
+  const besideRefusal: OpenBesideRefusal | null = isEditorRoute
+    ? paneControl.besideRefusal
+    : paneControl.besideRefusal === 'narrow'
+      ? 'narrow'
+      : 'destination';
 
   const openBeside = useCallback(
     (itemId: string): number | null => {
-      if (location.pathname !== '/') {
+      if (!isEditorRoute) {
         announce(OPEN_BESIDE_REFUSAL_COPY[besideRefusal ?? 'destination']);
         return null;
       }
@@ -248,7 +252,7 @@ export function useOpenItem(): OpenItemControl {
       }
       return index;
     },
-    [location.pathname, locate, focusExisting, tabPinned, paneControl, besideRefusal],
+    [isEditorRoute, locate, focusExisting, tabPinned, paneControl, besideRefusal],
   );
 
   return {

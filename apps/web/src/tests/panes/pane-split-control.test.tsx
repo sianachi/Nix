@@ -34,6 +34,8 @@ describe('choosing how panes are split', () => {
     );
 
     const control = await screen.findByRole('group', { name: 'Pane layout' });
+    await screen.findByDisplayValue('First note');
+    await screen.findByDisplayValue('Second note');
     const sideBySide = screen.getByRole('button', { name: 'Side by side' });
     const stacked = screen.getByRole('button', { name: 'Stacked' });
     const paneDivider = () =>

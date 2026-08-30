@@ -4,6 +4,7 @@ import type {
   EffectiveSchemaContract,
   PropertyDefinitionContract,
   ViewContract,
+  ViewRequestContract,
 } from '@nix/api-client';
 import { z } from 'zod';
 
@@ -248,6 +249,21 @@ export type View = Omit<
     >
   >;
 
+/** Serializes an editable view draft to Core's generated write shape. */
+export function toViewRequest(view: View): ParsedView {
+  return {
+    ...view,
+    columns: [...view.columns],
+    groupOrder: [...view.groupOrder],
+    filters: [...view.filters],
+    companionViewId: view.companionViewId ?? null,
+    companionPlacement: view.companionPlacement ?? null,
+    interactiveForm: view.interactiveForm ?? null,
+    measure: view.measure ?? null,
+    measureProperty: view.measureProperty ?? null,
+  };
+}
+
 /** One condition of a query view. */
 export type ViewFilterRule = View['filters'][number];
 
@@ -264,6 +280,10 @@ export type ViewFilterRule = View['filters'][number];
  */
 const _viewContract = ViewSchema satisfies z.ZodType<ViewContract>;
 void _viewContract;
+
+// A parsed view is also the strict, non-null subset Core accepts on write.
+const _viewRequestContract = ViewSchema satisfies z.ZodType<ViewRequestContract>;
+void _viewRequestContract;
 
 export const ContainerViewsSchema = z.object({
   views: z.array(ViewSchema),

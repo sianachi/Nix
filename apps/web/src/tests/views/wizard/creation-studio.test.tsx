@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../../app';
-import { item, stubCoreApi } from '../../api-stub';
+import { item, STUB_WORKSPACE, stubCoreApi } from '../../api-stub';
 import { renderAt, signedIn } from '../../render-with-router';
 import { aView } from '../../view-fixture';
 
@@ -87,7 +87,7 @@ describe('the guided creation studio', () => {
   it('keeps the chosen destination visible and restores an unfinished tab draft', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [DESTINATION] });
-    const url = `/new/board?parent=${DESTINATION.id}`;
+    const url = `/w/${STUB_WORKSPACE.id}/new/board?parent=${DESTINATION.id}`;
     const first = renderAt(<App />, url);
 
     expect(await screen.findByText(/creating in product planning/i)).toBeVisible();

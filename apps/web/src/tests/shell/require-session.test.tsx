@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '../../auth/session-store';
+import { stubCoreApi } from '../api-stub';
 import { renderAt } from '../render-with-router';
 import { App } from '../../app';
 
@@ -75,16 +76,17 @@ describe('the session gate', () => {
     expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 
-  it('lets a signed-in person through to the application', () => {
+  it('lets a signed-in person through to the application', async () => {
     useSessionStore.setState({
       status: 'authenticated',
       profile: { subject: 'sub-1', name: 'Ada Admin', email: 'ada@acme.test' },
       error: null,
     });
 
+    stubCoreApi();
     renderAt(<App />);
 
     expect(screen.queryByRole('button', { name: /continue with sso/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(await screen.findByRole('banner')).toBeInTheDocument();
   });
 });

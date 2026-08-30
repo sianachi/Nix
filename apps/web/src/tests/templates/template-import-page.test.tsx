@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from '../../app';
-import { stubCoreApi } from '../api-stub';
+import { STUB_WORKSPACE, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 beforeEach(() => {
@@ -66,7 +66,7 @@ describe('template file import', () => {
     });
     const attempt = 'a0000000-0000-4000-8000-000000000031';
     sessionStorage.setItem(
-      'nix:template-import',
+      `nix:template-import:${STUB_WORKSPACE.id}`,
       JSON.stringify({
         preview: {
           profile: {
@@ -105,6 +105,44 @@ describe('template file import', () => {
     expect(writes.templateImportIdempotencyKeys).toEqual([attempt]);
   });
 
+  it('does not recover an import preview saved for another workspace', async () => {
+    const otherWorkspace = {
+      ...STUB_WORKSPACE,
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Other workspace',
+      kind: 'shared' as const,
+    };
+    sessionStorage.setItem(
+      `nix:template-import:${STUB_WORKSPACE.id}`,
+      JSON.stringify({
+        preview: {
+          profile: {
+            kind: 'template',
+            version: 1,
+            key: 'private-template',
+            name: 'Private workspace preview',
+            description: null,
+            includeBody: false,
+            includeChildren: false,
+          },
+          digest: 'private',
+          rootItemType: 'note',
+          itemCount: 1,
+          bodyCount: 0,
+          viewCount: 0,
+        },
+        idempotencyKey: 'a0000000-0000-4000-8000-000000000031',
+      }),
+    );
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, otherWorkspace] });
+    renderAt(<App />, `/w/${otherWorkspace.id}/templates/import`);
+
+    expect(await screen.findByRole('heading', { name: 'Import template' })).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Private workspace preview' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('distinguishes a library access error from permission denial and offers retry', async () => {
     stubCoreApi({ templatesFail: true });
     renderAt(<App />, '/templates/import');
@@ -112,7 +150,7 @@ describe('template file import', () => {
     expect(
       await screen.findByRole('heading', { name: 'Template library unavailable' }),
     ).toBeVisible();
-    expect(screen.getByText(/templates could not be loaded/i)).toBeVisible();
+    expect(screen.getByText(/template library could not be loaded/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
     expect(screen.queryByText(/you cannot add or change them/i)).not.toBeInTheDocument();
   });

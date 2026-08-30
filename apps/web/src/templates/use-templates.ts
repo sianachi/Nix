@@ -7,23 +7,12 @@ import {
   type TemplateCatalog,
   type TemplateSummary,
 } from '@nix/api-client';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 export type TemplateLibraryStatus = 'loading' | 'ready' | 'error';
-
-function readWorkspaceId(): string {
-  const configured: unknown = import.meta.env.VITE_WORKSPACE_ID;
-  return typeof configured === 'string' && configured.length > 0
-    ? configured
-    : 'a1000000-0000-4000-8000-000000000001';
-}
-
-export const TEMPLATE_WORKSPACE_ID = readWorkspaceId();
-const TEMPLATE_LIBRARY_KEY = coreTemplates.templateLibraryKey(TEMPLATE_WORKSPACE_ID);
-const TEMPLATE_LIBRARY_KEY_ID = cacheKeyToString(TEMPLATE_LIBRARY_KEY);
-const TEMPLATE_LIBRARY_ENDPOINT = coreTemplates.listTemplates(TEMPLATE_WORKSPACE_ID);
 
 function noCachedTemplateLibrary(): CacheEntry<TemplateCatalog> | undefined {
   return undefined;
@@ -46,6 +35,18 @@ export interface TemplateLibrary {
 
 export function useTemplates(): TemplateLibrary {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
+  // These identities are dependencies of the cache subscription and load effect. Recreating them
+  // on every render resubscribes and issues another GET even when the workspace did not change.
+  const templateLibraryKey = useMemo(
+    () => coreTemplates.templateLibraryKey(workspaceId),
+    [workspaceId],
+  );
+  const templateLibraryKeyId = cacheKeyToString(templateLibraryKey);
+  const templateLibraryEndpoint = useMemo(
+    () => coreTemplates.listTemplates(workspaceId),
+    [workspaceId],
+  );
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const handledReload = useRef(-1);
@@ -55,13 +56,13 @@ export function useTemplates(): TemplateLibrary {
   const subscribe = useCallback(
     (notify: () => void) =>
       client.cache.subscribe((changedKey) => {
-        if (cacheKeyToString(changedKey) === TEMPLATE_LIBRARY_KEY_ID) notify();
+        if (cacheKeyToString(changedKey) === templateLibraryKeyId) notify();
       }),
-    [client],
+    [client, templateLibraryKeyId],
   );
   const getSnapshot = useCallback(
-    () => client.cache.peek<TemplateCatalog>(TEMPLATE_LIBRARY_KEY),
-    [client],
+    () => client.cache.peek<TemplateCatalog>(templateLibraryKey),
+    [client, templateLibraryKey],
   );
   const cached = useSyncExternalStore(subscribe, getSnapshot, noCachedTemplateLibrary);
 
@@ -73,7 +74,7 @@ export function useTemplates(): TemplateLibrary {
     const controller = new AbortController();
 
     void client
-      .query(TEMPLATE_LIBRARY_ENDPOINT, {
+      .query(templateLibraryEndpoint, {
         signal: controller.signal,
         forceRefresh: explicitReload || cached?.stale === true,
       })
@@ -88,7 +89,7 @@ export function useTemplates(): TemplateLibrary {
     return () => {
       controller.abort();
     };
-  }, [cached, client, reloadKey]);
+  }, [cached, client, reloadKey, templateLibraryEndpoint]);
 
   // Stable because consumers may use reload as an effect or event dependency.
   const reload = useCallback(() => {

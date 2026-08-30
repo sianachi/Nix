@@ -40,7 +40,7 @@ export const workspaceMemberSchema = z.object({
   grantedAt: z.iso.datetime({ offset: true }),
   canChangeRole: z.boolean(),
   canRemove: z.boolean(),
-  assignableRoles: z.array(z.string()),
+  assignableRoles: z.array(z.enum(['owner', 'editor', 'viewer'])),
 });
 export type WorkspaceMember = z.infer<typeof workspaceMemberSchema>;
 

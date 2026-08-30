@@ -84,8 +84,8 @@ describe('the token list', () => {
 
 describe('creating a token', () => {
   async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-    await user.click(screen.getByRole('button', { name: 'Create token' }));
-    await user.type(screen.getByRole('textbox', { name: /name/i }), 'ci robot');
+    await user.click(await screen.findByRole('button', { name: 'Create token' }));
+    await user.type(screen.getByRole('textbox', { name: /^name$/i }), 'ci robot');
     await user.click(screen.getByRole('checkbox', { name: /read items and search/i }));
     await user.click(screen.getByRole('radio', { name: /30 days/i }));
     await user.click(screen.getByRole('button', { name: 'Create the token' }));
@@ -119,7 +119,7 @@ describe('creating a token', () => {
 
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await user.click(screen.getByRole('button', { name: 'Create token' }));
-    await user.type(screen.getByRole('textbox', { name: /name/i }), 'ci robot');
+    await user.type(screen.getByRole('textbox', { name: /^name$/i }), 'ci robot');
     await user.click(screen.getByRole('checkbox', { name: /read items and search/i }));
     await user.click(screen.getByRole('button', { name: 'Create the token' }));
 
