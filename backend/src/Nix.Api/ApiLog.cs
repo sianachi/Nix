@@ -74,4 +74,15 @@ internal static partial class ApiLog
         Level = LogLevel.Information,
         Message = "Refused an oversized request body on {RequestPath} from {ClientKey}.")]
     public static partial void RequestBodyTooLarge(ILogger logger, string requestPath, IPAddress clientKey);
+
+    [LoggerMessage(
+        EventId = 2005,
+        Level = LogLevel.Warning,
+        Message = "First-login provisioning was unavailable on {RequestPath} at {Category} for provider "
+            + "{ProviderId}; no provider response or token data was logged.")]
+    public static partial void ProvisioningUnavailable(
+        ILogger logger,
+        string requestPath,
+        string category,
+        string providerId);
 }
