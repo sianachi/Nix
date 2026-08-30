@@ -21,10 +21,13 @@ public sealed class CreateWorkspaceHandler(WorkspaceAdministrationStore store, T
         }
 
         var id = WorkspaceId.Create();
-        if (!await store.CreateAsync(id, name, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false))
+        var now = clock.GetUtcNow();
+        if (!await store.CreateAsync(id, name, now, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<WorkspaceSnapshot>(WorkspaceErrors.HumansOnly());
         }
+
+        await store.SeedPresetsAsync(id, now, cancellationToken).ConfigureAwait(false);
 
         var created = await store.FindAsync(id, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("The newly created workspace could not be read back.");
