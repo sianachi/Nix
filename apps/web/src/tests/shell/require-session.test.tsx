@@ -21,6 +21,7 @@ describe('the session gate', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /continue with sso/i })).toBeEnabled();
+    expect(screen.queryByRole('textbox', { name: /organisation/i })).not.toBeInTheDocument();
   });
 
   it('says it is restoring rather than showing sign-in while a renew is in flight', () => {
