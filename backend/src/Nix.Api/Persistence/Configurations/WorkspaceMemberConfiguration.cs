@@ -39,6 +39,25 @@ internal sealed class WorkspaceMemberConfiguration : IEntityTypeConfiguration<Wo
             .OnDelete(DeleteBehavior.Cascade);
 
         // The chain-root allow is looked up per subject during resolution, not per workspace.
-        builder.HasIndex(member => new { member.TenantId, member.SubjectType, member.SubjectId });
+        builder.HasIndex(member => new
+        {
+            member.TenantId,
+            member.SubjectType,
+            member.SubjectId,
+            member.WorkspaceId,
+        })
+            .IncludeProperties(member => member.Role)
+            .HasDatabaseName("ix_workspace_member_actor_reach");
+
+        builder.HasIndex(member => new
+        {
+            member.TenantId,
+            member.WorkspaceId,
+            member.GrantedAt,
+            member.SubjectType,
+            member.SubjectId,
+        })
+            .IsDescending(false, false, true, false, false)
+            .HasDatabaseName("ix_workspace_member_history");
     }
 }

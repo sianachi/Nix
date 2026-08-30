@@ -165,15 +165,26 @@ internal sealed class NixUnitOfWorkMiddleware
             return;
         }
 
-        var principal = await directory
-            .FindPrincipalAsync(validated.TenantId, validated.Subject, context.RequestAborted)
-            .ConfigureAwait(false);
+        var principal = validated switch
+        {
+            ValidatedCoreToken core => await directory.FindPrincipalByIdAsync(
+                core.TenantId,
+                core.PrincipalId,
+                context.RequestAborted).ConfigureAwait(false),
+            ValidatedExternalToken external => await directory.FindExternalPrincipalAsync(
+                external.TenantId,
+                external.Registration.Issuer,
+                external.Subject,
+                context.RequestAborted).ConfigureAwait(false),
+            _ => throw new InvalidOperationException("Unknown validated token kind."),
+        };
 
         if (principal is null)
         {
-            // A valid token for a subject nobody provisioned. Refused, and never used to create
-            // one: provisioning is SCIM's job, and a token alone must not mint an identity. It
-            // also counts against the throttle - enumerating subjects is a guessing loop too.
+            // A valid token for a subject nobody provisioned. This lookup never creates one: the
+            // dedicated JIT path may do so only for an exact authorized-party registration whose
+            // stored policy enables it. A token alone must never mint an identity. The miss also
+            // counts against the throttle - enumerating subjects is a guessing loop too.
             RecordFailure(throttle, logger, context, clientKey);
             await WriteProblemAsync(
                 context,
@@ -213,14 +224,14 @@ internal sealed class NixUnitOfWorkMiddleware
             // immediate rather than "when the ten-minute JWT runs out", and it is where the
             // scope ceiling is applied - before the endpoint, after the transaction, so a
             // refused request rolls back like any other failure.
-            if (validated.AccessTokenId is { } accessTokenId)
+            if (validated is ValidatedCoreToken core)
             {
                 var admitted = await EnforceAccessTokenAsync(
                     context,
                     accessTokens,
                     scopeContext,
                     clock,
-                    accessTokenId,
+                    core.AccessTokenId,
                     principal.Id)
                     .ConfigureAwait(false);
 

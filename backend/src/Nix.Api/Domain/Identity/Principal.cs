@@ -41,6 +41,9 @@ public sealed class Principal
     /// </summary>
     public required string ExternalSubject { get; init; }
 
+    /// <summary>Gets the exact validated external issuer, or null for an internal-only identity.</summary>
+    public string? ExternalIssuer { get; init; }
+
     /// <summary>Gets whether this is a person or a machine identity.</summary>
     public required PrincipalKind Kind { get; init; }
 
@@ -53,6 +56,12 @@ public sealed class Principal
     /// concern rather than an identifier.
     /// </summary>
     public string? Email { get; init; }
+
+    /// <summary>Gets the normalized verified email used for exact invitation matching.</summary>
+    public string? EmailNormalized { get; init; }
+
+    /// <summary>Gets whether the identity provider verified <see cref="Email"/>.</summary>
+    public bool EmailVerified { get; init; }
 
     /// <summary>Gets whether the principal may currently act.</summary>
     public required PrincipalStatus Status { get; init; }
