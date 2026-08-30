@@ -737,7 +737,7 @@ function FieldsEditor({
     <div className="flex flex-col gap-3">
       {properties.map((property, index) => (
         <div
-          key={`${property.key}-${String(index)}`}
+          key={index}
           className="flex flex-col gap-3 rounded-md bg-surface p-3"
         >
           <div className="flex flex-wrap items-end gap-2">
