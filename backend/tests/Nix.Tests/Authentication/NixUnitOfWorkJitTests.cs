@@ -53,7 +53,7 @@ public sealed class NixUnitOfWorkJitTests
         Assert.Equal(StatusCodes.Status401Unauthorized, scenario.Context.Response.StatusCode);
         Assert.Equal(0, scenario.UserInfo.Calls);
         Assert.Contains(scenario.Logger.Messages, message => message.Contains(
-            "authorized_party_not_registered",
+            "authorized_party_claim_missing",
             StringComparison.Ordinal));
         Assert.DoesNotContain(scenario.RawToken, scenario.Logger.Messages, StringComparer.Ordinal);
         Assert.DoesNotContain("sensitive-subject", scenario.Logger.Messages, StringComparer.Ordinal);
