@@ -3,14 +3,15 @@ import { createContext, use, useEffect, useMemo, useRef, type ReactNode } from '
 
 import { useSessionStore, type SessionProfile } from './session-store';
 import { buildUserManagerSettings, isOidcConfigured, readOidcEnvironment } from './oidc-config';
+import { forgetSession, hasSessionHint, rememberSession } from './session-hint';
 
 /**
  * Owns the OIDC user manager and keeps the session store in step with it.
  *
- * The manager is the only thing that ever holds an access token. Components read who is signed in
- * from the Zustand slice; anything that needs to *call* the API asks this context for a token at
- * the moment of the call, so a token is never stored anywhere a component can accidentally render
- * it.
+ * The manager's tab-scoped user store is the only place that ever holds an access token.
+ * Components read who is signed in from the Zustand slice; anything that needs to *call* the API
+ * asks this context for a token at the moment of the call, so a token is never copied somewhere a
+ * component can accidentally render it.
  */
 
 export interface AuthContextValue {
@@ -67,6 +68,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   managerRef.current ??= configured ? new UserManager(buildUserManagerSettings(environment)) : null;
 
   const signInStarted = useSessionStore((state) => state.signInStarted);
+  const sessionRestoreCancelled = useSessionStore((state) => state.sessionRestoreCancelled);
   const signInSucceeded = useSessionStore((state) => state.signInSucceeded);
   const signInFailed = useSessionStore((state) => state.signInFailed);
   const signedOut = useSessionStore((state) => state.signedOut);
@@ -90,12 +92,21 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     }
 
     const onUserLoaded = (user: User): void => {
+      if (user.expired === true) {
+        forgetSession();
+        signedOut();
+        return;
+      }
+
+      rememberSession();
       signInSucceeded(toProfile(user));
     };
     const onUserUnloaded = (): void => {
+      forgetSession();
       signedOut();
     };
     const onSilentRenewError = (error: Error): void => {
+      forgetSession();
       signInFailed(`Session could not be renewed: ${error.message}`);
     };
 
@@ -103,9 +114,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     manager.events.addUserUnloaded(onUserUnloaded);
     manager.events.addSilentRenewError(onSilentRenewError);
 
-    // On a fresh page load the token store is empty by design, so try a silent renew before
-    // concluding that nobody is signed in. A failure here is the ordinary "not signed in" case and
-    // must not be reported as an error.
+    // oidc-client-ts persists its user in sessionStorage, so consult that tab-scoped store before
+    // doing any network work. Only ask the identity provider to restore a missing stored user when
+    // this browser has completed sign-in before: an anonymous first visit cannot possibly be
+    // restored, and waiting for the hidden iframe's production timeout made the login screen
+    // appear broken for several seconds.
     //
     // Skipped when a session already exists, for the same reason as above.
     if (useSessionStore.getState().status !== 'unknown') {
@@ -116,27 +129,77 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       };
     }
 
-    signInStarted();
-    void manager
-      .signinSilent()
-      .then((user) => {
-        if (user === null) {
+    const lifecycle = { completed: false, disposed: false };
+    const isDisposed = (): boolean => lifecycle.disposed;
+    const complete = (): void => {
+      lifecycle.completed = true;
+    };
+    void (async () => {
+      let user: User | null;
+      try {
+        user = await manager.getUser();
+      } catch {
+        // A blocked or corrupt tab store is equivalent to no stored user. The non-secret hint
+        // below still determines whether the provider may have a session worth restoring.
+        user = null;
+      }
+
+      if (isDisposed()) {
+        return;
+      }
+
+      if (user !== null && user.expired !== true) {
+        complete();
+        rememberSession();
+        signInSucceeded(toProfile(user));
+        return;
+      }
+
+      const storedUserExpired = user?.expired === true;
+      if (!storedUserExpired && !hasSessionHint()) {
+        complete();
+        signedOut();
+        return;
+      }
+
+      signInStarted();
+      try {
+        user = await manager.signinSilent();
+        if (isDisposed()) {
+          return;
+        }
+
+        if (user === null || user.expired === true) {
+          complete();
+          forgetSession();
           signedOut();
           return;
         }
 
+        complete();
+        rememberSession();
         signInSucceeded(toProfile(user));
-      })
-      .catch(() => {
+      } catch {
+        if (isDisposed()) {
+          return;
+        }
+
+        complete();
+        forgetSession();
         signedOut();
-      });
+      }
+    })();
 
     return () => {
+      lifecycle.disposed = true;
+      if (!lifecycle.completed) {
+        sessionRestoreCancelled();
+      }
       manager.events.removeUserLoaded(onUserLoaded);
       manager.events.removeUserUnloaded(onUserUnloaded);
       manager.events.removeSilentRenewError(onSilentRenewError);
     };
-  }, [signInStarted, signInSucceeded, signInFailed, signedOut]);
+  }, [signInStarted, sessionRestoreCancelled, signInSucceeded, signInFailed, signedOut]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -161,6 +224,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
       signOut: async () => {
         const manager = managerRef.current;
+        forgetSession();
         if (manager === null) {
           signedOut();
           return;
@@ -180,7 +244,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         }
 
         const user = await manager.getUser();
-        return user?.access_token ?? null;
+        return user === null || user.expired === true ? null : user.access_token;
       },
     }),
     [configured, signInStarted, signInFailed, signedOut],

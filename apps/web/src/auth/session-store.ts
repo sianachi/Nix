@@ -9,9 +9,9 @@ import { create } from 'zustand';
  * arrives.
  *
  * **The access token is deliberately not in this store.** It lives inside `oidc-client-ts`'s user
- * manager in memory, and the API client asks for it per request. Putting it here would put it in
- * the devtools, in any state snapshot a bug report attaches, and in every component that happens to
- * subscribe - none of which needs it.
+ * manager's tab-scoped user store, and the API client asks for it per request. Putting it here would
+ * put it in the devtools, in any state snapshot a bug report attaches, and in every component that
+ * happens to subscribe - none of which needs it.
  */
 
 export type SessionStatus =
@@ -40,6 +40,8 @@ export interface SessionState {
 
   /** A sign-in or silent renew has started. */
   readonly signInStarted: () => void;
+  /** An in-flight startup restore was abandoned because its provider unmounted. */
+  readonly sessionRestoreCancelled: () => void;
   /** The identity provider returned a user. */
   readonly signInSucceeded: (profile: SessionProfile) => void;
   /** Sign-in failed, or a renew failed and the session is gone. */
@@ -55,6 +57,14 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   signInStarted: () => {
     set({ status: 'authenticating', error: null });
+  },
+
+  sessionRestoreCancelled: () => {
+    set((state) =>
+      state.status === 'authenticating'
+        ? { status: 'unknown', profile: null, error: null }
+        : state,
+    );
   },
 
   signInSucceeded: (profile) => {
