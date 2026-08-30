@@ -219,11 +219,22 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
             var connection = (NpgsqlConnection)work.DbContext.Database.GetDbConnection();
             var transaction = (NpgsqlTransaction)work.Transaction.GetDbTransaction();
 
+            var crossTenantWrite = table == NixTables.WorkspaceInvitation
+                ? $"""
+                    INSERT INTO workspace_invitation
+                        (invitation_id, tenant_id, workspace_id, email_normalized, role,
+                         invited_by_principal_id, status, invited_at)
+                    VALUES ('40404040-4040-4040-8040-404040404040'::uuid,
+                            '{beta}'::uuid, '{M0SchemaSeed.Beta.WorkspaceId:D}'::uuid,
+                            'cross-tenant@example.test', 'viewer',
+                            '{M0SchemaSeed.Beta.PrincipalId:D}'::uuid, 'pending', now())
+                    """
+                : $"UPDATE {table} SET tenant_id = '{beta}'::uuid";
             var failure = await Assert.ThrowsAsync<PostgresException>(
                 async () => await RawSql.ExecuteAsync(
                     connection,
                     transaction,
-                    $"UPDATE {table} SET tenant_id = '{beta}'::uuid"));
+                    crossTenantWrite));
 
             // 42501 insufficient_privilege is what a WITH CHECK violation raises.
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, failure.SqlState);
