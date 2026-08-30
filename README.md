@@ -1,65 +1,126 @@
 # Nix
 
-Nix is a collaborative document workspace. There is only one kind of item and every
-item has a body describing how it renders itself: A simple note, a canvas, a kanban board, canvas later, etc. It can hold
-children, can declare a property schema, and can offer views over its
-children. There is no separate "folder" type. You can have a parent item that is a spreadsheet and the children are kanban boards.
-The intention is for a Wiki like Notion or Obsidian that is fully customizable, allows the kind of workflow that Notion does while
-giving you the full flexibility of Obsidian.
+Nix is a self-hosted collaborative document workspace for a small to medium sized team — a
+Microsoft Word alternative for nerds who want their documents to be linkable, programmable and
+structured without giving up rich editing or collaboration. It combines the flexible structure of a
+wiki with the schemas, views and project workflows of a database workspace.
 
+There is one kind of item. Every item has a body describing how it renders itself, can contain
+children, can declare a property schema and can offer views over those children. There is no separate
+"folder" type: a spreadsheet can contain kanban boards, a board can contain notes, and any item can
+be reorganised without changing what it is.
 
-## Features
+## Problems Nix is solving
 
-- **One kind of item.** Every item has a body (note, canvas, kanban board, ...), can hold
-  children, can declare a property schema, and can offer views over its children — no
-  separate "folder" type.
-- **Composable hierarchies.** Any item can be the child of any other — a spreadsheet can
-  parent a set of kanban boards, a kanban board can parent notes, and so on.
-- **Notion-like structure, Obsidian-like flexibility.** Customizable schemas and views give
-  you Notion's workflow with the openness of an Obsidian-style wiki.
-- **Real-time collaboration.** A dedicated CRDT/WebSocket service keeps documents in sync
-  across users.
-- **Database-backed permissions.** Roles and authorization live in Postgres with row-level
-  security, never in tokens, with a single authorization code path evaluated during query
-  time.
-- **Write, organise and link.** A rich editor over an append-only CRDT log, an item tree with
-  drag-to-reparent and cycle checking, `[[` and `@` references with four resolution states, a
-  backlinks panel and full-text search.
-- **Three kinds of body, five ways to look at children.** A note, a canvas and a spreadsheet behind
-  one dispatch seam; list, board, gallery, calendar and timeline over an item's children, with
-  property schemas that cascade from ancestors and are validated on write.
-- **A calendar across the workspace**, two panes side by side, and a phone layout below the `sm`
-  breakpoint.
-- **Leave with your work.** Export a document or a subtree as a lossless `.nix` archive, a PDF or a
-  DOCX.
+- **Documents and project work are split across tools.** Notes, tasks, dates, structured records and
+  links usually live in separate applications. Nix keeps them in one composable item tree.
+- **Rigid hierarchies do not match real work.** Nix separates an item's body from its views, so the
+  same children can be seen as a list, board, calendar, gallery, timeline, spreadsheet or form.
+- **Custom workflows are either too limited or too technical.** Cascading property schemas, formulas,
+  rollups, charts, templates and guided view setup let a team shape its workspace without a plugin or
+  waiting for a developer.
+- **Collaboration creates lost edits and unclear ownership.** CRDT-backed documents, an append-only
+  update log, live presence and database-enforced authorization let people work together safely.
+- **Permission failures are security failures.** Roles and filtering stay in the database, permission
+  checks happen during query evaluation, and the web, CLI and MCP use the same authorization path.
+- **Search and automation can quietly tell the wrong story.** Search, links, imports, exports and
+  data-bearing views expose incomplete or lossy states instead of implying success.
+- **Vendor lock-in makes leaving expensive.** Nix exports documents and subtrees as lossless `.nix`
+  archives and as PDF, DOCX and Markdown, with format limitations reported before export.
+- **Self-hosted software is often difficult to operate safely.** Nix bounds hostile and expensive work,
+  keeps derived data rebuildable, and provides CLI/MCP access for scripted administration and checks.
+- **A browser is not always the best place to work.** Nix plans native desktop and mobile clients so
+  the same document workspace can feel at home in a focused desktop editor and on the move.
 
-Planned, in priority order — the sequence is the plan:
+## Current features
 
-1. **Templates and the spreadsheet view** — user-authored templates, a template library, templates as
-   files, and children as rows and columns
-2. **Computed properties** — formulas over an item's own properties, rollups across its children,
-   and charts
-3. **Running your week** — task semantics, recurrence, reminders that fire with the tab closed,
-   smart lists, assignment
-4. **Version history** — named versions, compare, restore
-5. **Trust** — everything it already does, done provably; the asserted list becomes a proved one
-6. **Operability** — backup, a restore drill that is actually run, observability
-7. **Import** — `.nix`, Markdown, DOCX and PDF, each honest about what it could not carry
-8. **Workspaces and who is in them** — create and switch between workspaces, member and admin roles,
-   invitations, revocation that reaches a live session
-9. **Reach it without a browser** — a CLI, and an MCP server so tools can drive it
+### Documents, structure and collaboration
 
-**Every phase ends with a stress test**, and the phase is not finished until it has been run and the
-number written down. The first one is a container with 3,000+ children opened in every view it
-offers.
+- Rich notes with headings, lists, tasks, quotes, code, callouts, tables, images, links, columns,
+  collapsible sections, colour, drag handles and slash commands.
+- A composable item tree with nesting, breadcrumbs, drag-to-reparent, cycle checking, create-in-place,
+  delete with Undo restore, two-pane navigation and responsive phone layouts.
+- Notes, canvases and spreadsheets as body kinds. Canvases use shared Excalidraw scenes; spreadsheets
+  provide A1 addressing, references, ranges, formula functions, dependency tracking and cycle checks.
+- CRDT editing over an append-only update log, rebuildable snapshots, WebSocket synchronisation,
+  authorization handshakes, presence, live cursors and connection status.
+- `[[` and `@` references, backlinks, full-text search, a command palette and an accessible graph
+  view with both a visual graph and a text tree.
 
-Deliberately **not** planned, so nobody waits for them: an extension or plugin platform of any kind;
-calendar sync, OAuth and ICS feeds, or anything else that reaches another service; file uploads and
-attachments; public sharing and share links; native mobile clients; full ACL precedence with an audit
-pipeline; pen input on canvas; and an Obsidian sync. The CLI and MCP server are **not** an extension
-platform — they are clients of the API holding no more than the person they act for, which is why
-they are planned and a plugin runtime is not. Nix is a self-hosted workspace for a trusted team of
-about ten, and `docs/nix-mvps.md` holds the reasoning and, for each exclusion, what it costs.
+### Data, views and workflows
+
+- Ancestor-cascading property schemas, validated writes and in-place editing for supported property
+  types.
+- Formula properties, child rollups and server-backed charts with bounded evaluation and cycle
+  detection.
+- List, board, calendar, gallery, timeline, spreadsheet, Quick Form, Interactive Form and Smart List
+  views, including composed primary and companion views.
+- Guided setup for structured views, with tab-persistent drafts.
+- Task semantics for completion, due dates, start dates, priority, estimates and assignees; recurring
+  tasks and calendar entries; Today, Next 7 days, Overdue and Assigned to me workflows.
+- Workspace-wide calendar aggregation, explicit calendar-entry destinations and keyboard navigation
+  in list cells.
+- User-authored, file-backed and managed templates: capture, edit, browse, apply and create from a
+  validated template tree.
+- Revocable, opaque Interactive Form links. Sanitized public forms turn responses into ordinary child
+  items without exposing the workspace or existing responses.
+
+### Access, portability and operations
+
+- OIDC authentication with PKCE and multi-issuer support; workspace-scoped roles, invitations,
+  membership administration, personal workspace provisioning and live revocation.
+- Permission-filtered access backed by Postgres row-level security; roles live in the database, not
+  in tokens.
+- Export of documents and subtrees to lossless `.nix`, PDF, DOCX and Markdown, with declared losses.
+- `nixctl` for machine-readable authentication, item CRUD, notes, properties, views, search, query,
+  export, import and stress/read/search/query runs.
+- An MCP server started through `nixctl mcp`, authenticated as the acting principal and limited to
+  that principal's reach.
+- Progressive web app installation, production Docker/Kubernetes manifests, migrations, seed,
+  backup jobs, verification jobs and restricted-egress media conversion with no database credentials.
+
+## Planned features
+
+The remaining roadmap is intentionally short and ordered by priority.
+
+1. **Finish running the week.** Add a checklist view, item dependencies and keyboard-complete
+   timeline editing; decide the default calendar container; and prove tree, Smart List and timeline
+   performance over 10,000 items.
+2. **Make the workspace trustworthy and operable.** Complete specialist security, UX,
+   structure and performance reviews; run real browser and screen-reader checks; verify exports in
+   Word and PDF readers; fix canvas persistence and client-layer defects; add trash, version history,
+   bundle and dependency gates; complete backup/restore, observability, security contact and memory
+   budgets.
+3. **Complete import.** Add `.nix` round-trip import and DOCX/PDF import, resolve wiki links,
+   harden hostile-input parsing, make the import path streaming and bounded, and run the full
+   10,000-note import plus `.nix` round-trip stress test. Markdown import/export already ships.
+4. **Build native clients.** Deliver native desktop and mobile applications with the same documents,
+   collaboration, authentication and permission model as the web application, while respecting the
+   platform conventions of each device.
+
+Each planned area has a measurable stress test. A green test suite is not treated as proof of layout,
+accessibility, query plans, export fidelity or production operations until those things are observed.
+
+## Long-term goals
+
+After the core document workspace and native clients are mature, Nix may grow toward a broader
+knowledge and collaboration platform. Long-term goals include:
+
+- An extension and plugin runtime, with a marketplace, third-party authors, reviews and updates.
+- Public workspaces, share links and richer public publishing.
+- File uploads, attachments and object storage integrated into the document model.
+- External calendar integrations, OAuth connections and ICS feeds.
+- More expressive access control, including full ACL precedence, deny rules, inheritance breaks and
+  an audit pipeline.
+- Collaboration at 100+ concurrent editors in one document.
+- Pen input on canvas, including pressure, tilt and palm rejection.
+- Obsidian synchronisation.
+- Habit tracking, pomodoro timers, email as a first-class object, real-time voice/video and a theme
+  marketplace.
+
+These are deliberately longer-term ambitions rather than promises about the current release. The CLI
+and MCP are API clients, not an extension platform, and native desktop and mobile applications are
+already part of the nearer-term plan above.
 
 ## Stack
 
@@ -199,4 +260,3 @@ Migrations: `dotnet run --project backend/src/Nix.Migrator` with
 `scripts/check-layering.sh`, `scripts/check-no-controllers.sh`,
 `scripts/check-byte-array-markers.sh` (backend),
 `scripts/check-raw-design-values.sh` (frontend).
-
