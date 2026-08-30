@@ -27,7 +27,7 @@ export function WorkspaceSwitcher(): ReactNode {
         aria-label="Workspace"
         value={workspace.id}
         onChange={switchWorkspace}
-        className="min-w-0 w-full max-w-[24ch]"
+        className="min-w-0 w-full max-w-full sm:max-w-[24ch]"
       >
         {workspaces.map((entry) => (
           <option key={entry.id} value={entry.id}>

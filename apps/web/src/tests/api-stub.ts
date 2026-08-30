@@ -50,6 +50,7 @@ export interface StubWorkspace {
   readonly canRename: boolean;
   readonly canManageMembers: boolean;
   readonly canLeave: boolean;
+  readonly canUseDailyNotes: boolean;
   readonly pendingInvitationId: string | null;
 }
 
@@ -63,6 +64,7 @@ export const STUB_WORKSPACE: StubWorkspace = {
   canRename: true,
   canManageMembers: true,
   canLeave: false,
+  canUseDailyNotes: true,
   pendingInvitationId: null,
 };
 
@@ -603,6 +605,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           name: body.name ?? 'Untitled workspace',
           kind: 'shared',
           canLeave: false,
+          canUseDailyNotes: false,
         };
         knownWorkspaces.push(created);
         return Promise.resolve(json(created, 201));

@@ -600,6 +600,15 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
             type="checkbox"
             checked={current.includes(option)}
             className={cn(focusRing, disabledState)}
+            onKeyDown={(event) => {
+              // Native checkboxes reserve Space for activation, but property fields are also used
+              // in grid-style editing where Enter commits the focused value. Honour both without
+              // submitting an enclosing form or letting Enter fall through to the editor.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.click();
+              }
+            }}
             onChange={(event) => {
               const next = event.target.checked
                 ? [...current, option]

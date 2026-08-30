@@ -1,4 +1,4 @@
-import { Button, Icon, Text, focusRing } from '@nix/ui';
+import { Button, Icon, PaneDivider, Text, focusRing } from '@nix/ui';
 import { Download, LayoutTemplate, PanelRightClose, Save, Settings2, Upload } from 'lucide-react';
 import {
   Suspense,
@@ -14,8 +14,13 @@ import { useNavigate, useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../shell/shell-context';
 import { PaneViewport } from '../layout/pane-viewport';
-import { paneClip, paneColumn, paneScroller } from '../layout/regions';
-import { useNarrowViewport } from '../layout/viewport';
+import {
+  WIDE_ENOUGH_FOR_COMPANION_BESIDE,
+  paneClip,
+  paneColumn,
+  paneScroller,
+} from '../layout/regions';
+import { useMediaQuery, useNarrowViewport } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
@@ -497,7 +502,7 @@ function OpenItem({
             focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
             box where every sibling row's box already is; the label sits a further `px-2` in from
             there, which is the same relationship the switcher's own tabs have to their nav. */}
-        <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-1 px-3 py-1.5 sm:w-auto sm:pl-2 sm:pr-8">
+        <div className="flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8">
           {/* The thing you are reading is the thing you can keep. First in the row because it acts
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
@@ -617,29 +622,18 @@ function OpenItem({
                 {active.companionViewId === null || active.companionViewId === undefined ? (
                   <ContainerView container={container} view={active} onOpen={onOpen} />
                 ) : (
-                  <div
-                    className={
-                      active.companionPlacement === 'beside'
-                        ? 'grid min-h-full grid-rows-2 gap-4 lg:grid-cols-2 lg:grid-rows-1'
-                        : 'grid min-h-full grid-rows-2 gap-4'
+                  <CompanionViewPair
+                    key={`${itemId}:${active.id}:${active.companionViewId}`}
+                    itemId={itemId}
+                    paneIndex={paneIndex}
+                    placement={active.companionPlacement}
+                    primaryName={active.name}
+                    companionName={
+                      views.find((candidate) => candidate.id === active.companionViewId)?.name ??
+                      'Companion view'
                     }
-                  >
-                    <section aria-label={active.name} className="min-h-0 min-w-0">
-                      <ContainerView container={container} view={active} onOpen={onOpen} />
-                    </section>
-                    <section
-                      aria-label={
-                        views.find((candidate) => candidate.id === active.companionViewId)?.name ??
-                        'Companion view'
-                      }
-                      className={
-                        active.companionPlacement === 'beside'
-                          ? 'min-h-0 min-w-0 border-t border-divider pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0'
-                          : 'min-h-0 min-w-0 border-t border-divider pt-4'
-                      }
-                    >
-                      {/* A distinct URL-state scope keeps filters and modes in one half from
-                          changing the other. The offset is beyond the real pane limit. */}
+                    primary={<ContainerView container={container} view={active} onOpen={onOpen} />}
+                    companion={
                       <PaneProvider index={paneIndex + 3}>
                         <ContainerView
                           container={container}
@@ -650,8 +644,8 @@ function OpenItem({
                           onOpen={onOpen}
                         />
                       </PaneProvider>
-                    </section>
-                  </div>
+                    }
+                  />
                 )}
               </PaneViewport>
             </section>
@@ -734,7 +728,7 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header className="px-8 pb-3 pt-4">
+    <header className="px-4 pb-3 pt-4 sm:px-8">
       {trail.length > 1 ? (
         <nav aria-label="Breadcrumb" className="mb-1 flex flex-wrap items-center text-xs">
           {trail.slice(0, -1).map((ancestor) => (
@@ -778,8 +772,93 @@ function ItemHeader({
         // variable - so the two together left the field that renames an item with no visible focus
         // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
         // point of the primitive.
-        className={`w-full bg-transparent font-heading text-2xl uppercase ${focusRing}`}
+        className={`w-full bg-transparent font-heading text-xl uppercase sm:text-2xl ${focusRing}`}
       />
     </header>
+  );
+}
+
+interface CompanionViewPairProps {
+  readonly itemId: string;
+  readonly paneIndex: number;
+  readonly placement: 'below' | 'beside' | null | undefined;
+  readonly primaryName: string;
+  readonly companionName: string;
+  readonly primary: ReactNode;
+  readonly companion: ReactNode;
+}
+
+/**
+ * A primary and companion view sharing one viewport.
+ *
+ * The splitter is intentionally local to this composition. It controls only the two views an item
+ * currently declares, so serializing it into the pane URL would falsely make an item's own layout
+ * part of a reader's multi-pane arrangement. A new composition starts balanced; an adjustment
+ * survives ordinary re-renders and remains available to pointer and keyboard users alike.
+ */
+function CompanionViewPair({
+  itemId,
+  paneIndex,
+  placement,
+  primaryName,
+  companionName,
+  primary,
+  companion,
+}: CompanionViewPairProps): ReactNode {
+  const wide = useMediaQuery(WIDE_ENOUGH_FOR_COMPANION_BESIDE);
+  const orientation = placement === 'beside' && wide ? 'vertical' : 'horizontal';
+  const [shares, setShares] = useState<readonly [number, number]>([50, 50]);
+  const pairRef = useRef<HTMLDivElement>(null);
+  const primaryRegionId = `companion-primary-${String(paneIndex)}-${itemId}`;
+
+  function preview(primaryShare: number, companionShare: number): void {
+    const pair = pairRef.current;
+    if (pair === null) return;
+    pair.style.setProperty('--companion-primary-share', String(primaryShare));
+    pair.style.setProperty('--companion-secondary-share', String(companionShare));
+  }
+
+  function commit(primaryShare: number, companionShare: number): void {
+    setShares([primaryShare, companionShare]);
+  }
+
+  const style: Record<string, string> = {
+    '--companion-primary-share': String(shares[0]),
+    '--companion-secondary-share': String(shares[1]),
+  };
+  const vertical = orientation === 'vertical';
+
+  return (
+    <div
+      ref={pairRef}
+      style={style}
+      className={`flex min-h-full min-w-0 ${vertical ? 'flex-row' : 'flex-col'}`}
+    >
+      <section
+        id={primaryRegionId}
+        aria-label={primaryName}
+        style={{ flexGrow: 'var(--companion-primary-share)', flexBasis: 0 }} // design-token-exempt: a companion pane's share is a runtime ratio adjusted by its divider, not a design-scale value.
+        className="min-h-0 min-w-0"
+      >
+        {primary}
+      </section>
+      <PaneDivider
+        orientation={orientation}
+        before={shares[0]}
+        after={shares[1]}
+        beforeName={primaryName}
+        afterName={companionName}
+        controls={primaryRegionId}
+        onPreview={preview}
+        onCommit={commit}
+      />
+      <section
+        aria-label={companionName}
+        style={{ flexGrow: 'var(--companion-secondary-share)', flexBasis: 0 }} // design-token-exempt: a companion pane's share is a runtime ratio adjusted by its divider, not a design-scale value.
+        className="min-h-0 min-w-0"
+      >
+        {companion}
+      </section>
+    </div>
   );
 }

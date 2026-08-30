@@ -7031,6 +7031,7 @@
           "canRename",
           "canManageMembers",
           "canLeave",
+          "canUseDailyNotes",
           "pendingInvitationId"
         ],
         "type": "object",
@@ -7072,6 +7073,9 @@
             "type": "boolean"
           },
           "canLeave": {
+            "type": "boolean"
+          },
+          "canUseDailyNotes": {
             "type": "boolean"
           },
           "pendingInvitationId": {
