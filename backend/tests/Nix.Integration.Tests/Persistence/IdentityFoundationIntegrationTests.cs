@@ -123,6 +123,39 @@ public sealed class IdentityFoundationIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task New_identity_provider_registrations_enable_jit_by_default()
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $"""
+                INSERT INTO identity_provider
+                    (provider_id, tenant_id, issuer, audience, jwks_uri,
+                     allowed_algorithms, enabled, userinfo_uri)
+                VALUES ('31313131-3131-4131-8131-313131313131'::uuid,
+                        '{M0SchemaSeed.Alpha.TenantId:D}'::uuid,
+                        'https://default-jit.alpha.test', 'default-jit-web',
+                        'https://default-jit.alpha.test/oauth/v2/keys',
+                        ARRAY['RS256']::text[], true,
+                        'https://default-jit.alpha.test/oidc/v1/userinfo');
+                """);
+
+            var enabled = await RawSql.BooleanAsync(
+                connection,
+                """
+                SELECT jit_provisioning_enabled
+                  FROM identity_provider
+                 WHERE provider_id = '31313131-3131-4131-8131-313131313131'::uuid;
+                """);
+
+            Assert.True(enabled);
+        }
+    }
+
+    [Fact]
     public async Task Invitation_state_requires_the_matching_transition_fields()
     {
         var connection = await _fixture.OpenMigratorConnectionAsync();
