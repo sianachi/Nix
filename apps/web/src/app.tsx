@@ -6,7 +6,6 @@ import { AuthProvider } from './auth/auth-provider';
 import { ApiClientProvider } from './api/api-client-provider';
 import { AppErrorBoundary } from './components/error-boundary';
 import { DailyNotePage } from './daily-notes/daily-note-page';
-import { AuthCallbackPage, SilentRenewPage } from './pages/auth-callback-page';
 import { BookmarksPage } from './pages/bookmarks-page';
 import { CalendarPage } from './pages/calendar-page';
 import { EditorPage } from './pages/editor-page';
@@ -68,9 +67,6 @@ export function App(): ReactElement {
         <AuthProvider>
           <ApiClientProvider>
             <Routes>
-              {/* Outside the session gate: these two ARE the sign-in process. */}
-              <Route path="/auth/callback" element={<AuthCallbackPage />} />
-              <Route path="/auth/silent-renew" element={<SilentRenewPage />} />
               <Route path="/forms/:token" element={<PublicFormPage />} />
 
               <Route element={<RequireSession />}>

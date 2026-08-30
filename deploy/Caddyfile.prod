@@ -13,6 +13,12 @@
 		}
 	}
 
+	handle /auth/* {
+		reverse_proxy nix-api:8080 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+
 	handle_path /collab/* {
 		reverse_proxy nix-collab:8100
 	}
@@ -27,7 +33,7 @@
 	}
 
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {env.NIX_OIDC_ISSUER}; frame-src 'self' {env.NIX_OIDC_ISSUER}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 		X-Frame-Options "SAMEORIGIN"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

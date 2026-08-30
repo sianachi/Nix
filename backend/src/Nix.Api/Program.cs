@@ -1,10 +1,12 @@
 using System.Net;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Nix;
 using Nix.Authentication;
 using Nix.Errors;
 using Nix.Features.Bookmarks;
+using Nix.Features.BrowserAuth;
 using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Charts;
@@ -67,6 +69,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(BrowserAuthJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -78,6 +81,30 @@ builder.Services.AddSingleton<PublicFormTokenService>();
 // whether or not persistence is, because the token validator takes it as a dependency and the
 // exchange endpoint reports "unconfigured" honestly rather than failing to resolve.
 builder.Services.AddSingleton<SelfIssuedTokenService>();
+
+// Interactive OIDC is mediated by Core. The browser receives only an opaque HttpOnly session
+// cookie and short-lived Core-signed access tokens, so provider tokens never enter JavaScript.
+builder.Services.Configure<BrowserAuthOptions>(
+    builder.Configuration.GetSection(BrowserAuthOptions.SectionName));
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("Nix");
+var dataProtectionKeysPath = builder.Configuration["Nix:Bff:DataProtectionKeysPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
+
+builder.Services
+    .AddHttpClient(BrowserAuthOptions.HttpClientName, static client =>
+    {
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    })
+    .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.None,
+    });
+builder.Services.AddSingleton<OidcMetadataClient>();
 
 // UserInfo is a separate trust boundary from key discovery. Redirects are disabled so a
 // registered endpoint cannot bounce a bearer token to another origin; response bodies are read
@@ -251,6 +278,7 @@ if (persistenceConfigured)
     // Scoped, because it resolves issuers through the request's own connection. The signing-key
     // cache inside it is static and shared, which is the part that must not be per request.
     builder.Services.AddScoped<NixTokenValidator>();
+    builder.Services.AddScoped<BrowserAuthCoordinator>();
 }
 
 builder.Services.AddOpenApi(options =>
@@ -352,6 +380,14 @@ if (app.Environment.IsDevelopment())
 // report the database's health, not the process's, and an orchestrator would restart a healthy
 // pod because Postgres was briefly slow.
 app.MapHealthEndpoints();
+
+// These routes deliberately sit outside /api/v1. They establish or restore the browser session
+// that subsequently obtains a Core bearer token; running the bearer middleware here would make
+// login depend on already being logged in.
+if (persistenceConfigured)
+{
+    app.MapBrowserAuthEndpoints();
+}
 
 // Everything below this line runs inside a tenant-scoped transaction and requires a bearer token.
 if (persistenceConfigured)

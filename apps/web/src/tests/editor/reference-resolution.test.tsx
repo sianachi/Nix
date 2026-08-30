@@ -65,6 +65,32 @@ function stubReferences(
       }
 
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith('/auth/session')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              authenticated: true,
+              configured: true,
+              profile: { subject: 'reference-reader', name: 'Reference reader' },
+              accessToken: 'reference-token',
+              expiresAt: '2999-01-01T00:00:00Z',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.endsWith('/auth/token')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              accessToken: 'reference-token',
+              expiresAt: '2999-01-01T00:00:00Z',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
+
       calls.push(url);
 
       const ids = (/ids=([^&]*)/.exec(url)?.[1] ?? '')

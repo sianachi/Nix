@@ -236,12 +236,9 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                     transaction,
                     crossTenantWrite));
 
-            // Invitation history has a stricter immutable-identity trigger that runs before the
-            // RLS WITH CHECK. Both paths refuse a tenant transfer; the trigger reports 23514.
-            var expected = table == "workspace_invitation"
-                ? PostgresErrorCodes.CheckViolation
-                : PostgresErrorCodes.InsufficientPrivilege;
-            Assert.Equal(expected, failure.SqlState);
+            // The invitation case uses an INSERT so the RLS WITH CHECK is observed directly;
+            // every tenant-scoped table must produce the same runtime-role refusal.
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, failure.SqlState);
         }
     }
 

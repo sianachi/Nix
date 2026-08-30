@@ -1,4 +1,4 @@
-# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG, $OIDC_ISSUER.
+# Rendered with envsubst by deploy/k8s/deploy.sh.
 apiVersion: v1
 kind: Service
 metadata: { name: nix-web, namespace: nix }
@@ -19,9 +19,6 @@ spec:
         - name: caddy
           image: ${REGISTRY}/web:${TAG}
           ports: [{ containerPort: 8090 }]
-          env:
-            - name: NIX_OIDC_ISSUER
-              value: "${OIDC_ISSUER}"     # origin only, no path
           volumeMounts:
             - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
             - { name: caddy-data, mountPath: /data }

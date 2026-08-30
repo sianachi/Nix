@@ -270,6 +270,7 @@ public sealed class NixUnitOfWorkJitTests
             _database,
             Throttle,
             new StubAccessTokens(),
+            new StubBrowserSessions(),
             new AccessTokenSessionContext(),
             UserInfo,
             new NixDispatcher(new ServiceCollection().BuildServiceProvider()),
@@ -309,6 +310,24 @@ public sealed class NixUnitOfWorkJitTests
             TenantId tenantId,
             PrincipalId principalId,
             CancellationToken cancellationToken) => ValueTask.FromResult<AuthenticatedPrincipal?>(null);
+    }
+
+    private sealed class StubBrowserSessions : IBrowserSessions
+    {
+        public ValueTask<AuthenticatedBrowserSession?> FindByTokenHashAsync(
+            string tokenHash,
+            CancellationToken cancellationToken) => ValueTask.FromResult<AuthenticatedBrowserSession?>(null);
+
+        public ValueTask<AuthenticatedBrowserSession?> FindByIdAsync(
+            BrowserSessionId id,
+            CancellationToken cancellationToken) => ValueTask.FromResult<AuthenticatedBrowserSession?>(null);
+
+        public ValueTask AddAsync(BrowserSession session, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<bool> RevokeAsync(
+            BrowserSessionId id,
+            DateTimeOffset revokedAt,
+            CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 
     private sealed class StubUserInfo(UserInfoBehavior behavior) : IUserInfoClient

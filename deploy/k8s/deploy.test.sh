@@ -105,9 +105,9 @@ assert_before \
   "wait:-n nix wait --for=condition=complete job/nix-template-presets-render-order"
 assert_before \
   "wait:-n nix wait --for=condition=complete job/nix-template-presets-render-order" \
-  "apply-stdin:nix-api,nix-api"
+  "apply-stdin:nix-api-data-protection,nix-api,nix-api"
 assert_before \
-  "apply-stdin:nix-api,nix-api" \
+  "apply-stdin:nix-api-data-protection,nix-api,nix-api" \
   "rollout:-n nix rollout status deployment/nix-api"
 
 grep -Fq 'name: nix-template-presets-render-order' "$RENDERED_PRESET_JOB"

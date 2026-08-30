@@ -24,12 +24,27 @@ services:
         aliases:
           - postgres
 
+  nix-api-init:
+    image: busybox:1.37
+    restart: "no"
+    command: ["sh", "-c", "chown -R 1654:1654 /var/lib/nix/data-protection"]
+    volumes:
+      - nix-api-data-protection:/var/lib/nix/data-protection
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+
   nix-api:
     image: localhost/nix/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      nix-api-init:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Nix: ${NIX_CORE_DATABASE_URL:?set NIX_CORE_DATABASE_URL}
@@ -39,6 +54,18 @@ services:
       Nix__ForwardedHeaders__ForwardLimit: "2"
       Nix__RateLimits__WritesPerMinute: "120"
       Nix__RateLimits__PublicFormSubmissionsPerMinute: "20"
+      Nix__Bff__Authority: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
+      Nix__Bff__ClientId: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
+      Nix__Bff__PublicOrigin: ${NIX_PUBLIC_ORIGIN:?set NIX_PUBLIC_ORIGIN}
+      Nix__Bff__DataProtectionKeysPath: /var/lib/nix/data-protection
+      Nix__AccessTokens__Issuer: ${NIX_CORE_TOKEN_ISSUER:?set NIX_CORE_TOKEN_ISSUER}
+      Nix__AccessTokens__Audience: ${NIX_CORE_TOKEN_AUDIENCE:?set NIX_CORE_TOKEN_AUDIENCE}
+      Nix__AccessTokens__KeyId: ${NIX_CORE_TOKEN_KEY_ID:?set NIX_CORE_TOKEN_KEY_ID}
+      Nix__AccessTokens__SigningKeyPemFile: /run/secrets/core-access-token.pem
+      Nix__AccessTokens__LifetimeMinutes: "10"
+    volumes:
+      - nix-api-data-protection:/var/lib/nix/data-protection
+      - ${NIX_CORE_TOKEN_SIGNING_KEY_FILE:?set NIX_CORE_TOKEN_SIGNING_KEY_FILE}:/run/secrets/core-access-token.pem:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -65,8 +92,8 @@ services:
       NIX_COLLAB_DATABASE_URL: ${NIX_COLLAB_DATABASE_URL:?set NIX_COLLAB_DATABASE_URL}
       NIX_COLLAB_CORE_BASE_URL: http://nix-api:8080
       NIX_COLLAB_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
-      NIX_COLLAB_OIDC_ISSUER: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
-      NIX_COLLAB_OIDC_AUDIENCE: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
+      NIX_COLLAB_OIDC_ISSUERS: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER},${NIX_CORE_TOKEN_ISSUER:?set NIX_CORE_TOKEN_ISSUER}|http://nix-api:8080/public/v1/auth/jwks
+      NIX_COLLAB_OIDC_AUDIENCE: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID},${NIX_CORE_TOKEN_AUDIENCE:?set NIX_CORE_TOKEN_AUDIENCE}
       NIX_COLLAB_REAUTH_SECONDS: "60"
       NIX_COLLAB_MAX_RESIDENT_MB: "256"
       NIX_COLLAB_MAX_DOCS: "200"
@@ -138,8 +165,6 @@ services:
         condition: service_healthy
       nix-media:
         condition: service_healthy
-    environment:
-      NIX_OIDC_ISSUER: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data
@@ -188,3 +213,5 @@ volumes:
     name: nix-caddy-data
   nix-caddy-config:
     name: nix-caddy-config
+  nix-api-data-protection:
+    name: nix-api-data-protection

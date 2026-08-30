@@ -8,16 +8,15 @@ import { create } from 'zustand';
  * happened - rather than as setters, which is what keeps the reducer readable when a fourth state
  * arrives.
  *
- * **The access token is deliberately not in this store.** It lives inside `oidc-client-ts`'s user
- * manager's tab-scoped user store, and the API client asks for it per request. Putting it here would
- * put it in the devtools, in any state snapshot a bug report attaches, and in every component that
- * happens to subscribe - none of which needs it.
+ * **The access token is deliberately not in this store.** Provider tokens never reach the browser;
+ * a short-lived Core token lives only in AuthProvider's in-memory ref. Putting it here would put it
+ * in devtools and state snapshots, neither of which needs it.
  */
 
 export type SessionStatus =
-  /** Nothing has been attempted yet; a silent renew may still restore a session. */
+  /** Nothing has been attempted yet; Core may still restore its HttpOnly session. */
   | 'unknown'
-  /** A silent renew or redirect exchange is in flight. */
+  /** Session restoration or the login redirect is in flight. */
   | 'authenticating'
   /** Signed in. */
   | 'authenticated'
@@ -38,7 +37,7 @@ export interface SessionState {
   readonly profile: SessionProfile | null;
   readonly error: string | null;
 
-  /** A sign-in or silent renew has started. */
+  /** A sign-in or session restore has started. */
   readonly signInStarted: () => void;
   /** An in-flight startup restore was abandoned because its provider unmounted. */
   readonly sessionRestoreCancelled: () => void;

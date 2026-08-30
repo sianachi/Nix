@@ -147,6 +147,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the credentials principals issued for non-browser clients.</summary>
     public DbSet<PersonalAccessToken> PersonalAccessTokens => Set<PersonalAccessToken>();
 
+    /// <summary>Core-owned browser sessions.</summary>
+    public DbSet<BrowserSession> BrowserSessions => Set<BrowserSession>();
+
     /// <summary>Gets workspace template catalog entries.</summary>
     public DbSet<WorkspaceTemplate> WorkspaceTemplates => Set<WorkspaceTemplate>();
 
@@ -201,6 +204,7 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<AuditEventId>().HaveConversion<NixIdConverter<AuditEventId>>();
         configurationBuilder.Properties<ContentDocId>().HaveConversion<NixIdConverter<ContentDocId>>();
         configurationBuilder.Properties<PersonalAccessTokenId>().HaveConversion<NixIdConverter<PersonalAccessTokenId>>();
+        configurationBuilder.Properties<BrowserSessionId>().HaveConversion<NixIdConverter<BrowserSessionId>>();
         configurationBuilder.Properties<TemplateId>().HaveConversion<NixIdConverter<TemplateId>>();
         configurationBuilder.Properties<TemplateOperationId>().HaveConversion<NixIdConverter<TemplateOperationId>>();
         configurationBuilder.Properties<TemplateApplicationId>().HaveConversion<NixIdConverter<TemplateApplicationId>>();
@@ -246,6 +250,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
         modelBuilder.ApplyConfiguration(new PersonalAccessTokenConfiguration());
+        modelBuilder.ApplyConfiguration(new BrowserSessionConfiguration());
         modelBuilder.ApplyConfiguration(new WorkspaceTemplateConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateOperationConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateOperationItemConfiguration());

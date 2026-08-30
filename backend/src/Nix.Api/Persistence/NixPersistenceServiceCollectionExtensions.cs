@@ -152,6 +152,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // context's transaction, so it belongs to one unit of work and one tenant.
         services.AddScoped<IItemTree, ItemTree>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
+        services.AddScoped<IBrowserSessions, BrowserSessionStore>();
         services.AddScoped<PersonalWorkspaceProvisioner>();
         services.AddScoped<IPersonalWorkspaceProvisioner>(provider => provider.GetRequiredService<PersonalWorkspaceProvisioner>());
         services.AddScoped<IPrincipalDirectory, PrincipalDirectory>();
@@ -215,6 +216,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // is what CompositionRootTests exists to catch.
         services.AddScoped<ICommandHandler<CreateItem, Item>, CreateItemHandler>();
         services.AddScoped<ICommandHandler<ProvisionPersonalWorkspace, AuthenticatedPrincipal>, ProvisionPersonalWorkspaceHandler>();
+        services.AddScoped<ICommandHandler<CompleteBrowserSignIn, CompletedBrowserSignIn>, CompleteBrowserSignInHandler>();
         services.AddScoped<ICommandHandler<CreateStructuredItem, Item>, CreateStructuredItemHandler>();
         services.AddScoped<ICommandHandler<AppendViewSetup, Item>, AppendViewSetupHandler>();
         services.AddScoped<ICommandHandler<ReplaceViewSetup, Item>, ReplaceViewSetupHandler>();

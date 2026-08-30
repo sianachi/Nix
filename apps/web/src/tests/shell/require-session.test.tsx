@@ -11,7 +11,7 @@ import { App } from '../../app';
  *
  * Four states, four different things on screen. The one worth protecting hardest is the difference
  * between "we are still checking" and "you are signed out": showing the login screen during a
- * silent renew flashes it in front of someone whose session is about to come back, which reads as
+ * session restoration flashes it in front of someone whose session is about to come back, which reads as
  * being signed out and prompts a pointless click.
  */
 describe('the session gate', () => {
@@ -34,23 +34,27 @@ describe('the session gate', () => {
     expect(screen.queryByRole('button', { name: /continue with sso/i })).not.toBeInTheDocument();
   });
 
-  it('explains a missing identity provider rather than offering a sign-in that cannot work', () => {
-    // Stated rather than inherited. The provider reads `import.meta.env`, and a developer who has
-    // run zitadel-configure.sh has a .env.local that configures it - so without this the test
-    // asserts unconfigured behaviour on a configured build and fails on their machine and nobody
-    // else's. `vi.unstubAllEnvs` in the global setup puts it back.
-    vi.stubEnv('VITE_OIDC_ISSUER', '');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
-
-    // From `unknown`, with no issuer configured, the provider resolves immediately to signed-out
-    // and the screen says why. The failure this replaces would be a login button that redirects
-    // nowhere, or a shell that spins forever - both worse than being told the build is not
-    // configured.
+  it('explains a server without interactive authentication rather than offering a broken sign-in', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            authenticated: false,
+            configured: false,
+            profile: null,
+            accessToken: null,
+            expiresAt: null,
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
     useSessionStore.setState({ status: 'unknown', profile: null, error: null });
 
     renderAt(<App />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/no identity provider is configured/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not configured on this nix server/i);
     expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
   });
 
