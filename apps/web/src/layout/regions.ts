@@ -173,3 +173,6 @@ export const NARROWEST_FOR_TWO_PANES = 768;
  * pane" - rather than being two guesses at one threshold.
  */
 export const WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR = '(min-width: 640px)';
+
+/** Tailwind's <c>lg</c> breakpoint: the point at which companion views may sit side by side. */
+export const WIDE_ENOUGH_FOR_COMPANION_BESIDE = '(min-width: 1024px)';

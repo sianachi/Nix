@@ -199,61 +199,67 @@ export function WorkspaceManagementSection(): ReactNode {
                   </Button>
                 }
               />
-            ) : administration.invitees.length === 0 ? (
-              <Text tone="muted">Everyone who can be invited already has access.</Text>
             ) : (
-            <form
-              className="grid gap-2 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void administration.invite(inviteePrincipalId, role).then((saved) => {
-                  if (saved) setInviteePrincipalId('');
-                });
-              }}
-            >
-              <Field label="Person">
-                {(control) => (
-                  <Select
-                    {...control}
-                    required
-                    value={inviteePrincipalId}
-                    onChange={(event) => {
-                      setInviteePrincipalId(event.target.value);
-                    }}
+              <>
+                <form
+                  className="grid gap-2 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void administration.invite(inviteePrincipalId, role).then((saved) => {
+                      if (saved) setInviteePrincipalId('');
+                    });
+                  }}
+                >
+                  <Field label="Person">
+                    {(control) => (
+                      <Select
+                        {...control}
+                        required
+                        disabled={administration.invitees.length === 0}
+                        value={inviteePrincipalId}
+                        onChange={(event) => {
+                          setInviteePrincipalId(event.target.value);
+                        }}
+                      >
+                        <option value="" disabled>
+                          {administration.invitees.length === 0
+                            ? 'No people available to invite'
+                            : 'Select a person'}
+                        </option>
+                        {administration.invitees.map((invitee) => (
+                          <option key={invitee.principalId} value={invitee.principalId}>
+                            {invitee.displayName} ({invitee.email})
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                  <Field label="Role">
+                    {(control) => (
+                      <Select
+                        {...control}
+                        value={role}
+                        onChange={(event) => {
+                          setRole(event.target.value as AssignableRole);
+                        }}
+                      >
+                        {workspace.kind === 'shared' ? <option value="owner">Owner</option> : null}
+                        <option value="editor">Editor</option>
+                        <option value="viewer">Viewer</option>
+                      </Select>
+                    )}
+                  </Field>
+                  <Button
+                    type="submit"
+                    disabled={administration.working || inviteePrincipalId.length === 0}
                   >
-                    <option value="" disabled>
-                      Select a person
-                    </option>
-                    {administration.invitees.map((invitee) => (
-                      <option key={invitee.principalId} value={invitee.principalId}>
-                        {invitee.displayName} ({invitee.email})
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
-              <Field label="Role">
-                {(control) => (
-                  <Select
-                    {...control}
-                    value={role}
-                    onChange={(event) => {
-                      setRole(event.target.value as AssignableRole);
-                    }}
-                  >
-                    {workspace.kind === 'shared' ? <option value="owner">Owner</option> : null}
-                    <option value="editor">Editor</option>
-                    <option value="viewer">Viewer</option>
-                  </Select>
-                )}
-              </Field>
-              <Button
-                type="submit"
-                disabled={administration.working || inviteePrincipalId.length === 0}
-              >
-                Invite
-              </Button>
-            </form>
+                    Invite
+                  </Button>
+                </form>
+                {administration.invitees.length === 0 ? (
+                  <Text tone="muted">Everyone who can be invited already has access.</Text>
+                ) : null}
+              </>
             )}
           </Blueprint>
 

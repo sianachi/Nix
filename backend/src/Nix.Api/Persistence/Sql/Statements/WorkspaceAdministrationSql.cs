@@ -79,6 +79,7 @@ public static class WorkspaceAdministrationSql
                        AND owners.subject_type = 'principal' AND owners.role = 'owner'
                        AND owner_principal.kind = 'user' AND owner_principal.status = 'active') = 1)
                ) AS can_leave,
+               COALESCE(r.personal_owner_principal_id = @principal_id, false) AS can_use_daily_notes,
                pending.invitation_id
         FROM reachable r CROSS JOIN caller c
         LEFT JOIN LATERAL (
@@ -131,6 +132,7 @@ public static class WorkspaceAdministrationSql
                      WHERE owners.tenant_id = @tenant_id AND owners.workspace_id = w.workspace_id
                        AND owners.subject_type = 'principal' AND owners.role = 'owner'
                        AND p.kind = 'user' AND p.status = 'active') = 1)),
+               COALESCE(w.personal_owner_principal_id = @principal_id, false),
                pending.invitation_id
         FROM workspace w CROSS JOIN caller c CROSS JOIN held h
         LEFT JOIN LATERAL (
@@ -685,9 +687,13 @@ public static class WorkspaceAdministrationSql
     public const string OpenDailyNote = """
         WITH authorized AS MATERIALIZED (
             SELECT root.id
-            FROM item root
-            WHERE root.tenant_id = @tenant_id AND root.workspace_id = @workspace_id
+            FROM workspace workspace
+            JOIN item root ON root.tenant_id = workspace.tenant_id
+                       AND root.workspace_id = workspace.workspace_id
+            WHERE workspace.tenant_id = @tenant_id AND workspace.workspace_id = @workspace_id
+              AND workspace.personal_owner_principal_id = @principal_id
               AND root.id = @root_id AND root.lifecycle_state = 'active'
+            FOR UPDATE OF workspace
         ), inserted AS (
             INSERT INTO item (
                 id, tenant_id, workspace_id, type, parent_id, seq, properties,

@@ -427,7 +427,7 @@ export function AppShell(): ReactNode {
         />
 
         <div className={`flex flex-1 flex-col ${paneClip}`}>
-          <header className="flex min-w-0 shrink-0 items-center gap-2 px-2 py-2 sm:gap-3 sm:px-4">
+          <header className="flex min-w-0 shrink-0 items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-4">
             {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
                 with the thing it controls cannot bring it back. */}
             <button
@@ -444,7 +444,7 @@ export function AppShell(): ReactNode {
             <Link
               to={`/w/${workspaceId}`}
               aria-label="Nix home"
-              className={`inline-flex size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
+              className={`hidden size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs sm:inline-flex ${focusRing}`}
             >
               NX
             </Link>

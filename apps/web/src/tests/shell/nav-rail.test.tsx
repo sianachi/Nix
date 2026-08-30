@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as importRun from '../../import/import-run';
-import { item, stubCoreApi } from '../api-stub';
+import { item, STUB_WORKSPACE, stubCoreApi, type StubWorkspace } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
@@ -65,6 +65,46 @@ describe('the navigation rail', () => {
       'href',
       '/w/00000000-0000-4000-8000-000000000001/settings',
     );
+  });
+
+  it('does not expose Daily notes in a workspace the user does not personally own', async () => {
+    const shared: StubWorkspace = {
+      ...STUB_WORKSPACE,
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Shared research',
+      kind: 'shared',
+      canUseDailyNotes: false,
+    };
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, shared], items: [NOTE] });
+    renderAt(<App />, `/w/${shared.id}`);
+
+    await screen.findByRole('button', { name: 'Acquisition memo' });
+    expect(within(rail()).queryByRole('link', { name: 'Daily notes' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Calendar current and roves through the filtered rail without Daily notes', async () => {
+    const user = userEvent.setup();
+    const shared: StubWorkspace = {
+      ...STUB_WORKSPACE,
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Shared research',
+      kind: 'shared',
+      canUseDailyNotes: false,
+    };
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, shared], items: [NOTE] });
+    renderAt(<App />, `/w/${shared.id}/calendar`);
+
+    await screen.findByRole('heading', { name: 'Calendar' });
+
+    const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
+    const graph = within(rail()).getByRole('link', { name: 'Graph' });
+    expect(calendar).toHaveAttribute('aria-current', 'page');
+    expect(calendar).toHaveAttribute('tabindex', '0');
+    expect(graph).not.toHaveAttribute('aria-current');
+
+    calendar.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(graph).toHaveFocus();
   });
 
   it('costs one Tab press to enter and one to leave, however many destinations it holds', async () => {
