@@ -183,7 +183,8 @@ public sealed class NixTokenValidator
             return await ValidateSelfIssuedAsync(token).ConfigureAwait(false);
         }
 
-        IdentityProviderRegistration? registration = null;
+        var registrations = new IdentityProviderRegistration[MaximumAudiences];
+        var registrationCount = 0;
         foreach (var audience in audiences)
         {
             var candidate = await _directory
@@ -199,19 +200,21 @@ public sealed class NixTokenValidator
             // audience only gives TokenValidationParameters one of the token's accepted values.
             // Different tenants, key sets, or algorithms remain ambiguous and fail closed, so
             // attacker-controlled audience order can never select a different validation policy.
-            if (registration is not null && !SameProviderPolicy(registration, candidate))
+            if (registrationCount > 0 && !SameProviderPolicy(registrations[0], candidate))
             {
                 return null;
             }
 
-            registration ??= candidate;
+            registrations[registrationCount++] = candidate;
         }
 
-        if (registration is null)
+        if (registrationCount == 0)
         {
             // An unregistered issuer is refused outright and never just-in-time mapped to a tenant.
             return null;
         }
+
+        var registration = registrations[0];
 
         var keys = await ResolveSigningKeysAsync(registration, unverified.Header.Kid, cancellationToken)
             .ConfigureAwait(false);
@@ -248,9 +251,33 @@ public sealed class NixTokenValidator
             }
 
             var subject = result.ClaimsIdentity.FindFirst("sub")?.Value;
-            return string.IsNullOrWhiteSpace(subject)
-                ? null
-                : new ValidatedToken(registration.TenantId, subject, AccessTokenId: null, registration);
+            if (string.IsNullOrWhiteSpace(subject))
+            {
+                return null;
+            }
+
+            IdentityProviderRegistration? authorizedPartyRegistration = null;
+            var authorizedParty = result.ClaimsIdentity.FindFirst("azp")?.Value;
+            if (!string.IsNullOrWhiteSpace(authorizedParty))
+            {
+                for (var index = 0; index < registrationCount; index++)
+                {
+                    if (string.Equals(
+                            registrations[index].Audience,
+                            authorizedParty,
+                            StringComparison.Ordinal))
+                    {
+                        authorizedPartyRegistration = registrations[index];
+                        break;
+                    }
+                }
+            }
+
+            return new ValidatedExternalToken(
+                registration.TenantId,
+                subject,
+                registration,
+                authorizedPartyRegistration);
         }
         catch (SecurityTokenException)
         {
@@ -286,12 +313,13 @@ public sealed class NixTokenValidator
                 || !SelfIssuedTokenService.TryReadClaims(
                     result.ClaimsIdentity,
                     out var tenantId,
+                    out var principalId,
                     out var accessTokenId))
             {
                 return null;
             }
 
-            return new ValidatedToken(tenantId, subject, accessTokenId, Registration: null);
+            return new ValidatedCoreToken(tenantId, principalId, accessTokenId);
         }
         catch (SecurityTokenException)
         {
@@ -305,8 +333,40 @@ public sealed class NixTokenValidator
         first.TenantId == second.TenantId
         && string.Equals(first.Issuer, second.Issuer, StringComparison.Ordinal)
         && first.JwksUri == second.JwksUri
-        && first.AllowedAlgorithms.ToHashSet(StringComparer.Ordinal)
-            .SetEquals(second.AllowedAlgorithms);
+        && SameAlgorithms(first.AllowedAlgorithms, second.AllowedAlgorithms);
+
+    private static bool SameAlgorithms(IReadOnlyList<string> first, IReadOnlyList<string> second)
+    {
+        if (first.Count != second.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < first.Count; index++)
+        {
+            var algorithm = first[index];
+            if (CountOccurrences(first, algorithm) != CountOccurrences(second, algorithm))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int CountOccurrences(IReadOnlyList<string> algorithms, string target)
+    {
+        var count = 0;
+        for (var index = 0; index < algorithms.Count; index++)
+        {
+            if (string.Equals(algorithms[index], target, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 
     private async ValueTask<ICollection<SecurityKey>?> ResolveSigningKeysAsync(
         IdentityProviderRegistration registration,
@@ -415,22 +475,36 @@ public sealed class NixTokenValidator
     }
 }
 
-/// <summary>A token that validated, and what it says.</summary>
-/// <param name="TenantId">The tenant the issuer it validated against belongs to.</param>
-/// <param name="Subject">The issuer's stable subject claim.</param>
-/// <param name="AccessTokenId">
-/// The personal access token behind a self-issued session, or <see langword="null"/> for an
-/// interactive one. Presence is what the unit-of-work middleware branches on: a session with one
-/// re-checks the row and runs under its scopes; a session without one is a person.
+/// <summary>A validated token with a tenant and an explicit issuer kind.</summary>
+public abstract record ValidatedToken
+{
+    private protected ValidatedToken(TenantId tenantId) => TenantId = tenantId;
+
+    /// <summary>Gets the tenant selected by trusted token claims.</summary>
+    public TenantId TenantId { get; }
+}
+
+/// <summary>A token signed by a registered external identity provider.</summary>
+/// <param name="TenantId">The tenant that owns the validating registration.</param>
+/// <param name="Subject">The provider's stable subject claim.</param>
+/// <param name="Registration">The registration whose policy validated the token.</param>
+/// <param name="AuthorizedPartyRegistration">
+/// The exact signed <c>azp</c> registration, when one matched. Only this registration may authorize
+/// JIT; missing or unmatched <c>azp</c> keeps ordinary authentication valid but cannot provision.
 /// </param>
-/// <param name="Registration">
-/// The issuer registration an interactive token validated against, or <see langword="null"/> for a
-/// self-issued session (Core signs those itself, so there is no registered provider). Carried so a
-/// caller can see which of a multi-audience token's providers was selected; the middleware reads
-/// only <see cref="TenantId"/> and <see cref="AccessTokenId"/>.
-/// </param>
-public sealed record ValidatedToken(
+public sealed record ValidatedExternalToken(
     TenantId TenantId,
     string Subject,
-    PersonalAccessTokenId? AccessTokenId,
-    IdentityProviderRegistration? Registration);
+    IdentityProviderRegistration Registration,
+    IdentityProviderRegistration? AuthorizedPartyRegistration)
+    : ValidatedToken(TenantId);
+
+/// <summary>A Core-issued session obtained by exchanging a personal access token.</summary>
+/// <param name="TenantId">The tenant claim signed by Core.</param>
+/// <param name="PrincipalId">The principal identifier claim signed by Core.</param>
+/// <param name="AccessTokenId">The PAT row that must be rechecked on every Core request.</param>
+public sealed record ValidatedCoreToken(
+    TenantId TenantId,
+    PrincipalId PrincipalId,
+    PersonalAccessTokenId AccessTokenId)
+    : ValidatedToken(TenantId);

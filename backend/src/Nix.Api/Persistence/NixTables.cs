@@ -47,6 +47,9 @@ public static class NixTables
     /// <summary>Workspace-level role grants.</summary>
     public const string WorkspaceMember = "workspace_member";
 
+    /// <summary>Durable workspace invitation history.</summary>
+    public const string WorkspaceInvitation = "workspace_invitation";
+
     /// <summary>The universal object.</summary>
     public const string Item = "item";
 
@@ -115,6 +118,7 @@ public static class NixTables
         GroupMembership,
         TenantRole,
         WorkspaceMember,
+        WorkspaceInvitation,
         Item,
         ItemClosure,
         AclEntry,
@@ -148,6 +152,9 @@ public static class NixTables
     /// <summary>Read without write, sorted the way the catalogue reports it.</summary>
     private static ImmutableArray<string> ReadOnly { get; } = ["SELECT"];
 
+    /// <summary>Read, create and transition, but never erase history.</summary>
+    private static ImmutableArray<string> RevocableHistory { get; } = ["INSERT", "SELECT", "UPDATE"];
+
     /// <summary>
     /// The privileges the runtime role is expected to hold on each table, from the development
     /// document's table ownership matrix.
@@ -178,6 +185,7 @@ public static class NixTables
             [GroupMembership] = FullDml,
             [TenantRole] = FullDml,
             [WorkspaceMember] = FullDml,
+            [WorkspaceInvitation] = RevocableHistory,
             [Item] = FullDml,
 
             // A bookmark is personal state the application both reads and writes on the reader's

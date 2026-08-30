@@ -6,6 +6,7 @@ using Nix.Domain.Tenancy;
 using Nix.Features.Items;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
+using Npgsql;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -184,18 +185,24 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_role_this_build_does_not_recognise_grants_nothing()
+    public async Task A_role_this_build_does_not_recognise_cannot_be_stored()
     {
-        var work = await _fixture.Application.BeginUnitOfWorkAsync(ContextFor(FutureRoleHolder), Cancellation);
-        await using (work.ConfigureAwait(false))
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
         {
-            // The membership row exists and names this principal. The role text does not parse, so
-            // it confers nothing - a build older than the data refuses rather than guesses.
-            var dispatcher = work.Resolve<NixDispatcher>();
-            var read = await dispatcher.QueryAsync<GetItem, Result<Item>>(new GetItem(AlphaItem), Cancellation);
-
-            Assert.True(read.IsFailure);
-            Assert.Equal("items.not_found", read.Error.Code);
+            var failure = await Assert.ThrowsAsync<PostgresException>(
+                async () => await RawSql.ExecuteAsync(
+                    connection,
+                    null,
+                    $"""
+                    INSERT INTO workspace_member
+                        (workspace_id, subject_type, subject_id, tenant_id, role,
+                         granted_by, granted_at)
+                    VALUES ({Literal(M0SchemaSeed.Alpha.WorkspaceId)}, 'principal',
+                            {Literal(FutureRoleHolder)}, {Literal(M0SchemaSeed.Alpha.TenantId)},
+                            'archivist', {Literal(M0SchemaSeed.Alpha.PrincipalId)}, now());
+                    """));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, failure.SqlState);
         }
     }
 
@@ -259,9 +266,7 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
                 (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
             VALUES
                 ({workspace}, 'principal', {Literal(Viewer)}, {tenant}, 'viewer', {granter}, now()),
-                ({workspace}, 'group', {Literal(EditorGroup)}, {tenant}, 'editor', {granter}, now()),
-                ({workspace}, 'principal', {Literal(FutureRoleHolder)}, {tenant}, 'archivist',
-                 {granter}, now());
+                ({workspace}, 'group', {Literal(EditorGroup)}, {tenant}, 'editor', {granter}, now());
 
             INSERT INTO tenant_role
                 (tenant_id, subject_type, subject_id, role, granted_by, granted_at)

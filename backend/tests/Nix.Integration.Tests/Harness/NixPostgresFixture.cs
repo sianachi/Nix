@@ -173,6 +173,56 @@ public sealed class NixPostgresFixture : IAsyncLifetime
         return connection;
     }
 
+    /// <summary>Executes the repository's application seed through the container's psql.</summary>
+    /// <param name="sourcePath">Absolute path to the checked-in seed file.</param>
+    /// <param name="cancellationToken">Stops the copy or psql process.</param>
+    /// <returns>A task that completes after psql exits successfully.</returns>
+    internal async Task ExecuteApplicationSeedAsync(
+        string sourcePath,
+        CancellationToken cancellationToken)
+    {
+        const string containerDirectory = "/tmp/nix-integration-seed";
+        const string containerPath = containerDirectory + "/seed_application_data.sql";
+
+        var source = new FileInfo(sourcePath);
+        if (!source.Exists)
+        {
+            throw new FileNotFoundException("The application seed file was not found.", source.FullName);
+        }
+
+        var directoryResult = await _container.ExecAsync(
+            ["mkdir", "-p", containerDirectory],
+            cancellationToken);
+        if (directoryResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Could not prepare the seed directory: {directoryResult.Stderr}");
+        }
+
+        await _container.CopyAsync(source, containerDirectory, ct: cancellationToken);
+
+        var result = await _container.ExecAsync(
+            [
+                "env",
+                $"PGPASSWORD={NixDatabaseRoles.Password}",
+                "psql",
+                "-v", "ON_ERROR_STOP=1",
+                "-v", "oidc_issuer=https://seed-sso.test",
+                "-v", "oidc_client_id=seed-web",
+                "-v", "oidc_project_id=seed-project",
+                "-v", "dev_user_id=seed-admin-subject",
+                "-v", "template_boot_service_user_id=seed-template-subject",
+                "-U", NixDatabaseRoles.Migrator,
+                "-d", NixDatabaseRoles.Database,
+                "-f", containerPath,
+            ],
+            cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"The application seed failed: {result.Stderr}");
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
