@@ -457,6 +457,10 @@ public sealed class WorkspaceAdministrationStore
         DateTimeOffset now, CancellationToken cancellationToken)
     {
         var context = Session;
+        await _sql.ExecuteAsync(
+            WorkspaceAdministrationSql.LockDailyNote,
+            [Uuid("item_id", itemId)],
+            cancellationToken).ConfigureAwait(false);
         var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.OpenDailyNote,
             [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
              Uuid("workspace_id", workspaceId.Value), Uuid("root_id", rootId), Uuid("item_id", itemId),
