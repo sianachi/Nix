@@ -43,7 +43,16 @@ export {
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
-export { workspaceSchema, type Workspace } from './workspaces.js';
+export {
+  dailyNoteSchema,
+  workspaceInvitationSchema,
+  workspaceMemberSchema,
+  workspaceSchema,
+  type DailyNote,
+  type Workspace,
+  type WorkspaceInvitation,
+  type WorkspaceMember,
+} from './workspaces.js';
 export {
   containerViewsSchema,
   viewSummarySchema,
