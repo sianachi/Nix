@@ -18,10 +18,16 @@ namespace Nix.Persistence.Migrations.Generated
                 nullable: true);
 
             migrationBuilder.Sql("""
+                ALTER TABLE workspace_invitation
+                    DISABLE TRIGGER workspace_invitation_transition_guard;
+
                 UPDATE workspace_invitation
                    SET target_principal_id = accepted_by_principal_id
                  WHERE status = 'accepted'
                    AND accepted_by_principal_id IS NOT NULL;
+
+                ALTER TABLE workspace_invitation
+                    ENABLE TRIGGER workspace_invitation_transition_guard;
 
                 CREATE OR REPLACE FUNCTION nix_guard_workspace_invitation_transition()
                 RETURNS trigger

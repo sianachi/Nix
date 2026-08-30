@@ -634,6 +634,63 @@ public sealed class IdentityFoundationIntegrationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Invitation_target_upgrade_backfills_accepted_history_before_guarding_identity()
+    {
+        await _fixture.ResetAsync();
+        var options = new DbContextOptionsBuilder<NixDbContext>()
+            .UseNpgsql(_fixture.MigratorConnectionString)
+            .Options;
+        var context = new NixDbContext(options);
+        await using (context.ConfigureAwait(false))
+        {
+            var migrator = context.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260830183914_BrowserSessions", Cancellation);
+            try
+            {
+                await _fixture.ResetAsync();
+                await M0SchemaSeed.SeedBothTenantsAsync(_fixture);
+
+                var connection = await _fixture.OpenMigratorConnectionAsync();
+                await using (connection.ConfigureAwait(false))
+                {
+                    await RawSql.ExecuteAsync(
+                        connection,
+                        transaction: null,
+                        $"""
+                        UPDATE workspace_invitation
+                           SET status = 'accepted', accepted_at = now(),
+                               accepted_by_principal_id = '{M0SchemaSeed.Alpha.PrincipalId:D}'::uuid
+                         WHERE invitation_id = '{M0SchemaSeed.Alpha.InvitationId:D}'::uuid
+                        """);
+                }
+
+                await migrator.MigrateAsync(targetMigration: null, cancellationToken: Cancellation);
+
+                var verify = await _fixture.OpenMigratorConnectionAsync();
+                await using (verify.ConfigureAwait(false))
+                {
+                    var values = await RawSql.TextListAsync(
+                        verify,
+                        $"""
+                        SELECT status || '|' || accepted_by_principal_id::text || '|'
+                            || target_principal_id::text
+                          FROM workspace_invitation
+                         WHERE invitation_id = '{M0SchemaSeed.Alpha.InvitationId:D}'::uuid
+                        """);
+                    Assert.Equal(
+                        [$"accepted|{M0SchemaSeed.Alpha.PrincipalId:D}|{M0SchemaSeed.Alpha.PrincipalId:D}"],
+                        values);
+                }
+            }
+            finally
+            {
+                await migrator.MigrateAsync(targetMigration: null, cancellationToken: Cancellation);
+                await _fixture.ResetAsync();
+            }
+        }
+    }
+
     private static string FindRepositoryFile(params string[] pathSegments)
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
