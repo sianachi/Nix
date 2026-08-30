@@ -225,8 +225,12 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                     transaction,
                     $"UPDATE {table} SET tenant_id = '{beta}'::uuid"));
 
-            // 42501 insufficient_privilege is what a WITH CHECK violation raises.
-            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, failure.SqlState);
+            // Invitation history has a stricter immutable-identity trigger that runs before the
+            // RLS WITH CHECK. Both paths refuse a tenant transfer; the trigger reports 23514.
+            var expected = table == "workspace_invitation"
+                ? PostgresErrorCodes.CheckViolation
+                : PostgresErrorCodes.InsufficientPrivilege;
+            Assert.Equal(expected, failure.SqlState);
         }
     }
 
