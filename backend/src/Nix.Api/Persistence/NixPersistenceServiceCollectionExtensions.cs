@@ -16,6 +16,7 @@ using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Charts;
 using Nix.Features.Graph;
+using Nix.Features.Identity;
 using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Me;
@@ -149,6 +150,8 @@ public static class NixPersistenceServiceCollectionExtensions
         // context's transaction, so it belongs to one unit of work and one tenant.
         services.AddScoped<IItemTree, ItemTree>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
+        services.AddScoped<PersonalWorkspaceProvisioner>();
+        services.AddScoped<IPersonalWorkspaceProvisioner>(provider => provider.GetRequiredService<PersonalWorkspaceProvisioner>());
         services.AddScoped<IPrincipalDirectory, PrincipalDirectory>();
 
         // Scoped because it memoises resolutions for the unit of work: a listing that renders
@@ -208,6 +211,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // test can walk it. The cost is that adding a handler means remembering this file - which
         // is what CompositionRootTests exists to catch.
         services.AddScoped<ICommandHandler<CreateItem, Item>, CreateItemHandler>();
+        services.AddScoped<ICommandHandler<ProvisionPersonalWorkspace, AuthenticatedPrincipal>, ProvisionPersonalWorkspaceHandler>();
         services.AddScoped<ICommandHandler<CreateStructuredItem, Item>, CreateStructuredItemHandler>();
         services.AddScoped<ICommandHandler<AppendViewSetup, Item>, AppendViewSetupHandler>();
         services.AddScoped<ICommandHandler<ReplaceViewSetup, Item>, ReplaceViewSetupHandler>();
