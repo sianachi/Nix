@@ -221,7 +221,7 @@ SELECT
     :'oidc_issuer' || '/oauth/v2/keys',
     ARRAY['RS256']::text[],
     true,
-    false,
+    true,
     :'oidc_issuer' || '/oidc/v1/userinfo'
 WHERE :'oidc_issuer' <> '' AND :'oidc_client_id' <> ''
 ON CONFLICT (provider_id) DO UPDATE
