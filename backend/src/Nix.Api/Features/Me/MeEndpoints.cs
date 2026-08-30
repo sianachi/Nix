@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
 
-namespace Nix.Features.Me;
+namespace Nix.Features.CurrentUser;
 
 /// <summary>
 /// Route registration for the caller's own profile.

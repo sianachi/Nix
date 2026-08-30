@@ -60,13 +60,18 @@ public static class RateLimitRefusal
 
         var seconds = Math.Max(1L, (long)Math.Ceiling(retryAfter.TotalSeconds));
 
-        ApiLog.RateLimitRefused(
-            logger,
-            level,
-            limiter,
-            ClientKey.For(context),
-            context.Request.Path.Value ?? string.Empty,
-            seconds);
+        if (logger.IsEnabled(level))
+        {
+            var clientKey = ClientKey.For(context);
+            var requestPath = context.Request.Path.Value ?? string.Empty;
+            ApiLog.RateLimitRefused(
+                logger,
+                level,
+                limiter,
+                clientKey,
+                requestPath,
+                seconds);
+        }
 
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
