@@ -124,12 +124,14 @@ public static class ApiProblem
             // factories that have no container of their own; it runs once per refused request, not
             // on any success path. Null-tolerant so a unit test may enrich a bare context.
             var logger = httpContext.RequestServices?.GetService<ILoggerFactory>()?.CreateLogger(typeof(ApiProblem));
-            if (logger is not null)
+            if (logger?.IsEnabled(LogLevel.Information) == true)
             {
+                var requestPath = httpContext.Request.Path.Value ?? string.Empty;
+                var clientKey = ClientKey.For(httpContext);
                 ApiLog.RequestBodyTooLarge(
                     logger,
-                    httpContext.Request.Path.Value ?? string.Empty,
-                    ClientKey.For(httpContext));
+                    requestPath,
+                    clientKey);
             }
         }
 
