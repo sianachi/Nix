@@ -35,20 +35,6 @@ internal static class RoleEndpoints
             .Produces<CursorPage<RoleGrantResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
-        var workspaces = endpoints.MapGroup("/api/v1/workspaces/{workspaceId:guid}")
-            .WithTags("Roles");
-
-        workspaces.MapGet("/members", ListWorkspaceMembers)
-            .WithName("ListWorkspaceMembers")
-            .WithSummary("Workspace members and their roles")
-            .WithDescription(
-                "Returns the principals and groups holding a role in this workspace. This is the "
-                + "chain-root allow that item permission resolution falls back to when no access "
-                + "control entry matches.")
-            .Produces<CursorPage<RoleGrantResponse>>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status501NotImplemented);
-
         return endpoints;
     }
 
@@ -58,10 +44,4 @@ internal static class RoleEndpoints
         int limit = CursorPaging.DefaultLimit) =>
         ContractStub.NotImplemented(httpContext, "ListTenantRoles");
 
-    private static Results<Ok<CursorPage<RoleGrantResponse>>, ProblemHttpResult> ListWorkspaceMembers(
-        Guid workspaceId,
-        HttpContext httpContext,
-        string? cursor = null,
-        int limit = CursorPaging.DefaultLimit) =>
-        ContractStub.NotImplemented(httpContext, "ListWorkspaceMembers");
 }

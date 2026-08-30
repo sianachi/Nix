@@ -279,8 +279,12 @@ public static class PersonalWorkspaceFoundationSecuritySql
             SET search_path = public, pg_temp
             AS $$
             BEGIN
+                IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
+                    RAISE EXCEPTION 'workspace invitation identity is immutable'
+                        USING ERRCODE = 'check_violation';
+                END IF;
+
                 IF NEW.invitation_id IS DISTINCT FROM OLD.invitation_id
-                   OR NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
                    OR NEW.workspace_id IS DISTINCT FROM OLD.workspace_id
                    OR NEW.email_normalized IS DISTINCT FROM OLD.email_normalized
                    OR NEW.role IS DISTINCT FROM OLD.role

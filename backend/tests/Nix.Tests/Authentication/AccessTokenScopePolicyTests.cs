@@ -57,6 +57,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetWorkspaceGraph"] = Requirement.Read,
         ["ListItems"] = Requirement.Read,
         ["ListWorkspaceMembers"] = Requirement.Read,
+        ["ListWorkspaceInvitations"] = Requirement.Read,
         ["GetAccessTokenSigningKeys"] = Requirement.Read,
         ["GetPublicForm"] = Requirement.Read,
         ["ListTemplates"] = Requirement.Read,
@@ -85,6 +86,9 @@ public sealed class AccessTokenScopePolicyTests
         ["SubmitPublicForm"] = Requirement.Write,
         ["ExchangeAccessToken"] = Requirement.Write,
         ["DeleteTemplate"] = Requirement.Write,
+        ["CreateWorkspace"] = Requirement.Write,
+        ["RenameWorkspace"] = Requirement.Write,
+        ["OpenDailyNote"] = Requirement.Write,
 
         // A POST that only previews an application; classified Write because it is not a GET, which
         // over-restricts a read-only token from previewing rather than under-restricting - the
@@ -100,6 +104,12 @@ public sealed class AccessTokenScopePolicyTests
         ["PublishPublicForm"] = Requirement.Admin,
         ["RevokePublicForm"] = Requirement.Admin,
         ["MoveItem"] = Requirement.Admin,
+        ["CreateWorkspaceInvitation"] = Requirement.Admin,
+        ["RevokeWorkspaceInvitation"] = Requirement.Admin,
+        ["ChangeWorkspaceMemberRole"] = Requirement.Admin,
+        ["RemoveWorkspaceMember"] = Requirement.Admin,
+        ["LeaveWorkspace"] = Requirement.Admin,
+        ["RecoverWorkspace"] = Requirement.Admin,
 
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,
