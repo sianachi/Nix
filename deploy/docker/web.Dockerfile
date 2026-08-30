@@ -14,10 +14,8 @@ RUN pnpm install --frozen-lockfile
 # Build-time configuration. These end up in the bundle and in the CSP meta tag.
 ARG VITE_OIDC_ISSUER
 ARG VITE_OIDC_CLIENT_ID
-ARG VITE_WORKSPACE_ID
 ENV VITE_OIDC_ISSUER=$VITE_OIDC_ISSUER \
-    VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID \
-    VITE_WORKSPACE_ID=$VITE_WORKSPACE_ID
+    VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
 RUN pnpm --filter @nix/web build
 
 FROM caddy:2-alpine AS web
