@@ -18,11 +18,13 @@ import {
   dailyNoteSchema,
   noContentSchema,
   workspaceInvitationSchema,
+  workspaceInviteeSchema,
   workspaceMemberSchema,
   workspaceSchema,
   type DailyNote,
   type Workspace,
   type WorkspaceInvitation,
+  type WorkspaceInvitee,
   type WorkspaceMember,
 } from '../schemas/index.js';
 import { cursorPageSchema, type CursorPage } from '../schemas/pagination.js';
@@ -165,19 +167,35 @@ export const listInvitationsPage = (
   });
 export const createInvitation = (
   workspaceId: string,
-  email: string,
+  principalId: string,
   role: AssignableWorkspaceRole,
 ): CommandEndpoint<WorkspaceInvitation> =>
   defineCommand({
     operation: 'workspaces.invitations.create',
     method: 'POST',
     path: `/api/v1/workspaces/${workspaceId}/invitations`,
-    body: { email, role } satisfies CreateWorkspaceInvitationRequestContract,
+    body: { principalId, role } satisfies CreateWorkspaceInvitationRequestContract,
     schema: workspaceInvitationSchema,
     invalidates: [
       ['workspaces', workspaceId, 'invitations'],
       ['workspaces', workspaceId, 'members'],
     ],
+  });
+export const listInvitees = (workspaceId: string): PagedQueryEndpoint<WorkspaceInvitee> =>
+  definePagedQuery({
+    operation: 'workspaces.invitees.list',
+    path: `/api/v1/workspaces/${workspaceId}/invitees`,
+    itemSchema: workspaceInviteeSchema,
+  });
+export const listInviteesPage = (
+  workspaceId: string,
+  options: WorkspacePageOptions = {},
+): QueryEndpoint<CursorPage<WorkspaceInvitee>> =>
+  defineQuery({
+    operation: 'workspaces.invitees.list.page',
+    path: `/api/v1/workspaces/${workspaceId}/invitees`,
+    query: { cursor: options.cursor, limit: options.limit },
+    schema: cursorPageSchema(workspaceInviteeSchema),
   });
 export const revokeInvitation = (
   workspaceId: string,
@@ -189,6 +207,28 @@ export const revokeInvitation = (
     path: `/api/v1/workspaces/${workspaceId}/invitations/${invitationId}`,
     schema: noContentSchema,
     invalidates: [['workspaces', workspaceId, 'invitations']],
+  });
+export const acceptInvitation = (
+  workspaceId: string,
+  invitationId: string,
+): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'workspaces.invitations.accept',
+    method: 'POST',
+    path: `/api/v1/workspaces/${workspaceId}/invitations/${invitationId}/accept`,
+    schema: noContentSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId]],
+  });
+export const declineInvitation = (
+  workspaceId: string,
+  invitationId: string,
+): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'workspaces.invitations.decline',
+    method: 'POST',
+    path: `/api/v1/workspaces/${workspaceId}/invitations/${invitationId}/decline`,
+    schema: noContentSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId]],
   });
 export const openDailyNote = (workspaceId: string, date: string): CommandEndpoint<DailyNote> =>
   defineCommand({

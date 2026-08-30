@@ -46,11 +46,13 @@ export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookma
 export {
   dailyNoteSchema,
   workspaceInvitationSchema,
+  workspaceInviteeSchema,
   workspaceMemberSchema,
   workspaceSchema,
   type DailyNote,
   type Workspace,
   type WorkspaceInvitation,
+  type WorkspaceInvitee,
   type WorkspaceMember,
 } from './workspaces.js';
 export {

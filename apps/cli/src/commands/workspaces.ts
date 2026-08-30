@@ -60,10 +60,24 @@ export async function listWorkspaceInvitations(
   );
 }
 
+export async function listWorkspaceInvitees(
+  profileName: string | undefined,
+  workspaceId: string,
+  page: WorkspacePageOptions,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  const result = await session.client.query(
+    workspaces.listInviteesPage(workspaceId, validatePage(page)),
+  );
+  printResult({ invitees: result.items, count: result.items.length, nextCursor: result.nextCursor }, output);
+}
+
 export async function inviteWorkspaceMember(
   profileName: string | undefined,
   workspaceId: string,
-  email: string,
+  principalId: string,
   role: string,
   output: OutputOptions,
   deps: SessionDeps = {},
@@ -71,9 +85,35 @@ export async function inviteWorkspaceMember(
   assertUiRole(role);
   const session = await resolveSession(profileName, deps);
   printResult(
-    await session.client.execute(workspaces.createInvitation(workspaceId, email, role)),
+    await session.client.execute(workspaces.createInvitation(workspaceId, principalId, role)),
     output,
   );
+}
+
+export async function acceptWorkspaceInvitation(
+  profileName: string | undefined,
+  workspaceId: string,
+  invitationId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  await session.client.execute(workspaces.acceptInvitation(workspaceId, invitationId));
+  printResult({ accepted: true, invitationId }, output);
+}
+
+export async function declineWorkspaceInvitation(
+  profileName: string | undefined,
+  workspaceId: string,
+  invitationId: string,
+  confirmed: boolean,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  assertConfirmed(confirmed);
+  const session = await resolveSession(profileName, deps);
+  await session.client.execute(workspaces.declineInvitation(workspaceId, invitationId));
+  printResult({ declined: true, invitationId }, output);
 }
 
 export async function revokeWorkspaceInvitation(

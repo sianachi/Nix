@@ -11,6 +11,7 @@ namespace Nix.Integration.Tests.Persistence;
 public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
 {
     private const int CorpusSize = 10000;
+    private static readonly Guid InviteeWorkspaceId = Guid.Parse("7d72f23f-a29b-44ba-bf7c-1c52f6a48672");
     private readonly NixPostgresFixture _fixture;
     private readonly ITestOutputHelper _output;
 
@@ -34,6 +35,7 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
     {
         await AssertWorkspaceListingPlanAsync();
         await AssertMemberListingPlanAsync();
+        await AssertInviteeListingPlanAsync();
         await AssertLastOwnerAndEmailPlansAsync();
         await AssertInvitationPlansAsync();
     }
@@ -79,7 +81,23 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
             ]);
         Report("workspace listing", plan);
         Assert.Contains("ix_workspace_list", plan, StringComparison.Ordinal);
+        Assert.Contains("ix_workspace_invitation_pending_target", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on workspace w", plan, StringComparison.Ordinal);
+    }
+
+    private async Task AssertInviteeListingPlanAsync()
+    {
+        var plan = await ExplainAsync(
+            WorkspaceAdministrationSql.Invitees,
+            [
+                Uuid("principal_id", M0SchemaSeed.Alpha.PrincipalId),
+                Uuid("workspace_id", InviteeWorkspaceId),
+                UuidNull("after_id"), Integer("limit", 51),
+            ]);
+        Report("invitee listing", plan);
+        Assert.Contains("ix_principal_workspace_invitee", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on principal candidate", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sort", plan, StringComparison.Ordinal);
     }
 
     private async Task AssertMemberListingPlanAsync()
@@ -206,6 +224,12 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
                        90, 10, 10737418240, now() - (n || ' seconds')::interval
                 FROM generate_series(1, {{CorpusSize}}) n;
 
+                INSERT INTO workspace
+                    (workspace_id, tenant_id, name, version_retention_days,
+                     coalesce_window_min, storage_quota_bytes, created_at)
+                VALUES ({{Literal(InviteeWorkspaceId)}}, {{tenant}}, 'Invitee plan workspace',
+                        90, 10, 10737418240, now());
+
                 INSERT INTO workspace_member
                     (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
                 SELECT {{workspace}}, 'principal', md5('workspace-plan-principal-' || n)::uuid,
@@ -214,10 +238,11 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
                 FROM generate_series(1, {{CorpusSize}}) n;
 
                 INSERT INTO workspace_invitation
-                    (invitation_id, tenant_id, workspace_id, email_normalized, role,
+                    (invitation_id, tenant_id, workspace_id, email_normalized, target_principal_id, role,
                      invited_by_principal_id, status, invited_at)
                 SELECT md5('workspace-plan-invitation-' || n)::uuid, {{tenant}}, {{workspace}},
-                       'invite-' || n || '@example.test', 'viewer', {{principal}}, 'pending',
+                       'invite-' || n || '@example.test', md5('workspace-plan-principal-' || n)::uuid,
+                       'viewer', {{principal}}, 'pending',
                        now() - (n || ' seconds')::interval
                 FROM generate_series(1, {{CorpusSize}}) n;
 

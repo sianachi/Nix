@@ -149,6 +149,7 @@ export type {
   DailyNote,
   Workspace,
   WorkspaceInvitation,
+  WorkspaceInvitee,
   WorkspaceMember,
 } from './schemas/index.js';
 
@@ -189,6 +190,7 @@ export type {
   ViewContract,
   ViewRequestContract,
   WorkspaceInvitationContract,
+  WorkspaceInviteeContract,
   WorkspaceMemberContract,
 } from './contracts.js';
 

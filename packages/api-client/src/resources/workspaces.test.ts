@@ -3,16 +3,20 @@ import { describe, expect, it } from 'vitest';
 import {
   dailyNoteSchema,
   workspaceInvitationSchema,
+  workspaceInviteeSchema,
   workspaceMemberSchema,
   workspaceSchema,
 } from '../schemas/index.js';
 
 import {
+  acceptInvitation,
   changeMemberRole,
   createInvitation,
   createWorkspace,
+  declineInvitation,
   leaveWorkspace,
   listInvitations,
+  listInvitees,
   listMembers,
   listWorkspaces,
   openDailyNote,
@@ -73,9 +77,12 @@ describe('the workspaces resource', () => {
     expect(listInvitations(WORKSPACE_ID)).toMatchObject({
       path: `/api/v1/workspaces/${WORKSPACE_ID}/invitations`,
     });
-    expect(createInvitation(WORKSPACE_ID, 'reader@example.com', 'viewer')).toMatchObject({
+    expect(listInvitees(WORKSPACE_ID)).toMatchObject({
+      path: `/api/v1/workspaces/${WORKSPACE_ID}/invitees`,
+    });
+    expect(createInvitation(WORKSPACE_ID, PRINCIPAL_ID, 'viewer')).toMatchObject({
       method: 'POST',
-      body: { email: 'reader@example.com', role: 'viewer' },
+      body: { principalId: PRINCIPAL_ID, role: 'viewer' },
       invalidates: [
         ['workspaces', WORKSPACE_ID, 'invitations'],
         ['workspaces', WORKSPACE_ID, 'members'],
@@ -85,6 +92,14 @@ describe('the workspaces resource', () => {
       method: 'DELETE',
       path: `/api/v1/workspaces/${WORKSPACE_ID}/invitations/${INVITATION_ID}`,
       invalidates: [['workspaces', WORKSPACE_ID, 'invitations']],
+    });
+    expect(acceptInvitation(WORKSPACE_ID, INVITATION_ID)).toMatchObject({
+      method: 'POST',
+      path: `/api/v1/workspaces/${WORKSPACE_ID}/invitations/${INVITATION_ID}/accept`,
+    });
+    expect(declineInvitation(WORKSPACE_ID, INVITATION_ID)).toMatchObject({
+      method: 'POST',
+      path: `/api/v1/workspaces/${WORKSPACE_ID}/invitations/${INVITATION_ID}/decline`,
     });
   });
 
@@ -107,6 +122,7 @@ describe('the workspaces resource', () => {
         canRename: true,
         canManageMembers: true,
         canLeave: false,
+        pendingInvitationId: null,
       }),
     ).toMatchObject({ kind: 'personal', canLeave: false });
 
@@ -128,6 +144,7 @@ describe('the workspaces resource', () => {
       workspaceInvitationSchema.parse({
         id: INVITATION_ID,
         emailNormalized: 'reader@example.com',
+        targetPrincipalId: PRINCIPAL_ID,
         role: 'viewer',
         status: 'pending',
         invitedByPrincipalId: PRINCIPAL_ID,
@@ -137,6 +154,14 @@ describe('the workspaces resource', () => {
         revokedAt: null,
       }),
     ).toMatchObject({ status: 'pending', role: 'viewer' });
+
+    expect(
+      workspaceInviteeSchema.parse({
+        principalId: PRINCIPAL_ID,
+        displayName: 'Reader',
+        email: 'reader@example.com',
+      }),
+    ).toMatchObject({ displayName: 'Reader' });
 
     expect(dailyNoteSchema.parse({ itemId: PRINCIPAL_ID })).toEqual({ itemId: PRINCIPAL_ID });
   });

@@ -27,6 +27,7 @@ internal sealed record WorkspaceMemberResponse(
 internal sealed record WorkspaceInvitationResponse(
     Guid Id,
     string EmailNormalized,
+    Guid? TargetPrincipalId,
     string Role,
     string Status,
     Guid InvitedByPrincipalId,
@@ -36,8 +37,9 @@ internal sealed record WorkspaceInvitationResponse(
     DateTimeOffset? RevokedAt);
 
 internal sealed record CreateWorkspaceInvitationRequest(
-    string Email,
+    Guid PrincipalId,
     [property: AllowedValues("owner", "editor", "viewer")] string Role);
+internal sealed record WorkspaceInviteeResponse(Guid PrincipalId, string DisplayName, string Email);
 internal sealed record ChangeWorkspaceMemberRoleRequest(
     [property: AllowedValues("owner", "editor", "viewer")] string Role);
 internal sealed record RecoverWorkspaceRequest(Guid NewOwnerPrincipalId);
@@ -74,7 +76,7 @@ internal static class WorkspaceAdministrationErrors
 {
     internal static NixError InvalidRole() => new("workspaces.invalid_role", "The role is not recognized.");
     internal static NixError InvalidInvitation() =>
-        new("workspaces.invalid_invitation", "A normalized email and a recognized role are required.");
+        new("workspaces.invalid_invitation", "An eligible principal and a recognized role are required.");
     internal static NixError InvalidCursor() =>
         new("paging.invalid_cursor", "The cursor is malformed or exceeds 512 characters.");
     internal static NixError InvitationNotPending() => new(
@@ -100,8 +102,41 @@ internal static class WorkspaceAdministrationMapping
         row.SubjectType, row.SubjectId, row.DisplayName, row.Email, row.Role, row.GrantedAt,
         row.CanChangeRole, row.CanRemove, row.AssignableRoles);
     internal static WorkspaceInvitationResponse Invitation(WorkspaceInvitationSnapshot row) => new(
-        row.InvitationId, row.EmailNormalized, row.Role, row.Status, row.InvitedByPrincipalId.Value,
+        row.InvitationId, row.EmailNormalized, row.TargetPrincipalId?.Value,
+        row.Role, row.Status, row.InvitedByPrincipalId.Value,
         row.InvitedAt, row.AcceptedAt, row.AcceptedByPrincipalId?.Value, row.RevokedAt);
+    internal static WorkspaceInviteeResponse Invitee(WorkspaceInviteeSnapshot row) => new(
+        row.PrincipalId.Value, row.DisplayName, row.Email);
+
+    internal static bool TryInviteeCursor(string? value, out PrincipalId? id)
+    {
+        id = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+        if (value.Length > WorkspaceCursor.MaximumEncodedLength)
+        {
+            return false;
+        }
+        try
+        {
+            var text = Encoding.UTF8.GetString(Convert.FromBase64String(value));
+            if (!Guid.TryParse(text, out var parsed))
+            {
+                return false;
+            }
+            id = PrincipalId.From(parsed);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    internal static string NextInvitee(PrincipalId id) => Convert.ToBase64String(
+        Encoding.UTF8.GetBytes(id.Value.ToString("D", CultureInfo.InvariantCulture)));
 
     internal static bool TryInvitationCursor(
         string? value,
@@ -196,6 +231,31 @@ internal static class WorkspaceAdministrationMapping
 
 internal static class WorkspaceAdministrationEndpoints
 {
+    internal static async Task<Results<Ok<CursorPage<WorkspaceInviteeResponse>>, ProblemHttpResult>> ListInvitees(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher,
+        string? cursor = null, int limit = CursorPaging.DefaultLimit)
+    {
+        if (limit is < 1 or > CursorPaging.MaximumLimit
+            || !WorkspaceAdministrationMapping.TryInviteeCursor(cursor, out var afterId))
+        {
+            return TypedResults.Problem(WorkspaceEndpoints.Problem(
+                context, WorkspaceAdministrationErrors.InvalidCursor()));
+        }
+        var take = limit;
+        var rows = await dispatcher.QueryAsync<ListWorkspaceInvitees, IReadOnlyList<WorkspaceInviteeSnapshot>>(
+            new ListWorkspaceInvitees(WorkspaceId.From(workspaceId), afterId, take + 1),
+            context.RequestAborted).ConfigureAwait(false);
+        var responses = new WorkspaceInviteeResponse[Math.Min(take, rows.Count)];
+        for (var index = 0; index < responses.Length; index++)
+        {
+            responses[index] = WorkspaceAdministrationMapping.Invitee(rows[index]);
+        }
+        var next = rows.Count > take
+            ? WorkspaceAdministrationMapping.NextInvitee(rows[take - 1].PrincipalId)
+            : null;
+        return TypedResults.Ok(new CursorPage<WorkspaceInviteeResponse>(responses, next));
+    }
+
     internal static async Task<Results<Ok<CursorPage<WorkspaceMemberResponse>>, ProblemHttpResult>> ListMembers(
         Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher,
         string? cursor = null, int limit = CursorPaging.DefaultLimit)
@@ -258,13 +318,34 @@ internal static class WorkspaceAdministrationEndpoints
         [FromServices] NixDispatcher dispatcher)
     {
         var result = await dispatcher.SendAsync<InviteWorkspaceMember, WorkspaceInvitationSnapshot>(
-            new InviteWorkspaceMember(WorkspaceId.From(workspaceId), request.Email, request.Role),
+            new InviteWorkspaceMember(
+                WorkspaceId.From(workspaceId), PrincipalId.From(request.PrincipalId), request.Role),
             context.RequestAborted).ConfigureAwait(false);
         return result.Match<Results<Created<WorkspaceInvitationResponse>, ProblemHttpResult>>(
             row => TypedResults.Created(
                 $"/api/v1/workspaces/{workspaceId:D}/invitations/{row.InvitationId:D}",
                 WorkspaceAdministrationMapping.Invitation(row)),
             error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+
+    internal static async Task<Results<NoContent, ProblemHttpResult>> AcceptInvitation(
+        Guid workspaceId, Guid invitationId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<AcceptWorkspaceInvitation, bool>(
+            new AcceptWorkspaceInvitation(WorkspaceId.From(workspaceId), invitationId),
+            context.RequestAborted).ConfigureAwait(false);
+        return result.IsSuccess ? TypedResults.NoContent()
+            : TypedResults.Problem(WorkspaceEndpoints.Problem(context, result.Error));
+    }
+
+    internal static async Task<Results<NoContent, ProblemHttpResult>> DeclineInvitation(
+        Guid workspaceId, Guid invitationId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<DeclineWorkspaceInvitation, bool>(
+            new DeclineWorkspaceInvitation(WorkspaceId.From(workspaceId), invitationId),
+            context.RequestAborted).ConfigureAwait(false);
+        return result.IsSuccess ? TypedResults.NoContent()
+            : TypedResults.Problem(WorkspaceEndpoints.Problem(context, result.Error));
     }
 
     internal static async Task<Results<NoContent, ProblemHttpResult>> RevokeInvitation(

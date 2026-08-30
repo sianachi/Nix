@@ -23,6 +23,8 @@ internal sealed class WorkspaceInvitationConfiguration : IEntityTypeConfiguratio
             .HasColumnName("email_normalized")
             .HasMaxLength(EmailAddressNormalizer.MaximumUtf8ByteLength)
             .IsRequired();
+        builder.Property(invitation => invitation.TargetPrincipalId)
+            .HasColumnName("target_principal_id");
         builder.Property(invitation => invitation.Role).HasColumnName("role").IsRequired();
         builder.Property(invitation => invitation.InvitedByPrincipalId)
             .HasColumnName("invited_by_principal_id");
@@ -51,6 +53,11 @@ internal sealed class WorkspaceInvitationConfiguration : IEntityTypeConfiguratio
             .HasForeignKey(invitation => new { invitation.TenantId, invitation.AcceptedByPrincipalId })
             .HasPrincipalKey(principal => new { principal.TenantId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Principal>()
+            .WithMany()
+            .HasForeignKey(invitation => new { invitation.TenantId, invitation.TargetPrincipalId })
+            .HasPrincipalKey(principal => new { principal.TenantId, principal.Id })
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(invitation => new
         {
@@ -61,6 +68,15 @@ internal sealed class WorkspaceInvitationConfiguration : IEntityTypeConfiguratio
             .IsUnique()
             .HasFilter("status = 'pending'")
             .HasDatabaseName("ix_workspace_invitation_pending_unique");
+        builder.HasIndex(invitation => new
+        {
+            invitation.TenantId,
+            invitation.WorkspaceId,
+            invitation.TargetPrincipalId,
+        })
+            .IsUnique()
+            .HasFilter("status = 'pending' AND target_principal_id IS NOT NULL")
+            .HasDatabaseName("ix_workspace_invitation_pending_target");
         builder.HasIndex(invitation => new
         {
             invitation.TenantId,

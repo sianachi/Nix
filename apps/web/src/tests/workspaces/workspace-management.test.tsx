@@ -3,11 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
-import { STUB_WORKSPACE, stubCoreApi, type StubMember, type StubWorkspace } from '../api-stub';
+import {
+  STUB_WORKSPACE,
+  stubCoreApi,
+  type StubInvitation,
+  type StubMember,
+  type StubWorkspace,
+} from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 const OWNER_ID = '44444444-bbbb-4bbb-8bbb-444444444444';
 const EDITOR_ID = '55555555-bbbb-4bbb-8bbb-555555555555';
+const INVITATION_ID = '88888888-bbbb-4bbb-8bbb-888888888888';
 const members: readonly StubMember[] = [
   {
     subjectType: 'principal',
@@ -49,6 +56,27 @@ const SHARED: StubWorkspace = {
   canLeave: true,
 };
 
+const PENDING: StubWorkspace = {
+  ...SHARED,
+  canRename: false,
+  canManageMembers: false,
+  canLeave: false,
+  pendingInvitationId: INVITATION_ID,
+};
+
+const PENDING_INVITATION: StubInvitation = {
+  id: INVITATION_ID,
+  emailNormalized: 'test@example.test',
+  targetPrincipalId: '1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b',
+  role: 'editor',
+  status: 'pending',
+  invitedByPrincipalId: OWNER_ID,
+  invitedAt: '2026-08-30T09:00:00.000Z',
+  acceptedAt: null,
+  acceptedByPrincipalId: null,
+  revokedAt: null,
+};
+
 beforeEach(() => {
   signedIn();
 });
@@ -70,15 +98,18 @@ describe('workspace management', () => {
     expect(screen.getByRole('button', { name: 'Remove Working editor' })).toBeEnabled();
   });
 
-  it('creates an out-of-band pending invitation and keeps its history visible', async () => {
+  it('selects an existing user, grants provisional access and keeps the invitation visible', async () => {
     const user = userEvent.setup();
     stubCoreApi({ members });
     renderAt(<App />, '/settings');
 
-    await screen.findByText(/No email is sent/i);
-    await user.type(
-      screen.getByRole('textbox', { name: 'Email address' }),
-      'New.Person@Example.COM',
+    await screen.findByText(/provisional access immediately/i);
+    await waitFor(() => {
+      expect(fetchCalls().some((call) => call.url.includes('/invitees'))).toBe(true);
+    });
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Person' }),
+      '77777777-bbbb-4bbb-8bbb-777777777777',
     );
     await user.selectOptions(screen.getByRole('combobox', { name: 'Role' }), 'viewer');
     await user.click(screen.getByRole('button', { name: 'Invite' }));
@@ -93,6 +124,7 @@ describe('workspace management', () => {
       ).toBeGreaterThan(1);
     });
     expect(await screen.findByText('new.person@example.com')).toBeVisible();
+    expect(await screen.findByText('New Person')).toBeVisible();
     expect(screen.getByText('pending')).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Revoke invitation for new.person@example.com' }),
@@ -151,6 +183,41 @@ describe('workspace management', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('lets the invited user accept provisional access without leaving the workspace', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, PENDING], invitations: [PENDING_INVITATION] });
+    renderAt(<App />, `/w/${PENDING.id}`);
+
+    expect(await screen.findByRole('complementary', { name: 'Workspace invitation' })).toHaveTextContent(
+      /provisional access/i,
+    );
+    await user.click(screen.getByRole('button', { name: 'Accept' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('complementary', { name: 'Workspace invitation' }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(PENDING.id);
+  });
+
+  it('lets the invited user decline and removes the provisional workspace', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, PENDING], invitations: [PENDING_INVITATION] });
+    renderAt(<App />, `/w/${PENDING.id}`);
+
+    await user.click(await screen.findByRole('button', { name: 'Decline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(STUB_WORKSPACE.id);
+    });
+    expect(
+      within(screen.getByRole('combobox', { name: 'Workspace' })).queryByRole('option', {
+        name: PENDING.name,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps a failed leave confirmation open, focused and announced', async () => {
     const user = userEvent.setup();
     stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED], leaveFails: true });
@@ -176,7 +243,7 @@ describe('workspace management', () => {
 
     expect(await screen.findByText(/cannot manage its members/i)).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'Workspace name' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Email address' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Person' })).not.toBeInTheDocument();
   });
 
   it('keeps member and invitation failures independent', async () => {
@@ -215,9 +282,12 @@ describe('workspace management', () => {
     const rename = await screen.findByRole('textbox', { name: 'Workspace name' });
     await user.clear(rename);
     await user.type(rename, 'Unsaved personal name');
-    await user.type(screen.getByRole('textbox', { name: 'Email address' }), 'invite@example.com');
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Person' }),
+      '77777777-bbbb-4bbb-8bbb-777777777777',
+    );
     await user.click(screen.getByRole('button', { name: 'Invite' }));
-    expect(await screen.findByText('Invitation created for invite@example.com.')).toBeVisible();
+    expect(await screen.findByText(/New Person now has provisional access/i)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Remove Working editor' }));
     expect(await screen.findByRole('dialog', { name: 'Remove Working editor?' })).toBeVisible();
 
@@ -231,9 +301,9 @@ describe('workspace management', () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Workspace name' })).toHaveValue(SHARED.name);
-    expect(screen.getByRole('textbox', { name: 'Email address' })).toHaveValue('');
+    expect(await screen.findByText(/Everyone who can be invited already has access/i)).toBeVisible();
     expect(
-      screen.queryByText('Invitation created for invite@example.com.'),
+      screen.queryByText(/New Person now has provisional access/i),
     ).not.toBeInTheDocument();
   });
 

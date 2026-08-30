@@ -67,6 +67,7 @@ export type ViewRequestContract = components['schemas']['ViewRequest'];
 /** Workspace administration responses and writes, generated from the Release B contract. */
 export type WorkspaceMemberContract = components['schemas']['WorkspaceMemberResponse'];
 export type WorkspaceInvitationContract = components['schemas']['WorkspaceInvitationResponse'];
+export type WorkspaceInviteeContract = components['schemas']['WorkspaceInviteeResponse'];
 export type DailyNoteContract = components['schemas']['DailyNoteResponse'];
 export type CreateWorkspaceRequestContract = components['schemas']['CreateWorkspaceRequest'];
 export type RenameWorkspaceRequestContract = components['schemas']['RenameWorkspaceRequest'];

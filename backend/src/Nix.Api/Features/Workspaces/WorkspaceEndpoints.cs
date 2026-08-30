@@ -72,6 +72,10 @@ internal static class WorkspaceEndpoints
             .WithName("ListWorkspaceMembers")
             .Produces<CursorPage<WorkspaceMemberResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        workspaces.MapGet("/{workspaceId:guid}/invitees", WorkspaceAdministrationEndpoints.ListInvitees)
+            .WithName("ListWorkspaceInvitees")
+            .Produces<CursorPage<WorkspaceInviteeResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         workspaces.MapPatch("/{workspaceId:guid}/members/{principalId:guid}", WorkspaceAdministrationEndpoints.ChangeMember)
             .WithName("ChangeWorkspaceMemberRole")
             .Produces<WorkspaceMemberResponse>(StatusCodes.Status200OK)
@@ -109,6 +113,16 @@ internal static class WorkspaceEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPost("/{workspaceId:guid}/invitations/{invitationId:guid}/accept", WorkspaceAdministrationEndpoints.AcceptInvitation)
+            .WithName("AcceptWorkspaceInvitation")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPost("/{workspaceId:guid}/invitations/{invitationId:guid}/decline", WorkspaceAdministrationEndpoints.DeclineInvitation)
+            .WithName("DeclineWorkspaceInvitation")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         workspaces.MapPost("/{workspaceId:guid}/recover", WorkspaceAdministrationEndpoints.Recover)
             .WithName("RecoverWorkspace")
             .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
@@ -129,7 +143,7 @@ internal static class WorkspaceEndpoints
     internal static WorkspaceResponse ToResponse(WorkspaceSnapshot row) => new(
         row.Id.Value, row.Name, row.VersionRetentionDays, row.StorageQuotaBytes, row.CreatedAt,
         row.PersonalOwnerPrincipalId is null ? "shared" : "personal",
-        row.CanRename, row.CanManageMembers, row.CanLeave);
+        row.CanRename, row.CanManageMembers, row.CanLeave, row.PendingInvitationId);
 
     internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext context, NixError error)
     {
