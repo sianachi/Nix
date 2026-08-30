@@ -2,6 +2,7 @@ import { Icon, focusRing } from '@nix/ui';
 import {
   Bookmark,
   CalendarDays,
+  CalendarClock,
   FolderInput,
   LayoutTemplate,
   Network,
@@ -102,6 +103,13 @@ type RailItem = RailDestination | RailAction;
  */
 const ITEMS: readonly RailItem[] = [
   { kind: 'destination', to: '/', label: 'Notes', icon: NotebookText, group: 'workspace' },
+  {
+    kind: 'destination',
+    to: '/daily',
+    label: 'Daily note',
+    icon: CalendarClock,
+    group: 'workspace',
+  },
   {
     kind: 'destination',
     to: '/calendar',
