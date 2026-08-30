@@ -678,6 +678,9 @@ public static class WorkspaceAdministrationSql
         SELECT workspace_id FROM converted
         """;
 
+    /// <summary>Serializes creation attempts for one deterministic daily-note identifier.</summary>
+    public const string LockDailyNote = "SELECT pg_advisory_xact_lock(hashtextextended(@item_id::text, 0))";
+
     /// <summary>Idempotently inserts a deterministic dated note below the deterministic root.</summary>
     public const string OpenDailyNote = """
         WITH authorized AS MATERIALIZED (
@@ -696,7 +699,7 @@ public static class WorkspaceAdministrationSql
                    jsonb_build_object('title', @date), 'active',
                    @principal_id, @principal_id, @now, @now
             FROM authorized a
-            ON CONFLICT (tenant_id, id) DO UPDATE SET id = EXCLUDED.id
+            ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
               WHERE item.tenant_id = EXCLUDED.tenant_id
                 AND item.workspace_id = EXCLUDED.workspace_id
                 AND item.parent_id = EXCLUDED.parent_id
