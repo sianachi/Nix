@@ -34,13 +34,14 @@ kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=N
 echo "== Single origin (https://$DOMAIN) =="
 curl -fsS "https://$DOMAIN/" -o /dev/null -w '%{http_code} app\n'
 curl -fsS "https://$DOMAIN/api/v1/health/status" -w ' core\n'
+curl -fsS "https://$DOMAIN/auth/session" -w ' browser auth\n'
 curl -fsS "https://$DOMAIN/collab/healthz" -w ' collab\n'
 curl -fsS "https://$DOMAIN/media/healthz" -w ' media\n'
 
 echo "== /internal must be unreachable (expect 404) =="
 curl -s -o /dev/null -w '%{http_code} internal (want 404)\n' "https://$DOMAIN/internal/authorize"
 
-echo "== Security headers name the OIDC issuer =="
+echo "== Security headers keep provider communication server-side =="
 curl -sI "https://$DOMAIN/" | grep -i content-security-policy
 
 echo "Automated checks done. Remaining: sign in, two-browser edit, PDF export, deep-route reload."

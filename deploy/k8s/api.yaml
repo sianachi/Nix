@@ -1,4 +1,12 @@
-# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG, $POD_CIDR.
+# Rendered with envsubst by deploy/k8s/deploy.sh.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-api-data-protection, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 16Mi }
+---
 apiVersion: v1
 kind: Service
 metadata: { name: nix-api, namespace: nix }
@@ -10,14 +18,31 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: { name: nix-api, namespace: nix }
 spec:
-  replicas: 2
+  # The Data Protection key ring is a ReadWriteOnce volume. Scale only after moving that ring to a
+  # shared provider; callbacks must be decryptable by whichever Core instance receives them.
+  replicas: 1
   selector: { matchLabels: { app: nix-api } }
   template:
     metadata: { labels: { app: nix-api } }
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: data-protection-permissions
+          image: busybox:1.37
+          command: ["sh", "-c", "chown -R 1654:1654 /var/lib/nix/data-protection"]
+          volumeMounts:
+            - { name: data-protection, mountPath: /var/lib/nix/data-protection }
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"], add: ["CHOWN"] }
       containers:
         - name: api
           image: ${REGISTRY}/api:${TAG}
@@ -43,6 +68,24 @@ spec:
               value: "120"
             - name: Nix__RateLimits__PublicFormSubmissionsPerMinute
               value: "20"
+            - name: Nix__Bff__Authority
+              value: "${OIDC_ISSUER}"
+            - name: Nix__Bff__ClientId
+              value: "${OIDC_CLIENT_ID}"
+            - name: Nix__Bff__PublicOrigin
+              value: "https://${DOMAIN}"
+            - name: Nix__Bff__DataProtectionKeysPath
+              value: /var/lib/nix/data-protection
+            - name: Nix__AccessTokens__Issuer
+              value: "https://${DOMAIN}"
+            - name: Nix__AccessTokens__Audience
+              value: nix
+            - name: Nix__AccessTokens__KeyId
+              value: nix-core
+            - name: Nix__AccessTokens__SigningKeyPemFile
+              value: /run/secrets/access-token-signing-key.pem
+            - name: Nix__AccessTokens__LifetimeMinutes
+              value: "10"
           livenessProbe:
             # Deliberately touches no dependency - a liveness probe that queried Postgres
             # would report the database's health and restart healthy pods when the database
@@ -60,9 +103,15 @@ spec:
           volumeMounts:
             # readOnlyRootFilesystem needs somewhere writable: the runtime uses /tmp.
             - { name: tmp, mountPath: /tmp }
+            - { name: data-protection, mountPath: /var/lib/nix/data-protection }
+            - { name: auth-key, mountPath: /run/secrets, readOnly: true }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
       volumes:
         - { name: tmp, emptyDir: {} }
+        - name: data-protection
+          persistentVolumeClaim: { claimName: nix-api-data-protection }
+        - name: auth-key
+          secret: { secretName: nix-auth, defaultMode: 0440 }

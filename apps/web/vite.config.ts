@@ -13,68 +13,7 @@
 // styles, so compiling Tailwind for them would only cost time.
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
-
-/**
- * The token index.html carries where the identity provider's origin belongs in the policy.
- *
- * Deliberately not Vite's own `%VITE_OIDC_ISSUER%` HTML substitution: that leaves the literal
- * `%VITE_OIDC_ISSUER%` in the output when the variable is unset, which lands an invalid source
- * expression in a security header, and it substitutes the whole issuer URL where CSP accepts only
- * an origin. This plugin narrows the value to its origin and removes the token entirely when there
- * is nothing to put there.
- */
-export const OIDC_ORIGIN_TOKEN = '__NIX_OIDC_ORIGIN__';
-
-/**
- * The origin a CSP source expression can name, from a full issuer URL.
- *
- * `connect-src`/`frame-src` match on origin, so an issuer carrying a path (Zitadel instances often
- * do) must be reduced to scheme, host and port. An unset or unparseable issuer yields an empty
- * string, and the caller then drops the token rather than emitting a source expression the browser
- * would ignore.
- */
-export function oidcOriginFor(issuer: string | undefined): string {
-  if (typeof issuer !== 'string' || issuer.length === 0) {
-    return '';
-  }
-
-  try {
-    return new URL(issuer).origin;
-  } catch {
-    return '';
-  }
-}
-
-/** Substitutes {@link OIDC_ORIGIN_TOKEN} in index.html with the configured issuer's origin. */
-export function oidcOriginInPolicy(): Plugin {
-  let issuer: string | undefined;
-
-  return {
-    name: 'nix:oidc-origin-in-policy',
-    configResolved(resolved) {
-      issuer = resolved.env.VITE_OIDC_ISSUER as string | undefined;
-    },
-    transformIndexHtml: {
-      // Before Vite's own HTML handling, so the document the rest of the pipeline sees already
-      // carries the final policy.
-      order: 'pre',
-      handler(html) {
-        return substituteOidcOrigin(html, issuer);
-      },
-    },
-  };
-}
-
-/** The substitution itself, separated so a test can exercise it without running a build. */
-export function substituteOidcOrigin(html: string, issuer: string | undefined): string {
-  const origin = oidcOriginFor(issuer);
-
-  // The leading space is part of the match: with no issuer the directive collapses back to exactly
-  // `connect-src 'self'` rather than keeping a dangling separator.
-  return html.replaceAll(` ${OIDC_ORIGIN_TOKEN}`, origin.length > 0 ? ` ${origin}` : '');
-}
 
 export default defineConfig({
   server: {
@@ -83,6 +22,10 @@ export default defineConfig({
     // travels in the Authorization header either way, but same-origin is the shape production has.
     proxy: {
       '/api': {
+        target: 'http://localhost:5014',
+        changeOrigin: true,
+      },
+      '/auth': {
         target: 'http://localhost:5014',
         changeOrigin: true,
       },
@@ -109,7 +52,7 @@ export default defineConfig({
     },
   },
 
-  plugins: [react(), tailwindcss(), oidcOriginInPolicy()],
+  plugins: [react(), tailwindcss()],
   test: {
     environment: 'jsdom',
     globals: false,

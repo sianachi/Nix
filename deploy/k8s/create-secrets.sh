@@ -37,6 +37,12 @@ kubectl -n nix create secret generic nix-internal \
   --from-literal=secret="$(openssl rand -hex 32)" \
   --from-literal=public-forms-signing-key="$(openssl rand -hex 32)"
 
+auth_key_file="$(mktemp)"
+trap 'rm -f "$auth_key_file"' EXIT
+openssl ecparam -name prime256v1 -genkey -noout -out "$auth_key_file"
+kubectl -n nix create secret generic nix-auth \
+  --from-file=access-token-signing-key.pem="$auth_key_file"
+
 APP_PW=$(kubectl -n nix get secret nix-db -o jsonpath='{.data.app-password}' | base64 -d)
 MIG_PW=$(kubectl -n nix get secret nix-db -o jsonpath='{.data.migrator-password}' | base64 -d)
 COL_PW=$(kubectl -n nix get secret nix-db -o jsonpath='{.data.collab-password}' | base64 -d)

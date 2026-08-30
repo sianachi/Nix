@@ -5,14 +5,6 @@
 # proxy when the built app is deployed - one origin in front of the static bundle, the API, and
 # the collaboration service, so the browser sees the same same-origin shape it saw in development.
 #
-# Environment:
-#
-#   NIX_OIDC_ISSUER   the identity provider's ORIGIN - scheme, host and optional port, no path
-#                     (https://id.example.com). It is named by the Content-Security-Policy below,
-#                     and CSP source expressions match on origin, so an issuer URL carrying a path
-#                     must be trimmed before it is set here. Unset, the policy falls back to 'self'
-#                     and sign-in will not work.
-#
 #   caddy run --config deploy/Caddyfile
 #
 # The site address is plain :8090 because TLS termination is the host environment's decision
@@ -30,6 +22,11 @@
 	# The API keeps its /api prefix - the backend's routes are themselves under /api/v1, so
 	# nothing is rewritten, exactly like the Vite proxy.
 	handle /api/* {
+		reverse_proxy localhost:5014
+	}
+
+	# Core owns the OIDC redirect, callback and HttpOnly browser session.
+	handle /auth/* {
 		reverse_proxy localhost:5014
 	}
 
@@ -53,14 +50,11 @@
 		# the script hash, which covers the inline theme script there - plus frame-ancestors,
 		# which only a header can carry. The header wins where both are present because it is
 		# strictly the same policy plus one directive. The reasoning behind the three looser
-		# directives (style-src's 'unsafe-inline' for runtime geometry attributes, img-src's
-		# http: for third-party cover images, connect-src/frame-src naming the issuer for the
-		# OIDC code exchange and the silent-renew iframe) is written out in that file; this is
-		# the same policy, so changing one without the other is the bug.
-		#
-		# The issuer origin is a build-time substitution there and an environment placeholder
-		# here - see NIX_OIDC_ISSUER at the top of this file.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {env.NIX_OIDC_ISSUER}; frame-src 'self' {env.NIX_OIDC_ISSUER}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		# directives (style-src's 'unsafe-inline' for runtime geometry attributes and img-src's
+		# http: for third-party cover images) is written out in that file; this is the same
+		# policy, so changing one without the other is the bug. OIDC is server-side, so neither
+		# connect-src nor frame-src admits the provider.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 		# Belt to the CSP's braces for older user agents.
 		X-Frame-Options "DENY"

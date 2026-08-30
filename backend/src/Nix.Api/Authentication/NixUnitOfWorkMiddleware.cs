@@ -87,6 +87,7 @@ public sealed class NixUnitOfWorkMiddleware
     /// <param name="dbContext">The context whose transaction carries the scope.</param>
     /// <param name="throttle">Counts failed validations per client, so guessing meets a 429.</param>
     /// <param name="accessTokens">Re-checks the token row behind a token-authenticated session.</param>
+    /// <param name="browserSessions">Re-checks Core-owned interactive browser sessions.</param>
     /// <param name="scopeContext">Carries the validated Core access-token scope ceiling.</param>
     /// <param name="userInfo">Reads bounded claims only for an eligible missing external principal.</param>
     /// <param name="clock">Judges token expiry and stamps last use.</param>
@@ -101,6 +102,7 @@ public sealed class NixUnitOfWorkMiddleware
         NixDbContext dbContext,
         FailedAuthenticationThrottle throttle,
         IPersonalAccessTokens accessTokens,
+        IBrowserSessions browserSessions,
         AccessTokenSessionContext scopeContext,
         IUserInfoClient userInfo,
         NixDispatcher dispatcher,
@@ -114,6 +116,7 @@ public sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(throttle);
         ArgumentNullException.ThrowIfNull(accessTokens);
+        ArgumentNullException.ThrowIfNull(browserSessions);
         ArgumentNullException.ThrowIfNull(scopeContext);
         ArgumentNullException.ThrowIfNull(userInfo);
         ArgumentNullException.ThrowIfNull(dispatcher);
@@ -182,8 +185,31 @@ public sealed class NixUnitOfWorkMiddleware
                 external.Registration.Issuer,
                 external.Subject,
                 context.RequestAborted).ConfigureAwait(false),
+            ValidatedBrowserSessionToken browser => await directory.FindPrincipalByIdAsync(
+                browser.TenantId,
+                browser.PrincipalId,
+                context.RequestAborted).ConfigureAwait(false),
             _ => throw new InvalidOperationException("Unknown validated token kind."),
         };
+
+        if (validated is ValidatedBrowserSessionToken browserToken)
+        {
+            var browserSession = await browserSessions
+                .FindByIdAsync(browserToken.BrowserSessionId, context.RequestAborted)
+                .ConfigureAwait(false);
+            if (browserSession is null
+                || browserSession.TenantId != browserToken.TenantId
+                || browserSession.PrincipalId != browserToken.PrincipalId)
+            {
+                await WriteProblemAsync(
+                    context,
+                    StatusCodes.Status401Unauthorized,
+                    TokenRevokedCode,
+                    "Session ended",
+                    "This browser session has ended. Sign in again.").ConfigureAwait(false);
+                return;
+            }
+        }
 
         UserInfoProfile? provisioningProfile = null;
         ValidatedExternalToken? provisioningToken = null;

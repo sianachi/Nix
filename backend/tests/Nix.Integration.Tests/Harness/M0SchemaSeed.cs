@@ -1,4 +1,5 @@
 using System.Globalization;
+using Nix.Domain.Identity;
 
 namespace Nix.Integration.Tests.Harness;
 
@@ -83,6 +84,7 @@ internal static class M0SchemaSeed
         var group = Literal(rows.GroupId);
         var provider = Literal(rows.ProviderId);
         var invitation = Literal(rows.InvitationId);
+        var browserSession = invitation;
         var item = Literal(rows.ItemId);
         var acl = Literal(rows.AclEntryId);
         var auditEvent = Literal(rows.AuditEventId);
@@ -92,6 +94,7 @@ internal static class M0SchemaSeed
         var templateApplication = Literal(rows.TemplateApplicationId);
         var templateSource = Literal(rows.TemplateSourceId);
         var slug = rows.Slug;
+        var browserSessionHash = new string(slug == "alpha" ? 'a' : 'b', BrowserSession.TokenHashLength);
 
         return $"""
             INSERT INTO tenant (tenant_id, name, isolation_mode, created_at)
@@ -108,6 +111,11 @@ internal static class M0SchemaSeed
             VALUES ({principal}, {tenant}, 'https://issuer.{slug}.test', '{slug}-subject', 'user',
                     '{slug} user', '{slug}@example.test', '{slug}@example.test', true,
                     'active', NULL);
+
+            INSERT INTO browser_session
+                (session_id, tenant_id, principal_id, token_hash, created_at, expires_at, revoked_at)
+            VALUES ({browserSession}, {tenant}, {principal}, '{browserSessionHash}', now(),
+                    now() + interval '8 hours', NULL);
 
             INSERT INTO principal_group (group_id, tenant_id, name, external_id)
             VALUES ({group}, {tenant}, '{slug} group', '{slug}-external');

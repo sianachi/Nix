@@ -26,7 +26,7 @@ export NIX_COLLAB_DATABASE_URL="${NIX_COLLAB_DATABASE_URL:-postgresql://nix_coll
 export NIX_COLLAB_CORE_BASE_URL="${NIX_COLLAB_CORE_BASE_URL:-http://localhost:5014}"
 # Must match Nix.Api's Nix:InternalSecret user-secret (see README's Debugging section).
 export NIX_COLLAB_INTERNAL_SECRET="${NIX_COLLAB_INTERNAL_SECRET:-nix-dev-internal}"
-export NIX_COLLAB_OIDC_ISSUER="$NIX_OIDC_ISSUER"
-export NIX_COLLAB_OIDC_AUDIENCE="$NIX_OIDC_CLIENT_ID,$NIX_OIDC_PROJECT_ID"
+export NIX_COLLAB_OIDC_ISSUERS="$NIX_OIDC_ISSUER,http://localhost:5014|http://localhost:5014/public/v1/auth/jwks"
+export NIX_COLLAB_OIDC_AUDIENCE="$NIX_OIDC_CLIENT_ID,$NIX_OIDC_PROJECT_ID,nix"
 
 exec pnpm --filter @nix/collab dev
