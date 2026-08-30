@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using Nix.Abstractions;
 using Nix.Authentication;
@@ -14,6 +15,36 @@ namespace Nix.Tests.Authentication;
 
 public sealed class NixTokenValidatorTests
 {
+    [Fact]
+    public async Task Core_issuer_returns_a_core_token_with_only_principal_and_pat_identity()
+    {
+        using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [SelfIssuedTokenService.IssuerConfigurationKey] = "https://core.nix.test",
+                [SelfIssuedTokenService.AudienceConfigurationKey] = "nix-core",
+                [SelfIssuedTokenService.KeyIdConfigurationKey] = "core-key",
+                [SelfIssuedTokenService.SigningKeyConfigurationKey] = signingKey.ExportPkcs8PrivateKeyPem(),
+            })
+            .Build();
+        using var selfIssued = new SelfIssuedTokenService(configuration, TimeProvider.System);
+        var tenantId = TenantId.From(Guid.Parse("11111111-1111-4111-8111-111111111111"));
+        var principalId = PrincipalId.From(Guid.Parse("22222222-2222-4222-8222-222222222222"));
+        var accessTokenId = PersonalAccessTokenId.From(Guid.Parse("33333333-3333-4333-8333-333333333333"));
+        var token = selfIssued.Mint(principalId, tenantId, accessTokenId);
+        var validator = new NixTokenValidator(
+            new RegistrationDirectory(new Dictionary<string, IdentityProviderRegistration>()),
+            selfIssued);
+
+        var result = await validator.ValidateAsync(token, TestContext.Current.CancellationToken);
+
+        var core = Assert.IsType<ValidatedCoreToken>(result);
+        Assert.Equal(tenantId, core.TenantId);
+        Assert.Equal(principalId, core.PrincipalId);
+        Assert.Equal(accessTokenId, core.AccessTokenId);
+    }
+
     [Theory]
     [InlineData("api", "service")]
     [InlineData("service", "api")]
@@ -32,8 +63,8 @@ public sealed class NixTokenValidatorTests
         var secondJwksUri = new Uri($"{issuer}/{secondAudience}/keys");
         var registrations = new Dictionary<string, IdentityProviderRegistration>(StringComparer.Ordinal)
         {
-            [firstAudience] = new(firstTenant, issuer, firstAudience, firstJwksUri, ["RS256"]),
-            [secondAudience] = new(secondTenant, issuer, secondAudience, secondJwksUri, ["RS256"]),
+            [firstAudience] = Registration(firstTenant, issuer, firstAudience, firstJwksUri),
+            [secondAudience] = Registration(secondTenant, issuer, secondAudience, secondJwksUri),
         };
         var keySets = new Dictionary<Uri, string>
         {
@@ -55,8 +86,8 @@ public sealed class NixTokenValidatorTests
             SignedToken(issuer, secondAudience, firstKey),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(firstTenant, Assert.IsType<ValidatedToken>(first).TenantId);
-        Assert.Equal(secondTenant, Assert.IsType<ValidatedToken>(second).TenantId);
+        Assert.Equal(firstTenant, Assert.IsType<ValidatedExternalToken>(first).TenantId);
+        Assert.Equal(secondTenant, Assert.IsType<ValidatedExternalToken>(second).TenantId);
         Assert.Null(crossTenant);
         Assert.Equal(1, keyHandler.Requests[firstJwksUri]);
         Assert.Equal(1, keyHandler.Requests[secondJwksUri]);
@@ -93,12 +124,7 @@ public sealed class NixTokenValidatorTests
         var key = SigningKey(rsa);
         var registrations = audiences.ToDictionary(
             audience => audience,
-            audience => new IdentityProviderRegistration(
-                tenant,
-                issuer,
-                audience,
-                jwksUri,
-                ["RS256"]),
+            audience => Registration(tenant, issuer, audience, jwksUri),
             StringComparer.Ordinal);
         using var keyHandler = new JwksHandler(
             new Dictionary<Uri, string> { [jwksUri] = Jwks(rsa, key.KeyId) });
@@ -110,10 +136,66 @@ public sealed class NixTokenValidatorTests
             SignedToken(issuer, audiences, key),
             TestContext.Current.CancellationToken);
 
-        var validated = Assert.IsType<ValidatedToken>(result);
+        var validated = Assert.IsType<ValidatedExternalToken>(result);
         Assert.Equal(tenant, validated.TenantId);
-        Assert.Contains(validated.Registration!.Audience, audiences);
+        Assert.Contains(validated.Registration.Audience, audiences);
         Assert.Equal(1, keyHandler.Requests[jwksUri]);
+    }
+
+    [Theory]
+    [InlineData("web,project", "web", "web", true)]
+    [InlineData("project,web", "web", "web", true)]
+    [InlineData("web,project", "project", "project", false)]
+    [InlineData("service,web", "service", "service", false)]
+    [InlineData("web,project", null, null, false)]
+    [InlineData("project,web", "unmatched", null, false)]
+    public async Task Signed_authorized_party_alone_selects_the_jit_registration(
+        string ordered,
+        string? authorizedParty,
+        string? expectedAudience,
+        bool expectedJit)
+    {
+        ArgumentNullException.ThrowIfNull(ordered);
+        var audiences = ordered.Split(',');
+        var issuer = $"https://azp-{Guid.NewGuid():N}.issuer.example.test";
+        var tenant = TenantId.From(Guid.Parse("11111111-1111-4111-8111-111111111111"));
+        var jwksUri = new Uri($"{issuer}/keys");
+        using var rsa = RSA.Create(2048);
+        var key = SigningKey(rsa);
+        var registrations = audiences.ToDictionary(
+            audience => audience,
+            audience => new IdentityProviderRegistration(
+                tenant,
+                issuer,
+                audience,
+                jwksUri,
+                ["RS256"],
+                IdentityProviderId.Create(),
+                JitProvisioningEnabled: string.Equals(audience, "web", StringComparison.Ordinal),
+                UserInfoUri: string.Equals(audience, "web", StringComparison.Ordinal)
+                    ? new Uri($"{issuer}/userinfo")
+                    : null),
+            StringComparer.Ordinal);
+        using var keyHandler = new JwksHandler(
+            new Dictionary<Uri, string> { [jwksUri] = Jwks(rsa, key.KeyId) });
+        using var keyClient = new HttpClient(keyHandler);
+        using var selfIssued = Unconfigured();
+        var validator = new NixTokenValidator(new RegistrationDirectory(registrations), selfIssued, keyClient);
+
+        var result = await validator.ValidateAsync(
+            SignedToken(issuer, audiences, key, authorizedParty),
+            TestContext.Current.CancellationToken);
+
+        var validated = Assert.IsType<ValidatedExternalToken>(result);
+        if (expectedAudience is null)
+        {
+            Assert.Null(validated.AuthorizedPartyRegistration);
+        }
+        else
+        {
+            Assert.Equal(expectedAudience, validated.AuthorizedPartyRegistration?.Audience);
+            Assert.Equal(expectedJit, validated.AuthorizedPartyRegistration?.JitProvisioningEnabled);
+        }
     }
 
     [Fact]
@@ -129,7 +211,7 @@ public sealed class NixTokenValidatorTests
         var unknownKey = new RsaSecurityKey(unknownRsa) { KeyId = "unknown-key-id" };
         var registrations = new Dictionary<string, IdentityProviderRegistration>(StringComparer.Ordinal)
         {
-            [audience] = new(tenant, issuer, audience, jwksUri, ["RS256"]),
+            [audience] = Registration(tenant, issuer, audience, jwksUri),
         };
         using var handler = new MutableJwksHandler(Jwks(knownRsa, knownKey.KeyId));
         using var client = new HttpClient(handler);
@@ -164,7 +246,7 @@ public sealed class NixTokenValidatorTests
         var unknownKey = new RsaSecurityKey(unknownRsa) { KeyId = "unknown-failure-key-id" };
         var registrations = new Dictionary<string, IdentityProviderRegistration>(StringComparer.Ordinal)
         {
-            [audience] = new(tenant, issuer, audience, jwksUri, ["RS256"]),
+            [audience] = Registration(tenant, issuer, audience, jwksUri),
         };
         using var handler = new MutableJwksHandler(Jwks(knownRsa, knownKey.KeyId));
         using var client = new HttpClient(handler);
@@ -205,6 +287,21 @@ public sealed class NixTokenValidatorTests
     private static RsaSecurityKey SigningKey(RSA rsa) =>
         new(rsa) { KeyId = "shared-key-id" };
 
+    private static IdentityProviderRegistration Registration(
+        TenantId tenantId,
+        string issuer,
+        string audience,
+        Uri jwksUri) =>
+        new(
+            tenantId,
+            issuer,
+            audience,
+            jwksUri,
+            ["RS256"],
+            IdentityProviderId.Create(),
+            JitProvisioningEnabled: false,
+            UserInfoUri: null);
+
     private static string SignedToken(string issuer, string audience, SecurityKey key)
     {
         var token = new JwtSecurityToken(
@@ -220,12 +317,19 @@ public sealed class NixTokenValidatorTests
     private static string SignedToken(
         string issuer,
         IReadOnlyList<string> audiences,
-        SecurityKey key)
+        SecurityKey key,
+        string? authorizedParty = null)
     {
+        var claims = new List<Claim> { new("sub", "subject") };
+        if (authorizedParty is not null)
+        {
+            claims.Add(new Claim("azp", authorizedParty));
+        }
+
         var payload = new JwtPayload(
             issuer,
             null,
-            [new Claim("sub", "subject")],
+            claims,
             DateTime.UtcNow.AddMinutes(-1),
             DateTime.UtcNow.AddMinutes(5))
         {
@@ -277,13 +381,23 @@ public sealed class NixTokenValidatorTests
                     issuer,
                     audience,
                     new Uri("https://issuer.example.test/keys"),
-                    ["RS256"])
+                    ["RS256"],
+                    IdentityProviderId.Create(),
+                    JitProvisioningEnabled: false,
+                    UserInfoUri: null)
                 : null);
         }
 
-        public ValueTask<AuthenticatedPrincipal?> FindPrincipalAsync(
+        public ValueTask<AuthenticatedPrincipal?> FindExternalPrincipalAsync(
             TenantId tenantId,
+            string externalIssuer,
             string externalSubject,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult<AuthenticatedPrincipal?>(null);
+
+        public ValueTask<AuthenticatedPrincipal?> FindPrincipalByIdAsync(
+            TenantId tenantId,
+            PrincipalId principalId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<AuthenticatedPrincipal?>(null);
     }
@@ -307,9 +421,16 @@ public sealed class NixTokenValidatorTests
                     ? registration
                     : null);
 
-        public ValueTask<AuthenticatedPrincipal?> FindPrincipalAsync(
+        public ValueTask<AuthenticatedPrincipal?> FindExternalPrincipalAsync(
             TenantId tenantId,
+            string externalIssuer,
             string externalSubject,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult<AuthenticatedPrincipal?>(null);
+
+        public ValueTask<AuthenticatedPrincipal?> FindPrincipalByIdAsync(
+            TenantId tenantId,
+            PrincipalId principalId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult<AuthenticatedPrincipal?>(null);
     }

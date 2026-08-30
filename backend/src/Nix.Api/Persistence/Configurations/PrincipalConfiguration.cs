@@ -23,6 +23,7 @@ internal sealed class PrincipalConfiguration : IEntityTypeConfiguration<Principa
         builder.Property(principal => principal.TenantId).HasColumnName(NixTables.TenantIdColumn);
 
         builder.Property(principal => principal.ExternalSubject).HasColumnName("external_subject").IsRequired();
+        builder.Property(principal => principal.ExternalIssuer).HasColumnName("external_issuer");
 
         builder.Property(principal => principal.Kind)
             .HasColumnName("kind")
@@ -31,6 +32,11 @@ internal sealed class PrincipalConfiguration : IEntityTypeConfiguration<Principa
 
         builder.Property(principal => principal.DisplayName).HasColumnName("display_name").IsRequired();
         builder.Property(principal => principal.Email).HasColumnName("email");
+        builder.Property(principal => principal.EmailNormalized).HasColumnName("email_normalized");
+        builder.Property(principal => principal.EmailVerified)
+            .HasColumnName("email_verified")
+            .HasDefaultValue(false)
+            .IsRequired();
 
         builder.Property(principal => principal.Status)
             .HasColumnName("status")
@@ -50,12 +56,16 @@ internal sealed class PrincipalConfiguration : IEntityTypeConfiguration<Principa
             .HasForeignKey(principal => principal.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // One row per subject per tenant. Note for the authentication goal: this is unique on the
-        // subject alone, not on (provider, subject). A tenant that registers two issuers which
-        // both mint the subject "1234" would collide here. Whether that is prevented by adding
-        // provider_id to this key or by requiring globally unique subjects is authentication's
-        // call to make, with the token-validation code in front of it - the schema should not
-        // guess now and have the resolver work around it later.
-        builder.HasIndex(principal => new { principal.TenantId, principal.ExternalSubject }).IsUnique();
+        builder.HasIndex(principal => new
+        {
+            principal.TenantId,
+            principal.ExternalIssuer,
+            principal.ExternalSubject,
+        })
+            .IsUnique()
+            .HasFilter("external_issuer IS NOT NULL");
+
+        builder.HasIndex(principal => new { principal.TenantId, principal.EmailNormalized })
+            .HasFilter("kind = 'user' AND status = 'active' AND email_verified AND email_normalized IS NOT NULL");
     }
 }

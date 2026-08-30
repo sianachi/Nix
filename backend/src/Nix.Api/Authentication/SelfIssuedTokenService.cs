@@ -165,17 +165,17 @@ public sealed class SelfIssuedTokenService : IDisposable
     /// <summary>
     /// Mints the short-lived JWT a valid exchange buys.
     /// </summary>
-    /// <param name="subject">
-    /// The principal's issuer subject - the same <c>sub</c> their interactive tokens carry, so the
-    /// session resolves through the same principal lookup.
-    /// </param>
+    /// <param name="principalId">The principal the session resolves directly.</param>
     /// <param name="tenantId">The tenant the session is scoped to.</param>
     /// <param name="accessTokenId">The row every authenticated request re-checks.</param>
     /// <returns>The signed compact JWT.</returns>
     /// <exception cref="InvalidOperationException">The service is not configured.</exception>
-    public string Mint(string subject, TenantId tenantId, PersonalAccessTokenId accessTokenId)
+    public string Mint(PrincipalId principalId, TenantId tenantId, PersonalAccessTokenId accessTokenId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        if (principalId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("The principal identifier cannot be empty.", nameof(principalId));
+        }
 
         if (!IsConfigured)
         {
@@ -191,7 +191,7 @@ public sealed class SelfIssuedTokenService : IDisposable
             audience: Audience,
             claims:
             [
-                new Claim("sub", subject),
+                new Claim("sub", principalId.Value.ToString("D", CultureInfo.InvariantCulture)),
                 new Claim(TenantClaim, tenantId.Value.ToString("D", CultureInfo.InvariantCulture)),
                 new Claim(AccessTokenClaim, accessTokenId.Value.ToString("D", CultureInfo.InvariantCulture)),
                 new Claim("jti", Guid.CreateVersion7().ToString("D", CultureInfo.InvariantCulture)),
@@ -248,15 +248,19 @@ public sealed class SelfIssuedTokenService : IDisposable
     public static bool TryReadClaims(
         ClaimsIdentity identity,
         out TenantId tenantId,
+        out PrincipalId principalId,
         out PersonalAccessTokenId accessTokenId)
     {
         ArgumentNullException.ThrowIfNull(identity);
 
         tenantId = default;
+        principalId = default;
         accessTokenId = default;
 
-        if (!Guid.TryParseExact(identity.FindFirst(TenantClaim)?.Value, "D", out var tenant)
+        if (!Guid.TryParseExact(identity.FindFirst("sub")?.Value, "D", out var principal)
+            || !Guid.TryParseExact(identity.FindFirst(TenantClaim)?.Value, "D", out var tenant)
             || !Guid.TryParseExact(identity.FindFirst(AccessTokenClaim)?.Value, "D", out var token)
+            || principal == Guid.Empty
             || tenant == Guid.Empty
             || token == Guid.Empty)
         {
@@ -264,6 +268,7 @@ public sealed class SelfIssuedTokenService : IDisposable
         }
 
         tenantId = TenantId.From(tenant);
+        principalId = PrincipalId.From(principal);
         accessTokenId = PersonalAccessTokenId.From(token);
         return true;
     }

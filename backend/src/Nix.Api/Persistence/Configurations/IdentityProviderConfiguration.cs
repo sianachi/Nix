@@ -52,6 +52,16 @@ internal sealed class IdentityProviderConfiguration : IEntityTypeConfiguration<I
             .IsRequired();
 
         builder.Property(provider => provider.Enabled).HasColumnName("enabled").IsRequired();
+        builder.Property(provider => provider.JitProvisioningEnabled)
+            .HasColumnName("jit_provisioning_enabled")
+            .HasDefaultValue(false)
+            .IsRequired();
+        builder.Property(provider => provider.UserInfoUri)
+            .HasColumnName("userinfo_uri")
+            .HasMaxLength(IdentityProvider.MaximumUserInfoUriLength)
+            .HasConversion(
+                uri => uri == null ? null : uri.AbsoluteUri,
+                value => value == null ? null : new Uri(value, UriKind.Absolute));
 
         builder.HasOne<Tenant>()
             .WithMany()
