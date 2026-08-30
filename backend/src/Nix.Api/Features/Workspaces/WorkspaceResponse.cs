@@ -22,7 +22,8 @@ internal sealed record WorkspaceResponse(
     string Kind,
     bool CanRename,
     bool CanManageMembers,
-    bool CanLeave);
+    bool CanLeave,
+    Guid? PendingInvitationId);
 
 /// <summary>A request to create a shared workspace.</summary>
 internal sealed record CreateWorkspaceRequest(string Name);

@@ -189,6 +189,48 @@ public sealed class PersonalWorkspaceProvisionerIntegrationTests : IAsyncLifetim
         }
     }
 
+    [Fact]
+    public async Task A_targeted_invitation_cannot_be_redeemed_by_a_different_identity_with_the_same_email()
+    {
+        var targetPrincipalId = Guid.Parse("32323232-3232-4232-8232-323232323232");
+        var invitationId = Guid.Parse("42424242-4242-4242-8242-424242424242");
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null,
+                $"""
+                INSERT INTO principal
+                    (principal_id, tenant_id, external_issuer, external_subject, kind,
+                     display_name, email, email_normalized, email_verified, status)
+                VALUES ('{targetPrincipalId:D}'::uuid, '{M0SchemaSeed.Alpha.TenantId:D}'::uuid,
+                        'https://issuer.alpha.test', 'inactive-invite-target', 'user',
+                        'Inactive target', 'targeted@example.test', 'targeted@example.test',
+                        true, 'suspended');
+
+                INSERT INTO workspace_invitation
+                    (invitation_id, tenant_id, workspace_id, email_normalized, target_principal_id,
+                     role, invited_by_principal_id, status, invited_at)
+                VALUES ('{invitationId:D}'::uuid, '{M0SchemaSeed.Alpha.TenantId:D}'::uuid,
+                        '{M0SchemaSeed.Alpha.WorkspaceId:D}'::uuid, 'targeted@example.test',
+                        '{targetPrincipalId:D}'::uuid, 'viewer',
+                        '{M0SchemaSeed.Alpha.PrincipalId:D}'::uuid, 'pending', now())
+                """);
+        }
+
+        var token = Token("different-targeted-email-subject");
+        var profile = new UserInfoProfile("Different person", "targeted@example.test", EmailVerified: true);
+        var principal = await ProvisionAndCommitAsync(token, profile);
+
+        var assertionConnection = await _fixture.OpenMigratorConnectionAsync();
+        await using (assertionConnection.ConfigureAwait(false))
+        {
+            Assert.Equal(1, await RawSql.CountAsync(assertionConnection, null,
+                $"SELECT count(*) FROM workspace_invitation WHERE invitation_id = '{invitationId:D}'::uuid AND status = 'pending'"));
+            Assert.Equal(0, await RawSql.CountAsync(assertionConnection, null,
+                $"SELECT count(*) FROM workspace_member WHERE workspace_id = '{M0SchemaSeed.Alpha.WorkspaceId:D}'::uuid AND subject_id = '{principal.Id.Value:D}'::uuid"));
+        }
+    }
+
     private async Task<AuthenticatedPrincipal> ProvisionAndCommitAsync(
         ValidatedExternalToken token,
         UserInfoProfile profile)

@@ -3,6 +3,7 @@ import {
   isNixApiError,
   workspaces as coreWorkspaces,
   type WorkspaceInvitation,
+  type WorkspaceInvitee,
   type WorkspaceMember,
 } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -19,16 +20,19 @@ function problem(error: unknown, fallback: string): string {
 export interface WorkspaceAdministration {
   readonly membersStatus: LoadStatus;
   readonly invitationsStatus: LoadStatus;
+  readonly inviteesStatus: LoadStatus;
   readonly members: readonly WorkspaceMember[];
   readonly invitations: readonly WorkspaceInvitation[];
+  readonly invitees: readonly WorkspaceInvitee[];
   readonly membersError: string | null;
   readonly invitationsError: string | null;
+  readonly inviteesError: string | null;
   readonly mutationError: string | null;
   readonly mutationNotice: string | null;
   readonly working: boolean;
   readonly reload: () => void;
   readonly rename: (name: string) => Promise<boolean>;
-  readonly invite: (email: string, role: 'owner' | 'editor' | 'viewer') => Promise<boolean>;
+  readonly invite: (principalId: string, role: 'owner' | 'editor' | 'viewer') => Promise<boolean>;
   readonly revokeInvitation: (invitationId: string) => Promise<boolean>;
   readonly changeRole: (
     principalId: string,
@@ -44,10 +48,13 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
   const [reloadKey, setReloadKey] = useState(0);
   const [membersStatus, setMembersStatus] = useState<LoadStatus>('loading');
   const [invitationsStatus, setInvitationsStatus] = useState<LoadStatus>('loading');
+  const [inviteesStatus, setInviteesStatus] = useState<LoadStatus>('loading');
   const [members, setMembers] = useState<readonly WorkspaceMember[]>([]);
   const [invitations, setInvitations] = useState<readonly WorkspaceInvitation[]>([]);
+  const [invitees, setInvitees] = useState<readonly WorkspaceInvitee[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
+  const [inviteesError, setInviteesError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -69,10 +76,13 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
       queueMicrotask(() => {
         setMembers([]);
         setInvitations([]);
+        setInvitees([]);
         setMembersError(null);
         setInvitationsError(null);
+        setInviteesError(null);
         setMembersStatus('ready');
         setInvitationsStatus('ready');
+        setInviteesStatus('ready');
       });
       return;
     }
@@ -81,8 +91,10 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
     queueMicrotask(() => {
       setMembersStatus('loading');
       setInvitationsStatus('loading');
+      setInviteesStatus('loading');
       setMembersError(null);
       setInvitationsError(null);
+      setInviteesError(null);
     });
     void (async () => {
       const nextMembers: WorkspaceMember[] = [];
@@ -100,6 +112,25 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
         setMembers(nextMembers);
         setMembersError(problem(reason, 'Workspace members could not be loaded.'));
         setMembersStatus(nextMembers.length === 0 ? 'error' : 'partial');
+      }
+    })();
+
+    void (async () => {
+      const nextInvitees: WorkspaceInvitee[] = [];
+      try {
+        for await (const invitee of client.paginate(coreWorkspaces.listInvitees(workspaceId), {
+          signal: controller.signal,
+        })) {
+          nextInvitees.push(invitee);
+        }
+        if (controller.signal.aborted) return;
+        setInvitees(nextInvitees);
+        setInviteesStatus('ready');
+      } catch (reason) {
+        if (controller.signal.aborted || isCanceledError(reason)) return;
+        setInvitees(nextInvitees);
+        setInviteesError(problem(reason, 'People available to invite could not be loaded.'));
+        setInviteesStatus(nextInvitees.length === 0 ? 'error' : 'partial');
       }
     })();
 
@@ -162,10 +193,13 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
   return {
     membersStatus,
     invitationsStatus,
+    inviteesStatus,
     members,
     invitations,
+    invitees,
     membersError,
     invitationsError,
+    inviteesError,
     mutationError,
     mutationNotice,
     working,
@@ -183,12 +217,15 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
       }
       return saved;
     },
-    invite: (email, role) =>
-      mutate(
+    invite: (principalId, role) => {
+      const invitee = invitees.find((candidate) => candidate.principalId === principalId);
+      const label = invitee?.displayName ?? 'the selected person';
+      return mutate(
         (signal) =>
-          client.execute(coreWorkspaces.createInvitation(workspaceId, email, role), { signal }),
-        `Invitation created for ${email.trim()}.`,
-      ),
+          client.execute(coreWorkspaces.createInvitation(workspaceId, principalId, role), { signal }),
+        `${label} now has provisional access and can accept or decline the invitation.`,
+      );
+    },
     revokeInvitation: (invitationId) =>
       mutate(
         (signal) =>

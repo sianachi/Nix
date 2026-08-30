@@ -776,6 +776,67 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/invitees": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "operationId": "ListWorkspaceInvitees",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPageOfWorkspaceInviteeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/members/{principalId}": {
       "patch": {
         "tags": [
@@ -1123,6 +1184,92 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/invitations/{invitationId}/accept": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "operationId": "AcceptWorkspaceInvitation",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invitationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/invitations/{invitationId}/decline": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "operationId": "DeclineWorkspaceInvitation",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "invitationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3934,13 +4081,14 @@
       },
       "CreateWorkspaceInvitationRequest": {
         "required": [
-          "email",
+          "principalId",
           "role"
         ],
         "type": "object",
         "properties": {
-          "email": {
-            "type": "string"
+          "principalId": {
+            "type": "string",
+            "format": "uuid"
           },
           "role": {
             "enum": [
@@ -4048,6 +4196,27 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/WorkspaceInvitationResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CursorPageOfWorkspaceInviteeResponse": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceInviteeResponse"
             }
           },
           "nextCursor": {
@@ -6718,6 +6887,7 @@
         "required": [
           "id",
           "emailNormalized",
+          "targetPrincipalId",
           "role",
           "status",
           "invitedByPrincipalId",
@@ -6734,6 +6904,13 @@
           },
           "emailNormalized": {
             "type": "string"
+          },
+          "targetPrincipalId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "role": {
             "type": "string"
@@ -6769,6 +6946,26 @@
               "string"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "WorkspaceInviteeResponse": {
+        "required": [
+          "principalId",
+          "displayName",
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
           }
         }
       },
@@ -6833,7 +7030,8 @@
           "kind",
           "canRename",
           "canManageMembers",
-          "canLeave"
+          "canLeave",
+          "pendingInvitationId"
         ],
         "type": "object",
         "properties": {
@@ -6875,6 +7073,13 @@
           },
           "canLeave": {
             "type": "boolean"
+          },
+          "pendingInvitationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       }

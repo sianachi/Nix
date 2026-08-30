@@ -22,7 +22,10 @@ describe('nixctl mcp workspace tools', () => {
         'create_workspace',
         'rename_workspace',
         'list_workspace_invitations',
+        'list_workspace_invitees',
         'invite_workspace_member',
+        'accept_workspace_invitation',
+        'decline_workspace_invitation',
         'revoke_workspace_invitation',
         'list_workspace_members',
         'change_workspace_member_role',
@@ -136,6 +139,7 @@ function workspace(): Record<string, unknown> {
     canRename: true,
     canManageMembers: true,
     canLeave: false,
+    pendingInvitationId: null,
   };
 }
 

@@ -87,6 +87,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     [Fact]
     public async Task Last_active_human_owner_is_not_demoted_until_another_owner_exists()
     {
+        var invitationId = Guid.CreateVersion7();
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
         await using (work.ConfigureAwait(false))
         {
@@ -94,12 +95,30 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
             Assert.False(await store.ChangeMemberRoleAsync(
                 WorkspaceId.From(Visible), PrincipalId.From(Alice), "editor", DateTimeOffset.UtcNow, Cancellation));
 
-            var accepted = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "bob@example.test", "owner",
+            var pending = await store.CreateInvitationAsync(
+                WorkspaceId.From(Visible), invitationId, PrincipalId.From(Bob), "owner",
                 DateTimeOffset.UtcNow, Cancellation);
-            Assert.Equal("accepted", accepted.Invitation?.Status);
+            Assert.Equal("pending", pending.Invitation?.Status);
+            Assert.Equal("editor", (await store.FindPrincipalMemberAsync(
+                WorkspaceId.From(Visible), PrincipalId.From(Bob), Cancellation))?.Role);
 
-            Assert.True(await store.ChangeMemberRoleAsync(
+            Assert.False(await store.ChangeMemberRoleAsync(
+                WorkspaceId.From(Visible), PrincipalId.From(Alice), "editor", DateTimeOffset.UtcNow, Cancellation));
+            await work.CommitAsync(Cancellation);
+        }
+
+        var accepting = await _fixture.Application.BeginUnitOfWorkAsync(Context(Bob), Cancellation);
+        await using (accepting.ConfigureAwait(false))
+        {
+            Assert.True(await accepting.Resolve<WorkspaceAdministrationStore>().AcceptInvitationAsync(
+                WorkspaceId.From(Visible), invitationId, DateTimeOffset.UtcNow, Cancellation));
+            await accepting.CommitAsync(Cancellation);
+        }
+
+        var demoting = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (demoting.ConfigureAwait(false))
+        {
+            Assert.True(await demoting.Resolve<WorkspaceAdministrationStore>().ChangeMemberRoleAsync(
                 WorkspaceId.From(Visible), PrincipalId.From(Alice), "editor", DateTimeOffset.UtcNow, Cancellation));
         }
     }
@@ -115,7 +134,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
             Assert.False(await store.RemoveMemberAsync(
                 WorkspaceId.From(Visible), PrincipalId.From(Alice), false, Cancellation));
             var refused = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "bob@example.test", "owner",
+                WorkspaceId.From(Visible), Guid.CreateVersion7(), PrincipalId.From(Bob), "owner",
                 DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("conflict", refused.Outcome);
             Assert.Null(refused.Invitation);
@@ -123,20 +142,27 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Pending_invitation_role_conflicts_preserve_history_and_exact_verified_matches_accept_it()
+    public async Task Pending_invitation_grants_immediate_access_and_the_target_accepts_it()
     {
+        await InsertHumanAsync(Charlie, "charlie", "charlie@example.test", verified: true);
         var invitationId = Guid.CreateVersion7();
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var store = work.Resolve<WorkspaceAdministrationStore>();
+            var invitees = await store.ListInviteesAsync(
+                WorkspaceId.From(Visible), null, 20, Cancellation);
+            Assert.Contains(invitees, invitee => invitee.PrincipalId.Value == Charlie);
             var pending = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), invitationId, "charlie@example.test", "editor",
+                WorkspaceId.From(Visible), invitationId, PrincipalId.From(Charlie), "editor",
                 DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("pending", pending.Invitation?.Status);
+            Assert.Equal(Charlie, pending.Invitation?.TargetPrincipalId?.Value);
+            Assert.Equal("editor", (await store.FindPrincipalMemberAsync(
+                WorkspaceId.From(Visible), PrincipalId.From(Charlie), Cancellation))?.Role);
 
             var conflict = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "charlie@example.test", "viewer",
+                WorkspaceId.From(Visible), Guid.CreateVersion7(), PrincipalId.From(Charlie), "viewer",
                 DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("conflict", conflict.Outcome);
             var history = Assert.Single(await store.ListInvitationsAsync(
@@ -146,41 +172,63 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
             await work.CommitAsync(Cancellation);
         }
 
-        await InsertHumanAsync(Charlie, "charlie", "charlie@example.test", verified: true);
-        var accepting = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        var accepting = await _fixture.Application.BeginUnitOfWorkAsync(Context(Charlie), Cancellation);
         await using (accepting.ConfigureAwait(false))
         {
-            var accepted = await accepting.Resolve<WorkspaceAdministrationStore>().CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "charlie@example.test", "editor",
-                DateTimeOffset.UtcNow, Cancellation);
-            Assert.Equal(invitationId, accepted.Invitation?.InvitationId);
-            Assert.Equal("accepted", accepted.Invitation?.Status);
-            Assert.Equal(Charlie, accepted.Invitation?.AcceptedByPrincipalId?.Value);
-            Assert.NotNull(accepted.Invitation?.AcceptedAt);
-            Assert.Equal("editor", (await accepting.Resolve<WorkspaceAdministrationStore>()
-                .FindPrincipalMemberAsync(WorkspaceId.From(Visible), PrincipalId.From(Charlie), Cancellation))?.Role);
+            var store = accepting.Resolve<WorkspaceAdministrationStore>();
+            Assert.Equal(invitationId, (await store.FindAsync(
+                WorkspaceId.From(Visible), Cancellation))?.PendingInvitationId);
+            Assert.True(await store.AcceptInvitationAsync(
+                WorkspaceId.From(Visible), invitationId, DateTimeOffset.UtcNow, Cancellation));
+            await accepting.CommitAsync(Cancellation);
+        }
+
+        var checking = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (checking.ConfigureAwait(false))
+        {
+            var accepted = Assert.Single(await checking.Resolve<WorkspaceAdministrationStore>()
+                .ListInvitationsAsync(WorkspaceId.From(Visible), null, null, 20, Cancellation));
+            Assert.Equal("accepted", accepted.Status);
+            Assert.Equal(Charlie, accepted.AcceptedByPrincipalId?.Value);
+            Assert.NotNull(accepted.AcceptedAt);
         }
     }
 
     [Fact]
-    public async Task Unverified_or_ambiguous_email_matches_remain_pending()
+    public async Task Unverified_humans_are_not_invitees_and_a_decline_removes_provisional_access()
     {
         await InsertHumanAsync(Charlie, "charlie", "shared@example.test", verified: false);
-        await InsertHumanAsync(Dana, "dana", "ambiguous@example.test", verified: true);
-        await InsertHumanAsync(Guid.CreateVersion7(), "erin", "ambiguous@example.test", verified: true);
+        await InsertHumanAsync(Dana, "dana", "dana@example.test", verified: true);
 
+        var invitationId = Guid.CreateVersion7();
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var store = work.Resolve<WorkspaceAdministrationStore>();
+            var invitees = await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation);
+            Assert.DoesNotContain(invitees, invitee => invitee.PrincipalId.Value == Charlie);
+            Assert.Contains(invitees, invitee => invitee.PrincipalId.Value == Dana);
             var unverified = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "shared@example.test", "viewer",
+                WorkspaceId.From(Visible), Guid.CreateVersion7(), PrincipalId.From(Charlie), "viewer",
                 DateTimeOffset.UtcNow, Cancellation);
-            var ambiguous = await store.CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "ambiguous@example.test", "viewer",
+            var pending = await store.CreateInvitationAsync(
+                WorkspaceId.From(Visible), invitationId, PrincipalId.From(Dana), "viewer",
                 DateTimeOffset.UtcNow, Cancellation);
-            Assert.Equal("pending", unverified.Invitation?.Status);
-            Assert.Equal("pending", ambiguous.Invitation?.Status);
+            Assert.Equal("conflict", unverified.Outcome);
+            Assert.Equal("pending", pending.Invitation?.Status);
+            await work.CommitAsync(Cancellation);
+        }
+
+        var declining = await _fixture.Application.BeginUnitOfWorkAsync(Context(Dana), Cancellation);
+        await using (declining.ConfigureAwait(false))
+        {
+            var store = declining.Resolve<WorkspaceAdministrationStore>();
+            Assert.Equal(invitationId, (await store.FindAsync(
+                WorkspaceId.From(Visible), Cancellation))?.PendingInvitationId);
+            Assert.True(await store.DeclineInvitationAsync(
+                WorkspaceId.From(Visible), invitationId, DateTimeOffset.UtcNow, Cancellation));
+            Assert.Null(await store.FindAsync(WorkspaceId.From(Visible), Cancellation));
+            await declining.CommitAsync(Cancellation);
         }
     }
 
@@ -191,7 +239,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         await using (work.ConfigureAwait(false))
         {
             var result = await work.Resolve<WorkspaceAdministrationStore>().CreateInvitationAsync(
-                WorkspaceId.From(Visible), Guid.CreateVersion7(), "alice@example.test", "editor",
+                WorkspaceId.From(Visible), Guid.CreateVersion7(), PrincipalId.From(Alice), "editor",
                 DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("conflict", result.Outcome);
             Assert.Equal("owner", (await work.Resolve<WorkspaceAdministrationStore>()

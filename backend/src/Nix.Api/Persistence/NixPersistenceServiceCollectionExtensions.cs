@@ -267,9 +267,12 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateWorkspace, WorkspaceSnapshot>, CreateWorkspaceHandler>();
         services.AddScoped<ICommandHandler<RenameWorkspace, WorkspaceSnapshot>, RenameWorkspaceHandler>();
         services.AddScoped<IQueryHandler<ListWorkspaceMembers, IReadOnlyList<WorkspaceMemberSnapshot>>, ListWorkspaceMembersHandler>();
+        services.AddScoped<IQueryHandler<ListWorkspaceInvitees, IReadOnlyList<WorkspaceInviteeSnapshot>>, ListWorkspaceInviteesHandler>();
         services.AddScoped<IQueryHandler<ListWorkspaceInvitations, IReadOnlyList<WorkspaceInvitationSnapshot>>, ListWorkspaceInvitationsHandler>();
         services.AddScoped<ICommandHandler<InviteWorkspaceMember, WorkspaceInvitationSnapshot>, InviteWorkspaceMemberHandler>();
         services.AddScoped<ICommandHandler<RevokeWorkspaceInvitation, bool>, RevokeWorkspaceInvitationHandler>();
+        services.AddScoped<ICommandHandler<AcceptWorkspaceInvitation, bool>, AcceptWorkspaceInvitationHandler>();
+        services.AddScoped<ICommandHandler<DeclineWorkspaceInvitation, bool>, DeclineWorkspaceInvitationHandler>();
         services.AddScoped<
             ICommandHandler<ChangeWorkspaceMemberRole, WorkspaceMemberSnapshot>,
             ChangeWorkspaceMemberRoleHandler>();

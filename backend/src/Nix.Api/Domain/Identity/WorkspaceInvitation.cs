@@ -17,6 +17,9 @@ public sealed class WorkspaceInvitation
     /// <summary>Gets the normalized address used for exact matching.</summary>
     public required string EmailNormalized { get; init; }
 
+    /// <summary>Gets the provisioned human offered immediate provisional access.</summary>
+    public PrincipalId? TargetPrincipalId { get; init; }
+
     /// <summary>Gets the workspace role offered.</summary>
     public required string Role { get; init; }
 
