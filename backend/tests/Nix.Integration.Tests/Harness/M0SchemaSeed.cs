@@ -27,6 +27,7 @@ internal static class M0SchemaSeed
         PrincipalId: TestTenants.AlphaPrincipal,
         GroupId: new Guid("1c1c1c1c-1111-4111-8111-1c1c1c1c1c1c"),
         ProviderId: new Guid("1d1d1d1d-1111-4111-8111-1d1d1d1d1d1d"),
+        InvitationId: new Guid("15151515-1111-4111-8111-151515151515"),
         ItemId: new Guid("1e1e1e1e-1111-4111-8111-1e1e1e1e1e1e"),
         AclEntryId: new Guid("1f1f1f1f-1111-4111-8111-1f1f1f1f1f1f"),
         AuditEventId: new Guid("19191919-1111-4111-8111-191919191919"),
@@ -44,6 +45,7 @@ internal static class M0SchemaSeed
         PrincipalId: TestTenants.BetaPrincipal,
         GroupId: new Guid("2c2c2c2c-2222-4222-8222-2c2c2c2c2c2c"),
         ProviderId: new Guid("2d2d2d2d-2222-4222-8222-2d2d2d2d2d2d"),
+        InvitationId: new Guid("25252525-2222-4222-8222-252525252525"),
         ItemId: new Guid("2e2e2e2e-2222-4222-8222-2e2e2e2e2e2e"),
         AclEntryId: new Guid("2f2f2f2f-2222-4222-8222-2f2f2f2f2f2f"),
         AuditEventId: new Guid("29292929-2222-4222-8222-292929292929"),
@@ -80,6 +82,7 @@ internal static class M0SchemaSeed
         var principal = Literal(rows.PrincipalId);
         var group = Literal(rows.GroupId);
         var provider = Literal(rows.ProviderId);
+        var invitation = Literal(rows.InvitationId);
         var item = Literal(rows.ItemId);
         var acl = Literal(rows.AclEntryId);
         var auditEvent = Literal(rows.AuditEventId);
@@ -100,18 +103,21 @@ internal static class M0SchemaSeed
             VALUES ({workspace}, {tenant}, '{slug} workspace', 30, 10, 1073741824, now());
 
             INSERT INTO principal
-                (principal_id, tenant_id, external_subject, kind, display_name, email, status,
-                 deprovisioned_at)
-            VALUES ({principal}, {tenant}, '{slug}-subject', 'user', '{slug} user',
-                    '{slug}@example.test', 'active', NULL);
+                (principal_id, tenant_id, external_issuer, external_subject, kind, display_name,
+                 email, email_normalized, email_verified, status, deprovisioned_at)
+            VALUES ({principal}, {tenant}, 'https://issuer.{slug}.test', '{slug}-subject', 'user',
+                    '{slug} user', '{slug}@example.test', '{slug}@example.test', true,
+                    'active', NULL);
 
             INSERT INTO principal_group (group_id, tenant_id, name, external_id)
             VALUES ({group}, {tenant}, '{slug} group', '{slug}-external');
 
             INSERT INTO identity_provider
-                (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled)
+                (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled,
+                 jit_provisioning_enabled, userinfo_uri)
             VALUES ({provider}, {tenant}, 'https://issuer.{slug}.test', 'nix-api',
-                    'https://issuer.{slug}.test/keys', ARRAY['RS256']::text[], true);
+                    'https://issuer.{slug}.test/keys', ARRAY['RS256']::text[], true, false,
+                    'https://issuer.{slug}.test/userinfo');
 
             INSERT INTO group_membership (group_id, principal_id, tenant_id, source)
             VALUES ({group}, {principal}, {tenant}, 'directory');
@@ -123,6 +129,12 @@ internal static class M0SchemaSeed
             INSERT INTO workspace_member
                 (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
             VALUES ({workspace}, 'principal', {principal}, {tenant}, 'editor', {principal}, now());
+
+            INSERT INTO workspace_invitation
+                (invitation_id, tenant_id, workspace_id, email_normalized, role,
+                 invited_by_principal_id, status, invited_at)
+            VALUES ({invitation}, {tenant}, {workspace}, 'pending-{slug}@example.test', 'viewer',
+                    {principal}, 'pending', now());
 
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
@@ -261,6 +273,7 @@ internal static class M0SchemaSeed
 /// <param name="PrincipalId">Its principal.</param>
 /// <param name="GroupId">Its group.</param>
 /// <param name="ProviderId">Its registered issuer.</param>
+/// <param name="InvitationId">Its pending workspace invitation.</param>
 /// <param name="ItemId">Its one item.</param>
 /// <param name="AclEntryId">The access control entry on that item.</param>
 /// <param name="AuditEventId">The audit event recording the item's creation.</param>
@@ -276,6 +289,7 @@ internal sealed record M0TenantRows(
     Guid PrincipalId,
     Guid GroupId,
     Guid ProviderId,
+    Guid InvitationId,
     Guid ItemId,
     Guid AclEntryId,
     Guid AuditEventId,

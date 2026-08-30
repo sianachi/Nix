@@ -297,4 +297,31 @@ internal static class EnumConverters
                 "principal."),
         };
     }
+
+    /// <summary>Maps <see cref="WorkspaceInvitationStatus"/> to its lower-case name.</summary>
+    internal sealed class WorkspaceInvitationStatusConverter : ValueConverter<WorkspaceInvitationStatus, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public WorkspaceInvitationStatusConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(WorkspaceInvitationStatus value) => value switch
+        {
+            WorkspaceInvitationStatus.Pending => "pending",
+            WorkspaceInvitationStatus.Accepted => "accepted",
+            WorkspaceInvitationStatus.Revoked => "revoked",
+            _ => throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown invitation status."),
+        };
+
+        private static WorkspaceInvitationStatus FromText(string text) => text switch
+        {
+            "pending" => WorkspaceInvitationStatus.Pending,
+            "accepted" => WorkspaceInvitationStatus.Accepted,
+            "revoked" => WorkspaceInvitationStatus.Revoked,
+            _ => throw new InvalidOperationException(
+                $"The database holds '{text}' as an invitation status, which this build does not recognise."),
+        };
+    }
 }

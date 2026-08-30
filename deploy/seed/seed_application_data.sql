@@ -163,6 +163,32 @@ VALUES
      'owner',  'b2000000-0000-4000-8000-000000000001', now())
 ON CONFLICT (workspace_id, subject_type, subject_id) DO NOTHING;
 
+-- The seeded administrator is the protected owner. A partial or hand-edited seed is repaired
+-- before personal ownership is stamped below; an already-correct row is left untouched.
+INSERT INTO workspace_member
+    (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
+SELECT
+    'a1000000-0000-4000-8000-000000000001'::uuid,
+    'principal',
+    'a2000000-0000-4000-8000-000000000001'::uuid,
+    'a0000000-0000-4000-8000-000000000001'::uuid,
+    'owner',
+    'a2000000-0000-4000-8000-000000000001'::uuid,
+    now()
+WHERE EXISTS (
+    SELECT 1 FROM workspace
+     WHERE workspace_id = 'a1000000-0000-4000-8000-000000000001'::uuid
+       AND tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid)
+  AND EXISTS (
+    SELECT 1 FROM principal
+     WHERE principal_id = 'a2000000-0000-4000-8000-000000000001'::uuid
+       AND tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid)
+ON CONFLICT (workspace_id, subject_type, subject_id) DO UPDATE
+SET role = 'owner',
+    granted_by = EXCLUDED.granted_by,
+    granted_at = EXCLUDED.granted_at
+WHERE workspace_member.role <> 'owner';
+
 INSERT INTO workspace_member
     (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
 SELECT workspace.workspace_id,
@@ -185,7 +211,8 @@ ON CONFLICT (workspace_id, subject_type, subject_id) DO NOTHING;
 -- substitute :variables inside dollar-quoted strings - the block would receive
 -- the literal text and fail to parse.
 INSERT INTO identity_provider
-    (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled)
+    (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled,
+     jit_provisioning_enabled, userinfo_uri)
 SELECT
     'a4000000-0000-4000-8000-000000000001'::uuid,
     'a0000000-0000-4000-8000-000000000001'::uuid,
@@ -193,20 +220,24 @@ SELECT
     :'oidc_client_id',
     :'oidc_issuer' || '/oauth/v2/keys',
     ARRAY['RS256']::text[],
-    true
+    true,
+    false,
+    :'oidc_issuer' || '/oidc/v1/userinfo'
 WHERE :'oidc_issuer' <> '' AND :'oidc_client_id' <> ''
 ON CONFLICT (provider_id) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     audience = EXCLUDED.audience,
     jwks_uri = EXCLUDED.jwks_uri,
     allowed_algorithms = EXCLUDED.allowed_algorithms,
-    enabled = true;
+    enabled = true,
+    userinfo_uri = EXCLUDED.userinfo_uri;
 
 -- Zitadel JWT-profile service-account tokens name the project as their API
 -- audience rather than the SPA client. Registering it through the same exact
 -- issuer/audience resolver keeps machine and browser authentication on one path.
 INSERT INTO identity_provider
-    (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled)
+    (provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms, enabled,
+     jit_provisioning_enabled, userinfo_uri)
 SELECT
     'a4000000-0000-4000-8000-000000000002'::uuid,
     'a0000000-0000-4000-8000-000000000001'::uuid,
@@ -214,14 +245,50 @@ SELECT
     :'oidc_project_id',
     :'oidc_issuer' || '/oauth/v2/keys',
     ARRAY['RS256']::text[],
-    true
+    true,
+    false,
+    :'oidc_issuer' || '/oidc/v1/userinfo'
 WHERE :'oidc_issuer' <> '' AND :'oidc_project_id' <> ''
 ON CONFLICT (provider_id) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     audience = EXCLUDED.audience,
     jwks_uri = EXCLUDED.jwks_uri,
     allowed_algorithms = EXCLUDED.allowed_algorithms,
-    enabled = true;
+    enabled = true,
+    userinfo_uri = EXCLUDED.userinfo_uri;
+
+-- External identities are issuer-qualified. These exact deployment-managed rows all belong to
+-- the one issuer configured above; a tenant with no provider remains internal-only.
+UPDATE principal
+SET external_issuer = :'oidc_issuer'
+WHERE tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid
+  AND principal_id IN (
+      'a2000000-0000-4000-8000-000000000001'::uuid,
+      'a2000000-0000-4000-8000-000000000002'::uuid,
+      'a2000000-0000-4000-8000-000000000003'::uuid,
+      'a2000000-0000-4000-8000-000000000004'::uuid)
+  AND :'oidc_issuer' <> '';
+
+-- The populated administrator workspace is the administrator's personal workspace. This runs
+-- after both the principal and protected owner membership exist, satisfying both FKs.
+UPDATE workspace
+SET personal_owner_principal_id = 'a2000000-0000-4000-8000-000000000001'::uuid
+WHERE workspace_id = 'a1000000-0000-4000-8000-000000000001'::uuid
+  AND tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid;
+
+-- One pending row per tenant keeps manual development and RLS probes honest without implying
+-- delivery. The `.invalid` domain is reserved and cannot receive mail.
+INSERT INTO workspace_invitation
+    (invitation_id, tenant_id, workspace_id, email_normalized, role,
+     invited_by_principal_id, status, invited_at)
+VALUES
+    ('a5000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001',
+     'a1000000-0000-4000-8000-000000000001', 'pending-acme@example.invalid', 'viewer',
+     'a2000000-0000-4000-8000-000000000001', 'pending', now()),
+    ('b5000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002',
+     'b1000000-0000-4000-8000-000000000001', 'pending-umbrella@example.invalid', 'viewer',
+     'b2000000-0000-4000-8000-000000000001', 'pending', now())
+ON CONFLICT (invitation_id) DO NOTHING;
 
 DO $$
 BEGIN
