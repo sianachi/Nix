@@ -284,6 +284,24 @@ builder.Services.AddOpenApi(options =>
         return Task.CompletedTask;
     });
 
+    options.AddSchemaTransformer((schema, context, _) =>
+    {
+        if ((context.JsonTypeInfo.Type == typeof(Nix.Features.Workspaces.CreateWorkspaceInvitationRequest)
+             || context.JsonTypeInfo.Type == typeof(Nix.Features.Workspaces.ChangeWorkspaceMemberRoleRequest))
+            && schema.Properties?.TryGetValue("role", out var role) == true
+            && role is Microsoft.OpenApi.OpenApiSchema roleSchema)
+        {
+            roleSchema.Enum = new List<System.Text.Json.Nodes.JsonNode>
+            {
+                System.Text.Json.Nodes.JsonValue.Create("owner"),
+                System.Text.Json.Nodes.JsonValue.Create("editor"),
+                System.Text.Json.Nodes.JsonValue.Create("viewer"),
+            };
+        }
+
+        return Task.CompletedTask;
+    });
+
     // Constructed rather than resolved: the transformer is stateless and has no
     // dependencies, so DI activation would only hide it from the analyzers.
     options.AddSchemaTransformer(new ProblemDetailsSchemaTransformer());
