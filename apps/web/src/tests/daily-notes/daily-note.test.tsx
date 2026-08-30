@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
 import { localDailyNoteDate, parseDailyNoteDate } from '../../daily-notes/daily-note';
-import { STUB_WORKSPACE, stubCoreApi } from '../api-stub';
+import { STUB_WORKSPACE, stubCoreApi, type StubWorkspace } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 beforeEach(() => {
@@ -71,6 +71,28 @@ describe('daily notes', () => {
     renderAt(<App />, `/w/${STUB_WORKSPACE.id}/daily/2026-02-29`);
 
     expect(await screen.findByRole('heading', { name: 'Daily note not found' })).toBeVisible();
+    expect(
+      vi.mocked(fetch).mock.calls.some(([input]) => requestUrl(input).includes('/daily-notes/')),
+    ).toBe(false);
+  });
+
+  it('redirects a shared-workspace daily URL without calling Core', async () => {
+    const shared: StubWorkspace = {
+      ...STUB_WORKSPACE,
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Shared research',
+      kind: 'shared',
+      canUseDailyNotes: false,
+    };
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, shared] });
+    renderAt(<App />, `/w/${shared.id}/daily/2026-08-30`);
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Notes' })).toHaveAttribute(
+        'href',
+        `/w/${shared.id}`,
+      );
+    });
     expect(
       vi.mocked(fetch).mock.calls.some(([input]) => requestUrl(input).includes('/daily-notes/')),
     ).toBe(false);

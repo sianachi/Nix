@@ -11,12 +11,13 @@ export function DailyNotePage(): ReactNode {
   const { date } = useParams();
   const canonical = date === undefined ? localDailyNoteDate() : parseDailyNoteDate(date);
   const client = useApiClient();
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspace } = useWorkspace();
   const navigate = useNavigate();
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!workspace.canUseDailyNotes) return;
     if (canonical === null || date === undefined) return;
     const controller = new AbortController();
     queueMicrotask(() => {
@@ -44,7 +45,11 @@ export function DailyNotePage(): ReactNode {
     return () => {
       controller.abort();
     };
-  }, [attempt, canonical, client, date, navigate, workspaceId]);
+  }, [attempt, canonical, client, date, navigate, workspace.canUseDailyNotes, workspaceId]);
+
+  if (!workspace.canUseDailyNotes) {
+    return <Navigate replace to={`/w/${workspaceId}`} />;
+  }
 
   if (date === undefined) return <Navigate replace to={localDailyNoteDate()} />;
   if (canonical === null) {

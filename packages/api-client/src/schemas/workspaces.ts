@@ -22,6 +22,7 @@ export const workspaceSchema = z.object({
   canRename: z.boolean(),
   canManageMembers: z.boolean(),
   canLeave: z.boolean(),
+  canUseDailyNotes: z.boolean(),
   pendingInvitationId: z.uuid().nullable(),
 });
 

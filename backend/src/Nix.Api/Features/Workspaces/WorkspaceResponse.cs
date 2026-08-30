@@ -23,6 +23,7 @@ internal sealed record WorkspaceResponse(
     bool CanRename,
     bool CanManageMembers,
     bool CanLeave,
+    bool CanUseDailyNotes,
     Guid? PendingInvitationId);
 
 /// <summary>A request to create a shared workspace.</summary>

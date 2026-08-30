@@ -54,6 +54,7 @@ const SHARED: StubWorkspace = {
   name: 'Shared research',
   kind: 'shared',
   canLeave: true,
+  canUseDailyNotes: false,
 };
 
 const PENDING: StubWorkspace = {
@@ -302,6 +303,10 @@ describe('workspace management', () => {
     await user.click(screen.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Workspace name' })).toHaveValue(SHARED.name);
     expect(await screen.findByText(/Everyone who can be invited already has access/i)).toBeVisible();
+    expect(await screen.findByRole('combobox', { name: 'Person' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Person' })).toHaveDisplayValue(
+      'No people available to invite',
+    );
     expect(
       screen.queryByText(/New Person now has provisional access/i),
     ).not.toBeInTheDocument();

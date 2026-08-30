@@ -14,6 +14,7 @@ const SHARED: StubWorkspace = {
   name: 'Shared research',
   kind: 'shared',
   canLeave: true,
+  canUseDailyNotes: false,
 };
 
 beforeEach(() => {
@@ -22,13 +23,13 @@ beforeEach(() => {
 
 describe('workspace binding under StrictMode', () => {
   it.each([
-    ['items', '', (path: string) => path.endsWith('/items')],
-    ['calendar', '/calendar', (path: string) => path.endsWith('/calendar')],
-    ['graph', '/graph', (path: string) => path.endsWith('/graph')],
-    ['Daily notes', '/daily/2026-08-30', (path: string) => path.includes('/daily-notes/')],
+    ['items', '', (path: string) => path.endsWith('/items'), true],
+    ['calendar', '/calendar', (path: string) => path.endsWith('/calendar'), true],
+    ['graph', '/graph', (path: string) => path.endsWith('/graph'), true],
+    ['Daily notes', '/daily/2026-08-30', (path: string) => path.includes('/daily-notes/'), false],
   ] as const)(
     'aborts the deferred %s request from workspace A before workspace B can answer',
-    async (_label, suffix, matchesResource) => {
+    async (_label, suffix, matchesResource, requestsInSharedWorkspace) => {
       stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
       const fallbackFetch = fetch;
       const aSignals: AbortSignal[] = [];
@@ -88,8 +89,12 @@ describe('workspace binding under StrictMode', () => {
 
       await waitFor(() => {
         expect(activeA?.aborted).toBe(true);
-        expect(bRequests).toBeGreaterThan(0);
       });
+      if (requestsInSharedWorkspace) {
+        expect(bRequests).toBeGreaterThan(0);
+      } else {
+        expect(bRequests).toBe(0);
+      }
     },
   );
 

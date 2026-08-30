@@ -244,6 +244,30 @@ describe('a property input', () => {
     expect(onCommit).toHaveBeenCalledWith(null);
   });
 
+  it('selects a focused multi-select option with Enter', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ tags: ['Draft'] })}
+        property={propertyOf({
+          key: 'tags',
+          label: 'Tags',
+          type: 'multi_select',
+          options: ['Draft', 'Review'],
+        })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const review = screen.getByRole('checkbox', { name: 'Review' });
+    review.focus();
+    await person.keyboard('{Enter}');
+
+    expect(onCommit).toHaveBeenCalledWith(['Draft', 'Review']);
+  });
+
   it('round-trips a date as the text it was stored as, with no zone in the way', async () => {
     const person = userEvent.setup();
     const onCommit = vi.fn();
