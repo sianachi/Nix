@@ -19,6 +19,7 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
 {
     private static readonly Guid Owner = new("81818181-1111-4111-8111-818181818181");
     private static readonly Guid Viewer = new("82828282-2222-4222-8222-828282828282");
+    private static readonly Guid Invitee = new("84848484-4444-4444-8444-848484848484");
     private static readonly Guid PersonalWorkspace = new("83838383-3333-4333-8333-838383838383");
     private readonly NixPostgresFixture _fixture;
     private WebApplicationFactory<Program> _factory = null!;
@@ -69,7 +70,7 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
 
         var commenterInvitation = await SendAsync(HttpMethod.Post,
             $"/api/v1/workspaces/{PersonalWorkspace:D}/invitations", jwt,
-            new { email = "commenter@example.test", role = "commenter" });
+            new { principalId = Invitee, role = "commenter" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, commenterInvitation.StatusCode);
         Assert.Equal("workspaces.invalid_invitation", await ProblemCodeAsync(commenterInvitation));
 
@@ -118,7 +119,7 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
         var ownerJwt = await JwtAsync(Owner);
         var invited = await SendAsync(HttpMethod.Post,
             $"/api/v1/workspaces/{PersonalWorkspace:D}/invitations", ownerJwt,
-            new { email = "pending@example.test", role = "viewer" });
+            new { principalId = Invitee, role = "viewer" });
         Assert.Equal(HttpStatusCode.Created, invited.StatusCode);
         using var invitation = JsonDocument.Parse(await invited.Content.ReadAsStringAsync(Cancellation));
         var invitationId = invitation.RootElement.GetProperty("id").GetGuid();
@@ -188,7 +189,9 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
                     ('{Owner:D}', '{M0SchemaSeed.Alpha.TenantId:D}', 'https://http.test', 'owner',
                      'user', 'Owner', 'owner@http.test', 'owner@http.test', true, 'active'),
                     ('{Viewer:D}', '{M0SchemaSeed.Alpha.TenantId:D}', 'https://http.test', 'viewer',
-                     'user', 'Viewer', 'viewer@http.test', 'viewer@http.test', true, 'active');
+                     'user', 'Viewer', 'viewer@http.test', 'viewer@http.test', true, 'active'),
+                    ('{Invitee:D}', '{M0SchemaSeed.Alpha.TenantId:D}', 'https://http.test', 'invitee',
+                     'user', 'Invitee', 'invitee@http.test', 'invitee@http.test', true, 'active');
                 INSERT INTO workspace
                     (workspace_id, tenant_id, name, version_retention_days, coalesce_window_min,
                      storage_quota_bytes, created_at, personal_owner_principal_id)

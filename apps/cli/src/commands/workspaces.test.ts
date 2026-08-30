@@ -7,10 +7,13 @@ import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
 import {
+  acceptWorkspaceInvitation,
   changeWorkspaceMemberRole,
   createWorkspace,
+  declineWorkspaceInvitation,
   inviteWorkspaceMember,
   leaveWorkspace,
+  listWorkspaceInvitees,
   listWorkspaceInvitations,
   listWorkspaceMembers,
   removeWorkspaceMember,
@@ -91,19 +94,51 @@ describe('workspace administration commands', () => {
         inviteWorkspaceMember(
           'default',
           WORKSPACE,
-          'person@example.test',
+          PRINCIPAL,
           'editor',
           json,
           profile.deps,
         ),
       ),
     ).toMatchObject({ id: INVITATION, status: 'pending' });
-    expect(inviteBody).toEqual({ email: 'person@example.test', role: 'editor' });
+    expect(inviteBody).toEqual({ principalId: PRINCIPAL, role: 'editor' });
     expect(
       await capture((json) =>
         revokeWorkspaceInvitation('default', WORKSPACE, INVITATION, true, json, profile.deps),
       ),
     ).toEqual({ revoked: true, invitationId: INVITATION });
+    await profile.done();
+  });
+
+  it('lists eligible people and lets the recipient accept or decline an invitation', async () => {
+    const profile = await withProfile();
+    server.use(
+      http.get(`${API}/api/v1/workspaces/:workspaceId/invitees`, () =>
+        HttpResponse.json({ items: [invitee()], nextCursor: null }),
+      ),
+      http.post(
+        `${API}/api/v1/workspaces/:workspaceId/invitations/:invitationId/accept`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+      http.post(
+        `${API}/api/v1/workspaces/:workspaceId/invitations/:invitationId/decline`,
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+
+    expect(
+      await capture((json) => listWorkspaceInvitees('default', WORKSPACE, {}, json, profile.deps)),
+    ).toMatchObject({ count: 1, invitees: [{ principalId: PRINCIPAL, displayName: 'Collaborator' }] });
+    expect(
+      await capture((json) =>
+        acceptWorkspaceInvitation('default', WORKSPACE, INVITATION, json, profile.deps),
+      ),
+    ).toEqual({ accepted: true, invitationId: INVITATION });
+    expect(
+      await capture((json) =>
+        declineWorkspaceInvitation('default', WORKSPACE, INVITATION, true, json, profile.deps),
+      ),
+    ).toEqual({ declined: true, invitationId: INVITATION });
     await profile.done();
   });
 
@@ -159,7 +194,7 @@ describe('workspace administration commands', () => {
       inviteWorkspaceMember(
         undefined,
         WORKSPACE,
-        'person@example.test',
+        PRINCIPAL,
         'commenter',
         outputOptions(true),
       ),
@@ -169,6 +204,9 @@ describe('workspace administration commands', () => {
   it('requires explicit acknowledgement for every destructive workspace command', async () => {
     await expect(
       revokeWorkspaceInvitation(undefined, WORKSPACE, INVITATION, false, outputOptions(true)),
+    ).rejects.toThrow('requires --yes');
+    await expect(
+      declineWorkspaceInvitation(undefined, WORKSPACE, INVITATION, false, outputOptions(true)),
     ).rejects.toThrow('requires --yes');
     await expect(
       removeWorkspaceMember(undefined, WORKSPACE, PRINCIPAL, false, outputOptions(true)),
@@ -214,6 +252,7 @@ function workspace(name: string): Record<string, unknown> {
     canRename: true,
     canManageMembers: true,
     canLeave: false,
+    pendingInvitationId: null,
   };
 }
 
@@ -221,6 +260,7 @@ function invitation(): Record<string, unknown> {
   return {
     id: INVITATION,
     emailNormalized: 'person@example.test',
+    targetPrincipalId: PRINCIPAL,
     role: 'editor',
     status: 'pending',
     invitedByPrincipalId: PRINCIPAL,
@@ -228,6 +268,14 @@ function invitation(): Record<string, unknown> {
     acceptedAt: null,
     acceptedByPrincipalId: null,
     revokedAt: null,
+  };
+}
+
+function invitee(): Record<string, unknown> {
+  return {
+    principalId: PRINCIPAL,
+    displayName: 'Collaborator',
+    email: 'person@example.test',
   };
 }
 

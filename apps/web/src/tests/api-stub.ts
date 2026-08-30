@@ -50,6 +50,7 @@ export interface StubWorkspace {
   readonly canRename: boolean;
   readonly canManageMembers: boolean;
   readonly canLeave: boolean;
+  readonly pendingInvitationId: string | null;
 }
 
 export const STUB_WORKSPACE: StubWorkspace = {
@@ -62,6 +63,7 @@ export const STUB_WORKSPACE: StubWorkspace = {
   canRename: true,
   canManageMembers: true,
   canLeave: false,
+  pendingInvitationId: null,
 };
 
 /** A container's views, keyed by the item that offers them. */
@@ -157,6 +159,7 @@ export interface StubOptions {
   /** Who holds a role in the workspace, as the members read reports them. */
   readonly members?: readonly StubMember[];
   readonly invitations?: readonly StubInvitation[];
+  readonly invitees?: readonly StubInvitee[];
 
   /** Makes the members read fail. */
   readonly membersFail?: boolean;
@@ -336,6 +339,7 @@ export interface StubMember {
 export interface StubInvitation {
   readonly id: string;
   readonly emailNormalized: string;
+  readonly targetPrincipalId: string | null;
   readonly role: 'owner' | 'editor' | 'viewer';
   readonly status: 'pending' | 'accepted' | 'revoked';
   readonly invitedByPrincipalId: string;
@@ -344,6 +348,18 @@ export interface StubInvitation {
   readonly acceptedByPrincipalId: string | null;
   readonly revokedAt: string | null;
 }
+
+export interface StubInvitee {
+  readonly principalId: string;
+  readonly displayName: string;
+  readonly email: string;
+}
+
+const DEFAULT_INVITEE: StubInvitee = {
+  principalId: '77777777-bbbb-4bbb-8bbb-777777777777',
+  displayName: 'New Person',
+  email: 'new.person@example.com',
+};
 
 /** The id a minted stub token is given. Uuid-shaped, for the reason `createdId` gives. */
 function mintedTokenId(sequence: number): string {
@@ -416,6 +432,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     createTokenProblem,
     members = [],
     invitations = [],
+    invitees = [DEFAULT_INVITEE],
     membersFail = false,
     invitationsFail = false,
     memberMutationFails = false,
@@ -467,6 +484,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     assignableRoles: member.assignableRoles ?? ['owner', 'editor', 'viewer'],
   }));
   let heldInvitations = [...invitations];
+  let heldInvitees = [...invitees];
   let knownTemplates = [...templates];
   let exportedTemplate: StubTemplate | null = null;
   const templateDrafts = new Map<
@@ -635,12 +653,17 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
       if (invitationList !== null && method === 'POST') {
         const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
-          email?: string;
+          principalId?: string;
           role?: 'owner' | 'editor' | 'viewer';
         };
+        const target = heldInvitees.find((entry) => entry.principalId === body.principalId);
+        if (target === undefined) {
+          return Promise.resolve(json({ detail: 'The selected person cannot be invited.' }, 409));
+        }
         const created: StubInvitation = {
           id: `ffffffff-0000-4000-8000-${String(heldInvitations.length + 1).padStart(12, '0')}`,
-          emailNormalized: (body.email ?? '').trim().toLocaleLowerCase(),
+          emailNormalized: target.email.toLocaleLowerCase(),
+          targetPrincipalId: target.principalId,
           role: body.role ?? 'viewer',
           status: 'pending',
           invitedByPrincipalId: '1b1b1b1b-1111-4111-8111-1b1b1b1b1b1b',
@@ -650,7 +673,26 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           revokedAt: null,
         };
         heldInvitations.push(created);
+        heldMembers.push({
+          subjectType: 'principal',
+          subjectId: target.principalId,
+          subjectDisplayName: target.displayName,
+          email: target.email,
+          role: body.role === 'owner' ? 'editor' : (body.role ?? 'viewer'),
+          grantedAt: '2026-08-30T09:00:00.000Z',
+          canChangeRole: false,
+          canRemove: false,
+          assignableRoles: [],
+        });
+        heldInvitees = heldInvitees.filter((entry) => entry.principalId !== target.principalId);
         return Promise.resolve(json(created, 201));
+      }
+
+      const inviteeList = /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/invitees$/.exec(
+        parsedUrl.pathname,
+      );
+      if (inviteeList !== null && method === 'GET') {
+        return Promise.resolve(json({ items: heldInvitees, nextCursor: null }));
       }
 
       const invitationDetail =
@@ -663,6 +705,40 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             ? { ...entry, status: 'revoked', revokedAt: '2026-08-30T10:00:00.000Z' }
             : entry,
         );
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      const invitationResponse =
+        /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/invitations\/([0-9a-f-]{36})\/(accept|decline)$/.exec(
+          parsedUrl.pathname,
+        );
+      if (invitationResponse !== null && method === 'POST') {
+        const invitation = heldInvitations.find((entry) => entry.id === invitationResponse[2]);
+        if (invitation?.status !== 'pending') {
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        }
+        const accepted = invitationResponse[3] === 'accept';
+        heldInvitations = heldInvitations.map((entry) =>
+          entry.id === invitation.id
+            ? {
+                ...entry,
+                status: accepted ? 'accepted' : 'revoked',
+                acceptedAt: accepted ? '2026-08-30T10:00:00.000Z' : null,
+                acceptedByPrincipalId: accepted ? invitation.targetPrincipalId : null,
+                revokedAt: accepted ? null : '2026-08-30T10:00:00.000Z',
+              }
+            : entry,
+        );
+        if (!accepted && invitation.targetPrincipalId !== null) {
+          heldMembers = heldMembers.filter(
+            (entry) => entry.subjectId !== invitation.targetPrincipalId,
+          );
+          knownWorkspaces = knownWorkspaces.filter((entry) => entry.id !== invitationResponse[1]);
+        } else {
+          knownWorkspaces = knownWorkspaces.map((entry) =>
+            entry.id === invitationResponse[1] ? { ...entry, pendingInvitationId: null } : entry,
+          );
+        }
         return Promise.resolve(new Response(null, { status: 204 }));
       }
 

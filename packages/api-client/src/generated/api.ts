@@ -212,6 +212,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/invitees': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListWorkspaceInvitees'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/members/{principalId}': {
     parameters: {
       query?: never;
@@ -271,6 +287,38 @@ export interface paths {
     put?: never;
     post?: never;
     delete: operations['RevokeWorkspaceInvitation'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/invitations/{invitationId}/accept': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AcceptWorkspaceInvitation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/invitations/{invitationId}/decline': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['DeclineWorkspaceInvitation'];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -1086,7 +1134,8 @@ export interface components {
       publishInteractiveFormViewId: null | string;
     };
     CreateWorkspaceInvitationRequest: {
-      email: string;
+      /** Format: uuid */
+      principalId: string;
       /** @enum {string} */
       role: 'owner' | 'editor' | 'viewer';
     };
@@ -1112,6 +1161,10 @@ export interface components {
     };
     CursorPageOfWorkspaceInvitationResponse: {
       items: components['schemas']['WorkspaceInvitationResponse'][];
+      nextCursor: null | string;
+    };
+    CursorPageOfWorkspaceInviteeResponse: {
+      items: components['schemas']['WorkspaceInviteeResponse'][];
       nextCursor: null | string;
     };
     CursorPageOfWorkspaceMemberResponse: {
@@ -1707,6 +1760,8 @@ export interface components {
       /** Format: uuid */
       id: string;
       emailNormalized: string;
+      /** Format: uuid */
+      targetPrincipalId: null | string;
       role: string;
       status: string;
       /** Format: uuid */
@@ -1719,6 +1774,12 @@ export interface components {
       acceptedByPrincipalId: null | string;
       /** Format: date-time */
       revokedAt: null | string;
+    };
+    WorkspaceInviteeResponse: {
+      /** Format: uuid */
+      principalId: string;
+      displayName: string;
+      email: string;
     };
     WorkspaceMemberResponse: {
       subjectType: string;
@@ -1747,6 +1808,8 @@ export interface components {
       canRename: boolean;
       canManageMembers: boolean;
       canLeave: boolean;
+      /** Format: uuid */
+      pendingInvitationId: null | string;
     };
   };
   responses: never;
@@ -2333,6 +2396,40 @@ export interface operations {
       };
     };
   };
+  ListWorkspaceInvitees: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CursorPageOfWorkspaceInviteeResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   RemoveWorkspaceMember: {
     parameters: {
       query?: never;
@@ -2581,6 +2678,66 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AcceptWorkspaceInvitation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        invitationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  DeclineWorkspaceInvitation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        invitationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

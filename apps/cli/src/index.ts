@@ -16,10 +16,13 @@ import { Command } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
 import {
   changeWorkspaceMemberRole,
+  acceptWorkspaceInvitation,
   createWorkspace,
+  declineWorkspaceInvitation,
   inviteWorkspaceMember,
   leaveWorkspace,
   listWorkspaceInvitations,
+  listWorkspaceInvitees,
   listWorkspaceMembers,
   listWorkspaces,
   removeWorkspaceMember,
@@ -169,23 +172,61 @@ export function buildProgram(): Command {
         listWorkspaceInvitations(flags.profile, workspaceId, options, outputOptions(flags.json)),
       );
     });
-  ws.command('invite <workspaceId> <email>')
+  ws.command('invitees <workspaceId>')
+    .description('List active users who can be invited.')
+    .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (workspaceId: string, options: PageCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        listWorkspaceInvitees(flags.profile, workspaceId, options, outputOptions(flags.json)),
+      );
+    });
+  ws.command('invite <workspaceId> <principalId>')
     .requiredOption('--role <role>', 'owner, editor, or viewer')
     .description('Invite a collaborator.')
     .action(
-      async (workspaceId: string, email: string, options: { role: string }, command: Command) => {
+      async (workspaceId: string, principalId: string, options: { role: string }, command: Command) => {
         const flags = globalFlags(command);
         await run(() =>
           inviteWorkspaceMember(
             flags.profile,
             workspaceId,
-            email,
+            principalId,
             options.role,
             outputOptions(flags.json),
           ),
         );
       },
     );
+  ws.command('accept-invite <workspaceId> <invitationId>')
+    .description('Accept an invitation addressed to the current principal.')
+    .action(async (workspaceId: string, invitationId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        acceptWorkspaceInvitation(
+          flags.profile,
+          workspaceId,
+          invitationId,
+          outputOptions(flags.json),
+        ),
+      );
+    });
+  ws.command('decline-invite <workspaceId> <invitationId>')
+    .description('Decline an invitation and remove provisional access.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (workspaceId: string, invitationId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        declineWorkspaceInvitation(
+          flags.profile,
+          workspaceId,
+          invitationId,
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
+      );
+    });
   ws.command('revoke-invite <workspaceId> <invitationId>')
     .description('Revoke a pending invitation.')
     .option('--yes', 'confirm this destructive operation', false)

@@ -22,6 +22,7 @@ export const workspaceSchema = z.object({
   canRename: z.boolean(),
   canManageMembers: z.boolean(),
   canLeave: z.boolean(),
+  pendingInvitationId: z.uuid().nullable(),
 });
 
 export type Workspace = z.infer<typeof workspaceSchema>;
@@ -52,6 +53,7 @@ void _workspaceMemberContract;
 export const workspaceInvitationSchema = z.object({
   id: z.uuid(),
   emailNormalized: z.string().min(1).max(320),
+  targetPrincipalId: z.uuid().nullable(),
   role: z.enum(['owner', 'editor', 'commenter', 'viewer']),
   status: z.enum(['pending', 'accepted', 'revoked']),
   invitedByPrincipalId: z.uuid(),
@@ -66,6 +68,18 @@ const _workspaceInvitationContract = workspaceInvitationSchema satisfies z.ZodTy
   components['schemas']['WorkspaceInvitationResponse']
 >;
 void _workspaceInvitationContract;
+
+export const workspaceInviteeSchema = z.object({
+  principalId: z.uuid(),
+  displayName: z.string(),
+  email: z.string().min(1).max(320),
+});
+export type WorkspaceInvitee = z.infer<typeof workspaceInviteeSchema>;
+
+const _workspaceInviteeContract = workspaceInviteeSchema satisfies z.ZodType<
+  components['schemas']['WorkspaceInviteeResponse']
+>;
+void _workspaceInviteeContract;
 
 export const dailyNoteSchema = z.object({ itemId: z.uuid() });
 export type DailyNote = z.infer<typeof dailyNoteSchema>;

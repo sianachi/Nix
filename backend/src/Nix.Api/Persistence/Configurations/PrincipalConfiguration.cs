@@ -67,5 +67,10 @@ internal sealed class PrincipalConfiguration : IEntityTypeConfiguration<Principa
 
         builder.HasIndex(principal => new { principal.TenantId, principal.EmailNormalized })
             .HasFilter("kind = 'user' AND status = 'active' AND email_verified AND email_normalized IS NOT NULL");
+
+        builder.HasIndex(principal => new { principal.TenantId, principal.Id })
+            .HasDatabaseName("ix_principal_workspace_invitee")
+            .HasFilter("kind = 'user' AND status = 'active' AND email_verified AND email_normalized IS NOT NULL AND email IS NOT NULL")
+            .IncludeProperties(principal => new { principal.DisplayName, principal.Email });
     }
 }

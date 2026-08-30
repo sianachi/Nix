@@ -29,6 +29,7 @@ import { useTemplates } from '../templates/use-templates';
 import { TemplateLibraryProvider } from '../templates/template-library-context';
 import { useWorkspace } from '../workspaces/workspace-context';
 import { WorkspaceSwitcher } from '../workspaces/workspace-switcher';
+import { WorkspaceInvitationNotice } from '../workspaces/workspace-invitation-notice';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -467,6 +468,8 @@ export function AppShell(): ReactNode {
 
             <ProfileMenu principal={principal} />
           </header>
+
+          <WorkspaceInvitationNotice />
 
           {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
               rather than to the viewport. That keeps the overlay below the header, over the pane

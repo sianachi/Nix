@@ -146,6 +146,8 @@ public static class ProvisioningSql
                AND workspace.tenant_id = invitation.tenant_id
                AND invitation.email_normalized = @email_normalized
                AND invitation.status = 'pending'
+               AND (invitation.target_principal_id IS NULL
+                    OR invitation.target_principal_id = @principal_id)
                AND unambiguous.allowed
                AND (workspace.personal_owner_principal_id IS NULL
                     OR invitation.role IN ('editor', 'viewer'))
