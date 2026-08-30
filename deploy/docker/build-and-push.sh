@@ -5,7 +5,6 @@
 #   REGISTRY=ghcr.io/you/nix PLATFORM=linux/arm64 \
 #   VITE_OIDC_ISSUER=https://id.example.com \
 #   VITE_OIDC_CLIENT_ID=your-client-id \
-#   VITE_WORKSPACE_ID=00000000-0000-0000-0000-000000000000 \
 #   deploy/docker/build-and-push.sh
 #
 # PLATFORM must match the cluster node's architecture. @nix/media depends on
@@ -21,7 +20,6 @@ cd "$(git rev-parse --show-toplevel)"
 : "${REGISTRY:?set REGISTRY, e.g. ghcr.io/you/nix}"
 : "${VITE_OIDC_ISSUER:?set VITE_OIDC_ISSUER, e.g. https://id.example.com}"
 : "${VITE_OIDC_CLIENT_ID:?set VITE_OIDC_CLIENT_ID}"
-: "${VITE_WORKSPACE_ID:?set VITE_WORKSPACE_ID}"
 PLATFORM="${PLATFORM:-linux/arm64}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 
@@ -43,7 +41,6 @@ docker buildx build --platform "$PLATFORM" --target web \
   -f deploy/docker/web.Dockerfile \
   --build-arg VITE_OIDC_ISSUER="$VITE_OIDC_ISSUER" \
   --build-arg VITE_OIDC_CLIENT_ID="$VITE_OIDC_CLIENT_ID" \
-  --build-arg VITE_WORKSPACE_ID="$VITE_WORKSPACE_ID" \
   -t "$REGISTRY/web:$TAG" --push .
 
 echo "Built and pushed tag $TAG. Deploy with:"
