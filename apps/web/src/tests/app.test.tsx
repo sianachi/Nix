@@ -42,10 +42,10 @@ describe('the design token specimen page', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
-  it('tells the visitor which path was not found instead of showing a bare error', () => {
+  it('tells the visitor which path was not found instead of showing a bare error', async () => {
     renderAt(<App />, '/no-such-place');
 
-    expect(screen.getByRole('heading', { name: /no such page/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /no such page/i })).toBeVisible();
     expect(screen.getByText(/no-such-place/)).toBeVisible();
   });
 });

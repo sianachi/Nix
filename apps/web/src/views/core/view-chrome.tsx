@@ -141,6 +141,20 @@ export function resolveLoadState(container: ContainerData, subject: string): Rea
     );
   }
 
+  if (container.status === 'partial') {
+    return (
+      <ErrorPanel
+        title={`${capitalise(subject)} is only partially available`}
+        detail={container.error ?? `Some configuration for ${subject} could not be read.`}
+        action={
+          <Button variant="secondary" onClick={() => void container.reload()}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+
   return null;
 }
 

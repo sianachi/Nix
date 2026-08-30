@@ -5,9 +5,24 @@
  * views a container offers and which can render, and `itemQuery` runs one of them.
  */
 
-import { defineCommand, defineQuery, type CommandEndpoint, type QueryEndpoint } from '../endpoints.js';
-import { containerViewsSchema, type ContainerViews } from '../schemas/index.js';
-import type { SetViewsRequestContract } from '../contracts.js';
+import {
+  defineCommand,
+  defineQuery,
+  type CommandEndpoint,
+  type QueryEndpoint,
+} from '../endpoints.js';
+import {
+  containerViewConfigurationsSchema,
+  containerViewsSchema,
+  type ContainerViewConfigurations,
+  type ContainerViews,
+} from '../schemas/index.js';
+import type {
+  AppendViewSetupRequestContract,
+  ReplaceViewSetupRequestContract,
+  SetViewsRequestContract,
+} from '../contracts.js';
+import { structuredItemSchema, type StructuredItem } from './items.js';
 
 /** The views a container offers, which cannot currently render, and which one opens. */
 export const containerViews = (itemId: string): QueryEndpoint<ContainerViews> =>
@@ -16,6 +31,17 @@ export const containerViews = (itemId: string): QueryEndpoint<ContainerViews> =>
     path: `/api/v1/items/${itemId}/views`,
     schema: containerViewsSchema,
     cacheKey: ['items', itemId, 'views'],
+  });
+
+/** Reads the view fields required by view-backed write operations. */
+export const containerViewConfigurations = (
+  itemId: string,
+): QueryEndpoint<ContainerViewConfigurations> =>
+  defineQuery<ContainerViewConfigurations>({
+    operation: 'views.getConfigurations',
+    path: `/api/v1/items/${itemId}/views`,
+    schema: containerViewConfigurationsSchema,
+    cacheKey: ['items', itemId, 'view-configurations'],
   });
 
 /**
@@ -39,4 +65,33 @@ export const setContainerViews = (
       ['items', itemId, 'views'],
       ['items', itemId],
     ],
+  });
+
+/** Atomically appends a schema-and-view setup to an item. */
+export const appendViewSetup = (
+  itemId: string,
+  body: AppendViewSetupRequestContract,
+): CommandEndpoint<StructuredItem> =>
+  defineCommand<StructuredItem>({
+    operation: 'views.appendSetup',
+    method: 'POST',
+    path: `/api/v1/items/${itemId}/view-setups`,
+    schema: structuredItemSchema,
+    body,
+    invalidates: [['items', itemId]],
+  });
+
+/** Atomically replaces one schema-and-view setup on an item. */
+export const replaceViewSetup = (
+  itemId: string,
+  viewId: string,
+  body: ReplaceViewSetupRequestContract,
+): CommandEndpoint<StructuredItem> =>
+  defineCommand<StructuredItem>({
+    operation: 'views.replaceSetup',
+    method: 'PUT',
+    path: `/api/v1/items/${itemId}/view-setups/${encodeURIComponent(viewId)}`,
+    schema: structuredItemSchema,
+    body,
+    invalidates: [['items', itemId]],
   });

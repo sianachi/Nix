@@ -1,14 +1,47 @@
 import { renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiClientProvider } from '../../../api/api-client-provider';
 import { useContainer } from '../../../views/core/use-container';
-import { item } from '../../api-stub';
+import { WorkspaceProvider } from '../../../workspaces/workspace-context';
+import { item, STUB_WORKSPACE } from '../../api-stub';
 
 const getAccessToken = (): Promise<string> => Promise.resolve('token');
 
 vi.mock('../../../auth/auth-provider', () => ({
   useAuth: () => ({ getAccessToken }),
 }));
+
+function Wrapper({ children }: { readonly children: ReactNode }): ReactNode {
+  return (
+    <MemoryRouter initialEntries={[`/w/${STUB_WORKSPACE.id}`]}>
+      <ApiClientProvider>
+        <Routes>
+          <Route
+            path="/w/:workspaceId"
+            element={
+              <WorkspaceProvider
+                state={{
+                  status: 'ready',
+                  workspaces: [STUB_WORKSPACE],
+                  error: null,
+                  reload: () => undefined,
+                  workspaceCreated: () => undefined,
+                  workspaceUpdated: () => undefined,
+                  workspaceRemoved: () => undefined,
+                }}
+              >
+                {children}
+              </WorkspaceProvider>
+            }
+          />
+        </Routes>
+      </ApiClientProvider>
+    </MemoryRouter>
+  );
+}
 
 describe('container loading', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -51,16 +84,59 @@ describe('container loading', () => {
   });
 
   it('cancels an unfinished page walk when its consumer unmounts', async () => {
-    const { unmount } = renderHook(() => useContainer('a1000000-0000-4000-8000-000000000020'));
+    const { unmount } = renderHook(() => useContainer('a1000000-0000-4000-8000-000000000020'), {
+      wrapper: Wrapper,
+    });
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('cursor='))).toBe(true);
     });
     const cursorCall = fetchMock.mock.calls.find(([url]) => String(url).includes('cursor='));
-    const signal = (cursorCall?.[1] as RequestInit | undefined)?.signal;
+    const request = cursorCall?.[0] as RequestInfo | URL | undefined;
+    const signal =
+      request instanceof Request
+        ? request.signal
+        : (cursorCall?.[1] as RequestInit | undefined)?.signal;
 
     expect(signal?.aborted).toBe(false);
     unmount();
     expect(signal?.aborted).toBe(true);
+  });
+
+  it('reports a parsed API shape that fails the container boundary as partial telemetry', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith('/schema')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ properties: [], declared: [], inherit: true })),
+        );
+      }
+      if (url.endsWith('/views')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              views: [{ id: 'list', name: 'List', kind: 'list', dateProperty: null }],
+              unrenderable: [],
+              default: 'list',
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ items: [], nextCursor: null })));
+    });
+
+    const { result } = renderHook(() => useContainer('a1000000-0000-4000-8000-000000000020'), {
+      wrapper: Wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('partial');
+    });
+    expect(result.current.error).toMatch(/views could not be read/i);
+    expect(warning).toHaveBeenCalledWith(
+      'The container views did not match the contract:',
+      expect.any(String),
+    );
   });
 });

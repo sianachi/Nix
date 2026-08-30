@@ -44,6 +44,7 @@ describe('the navigation rail', () => {
     const items = within(rail()).getAllByRole('listitem');
     expect(items.map((item) => item.textContent)).toEqual([
       'Notes',
+      'Daily notes',
       'Calendar',
       'Graph',
       'Bookmarks',
@@ -51,15 +52,18 @@ describe('the navigation rail', () => {
       'Import',
       'Settings',
     ]);
-    expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute('href', '/');
+    expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute(
+      'href',
+      '/w/00000000-0000-4000-8000-000000000001',
+    );
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
       'href',
-      '/calendar',
+      '/w/00000000-0000-4000-8000-000000000001/calendar',
     );
     expect(within(rail()).getByRole('button', { name: 'Import' })).toBeInTheDocument();
     expect(within(rail()).getByRole('link', { name: 'Settings' })).toHaveAttribute(
       'href',
-      '/settings',
+      '/w/00000000-0000-4000-8000-000000000001/settings',
     );
   });
 
@@ -104,6 +108,7 @@ describe('the navigation rail', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
 
     const notes = within(rail()).getByRole('link', { name: 'Notes' });
+    const daily = within(rail()).getByRole('link', { name: 'Daily notes' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
@@ -113,11 +118,17 @@ describe('the navigation rail', () => {
     calendar.focus();
 
     await user.keyboard('{ArrowUp}');
+    expect(daily).toHaveFocus();
+
+    await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
 
     // Nothing wraps: the ends of the rail are meant to be findable by feel.
     await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(daily).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
     expect(calendar).toHaveFocus();
@@ -219,6 +230,7 @@ describe('the navigation rail', () => {
     stubCoreApi();
     renderAt(<App />);
 
+    await screen.findByRole('navigation', { name: /destinations/i });
     await user.click(within(rail()).getByRole('button', { name: 'Import' }));
     const dialog = screen.getByRole('dialog', { name: 'Import' });
     expect(within(dialog).getByText(/Obsidian vault/i)).toBeVisible();
@@ -268,7 +280,7 @@ describe('the navigation rail on a narrow screen', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
-    expect(within(rail()).getAllByRole('link')).toHaveLength(6);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(7);
     expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
   });
 

@@ -12,6 +12,10 @@ vi.mock('../../api/api-client-provider', () => ({
   useApiClient: () => ({}) as unknown,
 }));
 
+vi.mock('../../workspaces/workspace-context', () => ({
+  useWorkspace: () => ({ workspaceId: '00000000-0000-4000-8000-000000000001' }),
+}));
+
 const PARENT = 'c1000000-0000-4000-8000-000000000031';
 
 function report(overrides: Partial<run.ImportRunReport> = {}): run.ImportRunReport {
@@ -363,7 +367,11 @@ describe('the import dialog', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'Undo import' }));
 
-    expect(undo).toHaveBeenCalledWith(expect.anything(), 'r1000000-0000-4000-8000-000000000001');
+    expect(undo).toHaveBeenCalledWith(
+      expect.anything(),
+      '00000000-0000-4000-8000-000000000001',
+      'r1000000-0000-4000-8000-000000000001',
+    );
     expect(await screen.findByText(/they can be restored/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undone' })).toBeDisabled();
   });

@@ -29,7 +29,11 @@ export interface OpenTab {
 }
 
 interface TabsState {
+  readonly workspaceId: string | null;
   readonly byPane: Readonly<Record<number, readonly OpenTab[]>>;
+
+  /** A routed workspace changed, so no document working set can cross the boundary. */
+  readonly workspaceChanged: (workspaceId: string) => void;
 
   /**
    * A document became the only addressed pane.
@@ -144,7 +148,12 @@ function claimItem(
 }
 
 export const useTabStore = create<TabsState>((set) => ({
+  workspaceId: null,
   byPane: {},
+
+  workspaceChanged: (workspaceId) => {
+    set((state) => (state.workspaceId === workspaceId ? state : { workspaceId, byPane: {} }));
+  },
 
   itemOpenedAlone: (itemId, pinned) => {
     set((state) => {

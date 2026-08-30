@@ -27,6 +27,8 @@ import { useSidebar } from '../layout/use-sidebar';
 import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 import { useTemplates } from '../templates/use-templates';
 import { TemplateLibraryProvider } from '../templates/template-library-context';
+import { useWorkspace } from '../workspaces/workspace-context';
+import { WorkspaceSwitcher } from '../workspaces/workspace-switcher';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -104,6 +106,7 @@ const MAX_SHELL_TOASTS = 2;
 
 export function AppShell(): ReactNode {
   const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
@@ -165,7 +168,7 @@ export function AppShell(): ReactNode {
 
   function startStructured(parentId: string | null, recipe: StructuredRecipeId): void {
     const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
-    void navigate(`/new/${recipe}${search}`);
+    void navigate(`/w/${workspaceId}/new/${recipe}${search}`);
     if (narrow && sidebar.visible) {
       sidebar.toggle();
     }
@@ -173,13 +176,13 @@ export function AppShell(): ReactNode {
 
   function startTemplate(parentId: string | null, templateId: string): void {
     const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
-    void navigate(`/templates/${templateId}/create${search}`);
+    void navigate(`/w/${workspaceId}/templates/${templateId}/create${search}`);
     if (narrow && sidebar.visible) sidebar.toggle();
   }
 
   function browseTemplates(parentId: string | null): void {
     const search = parentId === null ? '' : `?parent=${encodeURIComponent(parentId)}`;
-    void navigate(`/templates${search}`);
+    void navigate(`/w/${workspaceId}/templates${search}`);
     if (narrow && sidebar.visible) sidebar.toggle();
   }
 
@@ -423,7 +426,7 @@ export function AppShell(): ReactNode {
         />
 
         <div className={`flex flex-1 flex-col ${paneClip}`}>
-          <header className="flex shrink-0 items-center gap-3 px-4 py-2">
+          <header className="flex min-w-0 shrink-0 items-center gap-2 px-2 py-2 sm:gap-3 sm:px-4">
             {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
                 with the thing it controls cannot bring it back. */}
             <button
@@ -438,25 +441,28 @@ export function AppShell(): ReactNode {
             </button>
 
             <Link
-              to="/"
+              to={`/w/${workspaceId}`}
               aria-label="Nix home"
               className={`inline-flex size-(--control-sm) items-center justify-center rounded-md border border-divider font-heading text-xs ${focusRing}`}
             >
               NX
             </Link>
 
+            <WorkspaceSwitcher />
+
             <button
               type="button"
+              aria-label="Search"
               onClick={() => {
                 setSearchOpen(true);
               }}
-              className={`ml-auto flex items-center gap-2 rounded-md bg-surface px-3 py-1.5 text-xs text-muted hover:bg-foreground/7 ${focusRing}`}
+              className={`ml-auto flex shrink-0 items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs text-muted hover:bg-foreground/7 sm:px-3 ${focusRing}`}
             >
               <Icon icon={Search} size="sm" />
-              Search
+              <span className="hidden sm:inline">Search</span>
               {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can
                   discover is a shortcut nobody uses. */}
-              <kbd className="font-mono text-2xs text-muted">Ctrl K</kbd>
+              <kbd className="hidden font-mono text-2xs text-muted md:inline">Ctrl K</kbd>
             </button>
 
             <ProfileMenu principal={principal} />

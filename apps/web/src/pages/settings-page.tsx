@@ -4,7 +4,7 @@ import type { ReactElement } from 'react';
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
-import { MembersSection } from '../settings/members-section';
+import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 
 /**
  * The settings destination: personal editor preferences, workspace members, and access tokens.
@@ -28,7 +28,7 @@ export function SettingsPage(): ReactElement {
       </Text>
 
       <EditorPreferencesSection />
-      <MembersSection />
+      <WorkspaceManagementSection />
       <AccessTokensSection />
     </div>
   );
