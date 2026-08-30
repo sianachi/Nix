@@ -24,4 +24,7 @@ public static class AuthenticationRefusalCodes
 
     /// <summary>A token that stands but does not reach this route.</summary>
     public const string InsufficientScope = "auth.insufficient_scope";
+
+    /// <summary>The registered provider could not safely complete first-login provisioning.</summary>
+    public const string ProvisioningUnavailable = "auth.provisioning_unavailable";
 }

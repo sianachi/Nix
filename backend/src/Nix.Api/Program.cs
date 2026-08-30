@@ -79,6 +79,18 @@ builder.Services.AddSingleton<PublicFormTokenService>();
 // exchange endpoint reports "unconfigured" honestly rather than failing to resolve.
 builder.Services.AddSingleton<SelfIssuedTokenService>();
 
+// UserInfo is a separate trust boundary from key discovery. Redirects are disabled so a
+// registered endpoint cannot bounce a bearer token to another origin; response bodies are read
+// with a stricter streamed bound by UserInfoClient itself.
+builder.Services
+    .AddHttpClient<Nix.Abstractions.IUserInfoClient, UserInfoClient>(client =>
+        client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = System.Net.DecompressionMethods.None,
+    });
+
 // RFC 9457 problem details for every failure the framework produces. Endpoint-owned
 // failures build their payload through ApiProblem; this covers the rest and
 // guarantees the stable `code` extension is present on both paths.
