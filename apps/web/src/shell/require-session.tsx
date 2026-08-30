@@ -28,8 +28,8 @@ export function RequireSession(): ReactNode {
   }
 
   if (status === 'unknown' || status === 'authenticating') {
-    // A silent renew is in flight. Showing the login screen here would flash it in front of
-    // someone whose session is about to be restored, which reads as being signed out.
+    // Core is resolving the HttpOnly session. Showing the login screen here would flash it in
+    // front of someone whose session is about to be restored, which reads as being signed out.
     return (
       <main className="flex min-h-dvh items-center justify-center bg-background px-6">
         <Text variant="note" tone="muted">
@@ -41,7 +41,7 @@ export function RequireSession(): ReactNode {
 
   const configurationHint = isConfigured
     ? null
-    : 'No identity provider is configured. Run deploy/seed/zitadel-configure.sh, then set VITE_OIDC_ISSUER and VITE_OIDC_CLIENT_ID.';
+    : 'Interactive sign-in is not configured on this Nix server.';
 
   return (
     <LoginPage

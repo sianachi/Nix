@@ -8,15 +8,17 @@
 #
 # The CSP here must stay in step with the meta tag in apps/web/index.html, including the
 # script hash covering the inline theme script - change one without the other and you have
-# two policies. NIX_OIDC_ISSUER must be an origin (scheme, host, optional port, no path):
-# CSP source expressions match on origin, so an issuer URL carrying a path silently fails to
-# match and sign-in breaks with a console error rather than an obvious one.
+# two policies. Provider communication is server-side through Core.
 :8090 {
 	root * /srv/nix/web
 	encode zstd gzip
 
 	# Core keeps its /api prefix - its routes are already under /api/v1.
 	handle /api/* {
+		reverse_proxy nix-api:8080
+	}
+
+	handle /auth/* {
 		reverse_proxy nix-api:8080
 	}
 
@@ -38,7 +40,7 @@
 	}
 
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {env.NIX_OIDC_ISSUER}; frame-src 'self' {env.NIX_OIDC_ISSUER}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

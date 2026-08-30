@@ -32,6 +32,9 @@ public static class NixTables
     /// <summary>Registered OIDC issuers.</summary>
     public const string IdentityProvider = "identity_provider";
 
+    /// <summary>Core-owned browser sessions.</summary>
+    public const string BrowserSession = "browser_session";
+
     /// <summary>Identities provisioned from an issuer.</summary>
     public const string Principal = "principal";
 
@@ -113,6 +116,7 @@ public static class NixTables
         Tenant,
         Workspace,
         IdentityProvider,
+        BrowserSession,
         Principal,
         PrincipalGroup,
         GroupMembership,
@@ -180,6 +184,7 @@ public static class NixTables
             [Tenant] = FullDml,
             [Workspace] = FullDml,
             [IdentityProvider] = FullDml,
+            [BrowserSession] = ["INSERT", "SELECT", "UPDATE"],
             [Principal] = FullDml,
             [PrincipalGroup] = FullDml,
             [GroupMembership] = FullDml,

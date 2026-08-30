@@ -98,9 +98,6 @@ afterEach(() => {
   // way: a message left standing would be read by the next test's live region.
   resetAnnouncements();
 
-  // Tests that assert on an unconfigured build stub VITE_OIDC_* to empty. Left standing, that
-  // would silently unconfigure every test that ran afterwards.
-  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 
   // Defense in depth for the suite's default viewport. `stubViewport`'s plain assignment (see its

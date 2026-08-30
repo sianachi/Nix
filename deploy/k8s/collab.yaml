@@ -1,5 +1,4 @@
-# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG, $OIDC_ISSUER,
-# $OIDC_CLIENT_ID.
+# Rendered with envsubst by deploy/k8s/deploy.sh.
 apiVersion: v1
 kind: Service
 metadata: { name: nix-collab, namespace: nix }
@@ -37,10 +36,10 @@ spec:
               value: http://nix-api:8080
             - name: NIX_COLLAB_INTERNAL_SECRET
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
-            - name: NIX_COLLAB_OIDC_ISSUER
-              value: "${OIDC_ISSUER}"
+            - name: NIX_COLLAB_OIDC_ISSUERS
+              value: "${OIDC_ISSUER},https://${DOMAIN}|http://nix-api:8080/public/v1/auth/jwks"
             - name: NIX_COLLAB_OIDC_AUDIENCE
-              value: "${OIDC_CLIENT_ID}"   # comma-separated; any one accepted
+              value: "${OIDC_CLIENT_ID},nix"
             - name: NIX_COLLAB_REAUTH_SECONDS
               value: "60"
             - name: NIX_COLLAB_MAX_RESIDENT_MB

@@ -11,9 +11,11 @@ public static class ProvisioningSql
         VALUES
             (@principal_id, @tenant_id, @subject, @issuer, 'user', @display_name,
              @email, @email_normalized, @email_verified, 'active', false)
-        ON CONFLICT (tenant_id, external_issuer, external_subject)
-            WHERE external_issuer IS NOT NULL
-        DO NOTHING
+        -- Both the issuer-qualified identity and its deterministic UUID are uniqueness guards.
+        -- Catch either conflict: PostgreSQL may report the primary-key arbiter first when two
+        -- first-login transactions race. ReadPrincipal below still requires the exact external
+        -- identity, so an impossible UUID collision fails the invariant rather than admitting it.
+        ON CONFLICT DO NOTHING
         RETURNING true
         """;
 

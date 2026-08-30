@@ -6,8 +6,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { OIDC_ORIGIN_TOKEN, substituteOidcOrigin } from '../../vite.config';
-
 // The application's content security policy is written twice - as a meta tag in index.html, so it
 // holds on the Vite dev server and any static preview, and as a header in deploy/Caddyfile, so it
 // holds in front of the built bundle. Two copies of one policy drift, and CSP drift is silent
@@ -90,13 +88,12 @@ describe('the content security policy', () => {
     }
   });
 
-  it('lets the identity provider be reached and framed, which sign-in and every reload need', () => {
-    // oidc-client-ts fetches discovery, posts the code exchange and loads userinfo (connect-src),
-    // and drives a hidden iframe against the authorize endpoint for silent renew (frame-src).
-    // Tokens are held in memory only, so a reload without that renew is a signed-out session.
+  it('keeps provider communication out of the browser', () => {
+    // Core owns discovery, token exchange and UserInfo. The browser reaches only its own origin,
+    // so a compromised provider page cannot become an admitted script connection or frame.
     for (const directive of ['connect-src', 'frame-src']) {
-      expect(meta.get(directive)).toEqual(["'self'", OIDC_ORIGIN_TOKEN]);
-      expect(caddy.get(directive)).toEqual(["'self'", '{env.NIX_OIDC_ISSUER}']);
+      expect(meta.get(directive)).toEqual(["'self'"]);
+      expect(caddy.get(directive)).toEqual(["'self'"]);
     }
   });
 
@@ -117,18 +114,7 @@ describe('the content security policy', () => {
 
   it('is the same policy in the document and in front of the deployed bundle', () => {
     const shared = (policy: ReadonlyMap<string, readonly string[]>) =>
-      [...policy]
-        .filter(([name]) => name !== 'frame-ancestors')
-        .map(([name, sources]) => [
-          name,
-          // The issuer origin is the one value spelled differently: a build-time substitution in
-          // the document, an environment placeholder in Caddy. Everything else must match.
-          sources.map((source) =>
-            source === OIDC_ORIGIN_TOKEN || source === '{env.NIX_OIDC_ISSUER}'
-              ? '<issuer>'
-              : source,
-          ),
-        ]);
+      [...policy].filter(([name]) => name !== 'frame-ancestors');
 
     expect(shared(caddy)).toEqual(shared(meta));
   });
@@ -151,42 +137,5 @@ describe('the content security policy', () => {
 
     expect(meta.get('script-src')).toContain(expected);
     expect(caddy.get('script-src')).toContain(expected);
-  });
-});
-
-describe('the issuer origin substitution', () => {
-  it('names the issuer origin, dropping any path the issuer URL carries', () => {
-    const substituted = substituteOidcOrigin(indexHtml, 'https://id.example.com/oauth/v2');
-
-    expect(substituted).not.toContain(OIDC_ORIGIN_TOKEN);
-    expect(directives(metaPolicy(substituted)).get('connect-src')).toEqual([
-      "'self'",
-      'https://id.example.com',
-    ]);
-    expect(directives(metaPolicy(substituted)).get('frame-src')).toEqual([
-      "'self'",
-      'https://id.example.com',
-    ]);
-  });
-
-  it('keeps a port, which every development issuer has', () => {
-    const substituted = substituteOidcOrigin(indexHtml, 'http://localhost:8300');
-
-    expect(directives(metaPolicy(substituted)).get('connect-src')).toEqual([
-      "'self'",
-      'http://localhost:8300',
-    ]);
-  });
-
-  it('falls back to self alone when no issuer is configured', () => {
-    // An unset or unparseable issuer must leave a valid policy rather than a literal placeholder,
-    // which a browser would read as a source expression it does not understand.
-    for (const issuer of [undefined, '', 'not-a-url']) {
-      const substituted = substituteOidcOrigin(indexHtml, issuer);
-
-      expect(substituted).not.toContain(OIDC_ORIGIN_TOKEN);
-      expect(directives(metaPolicy(substituted)).get('connect-src')).toEqual(["'self'"]);
-      expect(directives(metaPolicy(substituted)).get('frame-src')).toEqual(["'self'"]);
-    }
   });
 });

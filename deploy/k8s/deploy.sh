@@ -31,6 +31,10 @@ if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
+if ! kubectl -n nix get secret nix-auth >/dev/null 2>&1; then
+  echo "secret nix-auth not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
+  exit 1
+fi
 
 echo "== Postgres =="
 kubectl apply -f deploy/k8s/postgres.yaml

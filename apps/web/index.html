@@ -35,17 +35,13 @@
         http: out makes the picture picker lie: the browser blocks the image, onError fires, and the
         UI reports an address the server just accepted as wrong. img-src cannot execute anything,
         which is what makes the loosest directive here the cheapest one.
-      - connect-src and frame-src name the identity provider's origin. oidc-client-ts fetches
-        discovery, exchanges the code and loads userinfo over connect-src, and navigates a hidden
-        iframe to the issuer's authorize endpoint for silent renew, which frame-src governs. Tokens
-        live in memory only (see src/auth/oidc-config.ts), so every reload depends on that renew.
-        The origin is per-deployment, so it is substituted at build time from VITE_OIDC_ISSUER by
-        the oidcOriginInPolicy plugin in vite.config.ts; with no issuer configured the token is
-        removed and the directives fall back to 'self'.
+      Provider communication is server-side. Browser fetches and WebSockets remain same-origin;
+      no identity-provider origin is admitted to connect-src or frame-src, and provider tokens
+      never enter JavaScript.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' __NIX_OIDC_ORIGIN__; frame-src 'self' __NIX_OIDC_ORIGIN__; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
 
     <!--
