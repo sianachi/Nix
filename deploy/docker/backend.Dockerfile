@@ -31,7 +31,9 @@ EXPOSE 8080
 USER $APP_UID
 ENTRYPOINT ["dotnet", "Nix.Api.dll"]
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled-extra AS migrator
+# The migrator references the API persistence assembly, which carries the ASP.NET shared
+# framework; use the same runtime family as Core so the migration job can start on ARM hosts.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS migrator
 WORKDIR /app
 COPY --from=build /out/migrator ./
 USER $APP_UID
