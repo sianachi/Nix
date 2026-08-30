@@ -27,7 +27,8 @@ public static class IdentitySql
     /// body uses <c>IX_identity_provider_issuer_audience</c>.
     /// </remarks>
     public const string ResolveProvider = """
-        SELECT tenant_id, issuer, audience, jwks_uri, allowed_algorithms
+        SELECT provider_id, tenant_id, issuer, audience, jwks_uri, allowed_algorithms,
+               jit_provisioning_enabled, userinfo_uri
         FROM nix_resolve_identity_provider(@issuer, @audience)
         """;
 
@@ -46,8 +47,14 @@ public static class IdentitySql
     /// which is unique, so this is a single index seek.
     /// </para>
     /// </remarks>
-    public const string FindPrincipalBySubject = """
+    public const string FindPrincipalByExternalIdentity = """
         SELECT principal_id, tenant_id, status, display_name
-        FROM nix_resolve_principal(@tenant_id, @external_subject)
+        FROM nix_resolve_external_principal(@tenant_id, @external_issuer, @external_subject)
+        """;
+
+    /// <summary>Resolves a Core-issued session by tenant and principal ID.</summary>
+    public const string FindPrincipalById = """
+        SELECT principal_id, tenant_id, status, display_name
+        FROM nix_resolve_principal_by_id(@tenant_id, @principal_id)
         """;
 }

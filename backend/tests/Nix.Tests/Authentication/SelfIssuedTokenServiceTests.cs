@@ -27,7 +27,7 @@ public sealed class SelfIssuedTokenServiceTests
 
         Assert.False(service.IsConfigured);
         Assert.Throws<InvalidOperationException>(() =>
-            service.Mint("subject", TenantId.From(Guid.NewGuid()), PersonalAccessTokenId.Create()));
+            service.Mint(PrincipalId.Create(), TenantId.From(Guid.NewGuid()), PersonalAccessTokenId.Create()));
         Assert.Empty(service.DescribePublicKeys().Keys);
     }
 
@@ -53,20 +53,23 @@ public sealed class SelfIssuedTokenServiceTests
     {
         using var service = Service(Configuration(FreshKeyPem()));
         var tenantId = TenantId.From(Guid.NewGuid());
+        var principalId = PrincipalId.Create();
         var accessTokenId = PersonalAccessTokenId.Create();
 
-        var token = service.Mint("issuer-subject", tenantId, accessTokenId);
+        var token = service.Mint(principalId, tenantId, accessTokenId);
 
         var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
         var result = await handler.ValidateTokenAsync(token, service.CreateValidationParameters());
 
         Assert.True(result.IsValid);
-        Assert.Equal("issuer-subject", result.ClaimsIdentity.FindFirst("sub")?.Value);
+        Assert.Equal(principalId.ToString(), result.ClaimsIdentity.FindFirst("sub")?.Value);
         Assert.True(SelfIssuedTokenService.TryReadClaims(
             result.ClaimsIdentity,
             out var readTenant,
+            out var readPrincipal,
             out var readToken));
         Assert.Equal(tenantId, readTenant);
+        Assert.Equal(principalId, readPrincipal);
         Assert.Equal(accessTokenId, readToken);
     }
 
@@ -77,7 +80,7 @@ public sealed class SelfIssuedTokenServiceTests
         using var validator = Service(Configuration(FreshKeyPem()));
 
         var token = minter.Mint(
-            "issuer-subject",
+            PrincipalId.Create(),
             TenantId.From(Guid.NewGuid()),
             PersonalAccessTokenId.Create());
 
@@ -96,7 +99,7 @@ public sealed class SelfIssuedTokenServiceTests
             new Support.FixedTimeProvider(mintedAt));
 
         var token = service.Mint(
-            "issuer-subject",
+            PrincipalId.Create(),
             TenantId.From(Guid.NewGuid()),
             PersonalAccessTokenId.Create());
 
@@ -176,7 +179,7 @@ public sealed class SelfIssuedTokenServiceTests
             new System.Security.Claims.Claim(SelfIssuedTokenService.TenantClaim, Guid.NewGuid().ToString("D")),
         ]);
 
-        Assert.False(SelfIssuedTokenService.TryReadClaims(identity, out _, out _));
+        Assert.False(SelfIssuedTokenService.TryReadClaims(identity, out _, out _, out _));
     }
 
     // The three forgeries the service's own comment claims immunity to: algorithm confusion has

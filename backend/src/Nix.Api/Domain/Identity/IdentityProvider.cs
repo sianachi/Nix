@@ -20,6 +20,9 @@ namespace Nix.Domain.Identity;
 /// </remarks>
 public sealed class IdentityProvider
 {
+    /// <summary>The maximum stored UserInfo URI length in UTF-8 bytes.</summary>
+    public const int MaximumUserInfoUriLength = 2048;
+
     /// <summary>Gets the registration's identifier.</summary>
     public required IdentityProviderId Id { get; init; }
 
@@ -63,4 +66,10 @@ public sealed class IdentityProvider
     /// operator revoking trust in a hurry wants the former.
     /// </remarks>
     public required bool Enabled { get; init; }
+
+    /// <summary>Gets whether this registration may provision a missing human principal.</summary>
+    public required bool JitProvisioningEnabled { get; init; }
+
+    /// <summary>Gets the bounded OIDC UserInfo endpoint used by JIT provisioning.</summary>
+    public Uri? UserInfoUri { get; init; }
 }

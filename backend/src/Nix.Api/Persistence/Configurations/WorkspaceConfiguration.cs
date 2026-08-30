@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Nix.Domain.Identity;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Persistence.Configurations;
@@ -25,6 +26,8 @@ internal sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspac
         builder.Property(workspace => workspace.TenantId).HasColumnName(NixTables.TenantIdColumn);
 
         builder.Property(workspace => workspace.Name).HasColumnName("name").IsRequired();
+        builder.Property(workspace => workspace.PersonalOwnerPrincipalId)
+            .HasColumnName("personal_owner_principal_id");
         builder.Property(workspace => workspace.VersionRetentionDays).HasColumnName("version_retention_days");
         builder.Property(workspace => workspace.CoalesceWindowMinutes).HasColumnName("coalesce_window_min");
         builder.Property(workspace => workspace.StorageQuotaBytes).HasColumnName("storage_quota_bytes");
@@ -37,6 +40,20 @@ internal sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspac
             .WithMany()
             .HasForeignKey(workspace => workspace.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Principal>()
+            .WithMany()
+            .HasForeignKey(workspace => new { workspace.TenantId, workspace.PersonalOwnerPrincipalId })
+            .HasPrincipalKey(principal => new { principal.TenantId, principal.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(workspace => new { workspace.TenantId, workspace.PersonalOwnerPrincipalId })
+            .IsUnique()
+            .HasFilter("personal_owner_principal_id IS NOT NULL");
+
+        builder.HasIndex(workspace => new { workspace.TenantId, workspace.CreatedAt, workspace.Id })
+            .IsDescending(false, true, true)
+            .HasDatabaseName("ix_workspace_list");
 
         // No standalone tenant_id index: it is a strict prefix of the alternate key above.
     }
