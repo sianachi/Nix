@@ -1,3 +1,5 @@
+using Nix.Domain.Identity;
+
 namespace Nix.Domain.Tenancy;
 
 /// <summary>
@@ -18,6 +20,9 @@ public sealed class Workspace
 
     /// <summary>Gets the workspace's display name.</summary>
     public required string Name { get; init; }
+
+    /// <summary>Gets the protected owner when this is a personal workspace.</summary>
+    public PrincipalId? PersonalOwnerPrincipalId { get; init; }
 
     /// <summary>
     /// Gets how long non-pinned version history is retained, in days.

@@ -102,10 +102,6 @@ public interface IPersonalAccessTokens
 /// <param name="Id">The token row.</param>
 /// <param name="TenantId">The tenant the minted session will be scoped to.</param>
 /// <param name="PrincipalId">The principal the token acts as.</param>
-/// <param name="ExternalSubject">
-/// The principal's issuer subject, minted into the short-lived JWT's <c>sub</c> so a
-/// token-authenticated session resolves through exactly the same lookup an interactive one does.
-/// </param>
 /// <param name="PrincipalStatus">Whether that principal may still act.</param>
 /// <param name="SecretHash">The stored hash the presented token is compared against.</param>
 /// <param name="Scopes">The ceiling the issuer chose.</param>
@@ -115,7 +111,6 @@ public sealed record AccessTokenExchangeCandidate(
     PersonalAccessTokenId Id,
     TenantId TenantId,
     PrincipalId PrincipalId,
-    string ExternalSubject,
     PrincipalStatus PrincipalStatus,
     ReadOnlyMemory<byte> SecretHash,
     IReadOnlyList<string> Scopes,

@@ -88,14 +88,13 @@ public sealed class PersonalAccessTokenStore : IPersonalAccessTokens
                         PersonalAccessTokenId.From(reader.GetGuid(0)),
                         TenantId.From(reader.GetGuid(1)),
                         PrincipalId.From(reader.GetGuid(2)),
-                        reader.GetString(3),
-                        ParseStatus(reader.GetString(4)),
-                        await reader.GetFieldValueAsync<byte[]>(5, cancellationToken).ConfigureAwait(false),
-                        await reader.GetFieldValueAsync<string[]>(6, cancellationToken).ConfigureAwait(false),
-                        await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false),
-                        await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false)
+                        ParseStatus(reader.GetString(3)),
+                        await reader.GetFieldValueAsync<byte[]>(4, cancellationToken).ConfigureAwait(false),
+                        await reader.GetFieldValueAsync<string[]>(5, cancellationToken).ConfigureAwait(false),
+                        await reader.GetFieldValueAsync<DateTimeOffset>(6, cancellationToken).ConfigureAwait(false),
+                        await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false)
                             ? null
-                            : await reader.GetFieldValueAsync<DateTimeOffset>(8, cancellationToken).ConfigureAwait(false));
+                            : await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false));
                 }
             }
         }

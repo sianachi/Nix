@@ -70,7 +70,6 @@ public sealed class PersonalAccessTokenStoreTests : IAsyncLifetime
             Assert.Equal(minted.Row.Id, candidate.Id);
             Assert.Equal(M0SchemaSeed.Alpha.TenantId, candidate.TenantId.Value);
             Assert.Equal(M0SchemaSeed.Alpha.PrincipalId, candidate.PrincipalId.Value);
-            Assert.Equal("alpha-subject", candidate.ExternalSubject);
             Assert.Equal(PrincipalStatus.Active, candidate.PrincipalStatus);
             Assert.Equal([AccessTokenScopes.Read], candidate.Scopes);
             Assert.True(PersonalAccessTokenSecret.Matches(candidate.SecretHash, minted.Secret));
