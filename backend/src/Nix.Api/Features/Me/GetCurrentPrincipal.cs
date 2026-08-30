@@ -6,7 +6,7 @@ using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
 using Nix.Messaging;
 
-namespace Nix.Features.Me;
+namespace Nix.Features.CurrentUser;
 
 /// <summary>
 /// Asks for the caller's own profile.

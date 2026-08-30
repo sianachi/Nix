@@ -1,6 +1,6 @@
 using System.Globalization;
 using Nix.Domain.Primitives;
-using Nix.Features.Me;
+using Nix.Features.CurrentUser;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
 

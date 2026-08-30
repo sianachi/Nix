@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using Nix.Features.Me;
+using Nix.Features.CurrentUser;
 
 namespace Nix.Serialization;
 
