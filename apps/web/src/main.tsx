@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 
 import { App } from './app';
+import { registerServiceWorker } from './pwa/register-service-worker';
 import './app.css';
 
 /**
@@ -16,6 +17,8 @@ const container = document.getElementById('root');
 if (container === null) {
   throw new Error('Mount point #root is missing from index.html');
 }
+
+registerServiceWorker();
 
 createRoot(container).render(
   <StrictMode>
