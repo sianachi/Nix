@@ -194,11 +194,15 @@ describe('ws list', () => {
           ? HttpResponse.json({
               items: [
                 {
-                  id: 'w1',
+                  id: '11111111-1111-4111-8111-111111111111',
                   name: 'Alpha',
                   versionRetentionDays: 30,
                   storageQuotaBytes: '1',
-                  createdAt: 'x',
+                  createdAt: '2026-08-30T12:00:00Z',
+                  kind: 'personal',
+                  canRename: true,
+                  canManageMembers: true,
+                  canLeave: false,
                 },
               ],
               nextCursor: 'more',
@@ -206,11 +210,15 @@ describe('ws list', () => {
           : HttpResponse.json({
               items: [
                 {
-                  id: 'w2',
+                  id: '33333333-3333-4333-8333-333333333333',
                   name: 'Beta',
                   versionRetentionDays: 30,
                   storageQuotaBytes: '1',
-                  createdAt: 'x',
+                  createdAt: '2026-08-30T12:00:00Z',
+                  kind: 'shared',
+                  canRename: false,
+                  canManageMembers: false,
+                  canLeave: true,
                 },
               ],
               nextCursor: null,
@@ -218,13 +226,18 @@ describe('ws list', () => {
       }),
     );
 
-    const printed = (await capture((json) => listWorkspaces('default', json, { env }))) as {
+    const printed = (await capture((json) => listWorkspaces('default', {}, json, { env }))) as {
       count: number;
-      workspaces: { name: string }[];
+      nextCursor: string | null;
+      workspaces: { name: string; kind: string; canManageMembers: boolean }[];
     };
 
-    expect(printed.count).toBe(2);
-    expect(printed.workspaces.map((w) => w.name)).toEqual(['Alpha', 'Beta']);
+    expect(printed.count).toBe(1);
+    expect(printed.workspaces.map((w) => w.name)).toEqual(['Alpha']);
+    expect(printed.workspaces.map((w) => [w.kind, w.canManageMembers])).toEqual([
+      ['personal', true],
+    ]);
+    expect(printed.nextCursor).toBe('more');
     await done();
   });
 });
