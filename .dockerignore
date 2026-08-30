@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/.vite
+
+.DS_Store
+*.pem
+*.key
