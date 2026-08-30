@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
+import { DAILY_NOTES_ROOT_TITLE } from '../daily-notes/daily-note';
 import type { PropertyDefinition, View } from '../views/core/container-model';
 
 /**
@@ -137,6 +138,8 @@ export interface WorkspaceTree {
     type?: string,
     properties?: Record<string, unknown>,
   ) => Promise<CreateOutcome>;
+  /** Finds or creates the regular note for a local calendar date. */
+  readonly openDailyNote: (title: string) => Promise<CreateOutcome>;
   /** Atomically creates a container together with the fields and views assembled by a wizard. */
   readonly createStructured: (setup: {
     readonly parentId: string | null;
@@ -471,6 +474,52 @@ export function useWorkspaceTree(): WorkspaceTree {
     [request],
   );
 
+  const openDailyNote = useCallback(
+    async (title: string): Promise<CreateOutcome> => {
+      let root = items.find(
+        (item) =>
+          item.parentId === null &&
+          item.title === DAILY_NOTES_ROOT_TITLE &&
+          item.lifecycleState === 'active',
+      );
+
+      if (root === undefined) {
+        const createdRoot = await create(null, DAILY_NOTES_ROOT_TITLE);
+        if (createdRoot.id === null) {
+          return createdRoot;
+        }
+
+        root = {
+          id: createdRoot.id,
+          title: DAILY_NOTES_ROOT_TITLE,
+          type: 'note',
+          parentId: null,
+          hasChildren: false,
+          seq: 0,
+          lifecycleState: 'active',
+        };
+      } else {
+        const rootId = root.id;
+        const children = await fetchChildren(rootId);
+        if (children === null) {
+          return { id: null, refusal: 'The daily notes list could not be loaded.' };
+        }
+
+        absorb(rootId, children);
+        const existing = children.find(
+          (item) => item.title === title && item.lifecycleState === 'active',
+        );
+        if (existing !== undefined) {
+          setExpanded((current) => new Set(current).add(rootId));
+          return { id: existing.id, refusal: null };
+        }
+      }
+
+      return create(root.id, title);
+    },
+    [absorb, create, fetchChildren, items],
+  );
+
   const createStructured = useCallback(
     async (setup: {
       readonly parentId: string | null;
@@ -701,6 +750,7 @@ export function useWorkspaceTree(): WorkspaceTree {
     toggle,
     expand,
     create,
+    openDailyNote,
     createStructured,
     rename,
     move,

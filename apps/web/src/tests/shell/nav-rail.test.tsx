@@ -44,6 +44,7 @@ describe('the navigation rail', () => {
     const items = within(rail()).getAllByRole('listitem');
     expect(items.map((item) => item.textContent)).toEqual([
       'Notes',
+      'Daily note',
       'Calendar',
       'Graph',
       'Bookmarks',
@@ -52,6 +53,10 @@ describe('the navigation rail', () => {
       'Settings',
     ]);
     expect(within(rail()).getByRole('link', { name: 'Notes' })).toHaveAttribute('href', '/');
+    expect(within(rail()).getByRole('link', { name: 'Daily note' })).toHaveAttribute(
+      'href',
+      '/daily',
+    );
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
       'href',
       '/calendar',
@@ -104,6 +109,7 @@ describe('the navigation rail', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
 
     const notes = within(rail()).getByRole('link', { name: 'Notes' });
+    const daily = within(rail()).getByRole('link', { name: 'Daily note' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
@@ -113,11 +119,17 @@ describe('the navigation rail', () => {
     calendar.focus();
 
     await user.keyboard('{ArrowUp}');
+    expect(daily).toHaveFocus();
+
+    await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
 
     // Nothing wraps: the ends of the rail are meant to be findable by feel.
     await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(daily).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
     expect(calendar).toHaveFocus();
@@ -268,7 +280,7 @@ describe('the navigation rail on a narrow screen', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
-    expect(within(rail()).getAllByRole('link')).toHaveLength(6);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(7);
     expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
   });
 
