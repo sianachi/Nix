@@ -217,6 +217,16 @@ public sealed class NixUnitOfWorkMiddleware
             // dedicated JIT path may do so only for an exact authorized-party registration whose
             // stored policy enables it. A token alone must never mint an identity. The miss also
             // counts against the throttle - enumerating subjects is a guessing loop too.
+            if (validated is ValidatedExternalToken refusedExternal)
+            {
+                var (reason, providerId) = JitAdmissionRefusal(refusedExternal);
+                ApiLog.JitAdmissionRefused(
+                    logger,
+                    context.Request.Path.Value ?? string.Empty,
+                    reason,
+                    providerId);
+            }
+
             RecordFailure(throttle, logger, context, clientKey);
             await WriteProblemAsync(
                 context,
@@ -351,6 +361,25 @@ public sealed class NixUnitOfWorkMiddleware
 
             await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
         }
+    }
+
+    private static (string Reason, string ProviderId) JitAdmissionRefusal(
+        ValidatedExternalToken token)
+    {
+        var authorizedParty = token.AuthorizedPartyRegistration;
+        if (authorizedParty is null)
+        {
+            return (
+                "authorized_party_not_registered",
+                token.Registration.ProviderId.Value.ToString());
+        }
+
+        if (!authorizedParty.JitProvisioningEnabled)
+        {
+            return ("jit_disabled", authorizedParty.ProviderId.Value.ToString());
+        }
+
+        return ("userinfo_not_configured", authorizedParty.ProviderId.Value.ToString());
     }
 
     private static async Task WriteProvisioningUnavailableAsync(
