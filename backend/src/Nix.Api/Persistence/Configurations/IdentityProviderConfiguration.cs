@@ -54,7 +54,7 @@ internal sealed class IdentityProviderConfiguration : IEntityTypeConfiguration<I
         builder.Property(provider => provider.Enabled).HasColumnName("enabled").IsRequired();
         builder.Property(provider => provider.JitProvisioningEnabled)
             .HasColumnName("jit_provisioning_enabled")
-            .HasDefaultValue(false)
+            .HasDefaultValue(true)
             .IsRequired();
         builder.Property(provider => provider.UserInfoUri)
             .HasColumnName("userinfo_uri")
