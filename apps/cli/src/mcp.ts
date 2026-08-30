@@ -83,21 +83,68 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
   );
 
   server.registerTool(
+    'list_workspace_invitees',
+    {
+      description: 'List active Nix users who can be invited to a workspace.',
+      inputSchema: { workspaceId: identifier, ...pageInput },
+    },
+    ({ workspaceId, limit, cursor }) =>
+      toolResult(async () =>
+        (await session()).client.query(
+          workspaces.listInviteesPage(workspaceId, {
+            limit,
+            ...(cursor === undefined ? {} : { cursor }),
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
     'invite_workspace_member',
     {
-      description: 'Invite an email address as an owner, editor, or viewer.',
+      description: 'Grant an existing Nix user provisional access as an owner, editor, or viewer.',
       inputSchema: {
         workspaceId: identifier,
-        email: z.email().max(320),
+        principalId: identifier,
         role: workspaceRole,
       },
     },
-    ({ workspaceId, email, role }) =>
+    ({ workspaceId, principalId, role }) =>
       toolResult(async () =>
         (await session()).client.execute(
-          workspaces.createInvitation(workspaceId, email, role),
+          workspaces.createInvitation(workspaceId, principalId, role),
         ),
       ),
+  );
+
+  server.registerTool(
+    'accept_workspace_invitation',
+    {
+      description: 'Accept a workspace invitation addressed to the current principal.',
+      inputSchema: { workspaceId: identifier, invitationId: identifier },
+    },
+    ({ workspaceId, invitationId }) =>
+      toolResult(async () => {
+        await (await session()).client.execute(
+          workspaces.acceptInvitation(workspaceId, invitationId),
+        );
+        return { accepted: true, invitationId };
+      }),
+  );
+
+  server.registerTool(
+    'decline_workspace_invitation',
+    {
+      description: 'Decline a workspace invitation and remove provisional access.',
+      inputSchema: { workspaceId: identifier, invitationId: identifier, confirm: z.literal(true) },
+    },
+    ({ workspaceId, invitationId }) =>
+      toolResult(async () => {
+        await (await session()).client.execute(
+          workspaces.declineInvitation(workspaceId, invitationId),
+        );
+        return { declined: true, invitationId };
+      }),
   );
 
   server.registerTool(

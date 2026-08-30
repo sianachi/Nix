@@ -19,7 +19,14 @@ public sealed record WorkspaceSnapshot(
     PrincipalId? PersonalOwnerPrincipalId,
     bool CanRename,
     bool CanManageMembers,
-    bool CanLeave);
+    bool CanLeave,
+    Guid? PendingInvitationId);
+
+/// <summary>One active human who can be offered workspace access.</summary>
+public sealed record WorkspaceInviteeSnapshot(
+    PrincipalId PrincipalId,
+    string DisplayName,
+    string Email);
 
 /// <summary>One principal or group workspace grant with server-decided mutation capabilities.</summary>
 public sealed record WorkspaceMemberSnapshot(
@@ -37,6 +44,7 @@ public sealed record WorkspaceMemberSnapshot(
 public sealed record WorkspaceInvitationSnapshot(
     Guid InvitationId,
     string EmailNormalized,
+    PrincipalId? TargetPrincipalId,
     string Role,
     string Status,
     PrincipalId InvitedByPrincipalId,
@@ -223,6 +231,33 @@ public sealed class WorkspaceAdministrationStore
         return rows;
     }
 
+    /// <summary>Lists active humans without effective workspace access for the invite dropdown.</summary>
+    public async ValueTask<IReadOnlyList<WorkspaceInviteeSnapshot>> ListInviteesAsync(
+        WorkspaceId workspaceId,
+        PrincipalId? afterId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var rows = new List<WorkspaceInviteeSnapshot>(limit);
+        var query = _sql.QueryAsync<WorkspaceInviteeSnapshot, InviteeMapper>(
+            WorkspaceAdministrationSql.Invitees,
+            default,
+            [
+                Uuid("tenant_id", context.TenantId.Value),
+                Uuid("principal_id", context.PrincipalId.Value),
+                Uuid("workspace_id", workspaceId.Value),
+                UuidOrNull("after_id", afterId?.Value),
+                Integer("limit", limit),
+            ],
+            cancellationToken);
+        await foreach (var row in query.ConfigureAwait(false))
+        {
+            rows.Add(row);
+        }
+        return rows;
+    }
+
     /// <summary>Reads one direct principal member without scanning a page.</summary>
     public async ValueTask<WorkspaceMemberSnapshot?> FindPrincipalMemberAsync(
         WorkspaceId workspaceId,
@@ -299,11 +334,11 @@ public sealed class WorkspaceAdministrationStore
         return null;
     }
 
-    /// <summary>Creates or refreshes an invitation and may immediately grant one exact match.</summary>
+    /// <summary>Offers one provisioned human immediate provisional access.</summary>
     public async ValueTask<WorkspaceInvitationMutationResult> CreateInvitationAsync(
         WorkspaceId workspaceId,
         Guid invitationId,
-        string emailNormalized,
+        PrincipalId targetPrincipalId,
         string role,
         DateTimeOffset now,
         CancellationToken cancellationToken)
@@ -314,7 +349,7 @@ public sealed class WorkspaceAdministrationStore
             [
                 Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
                 Uuid("workspace_id", workspaceId.Value), Uuid("invitation_id", invitationId),
-                Text("email_normalized", emailNormalized), Text("role", role), Timestamp("now", now),
+                Uuid("target_principal_id", targetPrincipalId.Value), Text("role", role), Timestamp("now", now),
             ], cancellationToken);
         await foreach (var row in query.ConfigureAwait(false))
         {
@@ -322,6 +357,38 @@ public sealed class WorkspaceAdministrationStore
         }
 
         throw new InvalidOperationException("The invitation mutation did not report an outcome.");
+    }
+
+    /// <summary>Accepts the caller's pending invitation and makes its offered role durable.</summary>
+    public async ValueTask<bool> AcceptInvitationAsync(
+        WorkspaceId workspaceId,
+        Guid invitationId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(
+            WorkspaceAdministrationSql.AcceptInvitation,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value), Uuid("invitation_id", invitationId), Timestamp("now", now)],
+            cancellationToken).ConfigureAwait(false);
+        return id != Guid.Empty;
+    }
+
+    /// <summary>Declines the caller's pending invitation and removes its provisional direct grant.</summary>
+    public async ValueTask<bool> DeclineInvitationAsync(
+        WorkspaceId workspaceId,
+        Guid invitationId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(
+            WorkspaceAdministrationSql.DeclineInvitation,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value), Uuid("invitation_id", invitationId), Timestamp("now", now)],
+            cancellationToken).ConfigureAwait(false);
+        return id != Guid.Empty;
     }
 
     /// <summary>Revokes a pending invitation, retaining its row.</summary>
@@ -420,7 +487,8 @@ public sealed class WorkspaceAdministrationStore
             WorkspaceId.From(reader.GetGuid(0)), reader.GetString(1), reader.GetInt32(2),
             reader.GetInt64(3), reader.GetFieldValue<DateTimeOffset>(4),
             reader.IsDBNull(5) ? null : PrincipalId.From(reader.GetGuid(5)),
-            reader.GetBoolean(6), reader.GetBoolean(7), reader.GetBoolean(8));
+            reader.GetBoolean(6), reader.GetBoolean(7), reader.GetBoolean(8),
+            reader.IsDBNull(9) ? null : reader.GetGuid(9));
     }
 
     private readonly struct MemberMapper : INixRowMapper<WorkspaceMemberSnapshot>
@@ -432,14 +500,21 @@ public sealed class WorkspaceAdministrationStore
             reader.GetFieldValue<string[]>(8));
     }
 
+    private readonly struct InviteeMapper : INixRowMapper<WorkspaceInviteeSnapshot>
+    {
+        public WorkspaceInviteeSnapshot Map(NpgsqlDataReader reader) => new(
+            PrincipalId.From(reader.GetGuid(0)), reader.GetString(1), reader.GetString(2));
+    }
+
     private readonly struct InvitationMapper : INixRowMapper<WorkspaceInvitationSnapshot>
     {
         public WorkspaceInvitationSnapshot Map(NpgsqlDataReader reader) => new(
-            reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-            PrincipalId.From(reader.GetGuid(4)), reader.GetFieldValue<DateTimeOffset>(5),
-            reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
-            reader.IsDBNull(7) ? null : PrincipalId.From(reader.GetGuid(7)),
-            reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8));
+            reader.GetGuid(0), reader.GetString(1),
+            reader.IsDBNull(2) ? null : PrincipalId.From(reader.GetGuid(2)), reader.GetString(3), reader.GetString(4),
+            PrincipalId.From(reader.GetGuid(5)), reader.GetFieldValue<DateTimeOffset>(6),
+            reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
+            reader.IsDBNull(8) ? null : PrincipalId.From(reader.GetGuid(8)),
+            reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9));
     }
 
     private readonly struct InvitationMutationMapper : INixRowMapper<WorkspaceInvitationMutationResult>
@@ -455,11 +530,12 @@ public sealed class WorkspaceAdministrationStore
             return new WorkspaceInvitationMutationResult(
                 outcome,
                 new WorkspaceInvitationSnapshot(
-                    reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetString(4),
-                    PrincipalId.From(reader.GetGuid(5)), reader.GetFieldValue<DateTimeOffset>(6),
-                    reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
-                    reader.IsDBNull(8) ? null : PrincipalId.From(reader.GetGuid(8)),
-                    reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9)));
+                    reader.GetGuid(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : PrincipalId.From(reader.GetGuid(3)), reader.GetString(4), reader.GetString(5),
+                    PrincipalId.From(reader.GetGuid(6)), reader.GetFieldValue<DateTimeOffset>(7),
+                    reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+                    reader.IsDBNull(9) ? null : PrincipalId.From(reader.GetGuid(9)),
+                    reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10)));
         }
     }
 }

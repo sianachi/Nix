@@ -71,7 +71,8 @@ public static class AccessTokenScopePolicy
         // These are matched before the read shortcut precisely so a GET does not slip through as
         // a plain read.
         if (value.Contains("/public-link", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith("/move", StringComparison.OrdinalIgnoreCase))
+            || value.EndsWith("/move", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("/invitees", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }

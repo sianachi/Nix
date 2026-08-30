@@ -6,7 +6,7 @@ using Nix.Persistence.Workspaces;
 
 namespace Nix.Features.Workspaces;
 
-public sealed record InviteWorkspaceMember(WorkspaceId WorkspaceId, string Email, string Role)
+public sealed record InviteWorkspaceMember(WorkspaceId WorkspaceId, PrincipalId PrincipalId, string Role)
     : ICommand<WorkspaceInvitationSnapshot>;
 
 public sealed class InviteWorkspaceMemberHandler(WorkspaceAdministrationStore store, TimeProvider clock)
@@ -16,13 +16,12 @@ public sealed class InviteWorkspaceMemberHandler(WorkspaceAdministrationStore st
         InviteWorkspaceMember command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        if (!EmailAddressNormalizer.TryNormalize(command.Email, out var email)
-            || !WorkspaceAdministrationRules.TryAssignableRole(command.Role, out var role))
+        if (!WorkspaceAdministrationRules.TryAssignableRole(command.Role, out var role))
         {
             return Result.Failure<WorkspaceInvitationSnapshot>(WorkspaceAdministrationErrors.InvalidInvitation());
         }
         var mutation = await store.CreateInvitationAsync(command.WorkspaceId, Guid.CreateVersion7(),
-            email, role, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            command.PrincipalId, role, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         return mutation.Outcome switch
         {
             "ok" when mutation.Invitation is { } invitation => Result.Success(invitation),

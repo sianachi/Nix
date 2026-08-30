@@ -18,7 +18,7 @@ export function WorkspaceManagementSection(): ReactNode {
   const administration = useWorkspaceAdministration();
   const [name, setName] = useState(workspace.name);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
-  const [email, setEmail] = useState('');
+  const [inviteePrincipalId, setInviteePrincipalId] = useState('');
   const [role, setRole] = useState<AssignableRole>('editor');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -163,7 +163,9 @@ export function WorkspaceManagementSection(): ReactNode {
           {administration.membersStatus === 'error' ||
           administration.membersStatus === 'partial' ||
           administration.invitationsStatus === 'error' ||
-          administration.invitationsStatus === 'partial' ? (
+          administration.invitationsStatus === 'partial' ||
+          administration.inviteesStatus === 'error' ||
+          administration.inviteesStatus === 'partial' ? (
             <PartialNotice pending="Some workspace access information is unavailable. The available section remains usable." />
           ) : null}
           <Blueprint className="flex flex-col gap-3 p-4">
@@ -171,29 +173,63 @@ export function WorkspaceManagementSection(): ReactNode {
               Invite someone
             </Text>
             <Text variant="note" tone="muted">
-              No email is sent. Share the Nix sign-in address with the invitee out of band. A
-              verified matching email redeems the invitation.
+              Select an existing Nix user. They receive provisional access immediately and decide
+              whether to accept or decline the invitation.
             </Text>
+            {administration.inviteesStatus === 'loading' ? (
+              <LoadingPanel label="people available to invite" />
+            ) : administration.inviteesStatus === 'error' ? (
+              <ErrorPanel
+                title="People could not be loaded"
+                detail={administration.inviteesError ?? 'Try again.'}
+                action={
+                  <Button variant="secondary" onClick={administration.reload}>
+                    Try again
+                  </Button>
+                }
+              />
+            ) : administration.inviteesStatus === 'partial' &&
+              administration.invitees.length === 0 ? (
+              <ErrorPanel
+                title="Available people could not be checked"
+                detail={administration.inviteesError ?? 'Some people may be unavailable.'}
+                action={
+                  <Button variant="secondary" onClick={administration.reload}>
+                    Try again
+                  </Button>
+                }
+              />
+            ) : administration.invitees.length === 0 ? (
+              <Text tone="muted">Everyone who can be invited already has access.</Text>
+            ) : (
             <form
               className="grid gap-2 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
               onSubmit={(event) => {
                 event.preventDefault();
-                void administration.invite(email, role).then((saved) => {
-                  if (saved) setEmail('');
+                void administration.invite(inviteePrincipalId, role).then((saved) => {
+                  if (saved) setInviteePrincipalId('');
                 });
               }}
             >
-              <Field label="Email address">
+              <Field label="Person">
                 {(control) => (
-                  <Input
+                  <Select
                     {...control}
-                    type="email"
                     required
-                    value={email}
+                    value={inviteePrincipalId}
                     onChange={(event) => {
-                      setEmail(event.target.value);
+                      setInviteePrincipalId(event.target.value);
                     }}
-                  />
+                  >
+                    <option value="" disabled>
+                      Select a person
+                    </option>
+                    {administration.invitees.map((invitee) => (
+                      <option key={invitee.principalId} value={invitee.principalId}>
+                        {invitee.displayName} ({invitee.email})
+                      </option>
+                    ))}
+                  </Select>
                 )}
               </Field>
               <Field label="Role">
@@ -211,10 +247,14 @@ export function WorkspaceManagementSection(): ReactNode {
                   </Select>
                 )}
               </Field>
-              <Button type="submit" disabled={administration.working}>
+              <Button
+                type="submit"
+                disabled={administration.working || inviteePrincipalId.length === 0}
+              >
                 Invite
               </Button>
             </form>
+            )}
           </Blueprint>
 
           <div className="flex flex-col gap-2">
