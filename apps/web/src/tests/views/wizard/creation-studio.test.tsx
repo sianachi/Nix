@@ -415,6 +415,20 @@ describe('the guided creation studio', () => {
     expect(screen.getByRole('button', { name: /add a filter/i })).toBeVisible();
   });
 
+  it('keeps a field-name control mounted while its generated property key changes', async () => {
+    const user = userEvent.setup();
+    stubCoreApi();
+    renderAt(<App />, '/new/board');
+
+    await user.click(await screen.findByRole('button', { name: /continue/i }));
+    const fieldName = screen.getByRole('textbox', { name: 'Field name' });
+    await user.clear(fieldName);
+    await user.type(fieldName, 'Workflow status');
+
+    expect(fieldName).toHaveValue('Workflow status');
+    expect(fieldName).toHaveFocus();
+  });
+
   it('gives both narrow-screen studio regions their own bounded scroller', async () => {
     stubCoreApi();
     renderAt(<App />, '/new/board');
