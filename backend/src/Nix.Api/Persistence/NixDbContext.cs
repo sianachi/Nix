@@ -85,6 +85,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the workspace-level role grants.</summary>
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
 
+    /// <summary>Gets durable workspace invitation history.</summary>
+    public DbSet<WorkspaceInvitation> WorkspaceInvitations => Set<WorkspaceInvitation>();
+
     /// <summary>Gets the items.</summary>
     public DbSet<Item> Items => Set<Item>();
 
@@ -191,6 +194,8 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<PrincipalId>().HaveConversion<NixIdConverter<PrincipalId>>();
         configurationBuilder.Properties<PrincipalGroupId>().HaveConversion<NixIdConverter<PrincipalGroupId>>();
         configurationBuilder.Properties<IdentityProviderId>().HaveConversion<NixIdConverter<IdentityProviderId>>();
+        configurationBuilder.Properties<WorkspaceInvitationId>()
+            .HaveConversion<NixIdConverter<WorkspaceInvitationId>>();
         configurationBuilder.Properties<ItemId>().HaveConversion<NixIdConverter<ItemId>>();
         configurationBuilder.Properties<AclEntryId>().HaveConversion<NixIdConverter<AclEntryId>>();
         configurationBuilder.Properties<AuditEventId>().HaveConversion<NixIdConverter<AuditEventId>>();
@@ -227,6 +232,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new GroupMembershipConfiguration());
         modelBuilder.ApplyConfiguration(new TenantRoleGrantConfiguration());
         modelBuilder.ApplyConfiguration(new WorkspaceMemberConfiguration());
+        modelBuilder.ApplyConfiguration(new WorkspaceInvitationConfiguration());
         modelBuilder.ApplyConfiguration(new ItemConfiguration());
         modelBuilder.ApplyConfiguration(new ItemClosureEdgeConfiguration());
         modelBuilder.ApplyConfiguration(new AclEntryConfiguration());

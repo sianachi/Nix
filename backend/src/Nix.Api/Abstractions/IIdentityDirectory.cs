@@ -4,17 +4,18 @@ using Nix.Domain.Tenancy;
 namespace Nix.Abstractions;
 
 /// <summary>
-/// The two lookups authentication needs, both of which happen before a tenant is known.
+/// Resolves trusted external registrations and the principals named by validated sessions.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This port exists because these are the only reads in the system that cannot be tenant-scoped:
-/// the tenant is what they are looking for. Both go through the security-definer function the M0
-/// migration created (see ADR-0003), which is the one narrow hole in the isolation policy - exact
-/// match on issuer and audience, enabled registrations only, at most one row, no way to enumerate.
+/// Provider resolution is the one read that happens before a tenant is known: exact issuer and
+/// audience select an enabled registration and its JIT/UserInfo policy. The two principal lookups
+/// happen only after that tenant is known. External sessions resolve by exact issuer and subject;
+/// Core-issued sessions resolve directly by principal identifier. Each read uses its own narrow
+/// security-definer function (see ADR-0003 and ADR-0045), with no enumeration surface.
 /// </para>
 /// <para>
-/// Everything after these two calls runs inside a normal tenant-scoped unit of work.
+/// Everything after registration resolution runs inside a normal tenant-scoped unit of work.
 /// </para>
 /// </remarks>
 public interface IIdentityDirectory
@@ -38,16 +39,28 @@ public interface IIdentityDirectory
     /// Finds the principal a token's subject belongs to, within the tenant already resolved.
     /// </summary>
     /// <param name="tenantId">The tenant the provider resolved to.</param>
+    /// <param name="externalIssuer">The exact registered issuer that validated the token.</param>
     /// <param name="externalSubject">The token's <c>sub</c> claim.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
     /// <returns>
-    /// The principal, or <see langword="null"/> when the subject is not provisioned. Absence is a
-    /// refusal, never an invitation to create one: provisioning is SCIM's job, and a token alone
-    /// must not be able to mint an identity.
+    /// The principal, or <see langword="null"/> when the issuer-qualified subject is not yet
+    /// provisioned. A caller may provision only when the already-validated external token's exact
+    /// authorized-party registration explicitly enables JIT; this lookup itself never creates.
     /// </returns>
-    public ValueTask<AuthenticatedPrincipal?> FindPrincipalAsync(
+    public ValueTask<AuthenticatedPrincipal?> FindExternalPrincipalAsync(
         TenantId tenantId,
+        string externalIssuer,
         string externalSubject,
+        CancellationToken cancellationToken);
+
+    /// <summary>Finds the principal identifier named directly by a Core-issued PAT session.</summary>
+    /// <param name="tenantId">The tenant claim signed by Core.</param>
+    /// <param name="principalId">The principal identifier claim signed by Core.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The matching tenant-scoped principal, or <see langword="null"/>.</returns>
+    public ValueTask<AuthenticatedPrincipal?> FindPrincipalByIdAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
         CancellationToken cancellationToken);
 }
 
@@ -57,12 +70,18 @@ public interface IIdentityDirectory
 /// <param name="Audience">The expected <c>aud</c>.</param>
 /// <param name="JwksUri">Where the signing keys are published.</param>
 /// <param name="AllowedAlgorithms">The signing algorithms accepted from this issuer.</param>
+/// <param name="ProviderId">The durable registration identifier.</param>
+/// <param name="JitProvisioningEnabled">Whether this exact registration may trigger JIT.</param>
+/// <param name="UserInfoUri">The bounded UserInfo endpoint required when JIT is enabled.</param>
 public sealed record IdentityProviderRegistration(
     TenantId TenantId,
     string Issuer,
     string Audience,
     Uri JwksUri,
-    IReadOnlyList<string> AllowedAlgorithms);
+    IReadOnlyList<string> AllowedAlgorithms,
+    IdentityProviderId ProviderId,
+    bool JitProvisioningEnabled,
+    Uri? UserInfoUri);
 
 /// <summary>The principal behind a validated token.</summary>
 /// <param name="Id">The principal.</param>

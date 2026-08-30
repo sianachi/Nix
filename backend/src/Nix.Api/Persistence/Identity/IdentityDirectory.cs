@@ -47,26 +47,32 @@ public sealed class IdentityDirectory : IIdentityDirectory
             IdentitySql.ResolveProvider,
             [Text("issuer", issuer), Text("audience", audience)],
             static reader => new IdentityProviderRegistration(
-                TenantId.From(reader.GetGuid(0)),
-                reader.GetString(1),
+                TenantId.From(reader.GetGuid(1)),
                 reader.GetString(2),
-                new Uri(reader.GetString(3), UriKind.Absolute),
-                reader.GetFieldValue<string[]>(4)),
+                reader.GetString(3),
+                new Uri(reader.GetString(4), UriKind.Absolute),
+                reader.GetFieldValue<string[]>(5),
+                IdentityProviderId.From(reader.GetGuid(0)),
+                reader.GetBoolean(6),
+                reader.IsDBNull(7) ? null : new Uri(reader.GetString(7), UriKind.Absolute)),
             cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async ValueTask<AuthenticatedPrincipal?> FindPrincipalAsync(
+    public async ValueTask<AuthenticatedPrincipal?> FindExternalPrincipalAsync(
         TenantId tenantId,
+        string externalIssuer,
         string externalSubject,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(externalIssuer);
         ArgumentException.ThrowIfNullOrWhiteSpace(externalSubject);
 
         return await QuerySingleAsync(
-            IdentitySql.FindPrincipalBySubject,
+            IdentitySql.FindPrincipalByExternalIdentity,
             [
                 new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = tenantId.Value },
+                Text("external_issuer", externalIssuer),
                 Text("external_subject", externalSubject),
             ],
             static reader => new AuthenticatedPrincipal(
@@ -76,6 +82,24 @@ public sealed class IdentityDirectory : IIdentityDirectory
                 reader.GetString(3)),
             cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async ValueTask<AuthenticatedPrincipal?> FindPrincipalByIdAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        CancellationToken cancellationToken) =>
+        await QuerySingleAsync(
+            IdentitySql.FindPrincipalById,
+            [
+                new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = tenantId.Value },
+                new NpgsqlParameter("principal_id", NpgsqlDbType.Uuid) { Value = principalId.Value },
+            ],
+            static reader => new AuthenticatedPrincipal(
+                PrincipalId.From(reader.GetGuid(0)),
+                TenantId.From(reader.GetGuid(1)),
+                ParseStatus(reader.GetString(2)),
+                reader.GetString(3)),
+            cancellationToken).ConfigureAwait(false);
 
     private static NpgsqlParameter Text(string name, string value) =>
         new(name, NpgsqlDbType.Text) { Value = value };
