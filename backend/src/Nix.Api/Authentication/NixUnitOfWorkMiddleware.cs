@@ -1,11 +1,13 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
+using Nix.Domain.Provisioning;
 using Nix.Errors;
+using Nix.Features.Identity;
 using Nix.Http;
+using Nix.Messaging;
 using Nix.Persistence;
 
 namespace Nix.Authentication;
@@ -15,15 +17,16 @@ namespace Nix.Authentication;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the seam the whole persistence design assumes and nothing previously provided. Five
+/// This is the seam the whole persistence design assumes and nothing previously provided. Six
 /// things have to happen in order, and every one of them is load-bearing:
 /// </para>
 /// <list type="number">
 ///   <item><description>the token validates against the issuer its tenant registered;</description></item>
-///   <item><description>the subject resolves to a provisioned principal;</description></item>
-///   <item><description>that principal is still allowed to act - checked per request, not per sign-in;</description></item>
-///   <item><description>the session context is established, once, for this scope;</description></item>
+///   <item><description>a missing eligible external identity is bounded through UserInfo before a transaction opens;</description></item>
+///   <item><description>the deterministic session context is established, once, for this scope;</description></item>
 ///   <item><description>a transaction is opened, which is where the interceptor publishes <c>SET LOCAL</c>.</description></item>
+///   <item><description>the personal foundation is provisioned through the command seam inside that transaction, then the active principal is admitted.</description></item>
+///   <item><description>the active principal is admitted to the endpoint and the transaction commits only when it succeeds.</description></item>
 /// </list>
 /// <para>
 /// <b>Why a transaction wraps every request, including reads.</b> The tenant scope is
@@ -38,14 +41,7 @@ namespace Nix.Authentication;
 /// happen, particularly where the write maintains a derived table.
 /// </para>
 /// </remarks>
-[SuppressMessage(
-    "Performance",
-    "CA1812:Avoid uninstantiated internal classes",
-    // Justification: activated by UseMiddleware. The analyser sees no `new`, because there is none to see - the
-    // container builds it. Making it public to dodge the rule would widen the assembly's surface
-    // for a diagnostic that is simply wrong here.
-    Justification = "Constructed by the framework, not by application code.")]
-internal sealed class NixUnitOfWorkMiddleware
+public sealed class NixUnitOfWorkMiddleware
 {
     /// <summary>Stable code for a request with no usable credentials.</summary>
     internal const string UnauthenticatedCode = AuthenticationRefusalCodes.Unauthenticated;
@@ -61,6 +57,9 @@ internal sealed class NixUnitOfWorkMiddleware
 
     /// <summary>Stable code for a token that stands but does not reach this route.</summary>
     internal const string InsufficientScopeCode = AuthenticationRefusalCodes.InsufficientScope;
+
+    /// <summary>Stable code for a retryable first-login provisioning failure.</summary>
+    internal const string ProvisioningUnavailableCode = AuthenticationRefusalCodes.ProvisioningUnavailable;
 
     /// <summary>
     /// How stale <c>last_used_at</c> may be before authenticating writes it again. Coarse on
@@ -88,7 +87,10 @@ internal sealed class NixUnitOfWorkMiddleware
     /// <param name="dbContext">The context whose transaction carries the scope.</param>
     /// <param name="throttle">Counts failed validations per client, so guessing meets a 429.</param>
     /// <param name="accessTokens">Re-checks the token row behind a token-authenticated session.</param>
+    /// <param name="scopeContext">Carries the validated Core access-token scope ceiling.</param>
+    /// <param name="userInfo">Reads bounded claims only for an eligible missing external principal.</param>
     /// <param name="clock">Judges token expiry and stamps last use.</param>
+    /// <param name="dispatcher">Dispatches first-login provisioning inside this transaction.</param>
     /// <param name="logger">Where a refusal is recorded.</param>
     /// <returns>A task that completes when the request has been handled.</returns>
     public async Task InvokeAsync(
@@ -100,6 +102,8 @@ internal sealed class NixUnitOfWorkMiddleware
         FailedAuthenticationThrottle throttle,
         IPersonalAccessTokens accessTokens,
         AccessTokenSessionContext scopeContext,
+        IUserInfoClient userInfo,
+        NixDispatcher dispatcher,
         TimeProvider clock,
         ILogger<NixUnitOfWorkMiddleware> logger)
     {
@@ -111,6 +115,8 @@ internal sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(throttle);
         ArgumentNullException.ThrowIfNull(accessTokens);
         ArgumentNullException.ThrowIfNull(scopeContext);
+        ArgumentNullException.ThrowIfNull(userInfo);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -179,7 +185,33 @@ internal sealed class NixUnitOfWorkMiddleware
             _ => throw new InvalidOperationException("Unknown validated token kind."),
         };
 
-        if (principal is null)
+        UserInfoProfile? provisioningProfile = null;
+        ValidatedExternalToken? provisioningToken = null;
+        if (principal is null && validated is ValidatedExternalToken externalToken
+            && JitProvisioningPolicy.EligibleRegistration(externalToken) is { } authorizedParty)
+        {
+            try
+            {
+                provisioningProfile = await userInfo.ReadAsync(
+                    authorizedParty.UserInfoUri!,
+                    authorizedParty.Issuer,
+                    token,
+                    externalToken.Subject,
+                    context.RequestAborted).ConfigureAwait(false);
+                provisioningToken = externalToken;
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (UserInfoUnavailableException exception)
+            {
+                await WriteProvisioningUnavailableAsync(context, logger, exception.Category, authorizedParty.ProviderId.Value.ToString()).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        if (principal is null && provisioningToken is null)
         {
             // A valid token for a subject nobody provisioned. This lookup never creates one: the
             // dedicated JIT path may do so only for an exact authorized-party registration whose
@@ -196,7 +228,7 @@ internal sealed class NixUnitOfWorkMiddleware
             return;
         }
 
-        if (principal.Status != PrincipalStatus.Active)
+        if (principal is not null && principal.Status != PrincipalStatus.Active)
         {
             // Checked on every request rather than at sign-in, because an access token outlives the
             // decision to revoke it. This is what makes deprovisioning take effect immediately
@@ -211,7 +243,12 @@ internal sealed class NixUnitOfWorkMiddleware
             return;
         }
 
-        accessor.Set(NixSessionContext.ForTenant(principal.TenantId, principal.Id));
+        var scopedPrincipalId = principal?.Id
+            ?? DeterministicProvisioningId.Principal(
+                provisioningToken!.TenantId,
+                provisioningToken.Registration.Issuer,
+                provisioningToken.Subject);
+        accessor.Set(NixSessionContext.ForTenant(validated.TenantId, scopedPrincipalId));
 
         var transaction = await dbContext.Database
             .BeginTransactionAsync(context.RequestAborted)
@@ -219,6 +256,68 @@ internal sealed class NixUnitOfWorkMiddleware
 
         await using (transaction.ConfigureAwait(false))
         {
+            if (principal is null)
+            {
+                try
+                {
+                    var provisioned = await dispatcher.SendAsync<ProvisionPersonalWorkspace, AuthenticatedPrincipal>(
+                        new ProvisionPersonalWorkspace(
+                            provisioningToken!.TenantId,
+                            provisioningToken.Registration.Issuer,
+                            provisioningToken.Subject,
+                            provisioningProfile!),
+                        context.RequestAborted).ConfigureAwait(false);
+                    principal = provisioned.IsSuccess
+                        ? provisioned.Value
+                        : throw new PersonalWorkspaceProvisioningInvariantException();
+                }
+                catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is UserInfoUnavailableException
+                    or DbUpdateException
+                    or Npgsql.NpgsqlException
+                    or PersonalWorkspaceProvisioningInvariantException)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                    var category = exception is UserInfoUnavailableException unavailable
+                        ? unavailable.Category
+                        : exception is PersonalWorkspaceProvisioningInvariantException
+                            ? ProvisioningFailureCategory.Invariant
+                            : ProvisioningFailureCategory.Database;
+                    await WriteProvisioningUnavailableAsync(
+                        context,
+                        logger,
+                        category,
+                        provisioningToken!.Registration.ProviderId.Value.ToString()).ConfigureAwait(false);
+                    return;
+                }
+
+                if (principal.Id != scopedPrincipalId || principal.TenantId != validated.TenantId)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                    await WriteProvisioningUnavailableAsync(
+                        context,
+                        logger,
+                        ProvisioningFailureCategory.Invariant,
+                        provisioningToken!.Registration.ProviderId.Value.ToString()).ConfigureAwait(false);
+                    return;
+                }
+
+                if (principal.Status != PrincipalStatus.Active)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                    await WriteProblemAsync(
+                        context,
+                        StatusCodes.Status403Forbidden,
+                        PrincipalInactiveCode,
+                        "Account is not active",
+                        "This account has been suspended or deprovisioned.").ConfigureAwait(false);
+                    return;
+                }
+            }
+
             // A token-authenticated session re-checks its row on every request, inside the
             // transaction that just published the tenant scope. This is what makes revocation
             // immediate rather than "when the ten-minute JWT runs out", and it is where the
@@ -252,6 +351,29 @@ internal sealed class NixUnitOfWorkMiddleware
 
             await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
         }
+    }
+
+    private static async Task WriteProvisioningUnavailableAsync(
+        HttpContext context,
+        ILogger logger,
+        ProvisioningFailureCategory category,
+        string providerId)
+    {
+        const int retryAfterSeconds = 5;
+        context.Response.Headers.RetryAfter = retryAfterSeconds.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
+        ApiLog.ProvisioningUnavailable(
+            logger,
+            context.Request.Path.Value ?? string.Empty,
+            category.ToString(),
+            providerId);
+        await WriteProblemAsync(
+            context,
+            StatusCodes.Status503ServiceUnavailable,
+            ProvisioningUnavailableCode,
+            "Provisioning temporarily unavailable",
+            "Nix could not safely complete first-login provisioning. Retry this request.")
+            .ConfigureAwait(false);
     }
 
     /// <summary>
