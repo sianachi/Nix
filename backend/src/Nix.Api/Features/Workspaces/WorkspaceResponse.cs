@@ -18,4 +18,17 @@ internal sealed record WorkspaceResponse(
     string Name,
     int VersionRetentionDays,
     long StorageQuotaBytes,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string Kind,
+    bool CanRename,
+    bool CanManageMembers,
+    bool CanLeave);
+
+/// <summary>A request to create a shared workspace.</summary>
+internal sealed record CreateWorkspaceRequest(string Name);
+
+/// <summary>A request to rename a workspace.</summary>
+internal sealed record RenameWorkspaceRequest(string Name);
+
+/// <summary>The canonical dated note opened for a workspace day.</summary>
+internal sealed record DailyNoteResponse(Guid ItemId);

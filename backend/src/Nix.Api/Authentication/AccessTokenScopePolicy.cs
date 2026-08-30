@@ -81,6 +81,16 @@ public static class AccessTokenScopePolicy
             return Requirement.Read;
         }
 
+        // Workspace membership administration changes who can reach an entire item tree. The
+        // database role remains the authority; an admin-scoped token is an additional ceiling.
+        if (value.Contains("/members", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("/invitations", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("/leave", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("/recover", StringComparison.OrdinalIgnoreCase))
+        {
+            return Requirement.Admin;
+        }
+
         // Permission entries are the remaining admin write: they name who may act, and reading
         // the ACL (a GET, already returned as Read above) is data disclosure rather than a
         // capability, so only the writes land here.

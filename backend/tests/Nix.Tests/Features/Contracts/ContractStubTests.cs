@@ -34,15 +34,11 @@ public sealed class ContractStubTests(ContractHostFactory factory)
     : IClassFixture<ContractHostFactory>
 {
     private const string ItemId = "8f7c3a10-0000-4000-8000-000000000001";
-    private const string WorkspaceId = "8f7c3a10-0000-4000-8000-000000000002";
     private const string AclEntryId = "8f7c3a10-0000-4000-8000-000000000003";
 
     /// <summary>Every published-but-unbuilt operation, with a body where one is required.</summary>
     public static TheoryData<string, string, string?> UnimplementedOperations => new()
     {
-        { "GET", "/api/v1/workspaces", null },
-        { "GET", $"/api/v1/workspaces/{WorkspaceId}", null },
-        { "GET", $"/api/v1/workspaces/{WorkspaceId}/members", null },
         { "GET", $"/api/v1/items/{ItemId}/permissions", null },
         {
             "PUT",

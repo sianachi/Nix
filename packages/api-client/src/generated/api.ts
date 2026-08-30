@@ -169,7 +169,7 @@ export interface paths {
      */
     get: operations['ListWorkspaces'];
     put?: never;
-    post?: never;
+    post: operations['CreateWorkspace'];
     delete?: never;
     options?: never;
     head?: never;
@@ -189,6 +189,118 @@ export interface paths {
      */
     get: operations['GetWorkspace'];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations['RenameWorkspace'];
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/members': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListWorkspaceMembers'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/members/{principalId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations['RemoveWorkspaceMember'];
+    options?: never;
+    head?: never;
+    patch: operations['ChangeWorkspaceMemberRole'];
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/leave': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['LeaveWorkspace'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/invitations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListWorkspaceInvitations'];
+    put?: never;
+    post: operations['CreateWorkspaceInvitation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/invitations/{invitationId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations['RevokeWorkspaceInvitation'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/recover': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['RecoverWorkspace'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/daily-notes/{date}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['OpenDailyNote'];
     post?: never;
     delete?: never;
     options?: never;
@@ -460,26 +572,6 @@ export interface paths {
      * @description Returns who holds a tenant-level role. Visible to tenant administrators; other callers receive an empty page rather than a refusal, because whether the endpoint refuses is itself information about the caller's standing.
      */
     get: operations['ListTenantRoles'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/workspaces/{workspaceId}/members': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Workspace members and their roles
-     * @description Returns the principals and groups holding a role in this workspace. This is the chain-root allow that item permission resolution falls back to when no access control entry matches.
-     */
-    get: operations['ListWorkspaceMembers'];
     put?: never;
     post?: never;
     delete?: never;
@@ -930,6 +1022,10 @@ export interface components {
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
     };
+    ChangeWorkspaceMemberRoleRequest: {
+      /** @enum {string} */
+      role: 'owner' | 'editor' | 'viewer';
+    };
     ChartBucketResponse: {
       value: null | string;
       /** Format: int64 */
@@ -989,6 +1085,14 @@ export interface components {
       views: components['schemas']['SetViewsRequest'];
       publishInteractiveFormViewId: null | string;
     };
+    CreateWorkspaceInvitationRequest: {
+      email: string;
+      /** @enum {string} */
+      role: 'owner' | 'editor' | 'viewer';
+    };
+    CreateWorkspaceRequest: {
+      name: string;
+    };
     CurrentPrincipalResponse: {
       /** Format: uuid */
       id: string;
@@ -1006,9 +1110,21 @@ export interface components {
       items: components['schemas']['RoleGrantResponse'][];
       nextCursor: null | string;
     };
+    CursorPageOfWorkspaceInvitationResponse: {
+      items: components['schemas']['WorkspaceInvitationResponse'][];
+      nextCursor: null | string;
+    };
+    CursorPageOfWorkspaceMemberResponse: {
+      items: components['schemas']['WorkspaceMemberResponse'][];
+      nextCursor: null | string;
+    };
     CursorPageOfWorkspaceResponse: {
       items: components['schemas']['WorkspaceResponse'][];
       nextCursor: null | string;
+    };
+    DailyNoteResponse: {
+      /** Format: uuid */
+      itemId: string;
     };
     EffectiveSchemaResponse: {
       properties: components['schemas']['PropertyDefinitionResponse'][];
@@ -1223,6 +1339,10 @@ export interface components {
       limit: number | string;
       truncated: boolean;
     };
+    RecoverWorkspaceRequest: {
+      /** Format: uuid */
+      newOwnerPrincipalId: string;
+    };
     RecurrenceRuleResponse: {
       freq: string;
       /** Format: int32 */
@@ -1240,6 +1360,9 @@ export interface components {
     };
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
+    };
+    RenameWorkspaceRequest: {
+      name: string;
     };
     ReplaceViewSetupRequest: {
       schema: components['schemas']['SetSchemaRequest'];
@@ -1580,6 +1703,36 @@ export interface components {
       nodesTruncated: boolean;
       linksTruncated: boolean;
     };
+    WorkspaceInvitationResponse: {
+      /** Format: uuid */
+      id: string;
+      emailNormalized: string;
+      role: string;
+      status: string;
+      /** Format: uuid */
+      invitedByPrincipalId: string;
+      /** Format: date-time */
+      invitedAt: string;
+      /** Format: date-time */
+      acceptedAt: null | string;
+      /** Format: uuid */
+      acceptedByPrincipalId: null | string;
+      /** Format: date-time */
+      revokedAt: null | string;
+    };
+    WorkspaceMemberResponse: {
+      subjectType: string;
+      /** Format: uuid */
+      subjectId: string;
+      subjectDisplayName: string;
+      email: null | string;
+      role: string;
+      /** Format: date-time */
+      grantedAt: string;
+      canChangeRole: boolean;
+      canRemove: boolean;
+      assignableRoles: string[];
+    };
     WorkspaceResponse: {
       /** Format: uuid */
       id: string;
@@ -1590,6 +1743,10 @@ export interface components {
       storageQuotaBytes: number | string;
       /** Format: date-time */
       createdAt: string;
+      kind: string;
+      canRename: boolean;
+      canManageMembers: boolean;
+      canLeave: boolean;
     };
   };
   responses: never;
@@ -2014,8 +2171,50 @@ export interface operations {
           'application/json': components['schemas']['CursorPageOfWorkspaceResponse'];
         };
       };
-      /** @description Not Implemented */
-      501: {
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateWorkspace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateWorkspaceRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -2054,8 +2253,428 @@ export interface operations {
           'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
-      /** @description Not Implemented */
-      501: {
+    };
+  };
+  RenameWorkspace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RenameWorkspaceRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListWorkspaceMembers: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CursorPageOfWorkspaceMemberResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RemoveWorkspaceMember: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ChangeWorkspaceMemberRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChangeWorkspaceMemberRoleRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceMemberResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  LeaveWorkspace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListWorkspaceInvitations: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CursorPageOfWorkspaceInvitationResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateWorkspaceInvitation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateWorkspaceInvitationRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceInvitationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RevokeWorkspaceInvitation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        invitationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RecoverWorkspace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RecoverWorkspaceRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  OpenDailyNote: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+        date: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DailyNoteResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -2866,49 +3485,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['CursorPageOfRoleGrantResponse'];
-        };
-      };
-      /** @description Not Implemented */
-      501: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/problem+json': components['schemas']['ProblemDetails'];
-        };
-      };
-    };
-  };
-  ListWorkspaceMembers: {
-    parameters: {
-      query?: {
-        cursor?: string;
-        limit?: number | string;
-      };
-      header?: never;
-      path: {
-        workspaceId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['CursorPageOfRoleGrantResponse'];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
       /** @description Not Implemented */
