@@ -85,4 +85,15 @@ internal static partial class ApiLog
         string requestPath,
         string category,
         string providerId);
+
+    [LoggerMessage(
+        EventId = 2006,
+        Level = LogLevel.Warning,
+        Message = "First-login JIT admission was refused on {RequestPath} at {Reason} for provider "
+            + "{ProviderId}; no token or claim data was logged.")]
+    public static partial void JitAdmissionRefused(
+        ILogger logger,
+        string requestPath,
+        string reason,
+        string providerId);
 }

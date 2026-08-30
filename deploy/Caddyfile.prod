@@ -5,7 +5,12 @@
 	encode zstd gzip
 
 	handle /api/* {
-		reverse_proxy nix-api:8080
+		reverse_proxy nix-api:8080 {
+			# cloudflared is the only public ingress. Preserve its authenticated client
+			# address as the sole X-Forwarded-For hop so Core's pre-authentication
+			# throttle remains per client instead of becoming global to the tunnel.
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
 	}
 
 	handle_path /collab/* {

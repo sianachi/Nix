@@ -33,6 +33,30 @@ public sealed class NixUnitOfWorkJitTests
         Assert.Equal(StatusCodes.Status401Unauthorized, scenario.Context.Response.StatusCode);
         Assert.Equal(0, scenario.UserInfo.Calls);
         Assert.Equal(1, scenario.Throttle.TrackedClients);
+        Assert.Contains(scenario.Logger.Messages, message => message.Contains(
+            "jit_disabled",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(scenario.RawToken, scenario.Logger.Messages, StringComparer.Ordinal);
+        Assert.DoesNotContain("sensitive-subject", scenario.Logger.Messages, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Missing_authorized_party_refuses_jit_with_a_safe_diagnostic()
+    {
+        await using var scenario = ExternalScenario(
+            jitEnabled: true,
+            UserInfoBehavior.Unavailable,
+            includeAuthorizedParty: false);
+
+        await scenario.InvokeAsync();
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, scenario.Context.Response.StatusCode);
+        Assert.Equal(0, scenario.UserInfo.Calls);
+        Assert.Contains(scenario.Logger.Messages, message => message.Contains(
+            "authorized_party_not_registered",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(scenario.RawToken, scenario.Logger.Messages, StringComparer.Ordinal);
+        Assert.DoesNotContain("sensitive-subject", scenario.Logger.Messages, StringComparer.Ordinal);
     }
 
     [Fact]
@@ -79,7 +103,10 @@ public sealed class NixUnitOfWorkJitTests
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Scenario owns and disposes the HttpClient and SelfIssuedTokenService; HttpClient owns its handler.")]
-    private static Scenario ExternalScenario(bool jitEnabled, UserInfoBehavior behavior)
+    private static Scenario ExternalScenario(
+        bool jitEnabled,
+        UserInfoBehavior behavior,
+        bool includeAuthorizedParty = true)
     {
         var issuer = $"https://jit-{Guid.NewGuid():N}.example.test";
         var tenantId = TenantId.From(Guid.NewGuid());
@@ -94,7 +121,7 @@ public sealed class NixUnitOfWorkJitTests
             new Uri($"{issuer}/userinfo"));
         using var rsa = RSA.Create(2048);
         var key = new RsaSecurityKey(rsa) { KeyId = "jit-test-key" };
-        var rawToken = SignedExternalToken(issuer, registration.Audience, key);
+        var rawToken = SignedExternalToken(issuer, registration.Audience, key, includeAuthorizedParty);
         var directory = new MissingDirectory(registration);
         var keyClient = new HttpClient(new StaticHandler(Jwks(rsa, key.KeyId)));
         var selfIssued = new SelfIssuedTokenService(new ConfigurationBuilder().Build(), TimeProvider.System);
@@ -136,13 +163,21 @@ public sealed class NixUnitOfWorkJitTests
             [selfIssued]);
     }
 
-    private static string SignedExternalToken(string issuer, string audience, SecurityKey key)
+    private static string SignedExternalToken(
+        string issuer,
+        string audience,
+        SecurityKey key,
+        bool includeAuthorizedParty)
     {
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim("sub", "sensitive-subject"),
-            new Claim("azp", audience),
         };
+        if (includeAuthorizedParty)
+        {
+            claims.Add(new Claim("azp", audience));
+        }
+
         var token = new JwtSecurityToken(
             issuer,
             audience,
