@@ -22,6 +22,21 @@ export interface MediaConfig {
   /** Presented on every internal call, to say which service is asking. */
   readonly internalSecret: string;
 
+  /** Core owns durable worker jobs and authorization context. */
+  readonly coreBaseUrl: string;
+
+  /** Whether eligible exports are delegated to the Go worker. */
+  readonly goExportEnabled: boolean;
+
+  /** Whether uploaded Nix archives are preflighted by the Go import worker. */
+  readonly goImportEnabled: boolean;
+
+  readonly objectStoreEndpoint: string;
+  readonly objectStoreRegion: string;
+  readonly objectStoreBucket: string;
+  readonly objectStoreAccessKey: string;
+  readonly objectStoreSecretKey: string;
+
   /** How long one conversion may take before it is abandoned. */
   readonly jobTimeoutMs: number;
 
@@ -80,11 +95,33 @@ export function assertNoDatabaseCredentials(env: NodeJS.ProcessEnv): void {
 export function readConfig(env: NodeJS.ProcessEnv): MediaConfig {
   assertNoDatabaseCredentials(env);
 
+  const goExportEnabled = env.NIX_MEDIA_GO_EXPORT_ENABLED === 'true';
+  const goImportEnabled = env.NIX_MEDIA_GO_IMPORT_ENABLED === 'true';
+  if (goExportEnabled || goImportEnabled) {
+    for (const key of [
+      'NIX_MEDIA_CORE_BASE_URL',
+      'NIX_MEDIA_OBJECT_STORE_ENDPOINT',
+      'NIX_MEDIA_OBJECT_STORE_BUCKET',
+      'NIX_MEDIA_OBJECT_STORE_ACCESS_KEY',
+      'NIX_MEDIA_OBJECT_STORE_SECRET_KEY',
+    ]) {
+      required(env, key);
+    }
+  }
+
   return {
     port: Number(env.NIX_MEDIA_PORT ?? 8200),
     host: env.NIX_MEDIA_HOST ?? '0.0.0.0',
     collabBaseUrl: stripTrailingSlash(required(env, 'NIX_MEDIA_COLLAB_BASE_URL')),
     internalSecret: required(env, 'NIX_MEDIA_INTERNAL_SECRET'),
+    coreBaseUrl: stripTrailingSlash(env.NIX_MEDIA_CORE_BASE_URL ?? ''),
+    goExportEnabled,
+    goImportEnabled,
+    objectStoreEndpoint: stripTrailingSlash(env.NIX_MEDIA_OBJECT_STORE_ENDPOINT ?? ''),
+    objectStoreRegion: env.NIX_MEDIA_OBJECT_STORE_REGION ?? 'us-east-1',
+    objectStoreBucket: env.NIX_MEDIA_OBJECT_STORE_BUCKET ?? '',
+    objectStoreAccessKey: env.NIX_MEDIA_OBJECT_STORE_ACCESS_KEY ?? '',
+    objectStoreSecretKey: env.NIX_MEDIA_OBJECT_STORE_SECRET_KEY ?? '',
     jobTimeoutMs: Number(env.NIX_MEDIA_JOB_TIMEOUT_MS ?? 30_000),
     maxOutputBytes: Number(env.NIX_MEDIA_MAX_OUTPUT_MB ?? 64) * 1024 * 1024,
     maxBundleBytes: Number(env.NIX_MEDIA_MAX_BUNDLE_MB ?? 64) * 1024 * 1024,

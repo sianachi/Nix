@@ -1,10 +1,11 @@
+using Nix.Abstractions.Workers;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Nix.Persistence.Workers;
 
 /// <summary>Calls the exact security-definer queue functions outside tenant-scoped transactions.</summary>
-public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
+public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDispatchStore
 {
     private const string LeaseJobsSql = "SELECT * FROM nix_lease_worker_jobs(@kind, @owner, @limit, @lease_seconds)";
     private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
@@ -139,10 +140,10 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
         Guid eventId,
         string owner,
         bool succeeded,
-        string? error,
+        string? failureDetail,
         CancellationToken cancellationToken) => ExecuteBooleanAsync(
             FinishOutboxSql,
-            [Uuid("event_id", eventId), Text("owner", owner), Boolean("succeeded", succeeded), Text("error", error)],
+            [Uuid("event_id", eventId), Text("owner", owner), Boolean("succeeded", succeeded), Text("error", failureDetail)],
             cancellationToken);
 
     private async ValueTask<bool> ExecuteBooleanAsync(
@@ -178,25 +179,3 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
     private static NpgsqlParameter Boolean(string name, bool value) =>
         new(name, NpgsqlDbType.Boolean) { Value = value };
 }
-
-/// <summary>One globally leased worker job, including the context Nix.Api owns.</summary>
-public sealed record DispatchedWorkerJob(
-    Guid Id,
-    Guid TenantId,
-    Guid? WorkspaceId,
-    Guid? ActorId,
-    string Kind,
-    string Payload,
-    int Attempts,
-    bool CancellationRequested);
-
-/// <summary>One globally leased outbox event.</summary>
-public sealed record DispatchedOutboxEvent(
-    Guid Id,
-    Guid TenantId,
-    Guid? WorkspaceId,
-    Guid? ItemId,
-    string Kind,
-    string Payload,
-    int Attempts,
-    DateTimeOffset AvailableAt);
