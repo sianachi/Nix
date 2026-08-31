@@ -11,58 +11,107 @@ import (
 )
 
 type Client struct {
-	baseURL, secret, bearer, owner string
-	httpClient                     *http.Client
+	baseURL, secret, owner string
+	httpClient             *http.Client
+}
+
+type Job struct {
+	ID                    string          `json:"id"`
+	TenantID              string          `json:"tenantId"`
+	WorkspaceID           *string         `json:"workspaceId"`
+	ActorID               *string         `json:"actorId"`
+	Kind                  string          `json:"kind"`
+	Payload               json.RawMessage `json:"payload"`
+	Attempts              int             `json:"attempts"`
+	CancellationRequested bool            `json:"cancellationRequested"`
 }
 
 type OutboxEvent struct {
 	ID          string          `json:"id"`
+	TenantID    string          `json:"tenantId"`
+	WorkspaceID *string         `json:"workspaceId"`
+	ItemID      *string         `json:"itemId"`
 	Kind        string          `json:"kind"`
 	Payload     json.RawMessage `json:"payload"`
 	Attempts    int             `json:"attempts"`
 	AvailableAt time.Time       `json:"availableAt"`
 }
 
-func New(baseURL, secret, bearer, owner string, timeout time.Duration) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), secret: secret, bearer: bearer, owner: owner, httpClient: &http.Client{Timeout: timeout}}
+func New(baseURL, secret, owner string, timeout time.Duration) *Client {
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), secret: secret, owner: owner, httpClient: &http.Client{Timeout: timeout}}
+}
+
+func (client *Client) LeaseJobs(ctx context.Context, kind string, limit int) ([]Job, error) {
+	var jobs []Job
+	if err := client.lease(ctx, "/internal/worker-dispatch/jobs/lease", kind, limit, &jobs); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func (client *Client) CompleteJob(ctx context.Context, id string, succeeded bool, result, errorCode, errorDetail any) error {
+	body, err := json.Marshal(map[string]any{
+		"owner": client.owner, "succeeded": succeeded, "result": result,
+		"errorCode": errorCode, "errorDetail": errorDetail,
+	})
+	if err != nil {
+		return err
+	}
+	return client.post(ctx, "/internal/worker-dispatch/jobs/"+id+"/complete", strings.NewReader(string(body)))
 }
 
 func (client *Client) LeaseOutbox(ctx context.Context, kind string, limit int) ([]OutboxEvent, error) {
+	var events []OutboxEvent
+	if err := client.lease(ctx, "/internal/worker-dispatch/outbox/lease", kind, limit, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (client *Client) lease(ctx context.Context, path, kind string, limit int, target any) error {
 	body, err := json.Marshal(struct {
 		Owner string `json:"owner"`
 		Kind  string `json:"kind,omitempty"`
 		Limit int    `json:"limit"`
 	}{client.owner, kind, limit})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	request, err := client.newRequest(ctx, http.MethodPost, "/internal/worker/outbox/lease", strings.NewReader(string(body)))
+	request, err := client.newRequest(ctx, http.MethodPost, path, strings.NewReader(string(body)))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("worker API lease returned %s", response.Status)
+		return fmt.Errorf("worker API lease returned %s", response.Status)
 	}
-	var events []OutboxEvent
-	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&events); err != nil {
-		return nil, err
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(target); err != nil {
+		return err
 	}
-	return events, nil
+	return nil
 }
 
 func (client *Client) AcknowledgeOutbox(ctx context.Context, id string) error {
-	return client.post(ctx, "/internal/worker/outbox/"+id+"/ack", nil)
+	return client.finishOutbox(ctx, id, true, "")
 }
 func (client *Client) FailOutbox(ctx context.Context, id, failure string) error {
-	body, _ := json.Marshal(struct {
-		Error string `json:"error"`
-	}{failure})
-	return client.post(ctx, "/internal/worker/outbox/"+id+"/fail", strings.NewReader(string(body)))
+	return client.finishOutbox(ctx, id, false, failure)
+}
+
+func (client *Client) finishOutbox(ctx context.Context, id string, succeeded bool, failure string) error {
+	body, err := json.Marshal(struct {
+		Owner     string `json:"owner"`
+		Succeeded bool   `json:"succeeded"`
+		Error     string `json:"error,omitempty"`
+	}{client.owner, succeeded, failure})
+	if err != nil {
+		return err
+	}
+	return client.post(ctx, "/internal/worker-dispatch/outbox/"+id+"/finish", strings.NewReader(string(body)))
 }
 
 func (client *Client) post(ctx context.Context, path string, body io.Reader) error {
@@ -91,8 +140,5 @@ func (client *Client) newRequest(ctx context.Context, method, path string, body 
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Nix-Internal-Secret", client.secret)
-	if client.bearer != "" {
-		request.Header.Set("Authorization", "Bearer "+client.bearer)
-	}
 	return request, nil
 }
