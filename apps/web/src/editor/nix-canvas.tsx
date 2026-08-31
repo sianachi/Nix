@@ -70,7 +70,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   const dragRef = useRef<DragState | null>(null);
   const drawingRef = useRef<CanvasPoint[] | null>(null);
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
-  const [itemLabels, setItemLabels] = useState<Readonly<Record<string, string>>>({});
+  const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
   const svgRef = useRef<SVGSVGElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
@@ -93,12 +93,12 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
     void Promise.all(ids.map(async (itemId) => {
       try {
         const item = await client.query(coreItems.itemById(itemId), { signal: controller.signal });
-        return [itemId, item.title] as const;
+        return [itemId, { title: item.title, summary: propertySummary(item.computed ?? item.properties) }] as const;
       } catch {
-        return [itemId, 'Item unavailable'] as const;
+        return [itemId, { title: 'Item unavailable', summary: '' }] as const;
       }
     })).then((entries) => {
-      if (live) setItemLabels(Object.fromEntries(entries));
+      if (live) setItemCards(Object.fromEntries(entries));
     });
     return () => { live = false; controller.abort(); };
   }, [client, itemIdKey]);
@@ -401,7 +401,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
           </defs>
           <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
           {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
-          {rendered.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} onOpenItem={onOpenItem} itemLabel={element.itemId === undefined ? '' : itemLabels[element.itemId] ?? 'Loading item…'} />)}
+          {rendered.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} onOpenItem={onOpenItem} itemLabel={element.itemId === undefined ? '' : itemCards[element.itemId]?.title ?? 'Loading item…'} itemSummary={element.itemId === undefined ? '' : itemCards[element.itemId]?.summary ?? ''} />)}
           {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
         </svg>
       </div>
@@ -413,14 +413,14 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   );
 }
 
-function CanvasShape({ element, selected, onPointerDown, onOpenItem, itemLabel }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void; readonly onOpenItem?: ((itemId: string) => void) | undefined; readonly itemLabel: string }): ReactNode {
+function CanvasShape({ element, selected, onPointerDown, onOpenItem, itemLabel, itemSummary }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void; readonly onOpenItem?: ((itemId: string) => void) | undefined; readonly itemLabel: string; readonly itemSummary: string }): ReactNode {
   const stroke = selected ? 'var(--color-accent)' : element.stroke === 'accent' ? 'var(--color-accent)' : element.stroke === 'muted' ? 'var(--color-muted)' : 'var(--color-foreground)';
   const fill = element.fill === 'surface' ? 'var(--color-surface)' : element.fill === 'none' ? 'none' : 'var(--color-accent-100)';
   const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
   if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
   if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
   if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
-  if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }} onDoubleClick={() => { if (element.itemId !== undefined && element.itemId !== '') onOpenItem?.(element.itemId); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">Nix item</text></g>;
+  if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }} onDoubleClick={() => { if (element.itemId !== undefined && element.itemId !== '') onOpenItem?.(element.itemId); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">{itemSummary || 'Nix item'}</text></g>;
   if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
   return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
 }
@@ -429,6 +429,14 @@ function pathFor(points: readonly CanvasPoint[]): string {
   const first = points[0];
   if (first === undefined) return '';
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${String(point.x)} ${String(point.y)}`).join(' ');
+}
+
+function propertySummary(properties: Readonly<Record<string, unknown>> | null): string {
+  const entry = Object.entries(properties ?? {})[0];
+  if (entry === undefined) return '';
+  const [key, value] = entry;
+  const rendered = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : JSON.stringify(value);
+  return `${key}: ${rendered}`.slice(0, 34);
 }
 
 function ResizeHandle({ element, onPointerDown }: { readonly element: NixCanvasElement; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize?: boolean) => void }): ReactNode {
