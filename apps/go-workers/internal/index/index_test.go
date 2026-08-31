@@ -36,6 +36,26 @@ func TestIndexRefusesNewRecordsPastCapacity(t *testing.T) {
 	}
 }
 
+func TestIndexReplaceIsTransactionalAndSnapshotIsSorted(t *testing.T) {
+	search := New(100, 10)
+	if err := search.Put(stream.Record{ID: "old", Title: "Old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := search.Replace([]stream.Record{{ID: "z", Title: "Z"}, {ID: "a", Title: "A"}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := search.Snapshot()
+	if snapshot.Version != 1 || len(snapshot.Records) != 2 || snapshot.Records[0].ID != "a" || snapshot.Records[1].ID != "z" {
+		t.Fatalf("Snapshot() = %+v", snapshot)
+	}
+	if err := search.Replace([]stream.Record{{Title: "invalid"}}); err == nil {
+		t.Fatal("Replace() accepted an invalid replacement")
+	}
+	if search.Len() != 2 {
+		t.Fatalf("failed replacement changed index length to %d", search.Len())
+	}
+}
+
 func TestIndexUpdatesAreSafeConcurrently(t *testing.T) {
 	search := New(100, 20)
 	done := make(chan struct{}, 20)
