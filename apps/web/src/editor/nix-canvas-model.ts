@@ -25,6 +25,13 @@ export interface CanvasPoint {
   readonly y: number;
 }
 
+export interface CanvasViewport {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export const CANVAS_WIDTH = 1200;
 export const CANVAS_HEIGHT = 800;
 export const CANVAS_ELEMENT_CEILING = 10_000;
@@ -36,6 +43,10 @@ export function boundedPoints(points: readonly CanvasPoint[]): CanvasPoint[] {
   return Array.from({ length: FREEHAND_POINT_CEILING }, (_, index) => points[Math.round(index * step)]).filter(
     (point): point is CanvasPoint => point !== undefined,
   );
+}
+
+export function intersectsViewport(element: NixCanvasElement, viewport: CanvasViewport): boolean {
+  return element.x < viewport.x + viewport.width && element.x + element.width > viewport.x && element.y < viewport.y + viewport.height && element.y + element.height > viewport.y;
 }
 
 export function createElement(

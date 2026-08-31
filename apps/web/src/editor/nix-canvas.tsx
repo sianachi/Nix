@@ -25,9 +25,11 @@ import {
   CANVAS_WIDTH,
   createElement,
   boundedPoints,
+  intersectsViewport,
   type CanvasPoint,
   type NixCanvasElement,
   type NixCanvasElementType,
+  type CanvasViewport,
   type CanvasFill,
   updateElement,
 } from './nix-canvas-model';
@@ -74,7 +76,8 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   const client = useApiClient();
 
   const visible = elements.filter((element) => !element.isDeleted);
-  const rendered = visible.slice(0, CANVAS_ELEMENT_CEILING);
+  const viewport: CanvasViewport = { x: 0, y: 0, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom };
+  const rendered = visible.filter((element) => intersectsViewport(element, viewport)).slice(0, CANVAS_ELEMENT_CEILING);
   const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
   const itemIds = visible
@@ -372,8 +375,8 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
         <svg
           ref={svgRef}
           className="mx-auto block max-w-full origin-top-left bg-background shadow-sm"
-          style={{ width: `${String(CANVAS_WIDTH * zoom)}px`, height: `${String(CANVAS_HEIGHT * zoom)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
-          viewBox={`0 0 ${String(CANVAS_WIDTH)} ${String(CANVAS_HEIGHT)}`}
+          style={{ width: `${String(CANVAS_WIDTH)}px`, height: `${String(CANVAS_HEIGHT)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
+          viewBox={`0 0 ${String(viewport.width)} ${String(viewport.height)}`}
           role="application"
           aria-label="Canvas workspace"
           onPointerDown={(event) => { addAt(pointFromEvent(event)); }}

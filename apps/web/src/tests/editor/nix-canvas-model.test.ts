@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boundsOf,
   boundedPoints,
+  intersectsViewport,
   createElement,
   updateElement,
   type NixCanvasElement,
@@ -81,5 +82,12 @@ describe('the Nix canvas model', () => {
     expect(bounded).toHaveLength(2_000);
     expect(bounded[0]).toEqual(points[0]);
     expect(bounded.at(-1)).toEqual(points.at(-1));
+  });
+
+  it('culls elements outside the active viewport', () => {
+    const viewport = { x: 0, y: 0, width: 100, height: 100 };
+
+    expect(intersectsViewport(element({ x: 90, y: 90, width: 20, height: 20 }), viewport)).toBe(true);
+    expect(intersectsViewport(element({ x: 101, y: 0, width: 20, height: 20 }), viewport)).toBe(false);
   });
 });
