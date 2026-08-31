@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,10 @@ type Settings struct {
 	MaxRecords     int
 	MaxTokens      int
 	RequestTimeout time.Duration
+	InternalAPIURL string
+	BearerToken    string
+	PollInterval   time.Duration
+	WorkerID       string
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -37,6 +42,10 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_REQUEST_TIMEOUT_SECONDS: %w", err)
 	}
+	pollSeconds, err := parseInt(getenv("NIX_WORKER_POLL_INTERVAL_SECONDS"), 5)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_POLL_INTERVAL_SECONDS: %w", err)
+	}
 	settings := Settings{
 		Address:        valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret: getenv("NIX_WORKER_INTERNAL_SECRET"),
@@ -45,8 +54,12 @@ func Load(getenv func(string) string) (Settings, error) {
 		MaxRecords:     maxRecords,
 		MaxTokens:      maxTokens,
 		RequestTimeout: time.Duration(requestTimeoutSeconds) * time.Second,
+		InternalAPIURL: strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
+		BearerToken:    getenv("NIX_WORKER_BEARER_TOKEN"),
+		PollInterval:   time.Duration(pollSeconds) * time.Second,
+		WorkerID:       valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
 	}
-	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 {
+	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil

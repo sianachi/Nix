@@ -26,6 +26,7 @@ type Dependencies struct {
 	MaxLineBytes   int
 	MaxTokens      int
 	RequestTimeout time.Duration
+	Index          *index.Index
 }
 
 type Server struct {
@@ -38,7 +39,11 @@ func New(deps Dependencies) http.Handler {
 }
 
 func NewForRole(service role.Service, deps Dependencies) http.Handler {
-	server := &Server{deps: deps, index: index.New(deps.MaxTokens, deps.MaxRecords)}
+	searchIndex := deps.Index
+	if searchIndex == nil {
+		searchIndex = index.New(deps.MaxTokens, deps.MaxRecords)
+	}
+	server := &Server{deps: deps, index: searchIndex}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	if service == role.All || service == role.Import {
