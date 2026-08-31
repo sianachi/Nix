@@ -107,6 +107,12 @@ public static class NixTables
     /// <summary>Stable source-to-target mappings for applications.</summary>
     public const string TemplateApplicationItem = "template_application_item";
 
+    /// <summary>Backend-owned asynchronous worker jobs.</summary>
+    public const string WorkerJob = "worker_job";
+
+    /// <summary>Backend-owned durable events for rebuildable derived data.</summary>
+    public const string WorkerOutboxEvent = "worker_outbox_event";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -141,6 +147,8 @@ public static class NixTables
         TemplateOperationItem,
         TemplateApplication,
         TemplateApplicationItem,
+        WorkerJob,
+        WorkerOutboxEvent,
     ];
 
     /// <summary>
@@ -202,6 +210,8 @@ public static class NixTables
             [TemplateOperationItem] = FullDml,
             [TemplateApplication] = FullDml,
             [TemplateApplicationItem] = FullDml,
+            [WorkerJob] = FullDml,
+            [WorkerOutboxEvent] = FullDml,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 
