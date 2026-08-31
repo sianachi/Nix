@@ -8,17 +8,19 @@ import (
 )
 
 type Settings struct {
-	Address        string
-	InternalSecret string
-	MaxInputBytes  int64
-	MaxLineBytes   int
-	MaxRecords     int
-	MaxTokens      int
-	RequestTimeout time.Duration
-	InternalAPIURL string
-	BearerToken    string
-	PollInterval   time.Duration
-	WorkerID       string
+	Address         string
+	InternalSecret  string
+	MaxInputBytes   int64
+	MaxLineBytes    int
+	MaxRecords      int
+	MaxTokens       int
+	RequestTimeout  time.Duration
+	InternalAPIURL  string
+	BearerToken     string
+	PollInterval    time.Duration
+	WorkerID        string
+	OpenSearchURL   string
+	OpenSearchIndex string
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -47,17 +49,19 @@ func Load(getenv func(string) string) (Settings, error) {
 		return Settings{}, fmt.Errorf("NIX_WORKER_POLL_INTERVAL_SECONDS: %w", err)
 	}
 	settings := Settings{
-		Address:        valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
-		InternalSecret: getenv("NIX_WORKER_INTERNAL_SECRET"),
-		MaxInputBytes:  maxInputBytes,
-		MaxLineBytes:   maxLineBytes,
-		MaxRecords:     maxRecords,
-		MaxTokens:      maxTokens,
-		RequestTimeout: time.Duration(requestTimeoutSeconds) * time.Second,
-		InternalAPIURL: strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
-		BearerToken:    getenv("NIX_WORKER_BEARER_TOKEN"),
-		PollInterval:   time.Duration(pollSeconds) * time.Second,
-		WorkerID:       valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		Address:         valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
+		InternalSecret:  getenv("NIX_WORKER_INTERNAL_SECRET"),
+		MaxInputBytes:   maxInputBytes,
+		MaxLineBytes:    maxLineBytes,
+		MaxRecords:      maxRecords,
+		MaxTokens:       maxTokens,
+		RequestTimeout:  time.Duration(requestTimeoutSeconds) * time.Second,
+		InternalAPIURL:  strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
+		BearerToken:     getenv("NIX_WORKER_BEARER_TOKEN"),
+		PollInterval:    time.Duration(pollSeconds) * time.Second,
+		WorkerID:        valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		OpenSearchURL:   strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
+		OpenSearchIndex: valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
 	}
 	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")

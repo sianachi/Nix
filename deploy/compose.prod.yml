@@ -252,6 +252,9 @@ services:
       NIX_WORKER_MAX_INPUT_BYTES: "67108864"
       NIX_WORKER_MAX_LINE_BYTES: "4194304"
       NIX_WORKER_MAX_RECORDS: "100000"
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_OPENSEARCH_URL: http://nix-opensearch:9200
+      NIX_OPENSEARCH_INDEX: nix-items
     healthcheck:
       test: ["CMD", "/nix-worker", "--healthcheck"]
       interval: 10s
@@ -267,6 +270,36 @@ services:
       default:
         aliases:
           - nix-indexer
+
+  nix-opensearch:
+    image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - nix-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    mem_limit: 1g
+    cpus: 2
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   nix-web:
     image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
@@ -323,7 +356,8 @@ volumes:
   nix-postgres-data:
     name: nix-postgres-data
   nix-caddy-data:
-    name: nix-caddy-data
+  nix-opensearch-data:
+    name: nix-opensearch-data
   nix-caddy-config:
     name: nix-caddy-config
   nix-api-data-protection:
