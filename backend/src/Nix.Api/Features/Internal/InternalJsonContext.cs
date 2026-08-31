@@ -16,6 +16,8 @@ namespace Nix.Serialization;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ItemAuthorizationResponse))]
 [JsonSerializable(typeof(CreateWorkerJobRequest))]
+[JsonSerializable(typeof(CreateImportWorkerJobRequest))]
+[JsonSerializable(typeof(CreateExportWorkerJobRequest))]
 [JsonSerializable(typeof(WorkerOutboxRequest))]
 [JsonSerializable(typeof(LeaseWorkerJobsRequest))]
 [JsonSerializable(typeof(CompleteWorkerJobRequest))]
