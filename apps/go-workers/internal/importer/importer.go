@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
 
@@ -93,8 +94,16 @@ func nix(id, title string, source io.Reader, limits Limits) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if !bytes.Contains(manifestBytes, []byte(`"format":"nix-archive"`)) {
-		return Result{}, errors.New("archive manifest has an unknown format")
+	var manifest nixarchive.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return Result{}, fmt.Errorf("archive manifest: %w", err)
+	}
+	if err := nixarchive.ValidateManifest(manifest, limits.MaxItems); err != nil {
+		return Result{}, err
+	}
+	expected := make(map[string]nixarchive.ManifestItem, len(manifest.Items))
+	for _, item := range manifest.Items {
+		expected[item.ID] = item
 	}
 	var records []stream.Record
 	for _, entry := range archive.File {
@@ -108,11 +117,19 @@ func nix(id, title string, source io.Reader, limits Limits) (Result, error) {
 		if readErr != nil {
 			return Result{}, readErr
 		}
-		record, parseErr := archiveRecord(payload)
-		if parseErr != nil {
+		var bundle nixarchive.Bundle
+		if parseErr := json.Unmarshal(payload, &bundle); parseErr != nil {
 			return Result{}, fmt.Errorf("%s: %w", entry.Name, parseErr)
 		}
-		records = append(records, record)
+		manifestItem, ok := expected[bundle.ID]
+		if !ok || !strings.HasSuffix(entry.Name, "/"+bundle.ID+".json") {
+			return Result{}, fmt.Errorf("%s is not listed by the manifest", entry.Name)
+		}
+		if bundle.Title == "" {
+			bundle.Title = manifestItem.Title
+		}
+		body := string(bundle.Body)
+		records = append(records, stream.Record{ID: bundle.ID, ParentID: valueOrEmpty(bundle.ParentID), Title: bundle.Title, Body: body, Properties: bundle.Properties})
 	}
 	if len(records) == 0 {
 		return Result{}, errors.New("archive contains no item payloads")
@@ -121,6 +138,13 @@ func nix(id, title string, source io.Reader, limits Limits) (Result, error) {
 		records[0].Title = title
 	}
 	return Result{Records: records}, nil
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func readBounded(source io.Reader, maxBytes int64) ([]byte, error) {
