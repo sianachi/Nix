@@ -23,7 +23,7 @@ function Wrapper({ children }: { readonly children: ReactNode }): ReactNode {
 /**
  * The library is per caller, not per canvas: one `GET`/`PUT` pair against
  * `/api/v1/me/canvas-library`, with no item or workspace in the URL. These tests are about the
- * hook's own contract with that endpoint, not about Excalidraw, which is why nothing here renders
+ * hook's own contract with that endpoint, which is why nothing here renders
  * `CanvasEditor`.
  */
 describe('the caller’s own canvas library', () => {
@@ -120,7 +120,7 @@ describe('the caller’s own canvas library', () => {
       expect(result.current.status).toBe('ready');
     });
 
-    // Seeding Excalidraw with the loaded library makes it announce that same library back
+    // Seeding the editor with the loaded library makes it announce that same library back
     // through `onLibraryChange`. Saving that announcement was a feedback loop: an unbounded
     // stream of identical PUTs that hung the tab. The unchanged echo must die here.
     act(() => {
@@ -139,7 +139,7 @@ describe('the caller’s own canvas library', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    // Excalidraw fires `onLibraryChange` once on mount with whatever it booted with, before this
+    // The editor announces its initial library once on mount with whatever it booted with, before this
     // hook's own read has necessarily returned - saving that would overwrite Core's copy with an
     // empty one.
     act(() => {
