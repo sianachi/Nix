@@ -13,6 +13,9 @@ namespace Nix.Features.Internal;
 /// </remarks>
 public static class InternalErrors
 {
+    /// <summary>The request cannot be safely accepted.</summary>
+    public static NixError InvalidRequest(string detail) => new("internal.invalid_request", detail);
+
     /// <summary>No such item, or the acting principal may not act on it as the call implies.</summary>
     public static NixError NotFound(string detail) => new("internal.not_found", detail);
 }
