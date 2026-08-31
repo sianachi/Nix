@@ -33,6 +33,15 @@ describe('the Nix canvas model', () => {
     });
   });
 
+  it('creates an item card with an explicit empty link until an item is chosen', () => {
+    expect(createElement('card', { x: 4, y: 8 }, 'z00003')).toMatchObject({
+      type: 'card',
+      itemId: '',
+      width: 240,
+      height: 120,
+    });
+  });
+
   it('increments the element version whenever an edit is made', () => {
     const original = element();
     const moved = updateElement(original, { x: 80, y: 90 });
