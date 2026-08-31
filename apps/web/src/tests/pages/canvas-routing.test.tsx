@@ -11,7 +11,7 @@ import { renderAt, signedIn } from '../render-with-router';
  * server applies, so the two never disagree about what a body is.
  */
 
-// The real canvas editor drags Excalidraw into jsdom; what this suite asserts is the
+// The real canvas editor has browser-only collaboration dependencies; what this suite asserts is the
 // routing seam in front of it, so a marker stands in.
 vi.mock('../../editor/canvas-editor', () => ({
   CanvasEditor: ({ itemId }: { itemId: string }) => (
