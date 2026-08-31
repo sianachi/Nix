@@ -31,9 +31,9 @@ export interface NixCanvasProps {
 
 type Tool = 'select' | NixCanvasElementType;
 interface DragState {
-  readonly id: string;
+  readonly ids: readonly string[];
   readonly start: CanvasPoint;
-  readonly origin: NixCanvasElement;
+  readonly origins: ReadonlyMap<string, NixCanvasElement>;
   readonly before: readonly NixCanvasElement[];
   readonly resize: boolean;
 }
@@ -50,7 +50,7 @@ const TOOL_LABELS: Record<Tool, string> = {
 
 export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const [tool, setTool] = useState<Tool>('select');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
   const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
@@ -61,6 +61,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const visible = elements.filter((element) => !element.isDeleted);
+  const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
 
   const commit = useCallback(
@@ -98,10 +99,8 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
       ) {
         return;
       }
-      if (selectedId !== null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      if (selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault();
-        const selectedElement = elements.find((element) => element.id === selectedId);
-        if (selectedElement === undefined) return;
         const distance = event.shiftKey ? 10 : 1;
         const delta = {
           ArrowUp: { x: 0, y: -distance },
@@ -112,7 +111,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
         if (delta === undefined) return;
         commit(
           elements.map((element) =>
-            element.id === selectedId
+            selectedIds.includes(element.id)
               ? updateElement(element, { x: element.x + delta.x, y: element.y + delta.y })
               : element,
           ),
@@ -128,18 +127,18 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
         event.preventDefault();
         redo();
       }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId !== null) {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length > 0) {
         event.preventDefault();
         const next = elements.map((element) =>
-          element.id === selectedId ? updateElement(element, { isDeleted: true }) : element,
+          selectedIds.includes(element.id) ? updateElement(element, { isDeleted: true }) : element,
         );
         commit(next);
-        setSelectedId(null);
+        setSelectedIds([]);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => { window.removeEventListener('keydown', onKeyDown); };
-  }, [commit, elements, redo, selectedId, undo]);
+  }, [commit, elements, redo, selectedIds, undo]);
 
   function pointFromEvent(event: PointerEvent<SVGSVGElement>): CanvasPoint {
     const svg = svgRef.current;
@@ -158,13 +157,13 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
       return;
     }
     if (tool === 'select') {
-      setSelectedId(null);
+      setSelectedIds([]);
       return;
     }
     const next = [...elements, createElement(tool, point, `z${String(elements.length).padStart(5, '0')}`)];
     commit(next);
     const added = next.at(-1);
-    setSelectedId(added?.id ?? null);
+    setSelectedIds(added === undefined ? [] : [added.id]);
     setTextDraft(added?.text ?? '');
     setTool('select');
   }
@@ -182,9 +181,15 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
     event.stopPropagation();
     const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
-    setSelectedId(element.id);
+    const nextSelection = event.shiftKey && !selectedIds.includes(element.id)
+      ? [...selectedIds, element.id]
+      : [element.id];
+    setSelectedIds(nextSelection);
     setTextDraft(element.text ?? '');
-    dragRef.current = { id: element.id, start: point, origin: element, before: [...elements], resize };
+    const origins = new Map(
+      elements.filter((candidate) => nextSelection.includes(candidate.id)).map((candidate) => [candidate.id, candidate]),
+    );
+    dragRef.current = { ids: nextSelection, start: point, origins, before: [...elements], resize };
     (event.currentTarget).setPointerCapture(event.pointerId);
   }
 
@@ -195,21 +200,22 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     const dx = point.x - drag.start.x;
     const dy = point.y - drag.start.y;
     const next = elements.map((element) => {
-      if (element.id !== drag.id) return element;
-      if (drag.resize) {
+      if (!drag.ids.includes(element.id)) return element;
+      const origin = drag.origins.get(element.id) ?? element;
+      if (drag.resize && element.id === drag.ids[0]) {
         return updateElement(element, {
-          width: Math.max(40, drag.origin.width + dx),
-          height: Math.max(30, drag.origin.height + dy),
+          width: Math.max(40, origin.width + dx),
+          height: Math.max(30, origin.height + dy),
         });
       }
-      return updateElement(element, { x: drag.origin.x + dx, y: drag.origin.y + dy });
+      return updateElement(element, { x: origin.x + dx, y: origin.y + dy });
     });
     onChange(next);
   }
 
   function finishDrag(): void {
     const drag = dragRef.current;
-    if (drag !== null && elements.some((element) => element.id === drag.id && element !== drag.origin)) {
+    if (drag !== null && elements.some((element) => drag.ids.includes(element.id) && element !== drag.origins.get(element.id))) {
       setPast((current) => [...current, [...drag.before]]);
       setFuture([]);
     }
@@ -232,7 +238,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
       height: Math.max(1, bottom - top),
     });
     commit([...elements, { ...drawn, points }]);
-    setSelectedId(drawn.id);
+    setSelectedIds([drawn.id]);
     setTool('select');
   }
 
