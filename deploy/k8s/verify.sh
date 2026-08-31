@@ -31,6 +31,10 @@ echo "== Media =="
 kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=Never -- \
   curl -fsS http://nix-media:8200/healthz
 
+echo "== Go worker =="
+kubectl -n nix run verify-curl-worker --rm -i --image=curlimages/curl --restart=Never -- \
+  curl -fsS http://nix-worker:8301/healthz
+
 echo "== Single origin (https://$DOMAIN) =="
 curl -fsS "https://$DOMAIN/" -o /dev/null -w '%{http_code} app\n'
 curl -fsS "https://$DOMAIN/api/v1/health/status" -w ' core\n'
