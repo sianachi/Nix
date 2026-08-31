@@ -192,12 +192,14 @@ describe('revoking a token', () => {
 
     // The wire call was the idempotent DELETE on this token's own address.
     const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    const revocation = calls.find(
-      (call) =>
-        typeof call[0] === 'string' &&
-        call[0] === `/api/v1/me/tokens/${liveToken.id}` &&
-        (call[1] as RequestInit | undefined)?.method === 'DELETE',
-    );
+    const revocation = calls.find((call) => {
+      const request = call[0];
+      const url =
+        typeof request === 'string' ? request : request instanceof Request ? request.url : '';
+      const method =
+        request instanceof Request ? request.method : (call[1] as RequestInit | undefined)?.method;
+      return url.endsWith(`/api/v1/me/tokens/${liveToken.id}`) && method === 'DELETE';
+    });
     expect(revocation).toBeDefined();
   });
 
