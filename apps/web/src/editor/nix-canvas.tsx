@@ -1,4 +1,5 @@
 import { Button, Icon, Text } from '@nix/ui';
+import { items as coreItems } from '@nix/api-client';
 import {
   Circle,
   Minus,
@@ -12,6 +13,8 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+
+import { useApiClient } from '../api/api-client-provider';
 
 import {
   CANVAS_HEIGHT,
@@ -46,6 +49,7 @@ const TOOL_LABELS: Record<Tool, string> = {
   arrow: 'Arrow',
   text: 'Text',
   freehand: 'Freehand',
+  card: 'Item card',
 };
 
 export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
@@ -58,11 +62,35 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const dragRef = useRef<DragState | null>(null);
   const drawingRef = useRef<CanvasPoint[] | null>(null);
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
+  const [itemLabels, setItemLabels] = useState<Readonly<Record<string, string>>>({});
   const svgRef = useRef<SVGSVGElement>(null);
+  const client = useApiClient();
 
   const visible = elements.filter((element) => !element.isDeleted);
   const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
+  const itemIds = visible
+    .filter((element) => element.type === 'card' && element.itemId !== '')
+    .map((element) => element.itemId)
+    .filter((itemId): itemId is string => itemId !== undefined);
+  const itemIdKey = itemIds.join('|');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    const ids = itemIdKey === '' ? [] : itemIdKey.split('|');
+    void Promise.all(ids.map(async (itemId) => {
+      try {
+        const item = await client.query(coreItems.itemById(itemId), { signal: controller.signal });
+        return [itemId, item.title] as const;
+      } catch {
+        return [itemId, 'Item unavailable'] as const;
+      }
+    })).then((entries) => {
+      if (live) setItemLabels(Object.fromEntries(entries));
+    });
+    return () => { live = false; controller.abort(); };
+  }, [client, itemIdKey]);
 
   const commit = useCallback(
     (next: readonly NixCanvasElement[]): void => {
@@ -169,8 +197,10 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   }
 
   function commitText(): void {
-    if (selected?.type !== 'text' || selected.text === textDraft) return;
-    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, { text: textDraft }) : element)));
+    if (selected?.type !== 'text' && selected?.type !== 'card') return;
+    if (selected.type === 'text' && selected.text === textDraft) return;
+    if (selected.type === 'card' && selected.itemId === textDraft) return;
+    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, selected.type === 'text' ? { text: textDraft } : { itemId: textDraft }) : element)));
   }
 
   function updateSelected(changes: Partial<Pick<NixCanvasElement, 'fill' | 'stroke' | 'opacity'>>): void {
@@ -261,9 +291,9 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
           );
         })}
         <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
-        {selected?.type === 'text' ? (
+        {selected?.type === 'text' || selected?.type === 'card' ? (
           <input
-            aria-label="Text content"
+            aria-label={selected.type === 'text' ? 'Text content' : 'Item identifier'}
             className="h-(--control-md) min-w-32 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
             value={textDraft}
             onChange={(event) => { setTextDraft(event.target.value); }}
@@ -323,7 +353,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
           </defs>
           <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
           {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
-          {visible.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} />)}
+          {visible.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} itemLabel={element.itemId === undefined ? '' : itemLabels[element.itemId] ?? 'Loading item…'} />)}
           {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
         </svg>
       </div>
@@ -335,13 +365,14 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   );
 }
 
-function CanvasShape({ element, selected, onPointerDown }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void }): ReactNode {
+function CanvasShape({ element, selected, onPointerDown, itemLabel }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void; readonly itemLabel: string }): ReactNode {
   const stroke = selected ? 'var(--color-accent)' : element.stroke === 'accent' ? 'var(--color-accent)' : element.stroke === 'muted' ? 'var(--color-muted)' : 'var(--color-foreground)';
   const fill = element.fill === 'surface' ? 'var(--color-surface)' : element.fill === 'none' ? 'none' : 'var(--color-accent-100)';
   const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
   if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
   if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
   if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
+  if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">Nix item</text></g>;
   if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
   return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
 }
