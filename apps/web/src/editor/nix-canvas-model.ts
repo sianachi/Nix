@@ -1,6 +1,8 @@
 import type { CanvasElement } from './canvas-binding';
 
 export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text';
+export type CanvasFill = 'accent' | 'surface' | 'none';
+export type CanvasStroke = 'foreground' | 'accent' | 'muted';
 
 export interface NixCanvasElement extends CanvasElement {
   readonly type: NixCanvasElementType;
@@ -10,6 +12,10 @@ export interface NixCanvasElement extends CanvasElement {
   readonly height: number;
   readonly text?: string;
   readonly isDeleted?: boolean;
+  readonly fill?: CanvasFill;
+  readonly stroke?: CanvasStroke;
+  readonly opacity?: number;
+  readonly cornerRadius?: number;
 }
 
 export interface CanvasPoint {
@@ -37,12 +43,16 @@ export function createElement(
     height: dimensions.height,
     index,
     ...(type === 'text' ? { text: 'Text' } : {}),
+    fill: type === 'text' || type === 'line' || type === 'arrow' ? 'none' : 'accent',
+    stroke: 'foreground',
+    opacity: 1,
+    cornerRadius: type === 'rectangle' ? 12 : 0,
   };
 }
 
 export function updateElement(
   element: NixCanvasElement,
-  changes: Partial<Pick<NixCanvasElement, 'x' | 'y' | 'width' | 'height' | 'text' | 'isDeleted'>>,
+  changes: Partial<Pick<NixCanvasElement, 'x' | 'y' | 'width' | 'height' | 'text' | 'isDeleted' | 'fill' | 'stroke' | 'opacity' | 'cornerRadius'>>,
 ): NixCanvasElement {
   return {
     ...element,

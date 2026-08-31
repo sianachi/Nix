@@ -33,6 +33,14 @@ describe('the Nix canvas model', () => {
     expect(moved.versionNonce).toEqual(expect.any(Number));
   });
 
+  it('creates styled shapes with safe defaults and allows style changes', () => {
+    const original = createElement('rectangle', { x: 0, y: 0 }, 'z00000');
+    const styled = updateElement(original, { fill: 'surface', stroke: 'accent', opacity: 0.5 });
+
+    expect(original).toMatchObject({ fill: 'accent', stroke: 'foreground', opacity: 1 });
+    expect(styled).toMatchObject({ fill: 'surface', stroke: 'accent', opacity: 0.5, version: 2 });
+  });
+
   it('calculates bounds from visible elements and ignores tombstones', () => {
     expect(
       boundsOf([
