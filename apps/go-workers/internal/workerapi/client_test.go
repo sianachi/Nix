@@ -10,21 +10,21 @@ import (
 
 func TestClientLeasesAndAcknowledgesWithInternalCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("X-Nix-Internal-Secret") != "secret" || request.Header.Get("Authorization") != "Bearer token" {
+		if request.Header.Get("X-Nix-Internal-Secret") != "secret" || request.Header.Get("Authorization") != "" {
 			t.Fatal("internal credentials were not forwarded")
 		}
-		if request.URL.Path == "/internal/worker/outbox/lease" {
-			_, _ = response.Write([]byte(`[{"id":"event","kind":"item.changed","payload":{},"attempts":1,"availableAt":"2026-01-01T00:00:00Z"}]`))
+		if request.URL.Path == "/internal/worker-dispatch/outbox/lease" {
+			_, _ = response.Write([]byte(`[{"id":"event","tenantId":"tenant","kind":"item.changed","payload":{},"attempts":1,"availableAt":"2026-01-01T00:00:00Z"}]`))
 			return
 		}
-		if request.URL.Path == "/internal/worker/outbox/event/ack" {
+		if request.URL.Path == "/internal/worker-dispatch/outbox/event/finish" {
 			response.WriteHeader(http.StatusNoContent)
 			return
 		}
 		response.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
-	client := New(server.URL, "secret", "token", "indexer", time.Second)
+	client := New(server.URL, "secret", "indexer", time.Second)
 	events, err := client.LeaseOutbox(context.Background(), "item.changed", 10)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("lease = %#v, %v", events, err)

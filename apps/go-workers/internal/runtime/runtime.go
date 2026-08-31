@@ -62,7 +62,7 @@ func Run(service role.Service) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if service == role.Index && settings.InternalAPIURL != "" {
-		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.BearerToken, settings.WorkerID, settings.RequestTimeout)
+		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
 		var searchClient *opensearch.Client
 		if settings.OpenSearchURL != "" {
 			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
