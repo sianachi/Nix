@@ -1,5 +1,4 @@
-import { Blueprint, Button, Dialog, Field, Icon, Input, Tag, Text, cn, focusRing } from '@nix/ui';
-import { ArrowLeft, ArrowRight, Check, Eye, LayoutTemplate } from 'lucide-react';
+import { Button } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   useLocation,
@@ -8,7 +7,6 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router';
-import { z } from 'zod';
 
 import { isCanceledError, isNixApiError } from '@nix/api-client';
 
@@ -16,8 +14,7 @@ import { useApiClient } from '../api/api-client-provider';
 import type { CollabSync } from '../editor/collab-sync';
 import { browserSessionStorage } from '../lib/browser-storage';
 import type { ShellContext } from '../shell/shell-context';
-import { useTemplateLibrary } from './template-library-context';
-import { EffectiveSchemaSchema, ViewSchema, type View } from '../views/core/container-model';
+import { useWorkspace } from '../workspaces/workspace-context';
 import {
   applyStoredTemplate,
   beginTemplateEditDraft,
@@ -35,148 +32,24 @@ import {
   type TemplateEditDraft,
   type TemplatePreflight,
 } from './template-api';
+import { useTemplateLibrary } from './template-library-context';
 import {
-  TemplateDraftEditor,
-  type TemplateItemEdit,
-  type TemplateItemEdits,
-} from './template-draft-editor';
+  distinctViewKinds,
+  draftScope,
+  editedRootFacts,
+  modeFromPath,
+  newDraft,
+  readDraft,
+  storageKey,
+  TEMPLATE_STUDIO_STEPS,
+  type CaptureFacts,
+  type TemplateDraft,
+} from './template-studio-model';
+import { Review } from './template-studio-facts';
+import { TemplateStudioShell } from './template-studio-shell';
+import { Basics, Contents } from './template-studio-steps';
+import { StudioNotice } from './template-studio-notice';
 import { templateFailure } from './use-templates';
-import { useWorkspace } from '../workspaces/workspace-context';
-
-type StudioMode = 'capture' | 'create' | 'apply' | 'edit';
-
-interface TemplateDraft {
-  readonly scope: string;
-  readonly title: string;
-  readonly description: string;
-  readonly includeBody: boolean;
-  readonly includeChildren: boolean;
-  readonly idempotencyKey: string;
-  readonly operationId: string | null;
-  readonly expiresAt: string | null;
-  readonly selectedSourceId: string | null;
-  readonly itemEdits: TemplateItemEdits;
-}
-
-interface RootTemplateFacts {
-  readonly fieldCount: number;
-  readonly viewCount: number;
-  readonly viewKinds: readonly string[];
-}
-
-type CaptureFacts =
-  { readonly status: 'loading' | 'error' } | ({ readonly status: 'ready' } & RootTemplateFacts);
-
-const TemplateDraftRecoverySchema = z.object({
-  scope: z.string(),
-  title: z.string(),
-  description: z.string(),
-  includeBody: z.boolean(),
-  includeChildren: z.boolean(),
-  idempotencyKey: z.string(),
-  operationId: z.string().nullable(),
-  expiresAt: z.string().nullable(),
-  selectedSourceId: z.string().nullable(),
-  itemEdits: z.record(
-    z.string(),
-    z.object({
-      title: z.string(),
-      schema: EffectiveSchemaSchema.nullable().optional(),
-      views: z
-        .object({ views: z.array(ViewSchema), default: z.string() })
-        .nullable()
-        .optional(),
-    }),
-  ),
-});
-
-const STEPS = [
-  { label: 'Basics', detail: 'Name and destination' },
-  { label: 'Contents', detail: 'What this carries' },
-  { label: 'Review', detail: 'Check and finish' },
-] as const;
-
-function modeFromPath(pathname: string): StudioMode {
-  if (pathname.endsWith('/edit')) return 'edit';
-  if (pathname.includes('/templates/apply/')) return 'apply';
-  if (pathname.endsWith('/create')) return 'create';
-  return 'capture';
-}
-
-function newDraft(title: string, scope: string): TemplateDraft {
-  return {
-    scope,
-    title,
-    description: '',
-    includeBody: false,
-    includeChildren: false,
-    idempotencyKey: globalThis.crypto.randomUUID(),
-    operationId: null,
-    expiresAt: null,
-    selectedSourceId: null,
-    itemEdits: {},
-  };
-}
-
-function draftScope(
-  mode: StudioMode,
-  templateId: string | undefined,
-  sourceItemId: string | null,
-  itemId: string | undefined,
-  parentItemId: string | null,
-): string {
-  if (mode === 'capture') return `source:${sourceItemId ?? 'missing'}`;
-  if (mode === 'apply') {
-    return `template:${templateId ?? 'missing'}:target:${itemId ?? 'missing'}`;
-  }
-  if (mode === 'create') {
-    return `template:${templateId ?? 'missing'}:parent:${parentItemId ?? 'root'}`;
-  }
-  return `template:${templateId ?? 'missing'}`;
-}
-
-function storageKey(workspaceId: string, mode: StudioMode, scope: string): string {
-  return `nix:template-studio:${workspaceId}:${mode}:${scope}`;
-}
-
-function distinctViewKinds(views: readonly View[]): readonly string[] {
-  return [...new Set(views.map((view) => view.kind))];
-}
-
-function editedRootFacts(
-  editOperation: TemplateEditDraft | null,
-  draft: TemplateDraft,
-): RootTemplateFacts | null {
-  if (editOperation === null) return null;
-  const edit = draft.itemEdits[editOperation.root.sourceId];
-  const schema = edit?.schema ?? editOperation.root.schema;
-  const views = edit?.views ?? editOperation.root.views;
-  return {
-    fieldCount: schema?.properties.length ?? 0,
-    viewCount: views?.views.length ?? 0,
-    viewKinds: distinctViewKinds(views?.views ?? []),
-  };
-}
-
-function readDraft(
-  key: string,
-  fallback: TemplateDraft,
-): { readonly draft: TemplateDraft; readonly recovered: boolean } {
-  const raw = browserSessionStorage()?.getItem(key);
-  if (raw === null || raw === undefined) return { draft: fallback, recovered: false };
-  try {
-    const parsed = TemplateDraftRecoverySchema.safeParse(JSON.parse(raw));
-    if (!parsed.success || parsed.data.scope !== fallback.scope) {
-      return { draft: fallback, recovered: false };
-    }
-    return {
-      draft: { ...parsed.data, itemEdits: parsed.data.itemEdits as TemplateItemEdits },
-      recovered: true,
-    };
-  } catch {
-    return { draft: fallback, recovered: false };
-  }
-}
 
 export function TemplateStudioPage(): ReactNode {
   const { templateId, itemId } = useParams();
@@ -220,7 +93,7 @@ function TemplateStudio(): ReactNode {
   const [recovery] = useState(() => readDraft(key, newDraft(sourceTitle, scope)));
   const recoveredDraft = recovery.recovered;
   const initialDraft = recovery.draft;
-  const [draft, setDraft] = useState(initialDraft);
+  const [draft, setDraft] = useState<TemplateDraft>(initialDraft);
   const [resumeOperationId, setResumeOperationId] = useState(initialDraft.operationId);
   const [editAttemptKey, setEditAttemptKey] = useState(initialDraft.idempotencyKey);
   const [staleEditDraft, setStaleEditDraft] = useState(false);
@@ -682,10 +555,6 @@ function TemplateStudio(): ReactNode {
     void navigate(to);
   }
 
-  async function next(): Promise<void> {
-    await goToStep(Math.min(step + 1, STEPS.length - 1));
-  }
-
   async function flushDraftBody(): Promise<boolean> {
     if (mode !== 'edit' || bodySync === null) return true;
     setWorking(true);
@@ -711,614 +580,106 @@ function TemplateStudio(): ReactNode {
       return;
     }
     if (step === 1 && !(await flushDraftBody())) return;
-    if (index === STEPS.length - 1 && !(await prepareReview())) return;
+    if (index === TEMPLATE_STUDIO_STEPS.length - 1 && !(await prepareReview())) return;
     setError(null);
     setStep(index);
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-divider px-4 py-3">
-        <Button
-          variant="icon"
-          aria-label="Cancel template setup"
-          onClick={() => {
-            setDiscarding(true);
-          }}
-        >
-          <Icon icon={ArrowLeft} size="sm" />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <Text variant="h3" as="h1" className="truncate">
-            {title}
-          </Text>
-          <Text variant="caption" tone="muted" className="truncate">
-            {mode === 'capture' || mode === 'edit'
-              ? 'Shared with this workspace'
-              : `Destination: ${destination}`}
-          </Text>
-        </div>
-        <Button
-          variant="secondary"
-          className="lg:hidden"
-          onClick={() => {
-            setPreviewing((value) => !value);
-          }}
-        >
-          <Icon icon={Eye} size="sm" /> {previewing ? 'Hide preview' : 'Preview'}
-        </Button>
-      </header>
-
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <nav
-          aria-label="Template steps"
-          className="shrink-0 border-b border-divider bg-surface p-3 lg:w-44 lg:border-b-0 lg:border-r"
-        >
-          <ol className="grid grid-cols-3 gap-1 lg:flex lg:flex-col lg:gap-2">
-            {STEPS.map((entry, index) => (
-              <li key={entry.label}>
-                <button
-                  type="button"
-                  aria-current={index === step ? 'step' : undefined}
-                  aria-label={`${entry.label}: ${entry.detail}`}
-                  disabled={working}
-                  onClick={() => {
-                    void goToStep(index);
-                  }}
-                  className={cn(
-                    `flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${focusRing}`,
-                    index === step ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
-                  )}
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background">
-                    {index < step ? <Icon icon={Check} size="sm" /> : String(index + 1)}
-                  </span>
-                  <span className="hidden min-w-0 lg:block">
-                    <Text variant="bodySmall" as="span" className="block">
-                      {entry.label}
-                    </Text>
-                    <Text variant="caption" as="span" tone="muted" className="block truncate">
-                      {entry.detail}
-                    </Text>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </nav>
-
-        <main
-          ref={stepMainRef}
-          className={cn(
-            'min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6',
-            previewing ? 'hidden lg:block' : '',
-          )}
-        >
-          <div className="mx-auto flex max-w-2xl flex-col gap-5">
-            {step === 0 ? (
-              <Basics
-                mode={mode}
-                draft={draft}
-                destination={destination}
-                targetTitle={targetTitle}
-                onChange={setDraft}
-              />
-            ) : step === 1 ? (
-              <Contents
-                mode={mode}
-                draft={draft}
-                template={template}
-                editOperation={editOperation}
-                bodySync={bodySync}
-                onBodySync={setBodySync}
-                onChange={setDraft}
-              />
-            ) : (
-              <Review
-                mode={mode}
-                draft={draft}
-                template={template}
-                preflight={preflight}
-                destination={destination}
-                rootFacts={rootFacts}
-                missingFactsLabel={missingFactsLabel}
-              />
-            )}
-            {error === null ? null : (
-              <Text variant="bodySmall" role="alert" className="bg-surface px-3 py-2">
-                {error}
-              </Text>
-            )}
-            <div className="flex items-center justify-between border-t border-divider pt-4">
-              <Button
-                variant="secondary"
-                disabled={step === 0 || working}
-                onClick={() => {
-                  void goToStep(step - 1);
-                }}
-              >
-                Back
-              </Button>
-              {step < STEPS.length - 1 ? (
-                <Button disabled={working} onClick={() => void next()}>
-                  {working ? 'Checking…' : 'Continue'} <Icon icon={ArrowRight} size="sm" />
-                </Button>
-              ) : (
-                <Button
-                  disabled={working || preflight?.canApply === false}
-                  onClick={() => void finish()}
-                >
-                  {working
-                    ? 'Saving…'
-                    : mode === 'capture'
-                      ? 'Save template'
-                      : mode === 'edit'
-                        ? 'Save changes'
-                        : mode === 'apply'
-                          ? 'Apply template'
-                          : 'Create item'}
-                </Button>
-              )}
-            </div>
-          </div>
-        </main>
-
-        <aside
-          aria-label="Template preview"
-          className={cn(
-            'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-t border-divider bg-surface p-4',
-            'lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0 lg:w-80 xl:w-96',
-            previewing ? 'block' : 'hidden lg:block',
-          )}
-        >
-          <TemplateBlueprint
-            draft={draft}
-            template={template}
-            destination={destination}
-            mode={mode}
-            rootFacts={rootFacts}
-            missingFactsLabel={missingFactsLabel}
-          />
-        </aside>
-      </div>
-
-      <Dialog
-        open={discarding}
-        title="Discard this setup?"
-        onClose={() => {
-          setDiscarding(false);
-        }}
-        actions={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setDiscarding(false);
-              }}
-            >
-              Keep editing
-            </Button>
-            <Button
-              disabled={working}
-              onClick={() => {
-                void (async () => {
-                  if (mode === 'edit' && template !== null && editOperation !== null) {
-                    setWorking(true);
-                    try {
-                      await client.execute(
-                        discardTemplateEditDraft(template.id, editOperation.operationId),
-                      );
-                    } catch (reason) {
-                      setError(templateFailure(reason, 'The draft could not be discarded.'));
-                      setWorking(false);
-                      setDiscarding(false);
-                      return;
-                    }
-                  }
-                  browserSessionStorage()?.removeItem(key);
-                  void navigate(-1);
-                })();
-              }}
-            >
-              Discard setup
-            </Button>
-          </>
-        }
-      >
-        <Text variant="bodySmall">Discarding removes this tab&rsquo;s saved draft.</Text>
-      </Dialog>
-    </div>
-  );
-}
-
-function Basics({
-  mode,
-  draft,
-  destination,
-  targetTitle,
-  onChange,
-}: {
-  readonly mode: StudioMode;
-  readonly draft: TemplateDraft;
-  readonly destination: string;
-  readonly targetTitle: string | null;
-  readonly onChange: (draft: TemplateDraft) => void;
-}): ReactNode {
-  if (mode === 'apply') {
-    return (
-      <section className="flex flex-col gap-4">
-        <Text variant="h2" as="h2">
-          Apply to {targetTitle ?? 'this item'}
-        </Text>
-        <Text tone="muted">
-          Existing fields, views, content, and children stay in place. The server checks additions
-          and conflicts before anything changes. Starting content is used only when creating a new
-          item; it is never appended to this item.
-        </Text>
-      </section>
-    );
-  }
-  return (
-    <section className="flex flex-col gap-4">
-      <div>
-        <Text variant="h2" as="h2">
-          {mode === 'create' ? 'Name the new item' : 'Name the template'}
-        </Text>
-        <Text variant="bodySmall" tone="muted">
-          {mode === 'create'
-            ? `Creating in ${destination}`
-            : 'Use a name your team will recognize in New.'}
-        </Text>
-      </div>
-      <Field label="Name">
-        {(control) => (
-          <Input
-            {...control}
-            value={draft.title}
-            onChange={(event) => {
-              onChange({ ...draft, title: event.target.value });
-            }}
-          />
-        )}
-      </Field>
-      {mode === 'create' ? null : (
-        <Field label="Description" hint="Optional. Say when this starting point is useful.">
-          {(control) => (
-            <Input
-              {...control}
-              value={draft.description}
-              onChange={(event) => {
-                onChange({ ...draft, description: event.target.value });
-              }}
-            />
-          )}
-        </Field>
-      )}
-    </section>
-  );
-}
-
-function Contents({
-  mode,
-  draft,
-  template,
-  editOperation,
-  bodySync,
-  onBodySync,
-  onChange,
-}: {
-  readonly mode: StudioMode;
-  readonly draft: TemplateDraft;
-  readonly template: TemplateDetail | null;
-  readonly editOperation: TemplateEditDraft | null;
-  readonly bodySync: CollabSync | null;
-  readonly onBodySync: (sync: CollabSync | null) => void;
-  readonly onChange: (draft: TemplateDraft) => void;
-}): ReactNode {
-  if (mode === 'edit') {
-    if (editOperation === null) {
-      return (
-        <StudioNotice title="Draft unavailable" detail="The editable copy could not be prepared." />
-      );
+  async function discard(): Promise<void> {
+    if (mode === 'edit' && template !== null && editOperation !== null) {
+      setWorking(true);
+      try {
+        await client.execute(discardTemplateEditDraft(template.id, editOperation.operationId));
+      } catch (reason) {
+        setError(templateFailure(reason, 'The draft could not be discarded.'));
+        setWorking(false);
+        setDiscarding(false);
+        return;
+      }
     }
-    return (
-      <section className="flex flex-col gap-4">
-        <Text variant="caption" tone="muted">
-          Draft available until{' '}
-          {new Intl.DateTimeFormat(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-          }).format(new Date(editOperation.expiresAt))}
-          . Save before then to keep body edits.
-        </Text>
-        <TemplateDraftEditor
-          root={editOperation.root}
-          edits={draft.itemEdits}
-          templateId={editOperation.templateId}
-          operationId={editOperation.operationId}
-          bodySync={bodySync}
-          onBodySync={onBodySync}
-          selectedSourceId={draft.selectedSourceId ?? editOperation.root.sourceId}
-          onSelect={(selectedSourceId) => {
-            onChange({ ...draft, selectedSourceId });
-          }}
-          onChange={(sourceId, itemEdit: TemplateItemEdit) => {
-            onChange({
-              ...draft,
-              itemEdits: { ...draft.itemEdits, [sourceId]: itemEdit },
-            });
-          }}
-        />
-      </section>
-    );
+    browserSessionStorage()?.removeItem(key);
+    void navigate(-1);
   }
-  if (mode !== 'capture') {
-    return (
-      <section className="flex flex-col gap-4">
-        <Text variant="h2" as="h2">
-          What this template adds
-        </Text>
-        <TemplateFacts template={template} mode={mode} />
-      </section>
-    );
-  }
-  return (
-    <section className="flex flex-col gap-4">
-      <div>
-        <Text variant="h2" as="h2">
-          Choose what to capture
-        </Text>
-        <Text variant="bodySmall" tone="muted">
-          Fields and views are always included. Content and children start off to protect real
-          workspace data.
-        </Text>
-      </div>
-      <Blueprint className="flex flex-col gap-3 p-4">
-        <TemplateFact label="Fields and views" value="Included" />
-        <label
-          aria-label="Include document content"
-          className="flex cursor-pointer items-start gap-3"
-        >
-          <input
-            type="checkbox"
-            checked={draft.includeBody}
-            onChange={(event) => {
-              onChange({ ...draft, includeBody: event.target.checked });
-            }}
-            className={`mt-0.5 size-4 ${focusRing}`}
-          />
-          <span>
-            <Text variant="bodySmall" as="span" className="block">
-              Include document content
-            </Text>
-            <Text variant="caption" as="span" tone="muted" className="block">
-              Copies the note, canvas, or sheet body as starting content.
-            </Text>
-          </span>
-        </label>
-        <label
-          aria-label="Include everything inside"
-          className="flex cursor-pointer items-start gap-3"
-        >
-          <input
-            type="checkbox"
-            checked={draft.includeChildren}
-            onChange={(event) => {
-              onChange({ ...draft, includeChildren: event.target.checked });
-            }}
-            className={`mt-0.5 size-4 ${focusRing}`}
-          />
-          <span>
-            <Text variant="bodySmall" as="span" className="block">
-              Include everything inside
-            </Text>
-            <Text variant="caption" as="span" tone="muted" className="block">
-              Copies the readable child subtree and its property values.
-            </Text>
-          </span>
-        </label>
-      </Blueprint>
-    </section>
-  );
-}
-
-function Review({
-  mode,
-  draft,
-  template,
-  preflight,
-  destination,
-  rootFacts,
-  missingFactsLabel,
-}: {
-  readonly mode: StudioMode;
-  readonly draft: TemplateDraft;
-  readonly template: TemplateDetail | null;
-  readonly preflight: TemplatePreflight | null;
-  readonly destination: string;
-  readonly rootFacts: RootTemplateFacts | null;
-  readonly missingFactsLabel: string | null;
-}): ReactNode {
-  return (
-    <section className="flex flex-col gap-4">
-      <div>
-        <Text variant="h2" as="h2">
-          Review
-        </Text>
-        <Text variant="bodySmall" tone="muted">
-          Nothing changes until you finish.
-        </Text>
-      </div>
-      <TemplateBlueprint
-        draft={draft}
-        template={template}
-        destination={destination}
-        mode={mode}
-        rootFacts={rootFacts}
-        missingFactsLabel={missingFactsLabel}
-      />
-      {preflight === null ? null : (
-        <Blueprint className="flex flex-col gap-2 p-4">
-          <TemplateFact label="Fields added" value={String(preflight.additions.fields)} />
-          <TemplateFact label="Views added" value={String(preflight.additions.views)} />
-          <TemplateFact label="Items added" value={String(preflight.additions.items)} />
-          {preflight.conflicts.map((conflict) => (
-            <Text key={conflict} variant="bodySmall" role="alert">
-              {conflict}
-            </Text>
-          ))}
-        </Blueprint>
-      )}
-      {mode === 'edit' ? (
-        <Text variant="caption" tone="muted">
-          The active template stays unchanged until Save completes every draft change together.
-        </Text>
-      ) : null}
-    </section>
-  );
-}
-
-function TemplateBlueprint({
-  draft,
-  template,
-  destination,
-  mode,
-  rootFacts,
-  missingFactsLabel,
-}: {
-  readonly draft: TemplateDraft;
-  readonly template: TemplateDetail | null;
-  readonly destination: string;
-  readonly mode: StudioMode;
-  readonly rootFacts: RootTemplateFacts | null;
-  readonly missingFactsLabel: string | null;
-}): ReactNode {
-  return (
-    <Blueprint className="flex flex-col gap-4 p-4">
-      <div>
-        <Text variant="kicker">Template blueprint</Text>
-        <Text variant="h3">{draft.title || 'Untitled template'}</Text>
-        {draft.description ? (
-          <Text variant="bodySmall" tone="muted">
-            {draft.description}
-          </Text>
-        ) : null}
-      </div>
-      <TemplateFacts
-        template={template}
-        fallback={draft}
-        mode={mode}
-        rootFacts={rootFacts}
-        missingFactsLabel={missingFactsLabel}
-      />
-      <div className="border-t border-divider pt-3">
-        <TemplateFact label="Destination" value={destination} />
-      </div>
-    </Blueprint>
-  );
-}
-
-function TemplateFacts({
-  template,
-  fallback,
-  mode,
-  rootFacts = null,
-  missingFactsLabel = null,
-}: {
-  readonly template: TemplateDetail | null;
-  readonly fallback?: TemplateDraft;
-  readonly mode?: StudioMode;
-  readonly rootFacts?: RootTemplateFacts | null;
-  readonly missingFactsLabel?: string | null;
-}): ReactNode {
-  const fieldCount = rootFacts?.fieldCount ?? template?.fieldCount;
-  const viewCount = rootFacts?.viewCount ?? template?.viewCount;
-  const viewKinds = rootFacts?.viewKinds ?? template?.viewKinds ?? [];
-  return (
-    <div className="flex flex-col gap-2">
-      <TemplateFact label="Fields" value={fieldCount?.toString() ?? missingFactsLabel ?? '0'} />
-      <TemplateFact label="Views" value={viewCount?.toString() ?? missingFactsLabel ?? '0'} />
-      <TemplateFact
-        label="Children"
-        value={
-          template?.includeChildren === true || fallback?.includeChildren === true
-            ? String(template?.childCount ?? 'Included')
-            : 'Not included'
-        }
-      />
-      <TemplateFact
-        label="Content"
-        value={
-          template?.includeBody === true || fallback?.includeBody === true
-            ? mode === 'apply'
-              ? 'New items only'
-              : 'Included'
-            : 'Not included'
-        }
-      />
-      {viewKinds.length === 0 ? null : (
-        <div className="flex flex-wrap gap-1.5">
-          {viewKinds.map((kind) => (
-            <Tag key={kind}>{kind.replace('_', ' ')}</Tag>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TemplateFact({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: string;
-}): ReactNode {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <Text variant="caption" tone="muted">
-        {label}
-      </Text>
-      <Text variant="bodySmall" className="text-right">
-        {value}
-      </Text>
-    </div>
-  );
-}
-
-function StudioNotice({
-  title,
-  detail,
-  children,
-  attention = false,
-}: {
-  readonly title: string;
-  readonly detail: string;
-  readonly children?: ReactNode;
-  readonly attention?: boolean;
-}): ReactNode {
-  const headingRef = useRef<HTMLHeadingElement>(null);
-
-  useEffect(() => {
-    if (attention) headingRef.current?.focus();
-  }, [attention, title]);
 
   return (
-    <div
-      role={attention ? 'alert' : undefined}
-      aria-live={attention ? 'assertive' : undefined}
-      className="flex min-h-0 flex-1 items-center justify-center p-6"
+    <TemplateStudioShell
+      mode={mode}
+      title={title}
+      destination={destination}
+      step={step}
+      working={working}
+      previewing={previewing}
+      error={error}
+      discarding={discarding}
+      draft={draft}
+      template={template}
+      rootFacts={rootFacts}
+      missingFactsLabel={missingFactsLabel}
+      stepMainRef={stepMainRef}
+      onRequestDiscard={() => {
+        setDiscarding(true);
+      }}
+      onCloseDiscard={() => {
+        setDiscarding(false);
+      }}
+      onDiscard={() => {
+        void discard();
+      }}
+      onTogglePreview={() => {
+        setPreviewing((value) => !value);
+      }}
+      onStepChange={(index) => {
+        void goToStep(index);
+      }}
+      onBack={() => {
+        void goToStep(step - 1);
+      }}
+      onNext={() => {
+        void goToStep(Math.min(step + 1, TEMPLATE_STUDIO_STEPS.length - 1));
+      }}
+      onFinish={() => {
+        void finish();
+      }}
+      finishLabel={
+        mode === 'capture'
+          ? 'Save template'
+          : mode === 'edit'
+            ? 'Save changes'
+            : mode === 'apply'
+              ? 'Apply template'
+              : 'Create item'
+      }
+      finishDisabled={preflight?.canApply === false}
     >
-      <Blueprint className="flex max-w-lg flex-col items-start gap-3 p-6">
-        <Icon icon={LayoutTemplate} size="md" />
-        <h1 ref={headingRef} tabIndex={attention ? -1 : undefined}>
-          <Text variant="h2" as="span">
-            {title}
-          </Text>
-        </h1>
-        <Text tone="muted">{detail}</Text>
-        {children}
-      </Blueprint>
-    </div>
+      {step === 0 ? (
+        <Basics
+          mode={mode}
+          draft={draft}
+          destination={destination}
+          targetTitle={targetTitle}
+          onChange={setDraft}
+        />
+      ) : step === 1 ? (
+        <Contents
+          mode={mode}
+          draft={draft}
+          template={template}
+          editOperation={editOperation}
+          bodySync={bodySync}
+          onBodySync={setBodySync}
+          onChange={setDraft}
+        />
+      ) : (
+        <Review
+          mode={mode}
+          draft={draft}
+          template={template}
+          preflight={preflight}
+          destination={destination}
+          rootFacts={rootFacts}
+          missingFactsLabel={missingFactsLabel}
+        />
+      )}
+    </TemplateStudioShell>
   );
 }
