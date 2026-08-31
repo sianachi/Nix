@@ -25,11 +25,11 @@ import {
   CANVAS_WIDTH,
   createElement,
   boundedPoints,
+  clampViewport,
   intersectsViewport,
   type CanvasPoint,
   type NixCanvasElement,
   type NixCanvasElementType,
-  type CanvasViewport,
   type CanvasFill,
   updateElement,
 } from './nix-canvas-model';
@@ -49,6 +49,11 @@ interface DragState {
   readonly resize: boolean;
 }
 
+interface PanState {
+  readonly start: CanvasPoint;
+  readonly origin: CanvasPoint;
+}
+
 const TOOL_LABELS: Record<Tool, string> = {
   select: 'Select',
   rectangle: 'Rectangle',
@@ -64,10 +69,13 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   const [tool, setTool] = useState<Tool>('select');
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [zoom, setZoom] = useState(1);
+  const [viewportOrigin, setViewportOrigin] = useState<CanvasPoint>({ x: 0, y: 0 });
   const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
   const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
   const [textDraft, setTextDraft] = useState('');
   const dragRef = useRef<DragState | null>(null);
+  const panRef = useRef<PanState | null>(null);
+  const spacePressedRef = useRef(false);
   const drawingRef = useRef<CanvasPoint[] | null>(null);
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
   const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
@@ -76,7 +84,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   const client = useApiClient();
 
   const visible = elements.filter((element) => !element.isDeleted);
-  const viewport: CanvasViewport = { x: 0, y: 0, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom };
+  const viewport = clampViewport({ x: viewportOrigin.x, y: viewportOrigin.y, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom });
   const rendered = visible.filter((element) => intersectsViewport(element, viewport)).slice(0, CANVAS_ELEMENT_CEILING);
   const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
@@ -130,6 +138,11 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.code === 'Space') {
+        spacePressedRef.current = true;
+        if (event.target === document.body) event.preventDefault();
+        return;
+      }
       const target = event.target;
       if (
         target instanceof HTMLInputElement ||
@@ -175,8 +188,15 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
         setSelectedIds([]);
       }
     };
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.code === 'Space') spacePressedRef.current = false;
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => { window.removeEventListener('keydown', onKeyDown); };
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [commit, elements, redo, selectedIds, undo]);
 
   function pointFromEvent(event: PointerEvent<SVGSVGElement>): CanvasPoint {
@@ -205,6 +225,33 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
     setSelectedIds(added === undefined ? [] : [added.id]);
     setTextDraft(added?.text ?? '');
     setTool('select');
+  }
+
+  function startPan(event: PointerEvent<SVGSVGElement>): void {
+    panRef.current = { start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function movePan(event: PointerEvent<SVGSVGElement>): void {
+    const pan = panRef.current;
+    if (pan === null) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const scaleX = bounds.width === 0 ? 1 : viewport.width / bounds.width;
+    const scaleY = bounds.height === 0 ? 1 : viewport.height / bounds.height;
+    const next = clampViewport({
+      ...viewport,
+      x: pan.origin.x - (event.clientX - pan.start.x) * scaleX,
+      y: pan.origin.y - (event.clientY - pan.start.y) * scaleY,
+    });
+    setViewportOrigin({ x: next.x, y: next.y });
+  }
+
+  function finishPan(): void {
+    panRef.current = null;
+  }
+
+  function isPanGesture(event: PointerEvent<SVGSVGElement>): boolean {
+    return event.button === 1 || spacePressedRef.current;
   }
 
   function commitText(): void {
@@ -379,17 +426,26 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
           viewBox={`0 0 ${String(viewport.width)} ${String(viewport.height)}`}
           role="application"
           aria-label="Canvas workspace"
-          onPointerDown={(event) => { addAt(pointFromEvent(event)); }}
+          onPointerDown={(event) => {
+            if (isPanGesture(event)) {
+              event.preventDefault();
+              startPan(event);
+              return;
+            }
+            addAt(pointFromEvent(event));
+          }}
           onPointerMove={(event) => {
-            if (drawingRef.current !== null) {
+            if (panRef.current !== null) {
+              movePan(event);
+            } else if (drawingRef.current !== null) {
               drawingRef.current = [...drawingRef.current, pointFromEvent(event)];
               setDrawingPoints(drawingRef.current);
             } else {
               moveDrag(event);
             }
           }}
-          onPointerUp={() => { finishDrawing(); finishDrag(); }}
-          onPointerCancel={() => { finishDrawing(); finishDrag(); }}
+          onPointerUp={() => { finishPan(); finishDrawing(); finishDrag(); }}
+          onPointerCancel={() => { finishPan(); finishDrawing(); finishDrag(); }}
         >
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
