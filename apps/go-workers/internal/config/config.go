@@ -16,7 +16,6 @@ type Settings struct {
 	MaxTokens       int
 	RequestTimeout  time.Duration
 	InternalAPIURL  string
-	BearerToken     string
 	PollInterval    time.Duration
 	WorkerID        string
 	OpenSearchURL   string
@@ -57,7 +56,6 @@ func Load(getenv func(string) string) (Settings, error) {
 		MaxTokens:       maxTokens,
 		RequestTimeout:  time.Duration(requestTimeoutSeconds) * time.Second,
 		InternalAPIURL:  strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
-		BearerToken:     getenv("NIX_WORKER_BEARER_TOKEN"),
 		PollInterval:    time.Duration(pollSeconds) * time.Second,
 		WorkerID:        valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
 		OpenSearchURL:   strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
