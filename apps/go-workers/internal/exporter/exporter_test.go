@@ -35,3 +35,17 @@ func TestExportRefusesOversizedMarkdown(t *testing.T) {
 		t.Fatalf("Write() error = %v, want ErrLimitExceeded", err)
 	}
 }
+
+func TestWriteProducesDOCXAndPDF(t *testing.T) {
+	records := []stream.Record{{ID: "one", Title: "Title", Body: "Body"}}
+	limits := stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}
+	for _, format := range []string{"docx", "pdf"} {
+		var output bytes.Buffer
+		if err := Write(format, records, &output, limits); err != nil {
+			t.Fatalf("Write(%s) error = %v", format, err)
+		}
+		if output.Len() == 0 {
+			t.Fatalf("Write(%s) produced no output", format)
+		}
+	}
+}
