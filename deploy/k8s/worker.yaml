@@ -15,6 +15,7 @@ spec:
   template:
     metadata: { labels: { app: nix-import-worker } }
     spec:
+      automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: import-worker
@@ -23,6 +24,10 @@ spec:
           env:
             - name: NIX_WORKER_INTERNAL_SECRET
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
             - name: NIX_WORKER_MAX_INPUT_BYTES
               value: "67108864"
             - name: NIX_WORKER_MAX_LINE_BYTES
@@ -32,7 +37,9 @@ spec:
           livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
           readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
           resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 256Mi } }
-          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          volumeMounts: [{ name: staging, mountPath: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes: [{ name: staging, emptyDir: { sizeLimit: 128Mi } }]
 ---
 apiVersion: v1
 kind: Service
@@ -50,6 +57,7 @@ spec:
   template:
     metadata: { labels: { app: nix-export-worker } }
     spec:
+      automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: export-worker
@@ -58,10 +66,16 @@ spec:
           env:
             - name: NIX_WORKER_INTERNAL_SECRET
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
           livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
           readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
           resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "2", memory: 1Gi } }
-          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          volumeMounts: [{ name: staging, mountPath: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes: [{ name: staging, emptyDir: { sizeLimit: 512Mi } }]
 ---
 apiVersion: v1
 kind: Service
@@ -79,6 +93,7 @@ spec:
   template:
     metadata: { labels: { app: nix-indexer } }
     spec:
+      automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: indexer
@@ -87,10 +102,16 @@ spec:
           env:
             - name: NIX_WORKER_INTERNAL_SECRET
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+            - name: NIX_OPENSEARCH_URL
+              valueFrom: { secretKeyRef: { name: nix-opensearch, key: url } }
           livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
           readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
           resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
-          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -102,4 +123,5 @@ spec:
   egress:
     - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
       ports: [{ protocol: TCP, port: 8080 }]
+    - ports: [{ protocol: TCP, port: 443 }]
     - ports: [{ protocol: UDP, port: 53 }]
