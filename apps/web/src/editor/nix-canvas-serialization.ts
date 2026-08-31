@@ -49,6 +49,31 @@ export function serializeCanvas(elements: readonly NixCanvasElement[]): string {
   return JSON.stringify({ version: 1, elements });
 }
 
+export function serializeCanvasSvg(elements: readonly NixCanvasElement[]): string {
+  const shapes = elements
+    .filter((element) => !element.isDeleted)
+    .map((element) => {
+      if (element.type === 'ellipse') {
+        return `<ellipse cx="${number(element.x + element.width / 2)}" cy="${number(element.y + element.height / 2)}" rx="${number(element.width / 2)}" ry="${number(element.height / 2)}" fill="currentColor" opacity="${number(element.opacity ?? 1)}" />`;
+      }
+      if (element.type === 'line' || element.type === 'arrow') {
+        return `<line x1="${number(element.x)}" y1="${number(element.y)}" x2="${number(element.x + element.width)}" y2="${number(element.y + element.height)}" stroke="currentColor" fill="none" />`;
+      }
+      if (element.type === 'freehand') {
+        return `<path d="${pathFor(element.points ?? [])}" stroke="currentColor" fill="none" opacity="${number(element.opacity ?? 1)}" />`;
+      }
+      if (element.type === 'text') {
+        return `<text x="${number(element.x)}" y="${number(element.y + 28)}" fill="currentColor">${escapeXml(element.text ?? 'Text')}</text>`;
+      }
+      if (element.type === 'card') {
+        return `<rect x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" rx="${number(element.cornerRadius ?? 0)}" fill="currentColor" opacity="${number(element.opacity ?? 1)}" />`;
+      }
+      return `<rect x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" rx="${number(element.cornerRadius ?? 0)}" fill="currentColor" opacity="${number(element.opacity ?? 1)}" />`;
+    })
+    .join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">${shapes}</svg>`;
+}
+
 export function parseCanvas(serialized: string): NixCanvasDocument {
   const raw: unknown = JSON.parse(serialized);
   const native = documentSchema.safeParse(raw);
@@ -89,4 +114,16 @@ function legacyElement(element: z.infer<typeof legacyElementSchema>): NixCanvasE
     ...(element.isDeleted === undefined ? {} : { isDeleted: element.isDeleted }),
     ...(points === undefined ? {} : { points }),
   };
+}
+
+function pathFor(points: readonly { readonly x: number; readonly y: number }[]): string {
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${number(point.x)} ${number(point.y)}`).join(' ');
+}
+
+function number(value: number): string {
+  return String(value);
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character] ?? character);
 }
