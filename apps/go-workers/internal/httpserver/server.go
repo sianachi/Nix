@@ -1,13 +1,16 @@
 package httpserver
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
 
@@ -17,19 +20,28 @@ type Dependencies struct {
 	MaxInputSize   int64
 	MaxRecords     int
 	MaxLineBytes   int
+	MaxTokens      int
+	RequestTimeout time.Duration
 }
 
 type Server struct {
-	deps Dependencies
+	deps  Dependencies
+	index *index.Index
 }
 
 func New(deps Dependencies) http.Handler {
-	server := &Server{deps: deps}
+	server := &Server{deps: deps, index: index.New(deps.MaxTokens)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
 	mux.Handle("POST /v1/export/ndjson", server.requireInternal(http.HandlerFunc(server.exportNDJSON)))
-	return requestTimeout(mux, 65*time.Second)
+	mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
+	mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
+	timeout := deps.RequestTimeout
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	return requestTimeout(mux, timeout)
 }
 
 func (s *Server) requireInternal(next http.Handler) http.Handler {
@@ -73,19 +85,45 @@ func (s *Server) importNDJSON(response http.ResponseWriter, request *http.Reques
 
 func (s *Server) exportNDJSON(response http.ResponseWriter, request *http.Request) {
 	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
-	var records []stream.Record
+	response.Header().Set("Content-Type", "application/x-ndjson")
+	response.WriteHeader(http.StatusOK)
+	writer := stream.NewWriter(response, s.limits())
 	if _, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
-		records = append(records, record)
-		return nil
+		return writer.Write(record)
 	}); err != nil {
+		if s.deps.Logger != nil {
+			s.deps.Logger.Error("export stream refused", "error", err, "records", writer.Summary().Records)
+		}
+		return
+	}
+}
+
+func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
+	summary, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
+		s.index.Put(record)
+		return nil
+	})
+	if err != nil {
 		writeStreamError(response, err)
 		return
 	}
-	response.Header().Set("Content-Type", "application/x-ndjson")
-	response.WriteHeader(http.StatusOK)
-	if _, err := stream.WriteRecords(response, records, s.limits()); err != nil {
-		s.deps.Logger.Error("export stream failed", "error", err)
+	writeJSON(response, http.StatusAccepted, map[string]any{"status": "indexed", "summary": summary, "indexed": s.index.Len()})
+}
+
+func (s *Server) search(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query().Get("q")
+	limit := 20
+	if value := request.URL.Query().Get("limit"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			limit = parsed
+		}
 	}
+	if query == "" || len(query) > s.deps.MaxLineBytes || limit < 1 || limit > 100 {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "search_invalid", "detail": "q is required and limit must be between 1 and 100."})
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"query": query, "results": s.index.Search(query, limit)})
 }
 
 func (s *Server) limits() stream.Limits {
@@ -107,5 +145,9 @@ func writeJSON(response http.ResponseWriter, status int, value any) {
 }
 
 func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
-	return http.TimeoutHandler(next, timeout, `{"code":"request_timeout","detail":"The worker request timed out."}`)
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requestContext, cancel := context.WithTimeout(request.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(response, request.WithContext(requestContext))
+	})
 }
