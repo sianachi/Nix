@@ -179,7 +179,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
    *
    * **Why they wait at all.** Yjs emits one update per transaction, and this used to put one
    * WebSocket frame on the wire for each. For prose that is roughly a frame per keystroke, which
-   * is fine. For a canvas it is not: Excalidraw reports a scene change on every pointer move, so
+   * is fine. For a canvas it is not: pointer movement reports a scene change on every frame, so
    * dragging one shape produces about sixty updates a second - and the server's per-principal
    * ceiling is six hundred a minute. Ten seconds of dragging spent a whole minute's budget, and
    * one person on their own was refused as if they were a runaway client.

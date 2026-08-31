@@ -1,0 +1,68 @@
+import type { CanvasElement } from './canvas-binding';
+
+export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text';
+
+export interface NixCanvasElement extends CanvasElement {
+  readonly type: NixCanvasElementType;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly text?: string;
+  readonly isDeleted?: boolean;
+}
+
+export interface CanvasPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export const CANVAS_WIDTH = 1200;
+export const CANVAS_HEIGHT = 800;
+
+export function createElement(
+  type: NixCanvasElementType,
+  point: CanvasPoint,
+  index: string,
+): NixCanvasElement {
+  const dimensions = type === 'text' ? { width: 160, height: 40 } : { width: 180, height: 110 };
+  return {
+    id: crypto.randomUUID(),
+    type,
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 2_000_000_000),
+    x: point.x,
+    y: point.y,
+    width: dimensions.width,
+    height: dimensions.height,
+    index,
+    ...(type === 'text' ? { text: 'Text' } : {}),
+  };
+}
+
+export function updateElement(
+  element: NixCanvasElement,
+  changes: Partial<Pick<NixCanvasElement, 'x' | 'y' | 'width' | 'height' | 'text' | 'isDeleted'>>,
+): NixCanvasElement {
+  return {
+    ...element,
+    ...changes,
+    version: element.version + 1,
+    versionNonce: Math.floor(Math.random() * 2_000_000_000),
+  };
+}
+
+export function boundsOf(elements: readonly NixCanvasElement[]): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null {
+  const visible = elements.filter((element) => !element.isDeleted);
+  if (visible.length === 0) return null;
+  const left = Math.min(...visible.map((element) => element.x));
+  const top = Math.min(...visible.map((element) => element.y));
+  const right = Math.max(...visible.map((element) => element.x + element.width));
+  const bottom = Math.max(...visible.map((element) => element.y + element.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
