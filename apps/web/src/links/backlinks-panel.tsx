@@ -79,7 +79,7 @@ export function BacklinksPane({ itemId }: { readonly itemId: string | null }): R
               <Icon icon={FileText} size="sm" className="shrink-0 text-muted" />
               <span className="min-w-0 flex-1 truncate">{backlink.source.title ?? 'Untitled'}</span>
 
-              {backlink.occurrences > 1 ? (
+              {Number(backlink.occurrences) > 1 ? (
                 // Said only when it is more than once. A "1" beside every row would be a column of
                 // ones that means nothing.
                 <Text as="span" variant="caption" tone="muted" className="shrink-0">
