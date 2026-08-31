@@ -197,6 +197,29 @@ services:
         aliases:
           - nix-media
 
+  nix-worker:
+    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_MAX_INPUT_BYTES: "67108864"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-worker
+
   nix-web:
     image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
     restart: unless-stopped
