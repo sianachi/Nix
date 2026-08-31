@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
+using Nix.Abstractions.Workers;
 using Nix.Integration.Tests.Harness;
 using Nix.Persistence.Workers;
+using Npgsql;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -90,5 +92,79 @@ public sealed class WorkerDispatchTests(NixPostgresFixture fixture) : IAsyncLife
             Cancellation));
         var next = await store.LeaseJobsAsync("import.nix", "worker-two", 10, 60, Cancellation);
         Assert.DoesNotContain(next, leased => leased.Id == job.Id);
+    }
+
+    [Fact]
+    public async Task A_broker_command_claims_only_the_exact_job_it_names()
+    {
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+
+        var claimed = await store.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-one:alpha", 60, Cancellation);
+
+        Assert.NotNull(claimed);
+        Assert.Equal(M0SchemaSeed.Alpha.AclEntryId, claimed.Id);
+        Assert.Equal(M0SchemaSeed.Alpha.TenantId, claimed.TenantId);
+        Assert.Null(await store.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-two:alpha", 60, Cancellation));
+        Assert.NotNull(await store.ClaimJobAsync(M0SchemaSeed.Beta.AclEntryId, "worker-two:beta", 60, Cancellation));
+    }
+
+    [Fact]
+    public async Task A_live_execution_can_renew_and_observe_its_control_state()
+    {
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        var job = Assert.IsType<DispatchedWorkerJob>(
+            await store.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-one:alpha", 60, Cancellation));
+
+        Assert.False(await store.RenewJobAsync(job.Id, "worker-two:alpha", 60, Cancellation));
+        Assert.True(await store.RenewJobAsync(job.Id, "worker-one:alpha", 60, Cancellation));
+
+        var ownerState = Assert.IsType<WorkerExecutionState>(
+            await store.GetJobStateAsync(job.Id, "worker-one:alpha", Cancellation));
+        var observerState = Assert.IsType<WorkerExecutionState>(
+            await store.GetJobStateAsync(job.Id, "worker-two:alpha", Cancellation));
+        Assert.Equal("running", ownerState.Status);
+        Assert.False(ownerState.CancellationRequested);
+        Assert.True(ownerState.LeaseOwned);
+        Assert.False(observerState.LeaseOwned);
+    }
+
+    [Fact]
+    public async Task A_retryable_broker_result_schedules_a_new_durable_command()
+    {
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        var job = Assert.IsType<DispatchedWorkerJob>(
+            await store.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-one:alpha", 60, Cancellation));
+
+        Assert.True(await store.FinishJobAsync(
+            job.Id,
+            "worker-one:alpha",
+            succeeded: false,
+            retryable: true,
+            result: null,
+            errorCode: "object_unavailable",
+            errorDetail: "temporary",
+            Cancellation));
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            const string sql = """
+                SELECT count(*)
+                  FROM worker_outbox_event
+                 WHERE kind = 'worker.command'
+                   AND payload ->> 'jobId' = @job_id
+                   AND processed_at IS NULL
+                   AND available_at > now()
+                """;
+            var command = new NpgsqlCommand(sql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.AddWithValue("job_id", job.Id.ToString("D"));
+                Assert.Equal(1L, await command.ExecuteScalarAsync(Cancellation));
+            }
+        }
     }
 }

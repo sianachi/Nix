@@ -8,6 +8,9 @@ namespace Nix.Persistence.Workers;
 public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDispatchStore
 {
     private const string LeaseJobsSql = "SELECT * FROM nix_lease_worker_jobs(@kind, @owner, @limit, @lease_seconds)";
+    private const string ClaimJobSql = "SELECT * FROM nix_claim_worker_job(@job_id, @owner, @lease_seconds)";
+    private const string RenewJobSql = "SELECT nix_renew_worker_job(@job_id, @owner, @lease_seconds)";
+    private const string JobStateSql = "SELECT * FROM nix_worker_job_state(@job_id, @owner)";
     private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
     private const string FinishJobSql = "SELECT nix_finish_worker_job(@job_id, @owner, @succeeded, @retryable, @result, @error_code, @error_detail)";
     private const string LeaseOutboxSql = "SELECT * FROM nix_lease_worker_outbox(@kind, @owner, @limit, @lease_seconds)";
@@ -51,6 +54,84 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
             }
         }
         return results;
+    }
+
+    /// <summary>Claims the exact job named by a broker command and no other queued work.</summary>
+    public async ValueTask<DispatchedWorkerJob?> ClaimJobAsync(
+        Guid jobId,
+        string owner,
+        int leaseSeconds,
+        CancellationToken cancellationToken)
+    {
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(ClaimJobSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Uuid("job_id", jobId));
+                command.Parameters.Add(Text("owner", owner));
+                command.Parameters.Add(new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds });
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        return null;
+                    }
+
+                    return await ReadJobAsync(reader, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    /// <summary>Renews only the live execution named by the broker consumer.</summary>
+    public ValueTask<bool> RenewJobAsync(
+        Guid jobId,
+        string owner,
+        int leaseSeconds,
+        CancellationToken cancellationToken) => ExecuteBooleanAsync(
+            RenewJobSql,
+            [
+                Uuid("job_id", jobId),
+                Text("owner", owner),
+                new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds },
+            ],
+            cancellationToken);
+
+    /// <summary>Reads only execution control state; job payloads remain available solely on claim.</summary>
+    public async ValueTask<WorkerExecutionState?> GetJobStateAsync(
+        Guid jobId,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(JobStateSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Uuid("job_id", jobId));
+                command.Parameters.Add(Text("owner", owner));
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        return null;
+                    }
+
+                    return new WorkerExecutionState(
+                        reader.GetString(0),
+                        reader.GetBoolean(1),
+                        reader.GetBoolean(2),
+                        await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false)
+                            ? null
+                            : await reader.GetFieldValueAsync<DateTimeOffset>(3, cancellationToken).ConfigureAwait(false));
+                }
+            }
+        }
     }
 
     /// <summary>Completes a job only while the caller still owns its live lease.</summary>
@@ -178,4 +259,16 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
 
     private static NpgsqlParameter Boolean(string name, bool value) =>
         new(name, NpgsqlDbType.Boolean) { Value = value };
+
+    private static async ValueTask<DispatchedWorkerJob> ReadJobAsync(
+        NpgsqlDataReader reader,
+        CancellationToken cancellationToken) => new(
+            reader.GetGuid(0),
+            reader.GetGuid(1),
+            await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(2),
+            await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetInt32(6),
+            reader.GetBoolean(7));
 }
