@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -45,6 +46,8 @@ func Run(service role.Service) {
 	}
 
 	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
+	var ready atomic.Bool
+	ready.Store(settings.InternalAPIURL == "")
 	server := httpserver.NewForRole(service, httpserver.Dependencies{
 		Logger:         logger,
 		InternalSecret: settings.InternalSecret,
@@ -54,6 +57,7 @@ func Run(service role.Service) {
 		MaxTokens:      settings.MaxTokens,
 		RequestTimeout: settings.RequestTimeout,
 		Index:          searchIndex,
+		Ready:          ready.Load,
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,
@@ -67,6 +71,14 @@ func Run(service role.Service) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if settings.InternalAPIURL != "" {
+		apiProbe := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+		var searchProbe *opensearch.Client
+		if service == role.Index && settings.OpenSearchURL != "" {
+			searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
+		}
+		go probeReadiness(ctx, apiProbe, searchProbe, &ready, settings.PollInterval, logger)
+	}
 	if service == role.Index && settings.InternalAPIURL != "" {
 		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
 		var searchClient *opensearch.Client
@@ -114,4 +126,31 @@ func Run(service role.Service) {
 		os.Exit(1)
 	}
 	logger.Info("go worker stopped", "role", service)
+}
+
+func probeReadiness(ctx context.Context, api *workerapi.Client, search *opensearch.Client, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
+	probe := func() {
+		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
+		defer cancel()
+		err := api.Ping(probeContext)
+		if err == nil && search != nil {
+			err = search.Ping(probeContext)
+		}
+		ready.Store(err == nil)
+		if err != nil {
+			logger.Warn("worker dependency readiness failed", "error", err)
+		}
+	}
+	probe()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			ready.Store(false)
+			return
+		case <-ticker.C:
+			probe()
+		}
+	}
 }
