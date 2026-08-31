@@ -8,6 +8,7 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
 {
     private const string LeaseJobsSql = "SELECT * FROM nix_lease_worker_jobs(@kind, @owner, @limit, @lease_seconds)";
     private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
+    private const string FinishJobSql = "SELECT nix_finish_worker_job(@job_id, @owner, @succeeded, @retryable, @result, @error_code, @error_detail)";
     private const string LeaseOutboxSql = "SELECT * FROM nix_lease_worker_outbox(@kind, @owner, @limit, @lease_seconds)";
     private const string FinishOutboxSql = "SELECT nix_finish_worker_outbox(@event_id, @owner, @succeeded, @error)";
 
@@ -65,6 +66,28 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
                 Uuid("job_id", jobId),
                 Text("owner", owner),
                 Boolean("succeeded", succeeded),
+                Json("result", result),
+                Text("error_code", errorCode),
+                Text("error_detail", errorDetail),
+            ],
+            cancellationToken);
+
+    /// <summary>Completes, retries, or dead-letters a job while the caller owns its live lease.</summary>
+    public ValueTask<bool> FinishJobAsync(
+        Guid jobId,
+        string owner,
+        bool succeeded,
+        bool retryable,
+        string? result,
+        string? errorCode,
+        string? errorDetail,
+        CancellationToken cancellationToken) => ExecuteBooleanAsync(
+            FinishJobSql,
+            [
+                Uuid("job_id", jobId),
+                Text("owner", owner),
+                Boolean("succeeded", succeeded),
+                Boolean("retryable", retryable),
                 Json("result", result),
                 Text("error_code", errorCode),
                 Text("error_detail", errorDetail),
