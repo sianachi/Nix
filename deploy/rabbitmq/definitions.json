@@ -1,0 +1,45 @@
+{
+  "users": [
+    { "name": "nix", "password_hash": "REDACTED-EXPOSED-SECRET", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": ["administrator"], "limits": {} }
+  ],
+  "vhosts": [
+    { "name": "/nix" }
+  ],
+  "permissions": [
+    { "user": "nix", "vhost": "/nix", "configure": ".*", "write": ".*", "read": ".*" }
+  ],
+  "exchanges": [
+    { "name": "nix.commands.v1", "vhost": "/nix", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "nix.results.v1", "vhost": "/nix", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "nix.workspace.v1", "vhost": "/nix", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "nix.capabilities.v1", "vhost": "/nix", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "nix.retry.v1", "vhost": "/nix", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "nix.dead.v1", "vhost": "/nix", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} }
+  ],
+  "queues": [
+    { "name": "nix.worker.import.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.worker.export.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.worker.index.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.worker.plugin-events.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.api.results.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.api.capabilities.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.retry.5s.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-message-ttl": 5000, "x-dead-letter-exchange": "nix.commands.v1" } },
+    { "name": "nix.retry.30s.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-message-ttl": 30000, "x-dead-letter-exchange": "nix.commands.v1" } },
+    { "name": "nix.retry.120s.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-message-ttl": 120000, "x-dead-letter-exchange": "nix.commands.v1" } },
+    { "name": "nix.retry.300s.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-message-ttl": 300000, "x-dead-letter-exchange": "nix.commands.v1" } },
+    { "name": "nix.dead.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum" } }
+  ],
+  "bindings": [
+    { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "import.#", "arguments": {} },
+    { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.export.v1", "destination_type": "queue", "routing_key": "export.#", "arguments": {} },
+    { "source": "nix.results.v1", "vhost": "/nix", "destination": "nix.api.results.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
+    { "source": "nix.workspace.v1", "vhost": "/nix", "destination": "nix.worker.index.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
+    { "source": "nix.workspace.v1", "vhost": "/nix", "destination": "nix.worker.plugin-events.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
+    { "source": "nix.capabilities.v1", "vhost": "/nix", "destination": "nix.api.capabilities.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
+    { "source": "nix.retry.v1", "vhost": "/nix", "destination": "nix.retry.5s.v1", "destination_type": "queue", "routing_key": "5s", "arguments": {} },
+    { "source": "nix.retry.v1", "vhost": "/nix", "destination": "nix.retry.30s.v1", "destination_type": "queue", "routing_key": "30s", "arguments": {} },
+    { "source": "nix.retry.v1", "vhost": "/nix", "destination": "nix.retry.120s.v1", "destination_type": "queue", "routing_key": "120s", "arguments": {} },
+    { "source": "nix.retry.v1", "vhost": "/nix", "destination": "nix.retry.300s.v1", "destination_type": "queue", "routing_key": "300s", "arguments": {} },
+    { "source": "nix.dead.v1", "vhost": "/nix", "destination": "nix.dead.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} }
+  ]
+}

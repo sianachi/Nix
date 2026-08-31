@@ -77,12 +77,9 @@ jobs:
         working-directory: apps/go-workers
         run: go test -race ./...
 
-      - name: Build service binaries
+      - name: Build unified worker
         working-directory: apps/go-workers
-        run: |
-          go build ./cmd/nix-import-worker
-          go build ./cmd/nix-export-worker
-          go build ./cmd/nix-indexer
+        run: go build ./cmd/nix-worker
 
   backend-static:
     name: backend static

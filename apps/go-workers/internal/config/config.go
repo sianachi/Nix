@@ -21,10 +21,15 @@ type Settings struct {
 	MaxConcurrency  int
 	OpenSearchURL   string
 	OpenSearchIndex string
+	RabbitMQURL     string
+	WorkerRoles     string
+	LeaseDuration   time.Duration
+	RenewInterval   time.Duration
+	MaxMessageBytes int
 }
 
 func Load(getenv func(string) string) (Settings, error) {
-	maxInputBytes, err := parseInt64(getenv("NIX_WORKER_MAX_INPUT_BYTES"), 64*1024*1024)
+	maxInputBytes, err := parseInt64(getenv("NIX_WORKER_MAX_INPUT_BYTES"), 100*1024*1024)
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_INPUT_BYTES: %w", err)
 	}
@@ -52,6 +57,18 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_CONCURRENCY: %w", err)
 	}
+	leaseSeconds, err := parseInt(getenv("NIX_WORKER_LEASE_SECONDS"), 60)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_LEASE_SECONDS: %w", err)
+	}
+	renewSeconds, err := parseInt(getenv("NIX_WORKER_RENEW_SECONDS"), 15)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_RENEW_SECONDS: %w", err)
+	}
+	maxMessageBytes, err := parseInt(getenv("NIX_WORKER_MAX_MESSAGE_BYTES"), 64*1024)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_MESSAGE_BYTES: %w", err)
+	}
 	settings := Settings{
 		Address:         valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:  getenv("NIX_WORKER_INTERNAL_SECRET"),
@@ -66,8 +83,13 @@ func Load(getenv func(string) string) (Settings, error) {
 		MaxConcurrency:  maxConcurrency,
 		OpenSearchURL:   strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
 		OpenSearchIndex: valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
+		RabbitMQURL:     getenv("NIX_RABBITMQ_URL"),
+		WorkerRoles:     valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index"),
+		LeaseDuration:   time.Duration(leaseSeconds) * time.Second,
+		RenewInterval:   time.Duration(renewSeconds) * time.Second,
+		MaxMessageBytes: maxMessageBytes,
 	}
-	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 {
+	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil

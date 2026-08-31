@@ -2,6 +2,7 @@ package workerapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,5 +32,105 @@ func TestClientLeasesAndAcknowledgesWithInternalCredentials(t *testing.T) {
 	}
 	if err := client.AcknowledgeOutbox(context.Background(), events[0].ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPingVerifiesAuthenticatedDispatchInsteadOfPublicHealth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/internal/worker-dispatch/jobs/lease" {
+			t.Fatalf("readiness used %s", request.URL.Path)
+		}
+		if request.Header.Get("X-Nix-Internal-Secret") != "secret" {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = response.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	if err := New(server.URL, "secret", "worker", time.Second).Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(server.URL, "wrong", "worker", time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("readiness accepted an invalid internal secret")
+	}
+}
+
+func TestClientClaimsRenewsAndReadsExactJobExecution(t *testing.T) {
+	const jobID = "10000000-0000-4000-8000-000000000001"
+	const executionID = "worker one:execution/1"
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Header.Get("X-Nix-Internal-Secret") != "secret" {
+			t.Fatal("internal secret was not sent")
+		}
+		switch requests {
+		case 1:
+			if request.Method != http.MethodPost || request.URL.Path != "/internal/worker-dispatch/jobs/"+jobID+"/claim" {
+				t.Fatalf("unexpected claim request: %s %s", request.Method, request.URL.Path)
+			}
+			assertExecutionRequest(t, request, executionID, 60)
+			_, _ = response.Write([]byte(`{"id":"` + jobID + `","tenantId":"tenant","kind":"import.pdf","payload":{},"attempts":1,"cancellationRequested":false}`))
+		case 2:
+			if request.Method != http.MethodPost || request.URL.Path != "/internal/worker-dispatch/jobs/"+jobID+"/renew" {
+				t.Fatalf("unexpected renewal request: %s %s", request.Method, request.URL.Path)
+			}
+			assertExecutionRequest(t, request, executionID, 60)
+			response.WriteHeader(http.StatusNoContent)
+		case 3:
+			if request.Method != http.MethodGet || request.URL.Path != "/internal/worker-dispatch/jobs/"+jobID+"/state" || request.URL.Query().Get("owner") != executionID {
+				t.Fatalf("unexpected state request: %s %s", request.Method, request.URL.String())
+			}
+			_, _ = response.Write([]byte(`{"status":"running","cancellationRequested":false,"leaseOwned":true,"leaseUntil":"2026-09-01T00:00:00Z"}`))
+		default:
+			t.Fatalf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "secret", "worker", time.Second)
+	job, err := client.ClaimJob(context.Background(), jobID, executionID, 60)
+	if err != nil || job == nil || job.ID != jobID {
+		t.Fatalf("claim = %#v, %v", job, err)
+	}
+	renewed, err := client.RenewJob(context.Background(), jobID, executionID, 60)
+	if err != nil || !renewed {
+		t.Fatalf("renewed = %v, %v", renewed, err)
+	}
+	state, err := client.JobState(context.Background(), jobID, executionID)
+	if err != nil || state == nil || !state.LeaseOwned || state.Status != "running" {
+		t.Fatalf("state = %#v, %v", state, err)
+	}
+}
+
+func TestClientTreatsClaimAndRenewConflictsAsLostWork(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusConflict)
+	}))
+	defer server.Close()
+	client := New(server.URL, "secret", "worker", time.Second)
+
+	job, err := client.ClaimJob(context.Background(), "job", "execution", 60)
+	if err != nil || job != nil {
+		t.Fatalf("claim = %#v, %v", job, err)
+	}
+	renewed, err := client.RenewJob(context.Background(), "job", "execution", 60)
+	if err != nil || renewed {
+		t.Fatalf("renewed = %v, %v", renewed, err)
+	}
+}
+
+func assertExecutionRequest(t *testing.T, request *http.Request, owner string, leaseSeconds int) {
+	t.Helper()
+	var body struct {
+		Owner        string `json:"owner"`
+		LeaseSeconds int    `json:"leaseSeconds"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Owner != owner || body.LeaseSeconds != leaseSeconds {
+		t.Fatalf("execution request = %#v", body)
 	}
 }

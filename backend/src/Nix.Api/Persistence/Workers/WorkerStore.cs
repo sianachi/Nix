@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
@@ -39,6 +40,15 @@ public sealed class WorkerStore(NixDbContext database) : IWorkerJobStore, IWorke
             UpdatedAt = now,
         };
         database.WorkerJobs.Add(job);
+        database.WorkerOutboxEvents.Add(new WorkerOutboxEvent
+        {
+            Id = WorkerOutboxEventId.Create(),
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            Kind = "worker.command",
+            Payload = JsonSerializer.Serialize(new WorkerCommandReference(job.Id.Value, kind)),
+            AvailableAt = now,
+        });
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToRecord(job);
     }
@@ -51,13 +61,35 @@ public sealed class WorkerStore(NixDbContext database) : IWorkerJobStore, IWorke
         return job is null ? null : ToRecord(job);
     }
 
-    public async ValueTask<bool> CancelAsync(TenantId tenantId, PrincipalId actorId, Guid jobId, CancellationToken cancellationToken) =>
-        await database.WorkerJobs
-            .Where(job => job.TenantId == tenantId && job.ActorId == actorId && job.Id == WorkerJobId.From(jobId))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(job => job.CancellationRequested, true)
-                .SetProperty(job => job.UpdatedAt, DateTimeOffset.UtcNow), cancellationToken)
-            .ConfigureAwait(false) != 0;
+    public async ValueTask<bool> CancelAsync(TenantId tenantId, PrincipalId actorId, Guid jobId, CancellationToken cancellationToken)
+    {
+        var job = await database.WorkerJobs.AsTracking()
+            .SingleOrDefaultAsync(candidate =>
+                candidate.TenantId == tenantId
+                && candidate.ActorId == actorId
+                && candidate.Id == WorkerJobId.From(jobId), cancellationToken)
+            .ConfigureAwait(false);
+        if (job is null)
+        {
+            return false;
+        }
+
+        if (job.Status is "completed" or "failed" or "cancelled")
+        {
+            return true;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        job.CancellationRequested = true;
+        job.UpdatedAt = now;
+        if (job.Status == "queued")
+        {
+            job.Status = "cancelled";
+            job.CompletedAt = now;
+        }
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
 
     public async ValueTask<IReadOnlyList<WorkerJobRecord>> LeaseAsync(TenantId tenantId, string owner, string? kind, int limit, int leaseSeconds, CancellationToken cancellationToken)
     {
@@ -148,4 +180,6 @@ public sealed class WorkerStore(NixDbContext database) : IWorkerJobStore, IWorke
 
     private static WorkerJobRecord ToRecord(WorkerJob job) => new(job.Id.Value, job.Kind, job.Status, job.Payload, job.Result, job.ErrorCode, job.ErrorDetail, job.Attempts, job.CancellationRequested, job.CreatedAt, job.CompletedAt);
     private static WorkerOutboxRecord ToRecord(WorkerOutboxEvent evt) => new(evt.Id.Value, evt.Kind, evt.Payload, evt.Attempts, evt.AvailableAt);
+
+    private sealed record WorkerCommandReference(Guid JobId, string Kind);
 }
