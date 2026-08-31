@@ -21,6 +21,15 @@ func TestHealthzDoesNotRequireAWorkerPayload(t *testing.T) {
 	}
 }
 
+func TestReadinessReflectsDependencies(t *testing.T) {
+	server := New(Dependencies{Ready: func() bool { return false }})
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readiness status = %d", response.Code)
+	}
+}
+
 func TestImportRoleDoesNotExposeOtherWorkerRoutes(t *testing.T) {
 	server := NewForRole(role.Import, Dependencies{Logger: slog.Default(), InternalSecret: "secret"})
 	for _, path := range []string{"/v1/export/ndjson", "/v1/search"} {

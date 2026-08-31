@@ -27,6 +27,7 @@ type Dependencies struct {
 	MaxTokens      int
 	RequestTimeout time.Duration
 	Index          *index.Index
+	Ready          func() bool
 }
 
 type Server struct {
@@ -46,6 +47,7 @@ func NewForRole(service role.Service, deps Dependencies) http.Handler {
 	server := &Server{deps: deps, index: searchIndex}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
+	mux.HandleFunc("GET /readyz", server.ready)
 	if service == role.All || service == role.Import {
 		mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
 		mux.Handle("POST /v1/import/document", server.requireInternal(http.HandlerFunc(server.importDocument)))
@@ -91,6 +93,14 @@ func sameSecret(presented, expected string) bool {
 
 func (s *Server) health(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, map[string]string{"status": "healthy"})
+}
+
+func (s *Server) ready(response http.ResponseWriter, _ *http.Request) {
+	if s.deps.Ready != nil && !s.deps.Ready() {
+		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) importNDJSON(response http.ResponseWriter, request *http.Request) {

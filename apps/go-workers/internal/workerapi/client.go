@@ -41,6 +41,22 @@ func New(baseURL, secret, owner string, timeout time.Duration) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), secret: secret, owner: owner, httpClient: &http.Client{Timeout: timeout}}
 }
 
+func (client *Client) Ping(ctx context.Context) error {
+	request, err := client.newRequest(ctx, http.MethodGet, "/healthz", nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("worker API health returned %s", response.Status)
+	}
+	return nil
+}
+
 func (client *Client) LeaseJobs(ctx context.Context, kind string, limit int) ([]Job, error) {
 	var jobs []Job
 	if err := client.lease(ctx, "/internal/worker-dispatch/jobs/lease", kind, limit, &jobs); err != nil {
