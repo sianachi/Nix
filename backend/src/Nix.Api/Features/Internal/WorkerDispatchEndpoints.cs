@@ -1,6 +1,6 @@
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json.Nodes;
 using Nix.Persistence.Workers;
 
 namespace Nix.Features.Internal;
@@ -32,10 +32,11 @@ internal static class WorkerDispatchEndpoints
         DispatchJobCompletion request,
         [FromServices] WorkerDispatchStore store,
         CancellationToken cancellationToken) =>
-        await store.CompleteJobAsync(
+        await store.FinishJobAsync(
             jobId,
             request.Owner,
             request.Succeeded,
+            request.Retryable,
             request.Result?.ToJsonString(),
             request.ErrorCode,
             request.ErrorDetail,
@@ -70,5 +71,5 @@ internal static class WorkerDispatchEndpoints
 }
 
 public sealed record DispatchLeaseRequest(string Owner, string? Kind = null, int Limit = 10, int LeaseSeconds = 60);
-public sealed record DispatchJobCompletion(string Owner, bool Succeeded, JsonNode? Result = null, string? ErrorCode = null, string? ErrorDetail = null);
+public sealed record DispatchJobCompletion(string Owner, bool Succeeded, bool Retryable = false, JsonNode? Result = null, string? ErrorCode = null, string? ErrorDetail = null);
 public sealed record DispatchOutboxCompletion(string Owner, bool Succeeded, string? Error = null);

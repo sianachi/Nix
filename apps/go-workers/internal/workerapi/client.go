@@ -50,8 +50,12 @@ func (client *Client) LeaseJobs(ctx context.Context, kind string, limit int) ([]
 }
 
 func (client *Client) CompleteJob(ctx context.Context, id string, succeeded bool, result, errorCode, errorDetail any) error {
+	return client.FinishJob(ctx, id, succeeded, false, result, errorCode, errorDetail)
+}
+
+func (client *Client) FinishJob(ctx context.Context, id string, succeeded, retryable bool, result, errorCode, errorDetail any) error {
 	body, err := json.Marshal(map[string]any{
-		"owner": client.owner, "succeeded": succeeded, "result": result,
+		"owner": client.owner, "succeeded": succeeded, "retryable": retryable, "result": result,
 		"errorCode": errorCode, "errorDetail": errorDetail,
 	})
 	if err != nil {
