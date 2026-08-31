@@ -58,6 +58,22 @@ func (client *Client) EnsureIndex(ctx context.Context) error {
 	return client.request(ctx, http.MethodPut, client.baseURL+"/"+client.index, strings.NewReader(mapping), http.StatusOK, http.StatusCreated)
 }
 
+func (client *Client) Ping(ctx context.Context) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.baseURL+"/_cluster/health", nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("OpenSearch health returned %s", response.Status)
+	}
+	return nil
+}
+
 func (client *Client) UpsertDocument(ctx context.Context, document Document) error {
 	if document.TenantID == "" || document.ItemID == "" || document.Title == "" {
 		return fmt.Errorf("search document requires tenant, item, and title")
