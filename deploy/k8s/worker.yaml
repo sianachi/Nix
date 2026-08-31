@@ -1,0 +1,56 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG.
+apiVersion: v1
+kind: Service
+metadata: { name: nix-worker, namespace: nix }
+spec:
+  selector: { app: nix-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-worker } }
+  template:
+    metadata: { labels: { app: nix-worker } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: ${REGISTRY}/worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_MAX_INPUT_BYTES
+              value: "67108864"
+            - name: NIX_WORKER_MAX_LINE_BYTES
+              value: "4194304"
+            - name: NIX_WORKER_MAX_RECORDS
+              value: "100000"
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8301 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8301 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: worker-egress, namespace: nix }
+spec:
+  podSelector: { matchLabels: { app: nix-worker } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    - ports: [{ protocol: UDP, port: 53 }]

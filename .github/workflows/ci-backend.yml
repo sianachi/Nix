@@ -18,6 +18,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'apps/go-workers/**'
       - 'Nix.slnx'
       - 'Nix.Frontend/**'
       - 'scripts/check-byte-array-markers.sh'
@@ -28,6 +29,7 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - 'apps/go-workers/**'
       - 'Nix.slnx'
       - 'Nix.Frontend/**'
       - 'scripts/check-byte-array-markers.sh'
@@ -48,6 +50,29 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  go-workers:
+    name: Go workers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/go-workers/go.mod
+          cache-dependency-path: apps/go-workers/go.mod
+
+      - name: Format check
+        working-directory: apps/go-workers
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        working-directory: apps/go-workers
+        run: go vet ./...
+
+      - name: Test
+        working-directory: apps/go-workers
+        run: go test ./...
+
   backend-static:
     name: backend static
     runs-on: ubuntu-latest
