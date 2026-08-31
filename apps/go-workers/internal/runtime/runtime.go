@@ -12,10 +12,15 @@ import (
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
+	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
+	"github.com/sianachi/Nix/apps/go-workers/internal/importjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
+	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
+	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
+	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
@@ -68,6 +73,19 @@ func Run(service role.Service) {
 			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
 		}
 		go indexer.Run(ctx, client, searchIndex, searchClient, logger, settings.PollInterval)
+	}
+	if service == role.Import && settings.InternalAPIURL != "" {
+		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+		handler := importjob.New(
+			objecttransfer.New(settings.RequestTimeout),
+			importer.Limits{MaxBytes: settings.MaxInputBytes, MaxItems: settings.MaxRecords, MaxEntry: int64(settings.MaxLineBytes)},
+			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
+		runner, runnerErr := jobrunner.New(client, handler, importjob.Kinds, logger, settings.PollInterval, settings.MaxConcurrency)
+		if runnerErr != nil {
+			logger.Error("import job runner configuration failed", "error", runnerErr)
+			os.Exit(1)
+		}
+		go runner.Run(ctx)
 	}
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "role", service)
