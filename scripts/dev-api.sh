@@ -22,6 +22,7 @@ mkdir -p deploy/.dev-data-protection
 
 export ConnectionStrings__Nix="${ConnectionStrings__Nix:-Host=localhost;Port=5433;Database=nix;Username=nix_app;Password=nix-dev-app}"
 export Nix__InternalSecret="${Nix__InternalSecret:-nix-dev-internal}"
+export Nix__RabbitMq__Uri="${Nix__RabbitMq__Uri:-amqp://nix:nix-dev-rabbit@localhost:5673/nix}"
 export Nix__Bff__Authority="$NIX_OIDC_ISSUER"
 export Nix__Bff__ClientId="$NIX_OIDC_CLIENT_ID"
 export Nix__Bff__PublicOrigin="http://localhost:5173"

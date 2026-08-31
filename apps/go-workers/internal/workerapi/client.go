@@ -3,9 +3,11 @@ package workerapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -37,22 +39,27 @@ type OutboxEvent struct {
 	AvailableAt time.Time       `json:"availableAt"`
 }
 
+type JobState struct {
+	Status                string     `json:"status"`
+	CancellationRequested bool       `json:"cancellationRequested"`
+	LeaseOwned            bool       `json:"leaseOwned"`
+	LeaseUntil            *time.Time `json:"leaseUntil"`
+}
+
 func New(baseURL, secret, owner string, timeout time.Duration) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), secret: secret, owner: owner, httpClient: &http.Client{Timeout: timeout}}
 }
 
 func (client *Client) Ping(ctx context.Context) error {
-	request, err := client.newRequest(ctx, http.MethodGet, "/healthz", nil)
+	// A public liveness probe proves only that Nix.Api is listening. Readiness must also prove that
+	// this worker's service credential is accepted and that the dispatch store is available. This
+	// kind cannot be created by the job API, so the probe can never consume application work.
+	jobs, err := client.LeaseJobs(ctx, "readiness.probe", 1)
 	if err != nil {
-		return err
+		return fmt.Errorf("worker API dispatch probe failed: %w", err)
 	}
-	response, err := client.httpClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("worker API health returned %s", response.Status)
+	if len(jobs) != 0 {
+		return errors.New("worker API dispatch probe returned an impossible job kind")
 	}
 	return nil
 }
@@ -63,6 +70,86 @@ func (client *Client) LeaseJobs(ctx context.Context, kind string, limit int) ([]
 		return nil, err
 	}
 	return jobs, nil
+}
+
+func (client *Client) ClaimJob(ctx context.Context, id, executionID string, leaseSeconds int) (*Job, error) {
+	body, err := json.Marshal(struct {
+		Owner        string `json:"owner"`
+		LeaseSeconds int    `json:"leaseSeconds"`
+	}{executionID, leaseSeconds})
+	if err != nil {
+		return nil, err
+	}
+	request, err := client.newRequest(ctx, http.MethodPost, "/internal/worker-dispatch/jobs/"+id+"/claim", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusConflict {
+		return nil, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("worker API claim returned %s", response.Status)
+	}
+	var job Job
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&job); err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func (client *Client) RenewJob(ctx context.Context, id, executionID string, leaseSeconds int) (bool, error) {
+	body, err := json.Marshal(struct {
+		Owner        string `json:"owner"`
+		LeaseSeconds int    `json:"leaseSeconds"`
+	}{executionID, leaseSeconds})
+	if err != nil {
+		return false, err
+	}
+	request, err := client.newRequest(ctx, http.MethodPost, "/internal/worker-dispatch/jobs/"+id+"/renew", strings.NewReader(string(body)))
+	if err != nil {
+		return false, err
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return false, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusConflict {
+		return false, nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return false, fmt.Errorf("worker API renewal returned %s", response.Status)
+	}
+	return true, nil
+}
+
+func (client *Client) JobState(ctx context.Context, id, executionID string) (*JobState, error) {
+	path := "/internal/worker-dispatch/jobs/" + id + "/state?owner=" + url.QueryEscape(executionID)
+	request, err := client.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("worker API state returned %s", response.Status)
+	}
+	var state JobState
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&state); err != nil {
+		return nil, err
+	}
+	return &state, nil
 }
 
 func (client *Client) CompleteJob(ctx context.Context, id string, succeeded bool, result, errorCode, errorDetail any) error {
