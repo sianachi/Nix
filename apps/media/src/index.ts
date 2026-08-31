@@ -5,6 +5,8 @@ import { createAdmission } from './export/admission.ts';
 import { createConverters } from './export/converters.ts';
 import { createServer } from './http/server.ts';
 import { createMetrics } from './metrics.ts';
+import { createWorkerJobs } from './workers/jobs.ts';
+import { WorkerObjectStore } from './workers/storage.ts';
 
 /**
  * The media service.
@@ -14,14 +16,29 @@ import { createMetrics } from './metrics.ts';
  * files half, and the ClamAV container in the dev stack is already waiting for it. Said plainly so
  * the next person does not read the gap as something forgotten.
  *
- * **What it holds is nothing.** No database credentials - `assertNoDatabaseCredentials` refuses to
- * start if any appear - no object storage, no OIDC configuration, and no authority of its own. It
- * reads documents from the collaboration service with the caller's own token and produces bytes. The
- * isolation is the point: this is the process that will parse untrusted files, and the less it can
- * reach when that day comes, the less a parser bug is worth.
+ * **What it never holds is database or authorization authority.** `assertNoDatabaseCredentials`
+ * refuses database credentials; object storage credentials are scoped to transient worker objects.
+ * It forwards the caller's token to Collaboration/Core, which remain the permission authorities.
  */
 
 const config = readConfig(process.env);
+
+const workerServices =
+  config.goExportEnabled || config.goImportEnabled
+    ? {
+        jobs: createWorkerJobs({
+          coreBaseUrl: config.coreBaseUrl,
+          internalSecret: config.internalSecret,
+        }),
+        storage: new WorkerObjectStore({
+          endpoint: config.objectStoreEndpoint,
+          region: config.objectStoreRegion,
+          bucket: config.objectStoreBucket,
+          accessKey: config.objectStoreAccessKey,
+          secretKey: config.objectStoreSecretKey,
+        }),
+      }
+    : undefined;
 const metrics = createMetrics();
 
 const app = createServer({
@@ -40,6 +57,8 @@ const app = createServer({
     internalSecret: config.internalSecret,
   }),
   metrics,
+  workerImports: config.goImportEnabled ? workerServices : undefined,
+  workerExports: config.goExportEnabled ? workerServices : undefined,
   logLevel: config.logLevel,
 });
 

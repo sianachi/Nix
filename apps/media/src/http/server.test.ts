@@ -10,12 +10,14 @@ import {
 } from '@nix/export';
 import { docxConverter } from '@nix/docx-export';
 import { pdfConverter } from '@nix/pdf-export';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BundleRefusal, type BundleReader } from '../collab/bundles.ts';
 import { TemplateImportRefusal, type TemplateImporter } from '../collab/templates.ts';
 import { createAdmission } from '../export/admission.ts';
 import { createServer } from './server.ts';
+import type { WorkerJobs } from '../workers/jobs.ts';
+import type { WorkerStorage } from '../workers/storage.ts';
 
 /**
  * The media service's HTTP surface.
@@ -109,6 +111,8 @@ function server(
     templates?: TemplateImporter;
     templateReadTimeoutMs?: number;
     templateLimit?: number;
+    workerImports?: { readonly jobs: WorkerJobs; readonly storage: WorkerStorage };
+    workerExports?: { readonly jobs: WorkerJobs; readonly storage: WorkerStorage };
   } = {},
 ) {
   const converters = createConverterRegistry();
@@ -125,6 +129,8 @@ function server(
     now: () => new Date('2026-08-13T00:00:00Z'),
     templates: overrides.templates,
     templateReadTimeoutMs: overrides.templateReadTimeoutMs,
+    workerImports: overrides.workerImports,
+    workerExports: overrides.workerExports,
   });
 }
 
@@ -203,6 +209,72 @@ describe('admitting template files', () => {
       itemCount: 1,
       bodyCount: 1,
     });
+  });
+
+  it('preflights the original archive with the Go import worker before collaboration', async () => {
+    let stagedBytes = Buffer.alloc(0);
+    let created = false;
+    let removed = false;
+    const jobs: WorkerJobs = {
+      createExport: () => Promise.reject(new Error('An import must not create an export job.')),
+      createImport: (_token, request) => {
+        created =
+          request.workspaceId === ITEM && request.format === 'nix' && request.rootId === ITEM;
+        return Promise.resolve({
+          id: 'import-job',
+          kind: 'import.nix',
+          status: 'queued',
+          result: null,
+          errorCode: null,
+          errorDetail: null,
+        });
+      },
+      cancel: () => Promise.resolve(),
+      wait: () =>
+        Promise.resolve({
+          id: 'import-job',
+          kind: 'import.nix',
+          status: 'completed',
+          result: '{}',
+          errorCode: null,
+          errorDetail: null,
+        }),
+    };
+    const storage: WorkerStorage = {
+      stageExport: () => Promise.reject(new Error('An import must not stage an export.')),
+      async stageImport(source) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of source) chunks.push(Buffer.from(chunk));
+        stagedBytes = Buffer.concat(chunks);
+        return { sourceKey: 'source', sourceUrl: 'https://store/source' };
+      },
+      result: () => Promise.resolve(Readable.from([stagedBytes])),
+      remove: () => Promise.reject(new Error('An import must not remove an export.')),
+      removeImport: () => {
+        removed = true;
+        return Promise.resolve();
+      },
+    };
+    const templates: TemplateImporter = {
+      authorizePreview: () => Promise.resolve(IMPORT_AUTHORIZATION),
+      validateTemplate: () => Promise.resolve(TEMPLATE_VALIDATION),
+      importTemplate: () => Promise.reject(new Error('Preview must not import.')),
+      stageTemplate: () => Promise.reject(new Error('Preview must not stage.')),
+      finalizeManaged: () => Promise.reject(new Error('Preview must not finalize.')),
+      abortStage: () => Promise.reject(new Error('Preview must not abort.')),
+      sweepExpired: () => Promise.reject(new Error('Preview must not sweep.')),
+    };
+
+    const response = await track(server({ templates, workerImports: { jobs, storage } })).inject({
+      method: 'POST',
+      url: `/templates/preview?workspaceId=${ITEM}`,
+      headers: { authorization: 'Bearer token', 'content-type': 'application/zip' },
+      payload: Buffer.from(await archiveBytes()),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(created).toBe(true);
+    expect(removed).toBe(true);
   });
 
   it('refuses an invalid token before reading archive bytes', async () => {
@@ -618,6 +690,65 @@ describe('inventing no authority of its own', () => {
 });
 
 describe('producing a file', () => {
+  it('delegates to the Go worker when object-backed jobs are enabled', async () => {
+    let created = false;
+    let removed = false;
+    const jobs: WorkerJobs = {
+      createImport: () => Promise.reject(new Error('An export must not create an import job.')),
+      createExport: (_token, request) => {
+        created = request.format === 'pdf' && request.workspaceId === bundle().workspaceId;
+        return Promise.resolve({
+          id: 'job',
+          kind: 'export.pdf',
+          status: 'queued',
+          result: null,
+          errorCode: null,
+          errorDetail: null,
+        });
+      },
+      cancel: () => Promise.resolve(),
+      wait: () =>
+        Promise.resolve({
+          id: 'job',
+          kind: 'export.pdf',
+          status: 'completed',
+          result: '{}',
+          errorCode: null,
+          errorDetail: null,
+        }),
+    };
+    const storage: WorkerStorage = {
+      stageImport: () => Promise.reject(new Error('An export must not stage an import.')),
+      stageExport: async (stream) => {
+        await stream.bundles.next();
+        return {
+          workspaceId: bundle().workspaceId,
+          sourceUrl: 'https://store/source',
+          destinationUrl: 'https://store/output',
+          sourceKey: 'source',
+          destinationKey: 'output',
+        };
+      },
+      result: () => Promise.resolve(Readable.from([Buffer.from('%PDF-worker')])),
+      remove: () => {
+        removed = true;
+        return Promise.resolve();
+      },
+      removeImport: () => Promise.reject(new Error('An export must not remove an import.')),
+    };
+    const response = await track(server({ workerExports: { jobs, storage } })).inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/export?format=pdf`,
+      headers: { authorization: 'Bearer token' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload.toString()).toBe('%PDF-worker');
+    expect(created).toBe(true);
+    await vi.waitFor(() => {
+      expect(removed).toBe(true);
+    });
+  });
+
   it('answers with a PDF, named after the document', async () => {
     const response = await track(server()).inject({
       method: 'GET',

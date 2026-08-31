@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Nix.Persistence.Workers;
+using Nix.Abstractions.Workers;
 
 namespace Nix.Features.Internal;
 
@@ -18,7 +18,7 @@ internal static class WorkerDispatchEndpoints
 
     private static async Task<Ok<IReadOnlyList<DispatchedWorkerJob>>> LeaseJobs(
         DispatchLeaseRequest request,
-        [FromServices] WorkerDispatchStore store,
+        [FromServices] IWorkerDispatchStore store,
         CancellationToken cancellationToken) => TypedResults.Ok(
             await store.LeaseJobsAsync(
                 request.Kind,
@@ -30,7 +30,7 @@ internal static class WorkerDispatchEndpoints
     private static async Task<Results<NoContent, Conflict>> CompleteJob(
         Guid jobId,
         DispatchJobCompletion request,
-        [FromServices] WorkerDispatchStore store,
+        [FromServices] IWorkerDispatchStore store,
         CancellationToken cancellationToken) =>
         await store.FinishJobAsync(
             jobId,
@@ -46,7 +46,7 @@ internal static class WorkerDispatchEndpoints
 
     private static async Task<Ok<IReadOnlyList<DispatchedOutboxEvent>>> LeaseOutbox(
         DispatchLeaseRequest request,
-        [FromServices] WorkerDispatchStore store,
+        [FromServices] IWorkerDispatchStore store,
         CancellationToken cancellationToken) => TypedResults.Ok(
             await store.LeaseOutboxAsync(
                 request.Kind,
@@ -58,7 +58,7 @@ internal static class WorkerDispatchEndpoints
     private static async Task<Results<NoContent, Conflict>> FinishOutbox(
         Guid eventId,
         DispatchOutboxCompletion request,
-        [FromServices] WorkerDispatchStore store,
+        [FromServices] IWorkerDispatchStore store,
         CancellationToken cancellationToken) =>
         await store.FinishOutboxAsync(
             eventId,

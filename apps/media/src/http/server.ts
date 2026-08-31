@@ -25,6 +25,8 @@ import type { Admission } from '../export/admission.ts';
 import { rasterise } from '../export/rasterise.ts';
 import { boundedBytes } from '../export/run.ts';
 import type { MediaMetrics } from '../metrics.ts';
+import { WorkerJobRefusal, type WorkerJobs } from '../workers/jobs.ts';
+import type { WorkerStorage } from '../workers/storage.ts';
 import { bearer, isUuid, problem } from './problem.ts';
 
 /**
@@ -52,6 +54,10 @@ export interface ServerDependencies {
   readonly logLevel?: string | undefined;
   readonly templates?: TemplateImporter | undefined;
   readonly templateReadTimeoutMs?: number | undefined;
+  readonly workerImports?:
+    { readonly jobs: WorkerJobs; readonly storage: WorkerStorage } | undefined;
+  readonly workerExports?:
+    { readonly jobs: WorkerJobs; readonly storage: WorkerStorage } | undefined;
 
   /** Injected so a produced file's metadata does not depend on the wall clock in a test. */
   readonly now?: (() => Date) | undefined;
@@ -111,7 +117,13 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
           await requireTemplateAdmission(templates, token, query.workspaceId, false, work.signal);
           release = (deps.templateAdmission ?? deps.admission).enter();
           if (release === null) return await templateBusy(reply);
-          const upload = await readTemplateUpload(request.body, work.signal);
+          const upload = await readTemplateUploadThroughWorker(
+            request.body,
+            query.workspaceId,
+            token,
+            deps,
+            work.signal,
+          );
           const profile = validateTemplateArchive(upload.archive);
           const validation = templateRequest(upload, profile, query.workspaceId, 'user');
           await templates.validateTemplate(token, validation, work.signal);
@@ -162,7 +174,13 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
           await requireTemplateAdmission(templates, token, query.workspaceId, false, work.signal);
           release = (deps.templateAdmission ?? deps.admission).enter();
           if (release === null) return await templateBusy(reply);
-          const upload = await readTemplateUpload(request.body, work.signal);
+          const upload = await readTemplateUploadThroughWorker(
+            request.body,
+            query.workspaceId,
+            token,
+            deps,
+            work.signal,
+          );
           const profile = validateTemplateArchive(upload.archive);
           const expectedDigest = header(request, 'x-nix-template-digest');
           if (!sameDigest(expectedDigest, upload.digest)) {
@@ -223,7 +241,13 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
           await requireTemplateAdmission(templates, token, query.workspaceId, true, work.signal);
           release = (deps.templateAdmission ?? deps.admission).enter();
           if (release === null) return await templateBusy(reply);
-          const upload = await readTemplateUpload(request.body, work.signal);
+          const upload = await readTemplateUploadThroughWorker(
+            request.body,
+            query.workspaceId,
+            token,
+            deps,
+            work.signal,
+          );
           const profile = validateTemplateArchive(upload.archive);
           return await reply
             .code(202)
@@ -395,6 +419,59 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     try {
       const stream = await deps.bundles.read({ token, itemId, scope, signal: timeout });
 
+      if (deps.workerExports !== undefined) {
+        const staged = await deps.workerExports.storage.stageExport(
+          stream,
+          converter.format,
+          timeout,
+        );
+        try {
+          const created = await deps.workerExports.jobs.createExport(
+            token,
+            {
+              workspaceId: staged.workspaceId,
+              format: converter.format,
+              sourceUrl: staged.sourceUrl,
+              destinationUrl: staged.destinationUrl,
+              idempotencyKey: header(request, 'x-idempotency-key') ?? `export:${randomUUID()}`,
+            },
+            timeout,
+          );
+          const completed = await deps.workerExports.jobs.wait(token, created.id, timeout);
+          if (completed.status !== 'completed') {
+            throw new BundleRefusal(
+              502,
+              completed.errorCode ?? 'export_worker_failed',
+              completed.errorDetail ?? 'The export worker could not produce this file.',
+            );
+          }
+          const output = await deps.workerExports.storage.result(staged.destinationKey, timeout);
+          deps.metrics?.activeExports.set(deps.admission.inFlight);
+          deps.metrics?.exports.inc({ format: converter.format, outcome: 'produced' });
+          deps.metrics?.exportSeconds.observe(
+            { format: converter.format },
+            Number(process.hrtime.bigint() - started) / 1e9,
+          );
+          output.once('close', () => {
+            release();
+            void deps.workerExports?.storage.remove(staged);
+          });
+          return await reply
+            .type(converter.mediaType)
+            .header(
+              'content-disposition',
+              `attachment; filename="${exportFileName(titleOf(stream.manifest, itemId), converter.extension)}"`,
+            )
+            .header('x-nix-export-items', String(stream.manifest.items.length))
+            .header('x-nix-export-omitted', String(stream.manifest.omitted.length))
+            .header('x-nix-export-loss', String(converter.declaredLoss().length))
+            .send(output);
+        } catch (error) {
+          await deps.workerExports.storage.remove(staged).catch(() => undefined);
+          throw error;
+        }
+      }
+
       const bytes = boundedBytes(
         converter.convert({
           manifest: stream.manifest,
@@ -438,7 +515,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     } catch (error) {
       release();
 
-      if (error instanceof BundleRefusal) {
+      if (error instanceof BundleRefusal || error instanceof WorkerJobRefusal) {
         deps.metrics?.exports.inc({ format: converter.format, outcome: 'refused' });
         return problem(reply, error.status, error.code, error.message);
       }
@@ -505,6 +582,59 @@ async function readTemplateUpload(
   return { archive, digest: hash.digest('hex') };
 }
 
+async function readTemplateUploadThroughWorker(
+  body: unknown,
+  workspaceId: string,
+  token: string,
+  deps: ServerDependencies,
+  signal: AbortSignal,
+): Promise<{ archive: ReadArchiveResult; digest: string }> {
+  if (deps.workerImports === undefined) {
+    return await readTemplateUpload(body, signal);
+  }
+  if (!isAsyncBytes(body)) {
+    throw new ArchiveReadError(
+      'archive.body_missing',
+      'Send the template file as application/zip.',
+    );
+  }
+  const staged = await deps.workerImports.storage.stageImport(body, signal);
+  try {
+    const source = await deps.workerImports.storage.result(staged.sourceKey, signal);
+    const upload = await readTemplateUpload(source, signal);
+    const root = upload.archive.bundles.find(
+      (bundle) => bundle.id === upload.archive.manifest.root,
+    );
+    if (root === undefined) {
+      throw new ArchiveReadError('archive.root_missing', 'The archive root item is missing.');
+    }
+    const created = await deps.workerImports.jobs.createImport(
+      token,
+      {
+        workspaceId,
+        format: 'nix',
+        sourceUrl: staged.sourceUrl,
+        rootId: root.id,
+        title: root.title,
+        idempotencyKey: `import-preview:${workspaceId}:${upload.digest}`,
+        preview: true,
+      },
+      signal,
+    );
+    const completed = await deps.workerImports.jobs.wait(token, created.id, signal);
+    if (completed.status !== 'completed') {
+      throw new WorkerJobRefusal(
+        422,
+        completed.errorCode ?? 'import_worker_failed',
+        completed.errorDetail ?? 'The Go import worker could not validate this archive.',
+      );
+    }
+    return upload;
+  } finally {
+    await deps.workerImports.storage.removeImport(staged).catch(() => undefined);
+  }
+}
+
 function templateRequest(
   upload: { archive: ReadArchiveResult; digest: string },
   profile: ImportedTemplateRequest['profile'],
@@ -544,6 +674,9 @@ function templateProblem(reply: FastifyReply, error: unknown, signal?: AbortSign
     );
   }
   if (error instanceof TemplateImportRefusal) {
+    return problem(reply, error.status, error.code, error.message);
+  }
+  if (error instanceof WorkerJobRefusal) {
     return problem(reply, error.status, error.code, error.message);
   }
   if (signal?.aborted === true) {
