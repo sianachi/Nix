@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createElement } from '../../editor/nix-canvas-model';
-import { parseCanvas, serializeCanvas } from '../../editor/nix-canvas-serialization';
+import { parseCanvas, serializeCanvas, serializeCanvasSvg } from '../../editor/nix-canvas-serialization';
 
 describe('the native canvas interchange format', () => {
   it('round-trips a versioned scene without losing element data', () => {
@@ -33,5 +33,12 @@ describe('the native canvas interchange format', () => {
     expect(() => parseCanvas(JSON.stringify({ elements: [{ id: 'image-1', type: 'image' }] }))).toThrow(
       'Unsupported legacy canvas element',
     );
+  });
+
+  it('exports a standalone SVG and escapes text content', () => {
+    const scene = [{ ...createElement('text', { x: 10, y: 20 }, 'z00000'), text: '<Roadmap>' }];
+
+    expect(serializeCanvasSvg(scene)).toContain('&lt;Roadmap&gt;');
+    expect(serializeCanvasSvg(scene)).toContain('viewBox="0 0 1200 800"');
   });
 });
