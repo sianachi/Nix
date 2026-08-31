@@ -3,6 +3,7 @@ import {
   Circle,
   Minus,
   MousePointer2,
+  Pencil,
   Redo2,
   Square,
   Type,
@@ -44,6 +45,7 @@ const TOOL_LABELS: Record<Tool, string> = {
   line: 'Line',
   arrow: 'Arrow',
   text: 'Text',
+  freehand: 'Freehand',
 };
 
 export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
@@ -54,6 +56,8 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
   const [textDraft, setTextDraft] = useState('');
   const dragRef = useRef<DragState | null>(null);
+  const drawingRef = useRef<CanvasPoint[] | null>(null);
+  const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const visible = elements.filter((element) => !element.isDeleted);
@@ -148,6 +152,11 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   }
 
   function addAt(point: CanvasPoint): void {
+    if (tool === 'freehand') {
+      drawingRef.current = [point];
+      setDrawingPoints([point]);
+      return;
+    }
     if (tool === 'select') {
       setSelectedId(null);
       return;
@@ -207,11 +216,31 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     dragRef.current = null;
   }
 
+  function finishDrawing(): void {
+    const points = drawingRef.current;
+    if (points === null) return;
+    drawingRef.current = null;
+    setDrawingPoints([]);
+    if (points.length < 2) return;
+    const left = Math.min(...points.map((point) => point.x));
+    const top = Math.min(...points.map((point) => point.y));
+    const right = Math.max(...points.map((point) => point.x));
+    const bottom = Math.max(...points.map((point) => point.y));
+    const base = createElement('freehand', { x: left, y: top }, `z${String(elements.length).padStart(5, '0')}`);
+    const drawn = updateElement(base, {
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    });
+    commit([...elements, { ...drawn, points }]);
+    setSelectedId(drawn.id);
+    setTool('select');
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-divider px-4 py-2" role="toolbar" aria-label="Canvas tools">
         {(Object.keys(TOOL_LABELS) as Tool[]).map((candidate) => {
-          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : Minus;
+          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : candidate === 'freehand' ? Pencil : Minus;
           return (
             <Button
               key={candidate}
@@ -267,9 +296,16 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
           role="application"
           aria-label="Canvas workspace"
           onPointerDown={(event) => { addAt(pointFromEvent(event)); }}
-          onPointerMove={moveDrag}
-          onPointerUp={finishDrag}
-          onPointerCancel={finishDrag}
+          onPointerMove={(event) => {
+            if (drawingRef.current !== null) {
+              drawingRef.current = [...drawingRef.current, pointFromEvent(event)];
+              setDrawingPoints(drawingRef.current);
+            } else {
+              moveDrag(event);
+            }
+          }}
+          onPointerUp={() => { finishDrawing(); finishDrag(); }}
+          onPointerCancel={() => { finishDrawing(); finishDrag(); }}
         >
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
@@ -280,6 +316,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
             </pattern>
           </defs>
           <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
+          {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
           {visible.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} />)}
           {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
         </svg>
@@ -298,8 +335,15 @@ function CanvasShape({ element, selected, onPointerDown }: { readonly element: N
   const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
   if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
   if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
+  if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
   if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
   return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
+}
+
+function pathFor(points: readonly CanvasPoint[]): string {
+  const first = points[0];
+  if (first === undefined) return '';
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${String(point.x)} ${String(point.y)}`).join(' ');
 }
 
 function ResizeHandle({ element, onPointerDown }: { readonly element: NixCanvasElement; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize?: boolean) => void }): ReactNode {

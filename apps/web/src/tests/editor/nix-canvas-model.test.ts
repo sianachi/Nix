@@ -25,6 +25,14 @@ describe('the Nix canvas model', () => {
     expect(shape.versionNonce).toEqual(expect.any(Number));
   });
 
+  it('creates freehand elements as open strokes rather than filled shapes', () => {
+    expect(createElement('freehand', { x: 4, y: 8 }, 'z00002')).toMatchObject({
+      type: 'freehand',
+      fill: 'none',
+      stroke: 'foreground',
+    });
+  });
+
   it('increments the element version whenever an edit is made', () => {
     const original = element();
     const moved = updateElement(original, { x: 80, y: 90 });

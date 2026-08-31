@@ -1,6 +1,6 @@
 import type { CanvasElement } from './canvas-binding';
 
-export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text';
+export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' | 'freehand';
 export type CanvasFill = 'accent' | 'surface' | 'none';
 export type CanvasStroke = 'foreground' | 'accent' | 'muted';
 
@@ -16,6 +16,7 @@ export interface NixCanvasElement extends CanvasElement {
   readonly stroke?: CanvasStroke;
   readonly opacity?: number;
   readonly cornerRadius?: number;
+  readonly points?: readonly CanvasPoint[];
 }
 
 export interface CanvasPoint {
@@ -43,7 +44,7 @@ export function createElement(
     height: dimensions.height,
     index,
     ...(type === 'text' ? { text: 'Text' } : {}),
-    fill: type === 'text' || type === 'line' || type === 'arrow' ? 'none' : 'accent',
+    fill: type === 'text' || type === 'line' || type === 'arrow' || type === 'freehand' ? 'none' : 'accent',
     stroke: 'foreground',
     opacity: 1,
     cornerRadius: type === 'rectangle' ? 12 : 0,
