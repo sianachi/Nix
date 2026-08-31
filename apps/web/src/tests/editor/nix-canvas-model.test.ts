@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   boundsOf,
+  boundedPoints,
   createElement,
   updateElement,
   type NixCanvasElement,
@@ -71,5 +72,14 @@ describe('the Nix canvas model', () => {
   it('returns no bounds for an empty or fully deleted scene', () => {
     expect(boundsOf([])).toBeNull();
     expect(boundsOf([element({ isDeleted: true })])).toBeNull();
+  });
+
+  it('bounds freehand point density while retaining the stroke endpoints', () => {
+    const points = Array.from({ length: 2_001 }, (_, index) => ({ x: index, y: index % 3 }));
+    const bounded = boundedPoints(points);
+
+    expect(bounded).toHaveLength(2_000);
+    expect(bounded[0]).toEqual(points[0]);
+    expect(bounded.at(-1)).toEqual(points.at(-1));
   });
 });

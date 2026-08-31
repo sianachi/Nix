@@ -27,6 +27,16 @@ export interface CanvasPoint {
 
 export const CANVAS_WIDTH = 1200;
 export const CANVAS_HEIGHT = 800;
+export const CANVAS_ELEMENT_CEILING = 10_000;
+export const FREEHAND_POINT_CEILING = 2_000;
+
+export function boundedPoints(points: readonly CanvasPoint[]): CanvasPoint[] {
+  if (points.length <= FREEHAND_POINT_CEILING) return [...points];
+  const step = (points.length - 1) / (FREEHAND_POINT_CEILING - 1);
+  return Array.from({ length: FREEHAND_POINT_CEILING }, (_, index) => points[Math.round(index * step)]).filter(
+    (point): point is CanvasPoint => point !== undefined,
+  );
+}
 
 export function createElement(
   type: NixCanvasElementType,
