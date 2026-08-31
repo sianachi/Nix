@@ -2,6 +2,7 @@ package index
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
 
+var ErrCapacityExceeded = errors.New("index capacity exceeded")
+
 type Result struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -17,22 +20,29 @@ type Result struct {
 }
 
 type Index struct {
-	mu        sync.RWMutex
-	byToken   map[string]map[string]struct{}
-	records   map[string]stream.Record
-	maxTokens int
+	mu         sync.RWMutex
+	byToken    map[string]map[string]struct{}
+	records    map[string]stream.Record
+	maxTokens  int
+	maxRecords int
 }
 
-func New(maxTokens int) *Index {
+func New(maxTokens, maxRecords int) *Index {
 	if maxTokens <= 0 {
 		maxTokens = 20_000
 	}
-	return &Index{byToken: make(map[string]map[string]struct{}), records: make(map[string]stream.Record), maxTokens: maxTokens}
+	if maxRecords <= 0 {
+		maxRecords = 100_000
+	}
+	return &Index{byToken: make(map[string]map[string]struct{}), records: make(map[string]stream.Record), maxTokens: maxTokens, maxRecords: maxRecords}
 }
 
-func (index *Index) Put(record stream.Record) {
+func (index *Index) Put(record stream.Record) error {
 	index.mu.Lock()
 	defer index.mu.Unlock()
+	if _, exists := index.records[record.ID]; !exists && len(index.records) >= index.maxRecords {
+		return ErrCapacityExceeded
+	}
 	index.removeLocked(record.ID)
 	index.records[record.ID] = record
 	seen := make(map[string]struct{})
@@ -51,6 +61,7 @@ func (index *Index) Put(record stream.Record) {
 		}
 		items[record.ID] = struct{}{}
 	}
+	return nil
 }
 
 func (index *Index) Remove(id string) {

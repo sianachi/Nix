@@ -30,7 +30,7 @@ type Server struct {
 }
 
 func New(deps Dependencies) http.Handler {
-	server := &Server{deps: deps, index: index.New(deps.MaxTokens)}
+	server := &Server{deps: deps, index: index.New(deps.MaxTokens, deps.MaxRecords)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
@@ -101,10 +101,13 @@ func (s *Server) exportNDJSON(response http.ResponseWriter, request *http.Reques
 func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request) {
 	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
 	summary, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
-		s.index.Put(record)
-		return nil
+		return s.index.Put(record)
 	})
 	if err != nil {
+		if errors.Is(err, index.ErrCapacityExceeded) {
+			writeJSON(response, http.StatusInsufficientStorage, map[string]string{"code": "index_capacity_exceeded", "detail": err.Error()})
+			return
+		}
 		writeStreamError(response, err)
 		return
 	}
@@ -115,9 +118,12 @@ func (s *Server) search(response http.ResponseWriter, request *http.Request) {
 	query := request.URL.Query().Get("q")
 	limit := 20
 	if value := request.URL.Query().Get("limit"); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			limit = parsed
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			writeJSON(response, http.StatusBadRequest, map[string]string{"code": "search_invalid", "detail": "limit must be an integer between 1 and 100."})
+			return
 		}
+		limit = parsed
 	}
 	if query == "" || len(query) > s.deps.MaxLineBytes || limit < 1 || limit > 100 {
 		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "search_invalid", "detail": "q is required and limit must be between 1 and 100."})
