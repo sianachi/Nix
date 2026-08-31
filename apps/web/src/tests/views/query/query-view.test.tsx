@@ -7,6 +7,7 @@ import { aView } from '../../view-fixture';
 import { AuthProvider } from '../../../auth/auth-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
+import { ApiClientProvider } from '../../../api/api-client-provider';
 
 /**
  * The query view, driven against a stubbed run endpoint: the five states, the container names on
@@ -75,7 +76,9 @@ function results(rows: readonly unknown[], truncated = false): unknown {
 function renderQueryView(view: View = OVERDUE_VIEW, onOpen = vi.fn()): ReturnType<typeof vi.fn> {
   renderAt(
     <AuthProvider>
-      <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+      <ApiClientProvider>
+        <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+      </ApiClientProvider>
     </AuthProvider>,
   );
   return onOpen;
