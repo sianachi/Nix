@@ -51,6 +51,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const [zoom, setZoom] = useState(1);
   const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
   const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
+  const [textDraft, setTextDraft] = useState('');
   const dragRef = useRef<DragState | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -84,6 +85,35 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      if (selectedId !== null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+        const selectedElement = elements.find((element) => element.id === selectedId);
+        if (selectedElement === undefined) return;
+        const distance = event.shiftKey ? 10 : 1;
+        const delta = {
+          ArrowUp: { x: 0, y: -distance },
+          ArrowDown: { x: 0, y: distance },
+          ArrowLeft: { x: -distance, y: 0 },
+          ArrowRight: { x: distance, y: 0 },
+        }[event.key];
+        if (delta === undefined) return;
+        commit(
+          elements.map((element) =>
+            element.id === selectedId
+              ? updateElement(element, { x: element.x + delta.x, y: element.y + delta.y })
+              : element,
+          ),
+        );
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         if (event.shiftKey) redo();
@@ -123,14 +153,22 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     }
     const next = [...elements, createElement(tool, point, `z${String(elements.length).padStart(5, '0')}`)];
     commit(next);
-    setSelectedId(next.at(-1)?.id ?? null);
+    const added = next.at(-1);
+    setSelectedId(added?.id ?? null);
+    setTextDraft(added?.text ?? '');
     setTool('select');
+  }
+
+  function commitText(): void {
+    if (selected?.type !== 'text' || selected.text === textDraft) return;
+    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, { text: textDraft }) : element)));
   }
 
   function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
     event.stopPropagation();
     const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
     setSelectedId(element.id);
+    setTextDraft(element.text ?? '');
     dragRef.current = { id: element.id, start: point, origin: element, before: [...elements], resize };
     (event.currentTarget).setPointerCapture(event.pointerId);
   }
@@ -156,7 +194,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
 
   function finishDrag(): void {
     const drag = dragRef.current;
-    if (drag !== null) {
+    if (drag !== null && elements.some((element) => element.id === drag.id && element !== drag.origin)) {
       setPast((current) => [...current, [...drag.before]]);
       setFuture([]);
     }
@@ -182,6 +220,21 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
           );
         })}
         <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
+        {selected?.type === 'text' ? (
+          <input
+            aria-label="Text content"
+            className="h-(--control-md) min-w-32 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+            value={textDraft}
+            onChange={(event) => { setTextDraft(event.target.value); }}
+            onBlur={commitText}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitText();
+              }
+            }}
+          />
+        ) : null}
         <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
         <span className="ml-auto flex items-center gap-1">
