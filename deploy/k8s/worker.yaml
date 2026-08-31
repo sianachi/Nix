@@ -1,26 +1,24 @@
 # Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG.
 apiVersion: v1
 kind: Service
-metadata: { name: nix-worker, namespace: nix }
+metadata: { name: nix-import-worker, namespace: nix }
 spec:
-  selector: { app: nix-worker }
+  selector: { app: nix-import-worker }
   ports: [{ port: 8301, targetPort: 8301 }]
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: nix-worker, namespace: nix }
+metadata: { name: nix-import-worker, namespace: nix }
 spec:
   replicas: 2
-  selector: { matchLabels: { app: nix-worker } }
+  selector: { matchLabels: { app: nix-import-worker } }
   template:
-    metadata: { labels: { app: nix-worker } }
+    metadata: { labels: { app: nix-import-worker } }
     spec:
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile: { type: RuntimeDefault }
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
-        - name: worker
-          image: ${REGISTRY}/worker:${TAG}
+        - name: import-worker
+          image: ${REGISTRY}/import-worker:${TAG}
           ports: [{ containerPort: 8301 }]
           env:
             - name: NIX_WORKER_INTERNAL_SECRET
@@ -31,24 +29,75 @@ spec:
               value: "4194304"
             - name: NIX_WORKER_MAX_RECORDS
               value: "100000"
-          livenessProbe:
-            httpGet: { path: /healthz, port: 8301 }
-            periodSeconds: 10
-          readinessProbe:
-            httpGet: { path: /healthz, port: 8301 }
-            periodSeconds: 5
-          resources:
-            requests: { cpu: 50m, memory: 64Mi }
-            limits: { cpu: "1", memory: 256Mi }
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities: { drop: ["ALL"] }
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 256Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-export-worker, namespace: nix }
+spec:
+  selector: { app: nix-export-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-export-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-export-worker } }
+  template:
+    metadata: { labels: { app: nix-export-worker } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: export-worker
+          image: ${REGISTRY}/export-worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "2", memory: 1Gi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-indexer, namespace: nix }
+spec:
+  selector: { app: nix-indexer }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-indexer, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-indexer } }
+  template:
+    metadata: { labels: { app: nix-indexer } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: indexer
+          image: ${REGISTRY}/indexer:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-metadata: { name: worker-egress, namespace: nix }
+metadata: { name: go-workers-egress, namespace: nix }
 spec:
-  podSelector: { matchLabels: { app: nix-worker } }
+  podSelector:
+    matchExpressions: [{ key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-indexer] }]
   policyTypes: [Egress]
   egress:
     - to: [{ podSelector: { matchLabels: { app: nix-api } } }]

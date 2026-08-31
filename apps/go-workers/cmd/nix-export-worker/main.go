@@ -5,6 +5,4 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/runtime"
 )
 
-func main() {
-	runtime.Run(role.All)
-}
+func main() { runtime.Run(role.Export) }

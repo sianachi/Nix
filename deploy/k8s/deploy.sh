@@ -75,7 +75,9 @@ render deploy/k8s/web.yaml | kubectl apply -f -
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
 kubectl -n nix rollout status deployment/nix-media --timeout=180s
-kubectl -n nix rollout status deployment/nix-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-import-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-export-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-indexer --timeout=180s
 kubectl -n nix rollout status deployment/nix-web --timeout=180s
 
 kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null

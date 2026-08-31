@@ -197,8 +197,8 @@ services:
         aliases:
           - nix-media
 
-  nix-worker:
-    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+  nix-import-worker:
+    image: localhost/nix/import-worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
     environment:
       NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
@@ -218,7 +218,55 @@ services:
     networks:
       default:
         aliases:
-          - nix-worker
+          - nix-import-worker
+
+  nix-export-worker:
+    image: localhost/nix/export-worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_MAX_INPUT_BYTES: "67108864"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 1g
+    cpus: 2
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-export-worker
+
+  nix-indexer:
+    image: localhost/nix/indexer:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_MAX_INPUT_BYTES: "67108864"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-indexer
 
   nix-web:
     image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
