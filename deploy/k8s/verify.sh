@@ -31,9 +31,11 @@ echo "== Media =="
 kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=Never -- \
   curl -fsS http://nix-media:8200/healthz
 
-echo "== Go worker =="
-kubectl -n nix run verify-curl-worker --rm -i --image=curlimages/curl --restart=Never -- \
-  curl -fsS http://nix-worker:8301/healthz
+echo "== Go workers =="
+for worker in import-worker export-worker indexer; do
+  kubectl -n nix run "verify-curl-$worker" --rm -i --image=curlimages/curl --restart=Never -- \
+    curl -fsS "http://nix-$worker:8301/healthz"
+done
 
 echo "== Single origin (https://$DOMAIN) =="
 curl -fsS "https://$DOMAIN/" -o /dev/null -w '%{http_code} app\n'

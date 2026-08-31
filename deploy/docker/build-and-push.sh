@@ -19,7 +19,7 @@ cd "$(git rev-parse --show-toplevel)"
 PLATFORM="${PLATFORM:-linux/arm64}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 
-echo "Building $REGISTRY/{api,migrator,collab,media,worker,web}:$TAG for $PLATFORM"
+echo "Building $REGISTRY/{api,migrator,collab,media,import-worker,export-worker,indexer,web}:$TAG for $PLATFORM"
 
 docker buildx build --platform "$PLATFORM" --target api \
   -f deploy/docker/backend.Dockerfile -t "$REGISTRY/api:$TAG" --push .
@@ -33,8 +33,16 @@ docker buildx build --platform "$PLATFORM" --target collab \
 docker buildx build --platform "$PLATFORM" --target media \
   -f deploy/docker/node.Dockerfile -t "$REGISTRY/media:$TAG" --push .
 
-docker buildx build --platform "$PLATFORM" \
-  -f deploy/docker/go-workers.Dockerfile -t "$REGISTRY/worker:$TAG" --push .
+for worker in import-worker export-worker indexer; do
+  case "$worker" in
+    import-worker) command='./cmd/nix-import-worker' ;;
+    export-worker) command='./cmd/nix-export-worker' ;;
+    indexer) command='./cmd/nix-indexer' ;;
+  esac
+  docker buildx build --platform "$PLATFORM" \
+    --build-arg "WORKER_CMD=$command" \
+    -f deploy/docker/go-workers.Dockerfile -t "$REGISTRY/$worker:$TAG" --push .
+done
 
 docker buildx build --platform "$PLATFORM" --target web \
   -f deploy/docker/web.Dockerfile \

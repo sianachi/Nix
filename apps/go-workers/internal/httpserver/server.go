@@ -14,6 +14,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/exporter"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
+	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
 
@@ -33,18 +34,28 @@ type Server struct {
 }
 
 func New(deps Dependencies) http.Handler {
+	return NewForRole(role.All, deps)
+}
+
+func NewForRole(service role.Service, deps Dependencies) http.Handler {
 	server := &Server{deps: deps, index: index.New(deps.MaxTokens, deps.MaxRecords)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
-	mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
-	mux.Handle("POST /v1/import/document", server.requireInternal(http.HandlerFunc(server.importDocument)))
-	mux.Handle("POST /v1/export/ndjson", server.requireInternal(http.HandlerFunc(server.exportNDJSON)))
-	mux.Handle("POST /v1/export/document", server.requireInternal(http.HandlerFunc(server.exportDocument)))
-	mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
-	mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
-	mux.Handle("POST /v1/index/restore", server.requireInternal(http.HandlerFunc(server.restoreIndex)))
-	mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
-	mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
+	if service == role.All || service == role.Import {
+		mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
+		mux.Handle("POST /v1/import/document", server.requireInternal(http.HandlerFunc(server.importDocument)))
+	}
+	if service == role.All || service == role.Export {
+		mux.Handle("POST /v1/export/ndjson", server.requireInternal(http.HandlerFunc(server.exportNDJSON)))
+		mux.Handle("POST /v1/export/document", server.requireInternal(http.HandlerFunc(server.exportDocument)))
+	}
+	if service == role.All || service == role.Index {
+		mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
+		mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
+		mux.Handle("POST /v1/index/restore", server.requireInternal(http.HandlerFunc(server.restoreIndex)))
+		mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
+		mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
+	}
 	timeout := deps.RequestTimeout
 	if timeout <= 0 {
 		timeout = 60 * time.Second

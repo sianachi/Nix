@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 )
 
 func TestHealthzDoesNotRequireAWorkerPayload(t *testing.T) {
@@ -16,6 +18,45 @@ func TestHealthzDoesNotRequireAWorkerPayload(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"healthy"`) {
 		t.Fatalf("health response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestImportRoleDoesNotExposeOtherWorkerRoutes(t *testing.T) {
+	server := NewForRole(role.Import, Dependencies{Logger: slog.Default(), InternalSecret: "secret"})
+	for _, path := range []string{"/v1/export/ndjson", "/v1/search"} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+		request.Header.Set("X-Nix-Internal-Secret", "secret")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("import role exposed %s with status %d", path, response.Code)
+		}
+	}
+}
+
+func TestExportRoleDoesNotExposeOtherWorkerRoutes(t *testing.T) {
+	server := NewForRole(role.Export, Dependencies{Logger: slog.Default(), InternalSecret: "secret"})
+	for _, path := range []string{"/v1/import/ndjson", "/v1/search"} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+		request.Header.Set("X-Nix-Internal-Secret", "secret")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("export role exposed %s with status %d", path, response.Code)
+		}
+	}
+}
+
+func TestIndexerRoleDoesNotExposeImportOrExportRoutes(t *testing.T) {
+	server := NewForRole(role.Index, Dependencies{Logger: slog.Default(), InternalSecret: "secret"})
+	for _, path := range []string{"/v1/import/ndjson", "/v1/export/ndjson"} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+		request.Header.Set("X-Nix-Internal-Secret", "secret")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("indexer role exposed %s with status %d", path, response.Code)
+		}
 	}
 }
 
