@@ -31,8 +31,14 @@ describe('the native canvas interchange format', () => {
 
   it('refuses legacy elements it cannot represent instead of dropping them', () => {
     expect(() => parseCanvas(JSON.stringify({ elements: [{ id: 'image-1', type: 'image' }] }))).toThrow(
-      'Unsupported legacy canvas element',
+      'Unsupported legacy image source',
     );
+  });
+
+  it('imports URL-backed legacy images but refuses byte-backed image records', () => {
+    const imported = parseCanvas(JSON.stringify({ elements: [{ id: 'image-1', type: 'image', x: 1, y: 2, width: 30, height: 40, url: 'https://example.com/image.png', alt: 'Plan' }] }));
+    expect(imported.elements[0]).toMatchObject({ type: 'image', imageUrl: 'https://example.com/image.png', alt: 'Plan' });
+    expect(() => parseCanvas(JSON.stringify({ elements: [{ id: 'image-2', type: 'image', fileId: 'asset-1' }] }))).toThrow('Unsupported legacy image source');
   });
 
   it('exports a standalone SVG and escapes text content', () => {
@@ -40,5 +46,12 @@ describe('the native canvas interchange format', () => {
 
     expect(serializeCanvasSvg(scene)).toContain('&lt;Roadmap&gt;');
     expect(serializeCanvasSvg(scene)).toContain('viewBox="0 0 1200 800"');
+  });
+
+  it('exports a URL-backed image reference without inlining its bytes', () => {
+    const scene = [{ ...createElement('image', { x: 10, y: 20 }, 'z00000'), imageUrl: 'https://example.com/plan.png' }];
+
+    expect(serializeCanvasSvg(scene)).toContain('href="https://example.com/plan.png"');
+    expect(serializeCanvasSvg(scene)).not.toContain('data:image');
   });
 });

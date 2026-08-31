@@ -46,6 +46,17 @@ describe('the Nix canvas model', () => {
     });
   });
 
+  it('creates an image reference without embedding file bytes', () => {
+    expect(createElement('image', { x: 4, y: 8 }, 'z00004')).toMatchObject({
+      type: 'image',
+      imageUrl: '',
+      alt: '',
+      width: 320,
+      height: 200,
+      fill: 'none',
+    });
+  });
+
   it('increments the element version whenever an edit is made', () => {
     const original = element();
     const moved = updateElement(original, { x: 80, y: 90 });
