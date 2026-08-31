@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
+	"github.com/sianachi/Nix/apps/go-workers/internal/exportjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importjob"
@@ -83,6 +84,16 @@ func Run(service role.Service) {
 		runner, runnerErr := jobrunner.New(client, handler, importjob.Kinds, logger, settings.PollInterval, settings.MaxConcurrency)
 		if runnerErr != nil {
 			logger.Error("import job runner configuration failed", "error", runnerErr)
+			os.Exit(1)
+		}
+		go runner.Run(ctx)
+	}
+	if service == role.Export && settings.InternalAPIURL != "" {
+		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+		handler := exportjob.New(objecttransfer.New(settings.RequestTimeout), stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
+		runner, runnerErr := jobrunner.New(client, handler, exportjob.Kinds, logger, settings.PollInterval, settings.MaxConcurrency)
+		if runnerErr != nil {
+			logger.Error("export job runner configuration failed", "error", runnerErr)
 			os.Exit(1)
 		}
 		go runner.Run(ctx)
