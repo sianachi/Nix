@@ -5,16 +5,19 @@ import {
   Minus,
   MousePointer2,
   Pencil,
+  Download,
   Redo2,
   Square,
   Type,
   Undo2,
   ZoomIn,
   ZoomOut,
+  Upload,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { parseCanvas, serializeCanvas } from './nix-canvas-serialization';
 
 import {
   CANVAS_HEIGHT,
@@ -64,6 +67,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
   const [itemLabels, setItemLabels] = useState<Readonly<Record<string, string>>>({});
   const svgRef = useRef<SVGSVGElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
 
   const visible = elements.filter((element) => !element.isDeleted);
@@ -208,6 +212,30 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     commit(elements.map((element) => (element.id === selected.id ? updateElement(element, changes) : element)));
   }
 
+  function exportScene(): void {
+    const blob = new Blob([serializeCanvas(elements)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'nix-canvas.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importScene(event: ChangeEvent<HTMLInputElement>): void {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file === undefined) return;
+    void file.text().then((serialized) => {
+      try {
+        commit(parseCanvas(serialized).elements);
+        setSelectedIds([]);
+      } catch {
+        // Invalid files are ignored; the durable document remains untouched.
+      }
+    });
+  }
+
   function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
     event.stopPropagation();
     const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
@@ -317,6 +345,9 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
         ) : null}
         <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas" onClick={exportScene}><Icon icon={Download} size="sm" /></Button>
+        <Button variant="icon" aria-label="Import canvas" onClick={() => { importRef.current?.click(); }}><Icon icon={Upload} size="sm" /></Button>
+        <input ref={importRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import canvas file" onChange={importScene} />
         <span className="ml-auto flex items-center gap-1">
           <Button variant="icon" aria-label="Zoom out" onClick={() => { setZoom((value) => Math.max(0.5, value - 0.1)); }}><Icon icon={ZoomOut} size="sm" /></Button>
           <Text as="span" variant="caption" tone="muted" className="min-w-12 text-center">{Math.round(zoom * 100)}%</Text>
