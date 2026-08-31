@@ -85,10 +85,6 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const signedOut = useSessionStore((state) => state.signedOut);
 
   useEffect(() => {
-    if (useSessionStore.getState().status !== 'unknown') {
-      return;
-    }
-
     const controller = new AbortController();
     let settled = false;
     signInStarted();
