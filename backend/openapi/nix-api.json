@@ -147,7 +147,7 @@
           "Canvas"
         ],
         "summary": "The caller's own canvas library",
-        "description": "Returns the caller's personal set of reusable Excalidraw shapes, the same shape Excalidraw itself stores locally - empty for a caller who has never saved one. Available to them on every canvas they open, in every workspace.",
+        "description": "Returns the caller's personal set of reusable Nix canvas shapes - empty for a caller who has never saved one. Available to them on every canvas they open, in every workspace.",
         "operationId": "GetCanvasLibrary",
         "responses": {
           "200": {
@@ -167,7 +167,7 @@
           "Canvas"
         ],
         "summary": "Replace the caller's own canvas library",
-        "description": "Replaces the caller's library wholesale with what Excalidraw's onLibraryChange reports, which is always the library's complete contents rather than a delta. Fails with 'canvas_library.too_large' when the library exceeds the stored bound.",
+        "description": "Replaces the caller's native canvas library wholesale with its complete contents rather than a delta. Fails with 'canvas_library.too_large' when the library exceeds the stored bound.",
         "operationId": "SaveCanvasLibrary",
         "requestBody": {
           "content": {
