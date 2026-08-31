@@ -59,6 +59,15 @@ export function clampViewport(viewport: CanvasViewport): CanvasViewport {
   };
 }
 
+export function renderableElements(
+  elements: readonly NixCanvasElement[],
+  viewport: CanvasViewport,
+): NixCanvasElement[] {
+  return elements
+    .filter((element) => !element.isDeleted && intersectsViewport(element, viewport))
+    .slice(0, CANVAS_ELEMENT_CEILING);
+}
+
 export function createElement(
   type: NixCanvasElementType,
   point: CanvasPoint,
