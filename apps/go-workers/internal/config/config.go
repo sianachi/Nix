@@ -18,6 +18,7 @@ type Settings struct {
 	InternalAPIURL  string
 	PollInterval    time.Duration
 	WorkerID        string
+	MaxConcurrency  int
 	OpenSearchURL   string
 	OpenSearchIndex string
 }
@@ -47,6 +48,10 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_POLL_INTERVAL_SECONDS: %w", err)
 	}
+	maxConcurrency, err := parseInt(getenv("NIX_WORKER_MAX_CONCURRENCY"), 4)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_CONCURRENCY: %w", err)
+	}
 	settings := Settings{
 		Address:         valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:  getenv("NIX_WORKER_INTERNAL_SECRET"),
@@ -58,10 +63,11 @@ func Load(getenv func(string) string) (Settings, error) {
 		InternalAPIURL:  strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
 		PollInterval:    time.Duration(pollSeconds) * time.Second,
 		WorkerID:        valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		MaxConcurrency:  maxConcurrency,
 		OpenSearchURL:   strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
 		OpenSearchIndex: valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
 	}
-	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 {
+	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil
