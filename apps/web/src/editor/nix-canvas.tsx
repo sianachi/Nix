@@ -19,6 +19,7 @@ import {
   type CanvasPoint,
   type NixCanvasElement,
   type NixCanvasElementType,
+  type CanvasFill,
   updateElement,
 } from './nix-canvas-model';
 
@@ -164,6 +165,11 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     commit(elements.map((element) => (element.id === selected.id ? updateElement(element, { text: textDraft }) : element)));
   }
 
+  function updateSelected(changes: Partial<Pick<NixCanvasElement, 'fill' | 'stroke' | 'opacity'>>): void {
+    if (selected === null) return;
+    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, changes) : element)));
+  }
+
   function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
     event.stopPropagation();
     const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
@@ -235,6 +241,15 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
             }}
           />
         ) : null}
+        {selected !== null && selected.type !== 'line' && selected.type !== 'arrow' && selected.type !== 'text' ? (
+          <span className="ml-2 flex items-center gap-1" aria-label="Fill">
+            {(['accent', 'surface', 'none'] as CanvasFill[]).map((fill) => (
+              <Button key={fill} variant="ghost" className="px-2 py-1 text-xs" aria-label={`Fill ${fill}`} aria-pressed={(selected.fill ?? 'accent') === fill} onClick={() => { updateSelected({ fill }); }}>
+                {fill === 'none' ? 'None' : fill === 'accent' ? 'Accent' : 'Surface'}
+              </Button>
+            ))}
+          </span>
+        ) : null}
         <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
         <span className="ml-auto flex items-center gap-1">
@@ -278,12 +293,13 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
 }
 
 function CanvasShape({ element, selected, onPointerDown }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void }): ReactNode {
-  const stroke = selected ? 'var(--color-accent)' : 'var(--color-foreground)';
+  const stroke = selected ? 'var(--color-accent)' : element.stroke === 'accent' ? 'var(--color-accent)' : element.stroke === 'muted' ? 'var(--color-muted)' : 'var(--color-foreground)';
+  const fill = element.fill === 'surface' ? 'var(--color-surface)' : element.fill === 'none' ? 'none' : 'var(--color-accent-100)';
   const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
-  if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill="var(--color-accent-100)" {...common} />;
+  if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
   if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
   if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
-  return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx="12" fill="var(--color-accent-100)" {...common} />;
+  return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
 }
 
 function ResizeHandle({ element, onPointerDown }: { readonly element: NixCanvasElement; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize?: boolean) => void }): ReactNode {
