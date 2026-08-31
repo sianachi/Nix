@@ -266,6 +266,18 @@ internal static class M0SchemaSeed
             VALUES ({templateApplication}, {templateSource}, {tenant}, {item}, 'folder', {item},
                     true, false, false);
 
+            INSERT INTO worker_job
+                (job_id, tenant_id, workspace_id, actor_id, kind, idempotency_key, payload,
+                 status, attempts, cancellation_requested, created_at, updated_at)
+            VALUES ({acl}, {tenant}, {workspace}, {principal}, 'import.nix', '{slug}-worker-job',
+                    jsonb_build_object('source', '{slug}'), 'queued', 0, false, now(), now());
+
+            INSERT INTO worker_outbox_event
+                (event_id, tenant_id, workspace_id, item_id, kind, aggregate_version, payload,
+                 available_at, attempts)
+            VALUES ({auditEvent}, {tenant}, {workspace}, {item}, 'item.changed', 1,
+                    jsonb_build_object('id', {item}, 'title', '{slug} item'), now(), 0);
+
             """;
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Nix.Features.Internal;
+using Nix.Persistence.Workers;
 
 namespace Nix.Serialization;
 
@@ -24,4 +25,11 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(FailWorkerOutboxRequest))]
 [JsonSerializable(typeof(WorkerOutboxEventResponse))]
 [JsonSerializable(typeof(IReadOnlyList<WorkerOutboxEventResponse>))]
+[JsonSerializable(typeof(DispatchLeaseRequest))]
+[JsonSerializable(typeof(DispatchJobCompletion))]
+[JsonSerializable(typeof(DispatchOutboxCompletion))]
+[JsonSerializable(typeof(DispatchedWorkerJob))]
+[JsonSerializable(typeof(IReadOnlyList<DispatchedWorkerJob>))]
+[JsonSerializable(typeof(DispatchedOutboxEvent))]
+[JsonSerializable(typeof(IReadOnlyList<DispatchedOutboxEvent>))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;
