@@ -87,6 +87,7 @@ export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps
       <div className="min-h-0 flex-1" aria-label="Canvas body">
         <NixCanvas
           elements={elements as NixCanvasElement[]}
+          workspaceId={workspaceId}
           onChange={(nextElements) => {
             setElements([...nextElements]);
             bindingRef.current?.applyLocal(nextElements);
