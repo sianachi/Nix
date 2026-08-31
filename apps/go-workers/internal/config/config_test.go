@@ -23,3 +23,15 @@ func TestLoadRejectsNonPositiveLimits(t *testing.T) {
 		t.Fatalf("Load() = %+v, %v; want invalid zero limit", settings, err)
 	}
 }
+
+func TestLoadRejectsMalformedNumericConfiguration(t *testing.T) {
+	_, err := Load(func(key string) string {
+		if key == "NIX_WORKER_MAX_RECORDS" {
+			return "many"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("Load() accepted malformed numeric configuration")
+	}
+}

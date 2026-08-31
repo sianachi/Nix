@@ -32,6 +32,17 @@ func TestImportValidatesNdjsonWithoutWritingToAStore(t *testing.T) {
 	}
 }
 
+func TestWorkerPayloadRoutesRequireTheInternalSecret(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256})
+	request := httptest.NewRequest(http.MethodPost, "/v1/import/ndjson", strings.NewReader(`{"id":"one","title":"One"}
+`))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated response = %d", response.Code)
+	}
+}
+
 func TestImportRefusesAnOversizedRecord(t *testing.T) {
 	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 16})
 	request := httptest.NewRequest(http.MethodPost, "/v1/import/ndjson", strings.NewReader(`{"id":"one","title":"This title is too long"}
@@ -55,5 +66,25 @@ func TestExportReturnsNdjsonRecords(t *testing.T) {
 	if response.Code != http.StatusOK || string(body) != `{"id":"one","title":"One"}
 ` {
 		t.Fatalf("export response = %d %q", response.Code, body)
+	}
+}
+
+func TestIndexAndSearchRoutesReturnMatches(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, MaxTokens: 100})
+	indexRequest := httptest.NewRequest(http.MethodPost, "/v1/index/ndjson", strings.NewReader(`{"id":"one","title":"Project plan"}
+`))
+	indexRequest.Header.Set("X-Nix-Internal-Secret", "secret")
+	indexResponse := httptest.NewRecorder()
+	server.ServeHTTP(indexResponse, indexRequest)
+	if indexResponse.Code != http.StatusAccepted {
+		t.Fatalf("index response = %d %q", indexResponse.Code, indexResponse.Body.String())
+	}
+
+	searchRequest := httptest.NewRequest(http.MethodGet, "/v1/search?q=project", nil)
+	searchRequest.Header.Set("X-Nix-Internal-Secret", "secret")
+	searchResponse := httptest.NewRecorder()
+	server.ServeHTTP(searchResponse, searchRequest)
+	if searchResponse.Code != http.StatusOK || !strings.Contains(searchResponse.Body.String(), `"one"`) {
+		t.Fatalf("search response = %d %q", searchResponse.Code, searchResponse.Body.String())
 	}
 }

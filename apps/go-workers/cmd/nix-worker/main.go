@@ -39,6 +39,8 @@ func main() {
 		MaxInputSize:   settings.MaxInputBytes,
 		MaxRecords:     settings.MaxRecords,
 		MaxLineBytes:   settings.MaxLineBytes,
+		MaxTokens:      settings.MaxTokens,
+		RequestTimeout: settings.RequestTimeout,
 	})
 
 	httpServer := &http.Server{
