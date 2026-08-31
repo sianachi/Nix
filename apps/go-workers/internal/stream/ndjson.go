@@ -29,6 +29,42 @@ type Summary struct {
 	Bytes   int64 `json:"bytes"`
 }
 
+type Writer struct {
+	encoder *json.Encoder
+	limits  Limits
+	summary Summary
+}
+
+func NewWriter(writer io.Writer, limits Limits) *Writer {
+	return &Writer{encoder: json.NewEncoder(writer), limits: limits}
+}
+
+func (writer *Writer) Write(record Record) error {
+	if writer.summary.Records >= writer.limits.MaxRecords {
+		return ErrLimitExceeded
+	}
+	if record.ID == "" || record.Title == "" {
+		return fmt.Errorf("record %d must contain id and title", writer.summary.Records+1)
+	}
+	line, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("record %d cannot be encoded: %w", writer.summary.Records+1, err)
+	}
+	if len(line)+1 > writer.limits.MaxLine || writer.summary.Bytes+int64(len(line)+1) > writer.limits.MaxBytes {
+		return ErrLimitExceeded
+	}
+	if err := writer.encoder.Encode(record); err != nil {
+		return err
+	}
+	writer.summary.Records++
+	writer.summary.Bytes += int64(len(line) + 1)
+	return nil
+}
+
+func (writer *Writer) Summary() Summary {
+	return writer.summary
+}
+
 func ReadRecords(reader io.Reader, limits Limits, visit func(Record) error) (Summary, error) {
 	if limits.MaxBytes <= 0 || limits.MaxLine <= 0 || limits.MaxRecords <= 0 {
 		return Summary{}, fmt.Errorf("stream limits must be positive")
@@ -71,27 +107,11 @@ func ReadRecords(reader io.Reader, limits Limits, visit func(Record) error) (Sum
 }
 
 func WriteRecords(writer io.Writer, records []Record, limits Limits) (Summary, error) {
-	if len(records) > limits.MaxRecords {
-		return Summary{}, ErrLimitExceeded
+	streamWriter := NewWriter(writer, limits)
+	for _, record := range records {
+		if err := streamWriter.Write(record); err != nil {
+			return streamWriter.Summary(), err
+		}
 	}
-	encoder := json.NewEncoder(writer)
-	var summary Summary
-	for index, record := range records {
-		if record.ID == "" || record.Title == "" {
-			return summary, fmt.Errorf("record %d must contain id and title", index+1)
-		}
-		line, err := json.Marshal(record)
-		if err != nil {
-			return summary, fmt.Errorf("record %d cannot be encoded: %w", index+1, err)
-		}
-		if len(line)+1 > limits.MaxLine || summary.Bytes+int64(len(line)+1) > limits.MaxBytes {
-			return summary, ErrLimitExceeded
-		}
-		if err := encoder.Encode(record); err != nil {
-			return summary, err
-		}
-		summary.Records++
-		summary.Bytes += int64(len(line) + 1)
-	}
-	return summary, nil
+	return streamWriter.Summary(), nil
 }
