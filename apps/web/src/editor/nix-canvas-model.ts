@@ -49,6 +49,16 @@ export function intersectsViewport(element: NixCanvasElement, viewport: CanvasVi
   return element.x < viewport.x + viewport.width && element.x + element.width > viewport.x && element.y < viewport.y + viewport.height && element.y + element.height > viewport.y;
 }
 
+export function clampViewport(viewport: CanvasViewport): CanvasViewport {
+  const maxX = Math.max(0, CANVAS_WIDTH - viewport.width);
+  const maxY = Math.max(0, CANVAS_HEIGHT - viewport.height);
+  return {
+    ...viewport,
+    x: Math.min(maxX, Math.max(0, viewport.x)),
+    y: Math.min(maxY, Math.max(0, viewport.y)),
+  };
+}
+
 export function createElement(
   type: NixCanvasElementType,
   point: CanvasPoint,
