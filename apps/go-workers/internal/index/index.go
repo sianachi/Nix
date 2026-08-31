@@ -3,6 +3,10 @@ package index
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -126,6 +130,59 @@ func (index *Index) Snapshot() Snapshot {
 		records = append(records, index.records[id])
 	}
 	return Snapshot{Version: 1, Records: records}
+}
+
+func (index *Index) Save(path string) error {
+	if path == "" {
+		return errors.New("index snapshot path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create index snapshot directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".nix-index-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create index snapshot temporary file: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := json.NewEncoder(temporary).Encode(index.Snapshot()); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("encode index snapshot: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync index snapshot: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close index snapshot: %w", err)
+	}
+	if err := os.Rename(temporaryName, path); err != nil {
+		return fmt.Errorf("replace index snapshot: %w", err)
+	}
+	return nil
+}
+
+func (index *Index) Load(path string) error {
+	if path == "" {
+		return errors.New("index snapshot path is required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open index snapshot: %w", err)
+	}
+	var snapshot Snapshot
+	err = json.NewDecoder(io.LimitReader(file, 128*1024*1024)).Decode(&snapshot)
+	closeErr := file.Close()
+	if err != nil {
+		return fmt.Errorf("decode index snapshot: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close index snapshot: %w", closeErr)
+	}
+	if snapshot.Version != 1 {
+		return fmt.Errorf("unsupported index snapshot version %d", snapshot.Version)
+	}
+	return index.Replace(snapshot.Records)
 }
 
 func (index *Index) removeLocked(id string) {

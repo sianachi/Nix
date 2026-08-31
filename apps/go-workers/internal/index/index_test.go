@@ -2,6 +2,7 @@ package index
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
@@ -53,6 +54,24 @@ func TestIndexReplaceIsTransactionalAndSnapshotIsSorted(t *testing.T) {
 	}
 	if search.Len() != 2 {
 		t.Fatalf("failed replacement changed index length to %d", search.Len())
+	}
+}
+
+func TestIndexSnapshotCanBeSavedAndLoaded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.json")
+	original := New(100, 10)
+	if err := original.Put(stream.Record{ID: "one", Title: "Persistent plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := original.Save(path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	restored := New(100, 10)
+	if err := restored.Load(path); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := restored.Search("persistent", 10); len(got) != 1 || got[0].ID != "one" {
+		t.Fatalf("restored Search() = %+v", got)
 	}
 }
 

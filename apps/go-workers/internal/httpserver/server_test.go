@@ -131,3 +131,21 @@ func TestRebuildAndSnapshotRoutesReplaceTheIndex(t *testing.T) {
 		t.Fatalf("snapshot response = %d %q", snapshotResponse.Code, snapshotResponse.Body.String())
 	}
 }
+
+func TestRestoreRouteLoadsASnapshot(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, MaxTokens: 100})
+	request := httptest.NewRequest(http.MethodPost, "/v1/index/restore", strings.NewReader(`{"version":1,"records":[{"id":"restored","title":"Restored"}]}`))
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("restore response = %d %q", response.Code, response.Body.String())
+	}
+	searchRequest := httptest.NewRequest(http.MethodGet, "/v1/search?q=restored", nil)
+	searchRequest.Header.Set("X-Nix-Internal-Secret", "secret")
+	searchResponse := httptest.NewRecorder()
+	server.ServeHTTP(searchResponse, searchRequest)
+	if !strings.Contains(searchResponse.Body.String(), `"restored"`) {
+		t.Fatalf("search after restore = %q", searchResponse.Body.String())
+	}
+}
