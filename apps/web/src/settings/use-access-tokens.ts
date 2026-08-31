@@ -98,13 +98,14 @@ export function useAccessTokens(): AccessTokensState {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
-    async (signal?: AbortSignal): Promise<void> => {
+    async (signal?: AbortSignal, forceRefresh = false): Promise<void> => {
       setStatus('loading');
       setError(null);
 
       try {
         const loaded = await client.query(accessTokens.listAccessTokens(), {
           signal,
+          forceRefresh,
         });
         setTokens(loaded.tokens);
         setStatus('ready');
@@ -139,7 +140,7 @@ export function useAccessTokens(): AccessTokensState {
   }, [load]);
 
   const reload = useCallback(async (): Promise<void> => {
-    await load();
+    await load(undefined, true);
   }, [load]);
 
   const create = useCallback(
