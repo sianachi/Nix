@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { NixCanvasElement } from './nix-canvas-model';
+import { CANVAS_ELEMENT_CEILING, type NixCanvasElement } from './nix-canvas-model';
 
 const pointSchema = z.object({ x: z.number(), y: z.number() });
 const elementSchema = z.looseObject({
@@ -23,7 +23,7 @@ const elementSchema = z.looseObject({
     points: z.array(pointSchema).optional(),
   });
 
-const documentSchema = z.object({ version: z.literal(1), elements: z.array(elementSchema) });
+const documentSchema = z.object({ version: z.literal(1), elements: z.array(elementSchema).max(CANVAS_ELEMENT_CEILING) });
 
 export interface NixCanvasDocument {
   readonly version: 1;

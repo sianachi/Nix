@@ -21,8 +21,10 @@ import { parseCanvas, serializeCanvas } from './nix-canvas-serialization';
 
 import {
   CANVAS_HEIGHT,
+  CANVAS_ELEMENT_CEILING,
   CANVAS_WIDTH,
   createElement,
+  boundedPoints,
   type CanvasPoint,
   type NixCanvasElement,
   type NixCanvasElementType,
@@ -71,6 +73,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
   const client = useApiClient();
 
   const visible = elements.filter((element) => !element.isDeleted);
+  const rendered = visible.slice(0, CANVAS_ELEMENT_CEILING);
   const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
   const itemIds = visible
@@ -290,12 +293,13 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
     const top = Math.min(...points.map((point) => point.y));
     const right = Math.max(...points.map((point) => point.x));
     const bottom = Math.max(...points.map((point) => point.y));
+    const bounded = boundedPoints(points);
     const base = createElement('freehand', { x: left, y: top }, `z${String(elements.length).padStart(5, '0')}`);
     const drawn = updateElement(base, {
       width: Math.max(1, right - left),
       height: Math.max(1, bottom - top),
     });
-    commit([...elements, { ...drawn, points }]);
+    commit([...elements, { ...drawn, points: bounded }]);
     setSelectedIds([drawn.id]);
     setTool('select');
   }
@@ -358,7 +362,7 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
         <svg
           ref={svgRef}
           className="mx-auto block max-w-full origin-top-left bg-background shadow-sm"
-          style={{ width: `${String(CANVAS_WIDTH * zoom)}px`, height: `${String(CANVAS_HEIGHT * zoom)}px` }}
+          style={{ width: `${String(CANVAS_WIDTH * zoom)}px`, height: `${String(CANVAS_HEIGHT * zoom)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
           viewBox={`0 0 ${String(CANVAS_WIDTH)} ${String(CANVAS_HEIGHT)}`}
           role="application"
           aria-label="Canvas workspace"
@@ -384,12 +388,12 @@ export function NixCanvas({ elements, onChange }: NixCanvasProps): ReactNode {
           </defs>
           <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
           {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
-          {visible.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} itemLabel={element.itemId === undefined ? '' : itemLabels[element.itemId] ?? 'Loading item…'} />)}
+          {rendered.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} itemLabel={element.itemId === undefined ? '' : itemLabels[element.itemId] ?? 'Loading item…'} />)}
           {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
         </svg>
       </div>
       <div className="flex shrink-0 items-center justify-between px-4 py-1.5">
-        <Text as="span" variant="caption" tone="muted">{selected === null ? `${String(visible.length)} objects` : `${TOOL_LABELS[selected.type]} selected`}</Text>
+        <Text as="span" variant="caption" tone={visible.length > CANVAS_ELEMENT_CEILING ? 'accent' : 'muted'}>{selected === null ? `${String(visible.length)} objects${visible.length > CANVAS_ELEMENT_CEILING ? `; showing ${String(CANVAS_ELEMENT_CEILING)}` : ''}` : `${TOOL_LABELS[selected.type]} selected`}</Text>
         <Text as="span" variant="caption" tone="muted">Drag to move. Select a tool, then click the canvas.</Text>
       </div>
     </div>
