@@ -1,0 +1,179 @@
+using Npgsql;
+using NpgsqlTypes;
+
+namespace Nix.Persistence.Workers;
+
+/// <summary>Calls the exact security-definer queue functions outside tenant-scoped transactions.</summary>
+public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource)
+{
+    private const string LeaseJobsSql = "SELECT * FROM nix_lease_worker_jobs(@kind, @owner, @limit, @lease_seconds)";
+    private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
+    private const string LeaseOutboxSql = "SELECT * FROM nix_lease_worker_outbox(@kind, @owner, @limit, @lease_seconds)";
+    private const string FinishOutboxSql = "SELECT nix_finish_worker_outbox(@event_id, @owner, @succeeded, @error)";
+
+    /// <summary>Atomically leases globally queued jobs without exposing an unbounded tenant read.</summary>
+    public async ValueTask<IReadOnlyList<DispatchedWorkerJob>> LeaseJobsAsync(
+        string? kind,
+        string owner,
+        int limit,
+        int leaseSeconds,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<DispatchedWorkerJob>(limit);
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(LeaseJobsSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Text("kind", kind));
+                command.Parameters.Add(Text("owner", owner));
+                command.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = limit });
+                command.Parameters.Add(new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds });
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        results.Add(new DispatchedWorkerJob(
+                            reader.GetGuid(0),
+                            reader.GetGuid(1),
+                            await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(2),
+                            await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(3),
+                            reader.GetString(4),
+                            reader.GetString(5),
+                            reader.GetInt32(6),
+                            reader.GetBoolean(7)));
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    /// <summary>Completes a job only while the caller still owns its live lease.</summary>
+    public ValueTask<bool> CompleteJobAsync(
+        Guid jobId,
+        string owner,
+        bool succeeded,
+        string? result,
+        string? errorCode,
+        string? errorDetail,
+        CancellationToken cancellationToken) => ExecuteBooleanAsync(
+            CompleteJobSql,
+            [
+                Uuid("job_id", jobId),
+                Text("owner", owner),
+                Boolean("succeeded", succeeded),
+                Json("result", result),
+                Text("error_code", errorCode),
+                Text("error_detail", errorDetail),
+            ],
+            cancellationToken);
+
+    /// <summary>Atomically leases globally queued derived-data events.</summary>
+    public async ValueTask<IReadOnlyList<DispatchedOutboxEvent>> LeaseOutboxAsync(
+        string? kind,
+        string owner,
+        int limit,
+        int leaseSeconds,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<DispatchedOutboxEvent>(limit);
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(LeaseOutboxSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Text("kind", kind));
+                command.Parameters.Add(Text("owner", owner));
+                command.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = limit });
+                command.Parameters.Add(new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds });
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        results.Add(new DispatchedOutboxEvent(
+                            reader.GetGuid(0),
+                            reader.GetGuid(1),
+                            await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(2),
+                            await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(3),
+                            reader.GetString(4),
+                            reader.GetString(5),
+                            reader.GetInt32(6),
+                            await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false)));
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    /// <summary>Acknowledges or retries an event only while the caller owns its live lease.</summary>
+    public ValueTask<bool> FinishOutboxAsync(
+        Guid eventId,
+        string owner,
+        bool succeeded,
+        string? error,
+        CancellationToken cancellationToken) => ExecuteBooleanAsync(
+            FinishOutboxSql,
+            [Uuid("event_id", eventId), Text("owner", owner), Boolean("succeeded", succeeded), Text("error", error)],
+            cancellationToken);
+
+    private async ValueTask<bool> ExecuteBooleanAsync(
+        string sql,
+        NpgsqlParameter[] parameters,
+        CancellationToken cancellationToken)
+    {
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
+            // Justification: every caller passes one of the four constants declared above; values are bound.
+            var command = new NpgsqlCommand(sql, connection);
+#pragma warning restore CA2100
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.AddRange(parameters);
+                var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                return value is true;
+            }
+        }
+    }
+
+    private static NpgsqlParameter Text(string name, string? value) =>
+        new(name, NpgsqlDbType.Text) { Value = value is null ? DBNull.Value : value };
+
+    private static NpgsqlParameter Json(string name, string? value) =>
+        new(name, NpgsqlDbType.Jsonb) { Value = value is null ? DBNull.Value : value };
+
+    private static NpgsqlParameter Uuid(string name, Guid value) =>
+        new(name, NpgsqlDbType.Uuid) { Value = value };
+
+    private static NpgsqlParameter Boolean(string name, bool value) =>
+        new(name, NpgsqlDbType.Boolean) { Value = value };
+}
+
+/// <summary>One globally leased worker job, including the context Nix.Api owns.</summary>
+public sealed record DispatchedWorkerJob(
+    Guid Id,
+    Guid TenantId,
+    Guid? WorkspaceId,
+    Guid? ActorId,
+    string Kind,
+    string Payload,
+    int Attempts,
+    bool CancellationRequested);
+
+/// <summary>One globally leased outbox event.</summary>
+public sealed record DispatchedOutboxEvent(
+    Guid Id,
+    Guid TenantId,
+    Guid? WorkspaceId,
+    Guid? ItemId,
+    string Kind,
+    string Payload,
+    int Attempts,
+    DateTimeOffset AvailableAt);

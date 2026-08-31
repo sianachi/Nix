@@ -37,6 +37,7 @@ internal static class InternalEndpoints
         group.MapPost("/items/{itemId:guid}/touched", TouchItemEndpoint.Handle);
         WorkerJobEndpoints.Map(group);
         WorkerOutboxEndpoints.Map(group);
+        WorkerDispatchEndpoints.Map(group);
 
         return endpoints;
     }

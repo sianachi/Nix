@@ -147,6 +147,7 @@ public static class NixPersistenceServiceCollectionExtensions
         });
 
         services.AddScoped<NixSqlExecutor>();
+        services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
 
         // Scoped, like everything else here: a store reads the scope's tenant and shares the
         // context's transaction, so it belongs to one unit of work and one tenant.
