@@ -1,20 +1,20 @@
 import type * as Y from 'yjs';
 
 /**
- * The bridge between an Excalidraw scene and the shared Yjs map the collaboration
+ * The bridge between a Nix canvas scene and the shared Yjs map the collaboration
  * service validates and stores.
  *
- * **Whole elements, last-writer-wins per element.** Excalidraw elements are internally
+ * **Whole elements, last-writer-wins per element.** Canvas elements are internally
  * consistent objects whose fields depend on each other - merging two versions of one
  * element field-by-field can produce a shape neither author drew - so the unit of merge
- * is the element, and Excalidraw's own `version`/`versionNonce` pair decides which write
+ * is the element, and the `version`/`versionNonce` pair decides which write
  * stands: higher version wins, ties break towards the lower nonce, deterministically on
- * every client. This is the same reconciliation excalidraw.com uses for its own rooms.
+ * every client.
  *
  * The scene lives in `Y.Map('elements')`, element per key, exactly the shape the server's
  * canvas strategy validates. `appState` never syncs - which tool you hold and where your
  * viewport sits are yours - and deleted elements stay as `isDeleted` tombstones, which is
- * how Excalidraw itself models deletion and what lets a delete win over a concurrent move.
+ * which lets a delete win over a concurrent move.
  */
 
 export interface CanvasElement {
@@ -23,7 +23,7 @@ export interface CanvasElement {
   readonly version: number;
   readonly versionNonce: number;
   readonly isDeleted?: boolean;
-  /** Fractional z-order index, Excalidraw's own. Sorting by it re-derives draw order. */
+  /** Fractional z-order index. Sorting by it re-derives draw order. */
   readonly index?: string;
   readonly [key: string]: unknown;
 }
@@ -70,7 +70,7 @@ export function createCanvasBinding(
         for (const element of elements) {
           const existing = map.get(element.id);
           if (existing === undefined || supersedes(element, existing)) {
-            // A plain clone rather than the live object: Excalidraw mutates its scene in
+            // A plain clone rather than a live object: renderers may mutate their scene in
             // place, and a shared map holding a mutating reference would drift silently.
             map.set(element.id, { ...element });
           }
@@ -98,7 +98,7 @@ export function supersedes(candidate: CanvasElement, existing: CanvasElement): b
 
 function sceneOf(map: Y.Map<CanvasElement>): CanvasElement[] {
   const elements = [...map.values()];
-  // Draw order is the fractional index, Excalidraw's own ordering; elements from builds
+  // Draw order is the fractional index; elements from builds
   // that carried none sort together at the front, stably by identifier.
   return elements.sort((a, b) => {
     const left = a.index ?? '';
