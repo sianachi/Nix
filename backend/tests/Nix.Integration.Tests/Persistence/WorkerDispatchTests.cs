@@ -71,4 +71,24 @@ public sealed class WorkerDispatchTests(NixPostgresFixture fixture) : IAsyncLife
         Assert.False(await store.FinishOutboxAsync(first.Id, "other", succeeded: true, error: null, Cancellation));
         Assert.True(await store.FinishOutboxAsync(first.Id, "indexer", succeeded: false, error: "temporary", Cancellation));
     }
+
+    [Fact]
+    public async Task A_transient_job_failure_is_backed_off_instead_of_completed()
+    {
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        var job = Assert.Single(await store.LeaseJobsAsync("import.nix", "worker-one", 1, 60, Cancellation));
+
+        Assert.True(await store.FinishJobAsync(
+            job.Id,
+            "worker-one",
+            succeeded: false,
+            retryable: true,
+            result: null,
+            errorCode: "import_source_unavailable",
+            errorDetail: "temporary",
+            Cancellation));
+        var next = await store.LeaseJobsAsync("import.nix", "worker-two", 10, 60, Cancellation);
+        Assert.DoesNotContain(next, leased => leased.Id == job.Id);
+    }
 }

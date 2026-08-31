@@ -58,7 +58,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	}
 	download, err := handler.transfer.Download(ctx, payload.SourceURL, handler.limits.MaxBytes)
 	if err != nil {
-		return nil, invalid("import_source_unavailable", err)
+		return nil, transient("import_source_unavailable", err)
 	}
 	parsed, parseErr := importer.Parse(payload.Format, payload.RootID, payload.Title, download.Body, handler.limits)
 	closeErr := download.Body.Close()
@@ -66,7 +66,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		return nil, invalid("import_invalid", parseErr)
 	}
 	if closeErr != nil {
-		return nil, invalid("import_source_unavailable", closeErr)
+		return nil, transient("import_source_unavailable", closeErr)
 	}
 	if err := objecttransfer.VerifyDigest(download.Digest, payload.ExpectedSHA256); err != nil {
 		return nil, invalid("import_checksum_mismatch", err)
@@ -100,7 +100,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	}
 	defer staged.Close()
 	if err := handler.transfer.Upload(ctx, payload.DestinationURL, "application/x-ndjson", staged, summary.Bytes, checksum); err != nil {
-		return nil, invalid("import_publish_failed", err)
+		return nil, transient("import_publish_failed", err)
 	}
 	result.OutputBytes = summary.Bytes
 	result.OutputSHA256 = checksum
@@ -131,6 +131,10 @@ func normalizedFormat(format string) string {
 
 func invalid(code string, err error) error {
 	return &jobrunner.JobError{Code: code, Detail: fmt.Sprintf("%s", err), Cause: err}
+}
+
+func transient(code string, err error) error {
+	return &jobrunner.JobError{Code: code, Detail: fmt.Sprintf("%s", err), Cause: err, Retryable: true}
 }
 
 func nonNil(values []string) []string {

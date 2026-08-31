@@ -59,7 +59,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	}
 	download, err := handler.transfer.Download(ctx, payload.SourceURL, handler.limits.MaxBytes)
 	if err != nil {
-		return nil, failure("export_source_unavailable", err)
+		return nil, transient("export_source_unavailable", err)
 	}
 	records := make([]stream.Record, 0)
 	summary, readErr := stream.ReadRecords(download.Body, handler.limits, func(record stream.Record) error {
@@ -71,7 +71,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		return nil, failure("export_bundle_invalid", readErr)
 	}
 	if closeErr != nil {
-		return nil, failure("export_source_unavailable", closeErr)
+		return nil, transient("export_source_unavailable", closeErr)
 	}
 	if err := objecttransfer.VerifyDigest(download.Digest, payload.ExpectedSHA256); err != nil {
 		return nil, failure("export_checksum_mismatch", err)
@@ -102,7 +102,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	}
 	defer output.Close()
 	if err := handler.transfer.Upload(ctx, payload.DestinationURL, contentType(format), output, stat.Size(), checksum); err != nil {
-		return nil, failure("export_upload_failed", err)
+		return nil, transient("export_upload_failed", err)
 	}
 	return Result{Items: summary.Records, OutputBytes: stat.Size(), OutputSHA256: checksum, Loss: losses(format)}, nil
 }
@@ -135,4 +135,8 @@ func losses(format string) []string {
 
 func failure(code string, err error) error {
 	return &jobrunner.JobError{Code: code, Detail: fmt.Sprintf("%s", err), Cause: err}
+}
+
+func transient(code string, err error) error {
+	return &jobrunner.JobError{Code: code, Detail: fmt.Sprintf("%s", err), Cause: err, Retryable: true}
 }
