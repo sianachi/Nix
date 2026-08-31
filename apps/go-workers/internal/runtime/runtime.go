@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sianachi/Nix/apps/go-workers/internal/broker"
+	"github.com/sianachi/Nix/apps/go-workers/internal/brokerjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
 	"github.com/sianachi/Nix/apps/go-workers/internal/exportjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
@@ -18,7 +20,6 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/importjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
-	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
@@ -33,8 +34,20 @@ func Run(service role.Service) {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	roles, err := selectedRoles(service, settings.WorkerRoles)
+	if err != nil {
+		logger.Error("invalid worker roles", "error", err)
+		os.Exit(1)
+	}
+	if os.Getenv("NIX_WORKER_ADDRESS") == "" {
+		settings.Address = ":8301"
+	}
+	if err := validateSettings(roles, settings); err != nil {
+		logger.Error("invalid service configuration", "roles", settings.WorkerRoles, "error", err)
+		os.Exit(1)
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
-		response, healthErr := http.Get("http://127.0.0.1" + settings.Address + "/healthz")
+		response, healthErr := http.Get(healthURL(settings.Address))
 		if healthErr != nil || response.StatusCode != http.StatusOK {
 			if response != nil {
 				_ = response.Body.Close()
@@ -47,8 +60,8 @@ func Run(service role.Service) {
 
 	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
 	var ready atomic.Bool
-	ready.Store(settings.InternalAPIURL == "")
-	server := httpserver.NewForRole(service, httpserver.Dependencies{
+	ready.Store(false)
+	server := httpserver.NewForRole(role.All, httpserver.Dependencies{
 		Logger:         logger,
 		InternalSecret: settings.InternalSecret,
 		MaxInputSize:   settings.MaxInputBytes,
@@ -71,49 +84,58 @@ func Run(service role.Service) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if settings.InternalAPIURL != "" {
-		apiProbe := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
-		var searchProbe *opensearch.Client
-		if service == role.Index && settings.OpenSearchURL != "" {
-			searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
-		}
-		go probeReadiness(ctx, apiProbe, searchProbe, &ready, settings.PollInterval, logger)
+	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+	brokerClient, err := broker.New(settings.RabbitMQURL, settings.MaxMessageBytes, logger)
+	if err != nil {
+		logger.Error("broker configuration failed", "error", err)
+		os.Exit(1)
 	}
-	if service == role.Index && settings.InternalAPIURL != "" {
-		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+	defer func() {
+		if closeErr := brokerClient.Close(); closeErr != nil {
+			logger.Warn("broker close failed", "error", closeErr)
+		}
+	}()
+	var searchProbe *opensearch.Client
+	if roles.Has(role.Index) && settings.OpenSearchURL != "" {
+		searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
+	}
+	go probeReadiness(ctx, apiClient, brokerClient, searchProbe, &ready, settings.PollInterval, logger)
+	if roles.Has(role.Index) {
 		var searchClient *opensearch.Client
 		if settings.OpenSearchURL != "" {
 			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
 		}
-		go indexer.Run(ctx, client, searchIndex, searchClient, logger, settings.PollInterval)
+		// Workspace events move to RabbitMQ in the indexing milestone. Until then this preserves the
+		// existing derived index while import and export commands cut over first.
+		go indexer.Run(ctx, apiClient, searchIndex, searchClient, logger, settings.PollInterval)
 	}
-	if service == role.Import && settings.InternalAPIURL != "" {
-		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+	if roles.Has(role.Import) {
 		handler := importjob.New(
 			objecttransfer.New(settings.RequestTimeout),
 			importer.Limits{MaxBytes: settings.MaxInputBytes, MaxItems: settings.MaxRecords, MaxEntry: int64(settings.MaxLineBytes)},
 			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
-		runner, runnerErr := jobrunner.New(client, handler, importjob.Kinds, logger, settings.PollInterval, settings.MaxConcurrency)
+		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ImportQueue, importjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("import job runner configuration failed", "error", runnerErr)
 			os.Exit(1)
 		}
 		go runner.Run(ctx)
 	}
-	if service == role.Export && settings.InternalAPIURL != "" {
-		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+	if roles.Has(role.Export) {
 		handler := exportjob.New(objecttransfer.New(settings.RequestTimeout), stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
-		runner, runnerErr := jobrunner.New(client, handler, exportjob.Kinds, logger, settings.PollInterval, settings.MaxConcurrency)
+		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ExportQueue, exportjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("export job runner configuration failed", "error", runnerErr)
 			os.Exit(1)
 		}
 		go runner.Run(ctx)
 	}
+	serverFailures := make(chan error, 1)
 	go func() {
-		logger.Info("go worker listening", "address", settings.Address, "role", service)
+		logger.Info("go worker listening", "address", settings.Address, "roles", settings.WorkerRoles)
 		if serveErr := httpServer.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			logger.Error("server stopped unexpectedly", "error", serveErr)
+			serverFailures <- serveErr
 			stop()
 		}
 	}()
@@ -125,14 +147,54 @@ func Run(service role.Service) {
 		logger.Error("server shutdown failed", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("go worker stopped", "role", service)
+	select {
+	case <-serverFailures:
+		// A listener failure is fatal even though the coordinated shutdown itself succeeded.
+		// Returning zero here made IDEs report an early clean exit and hid port collisions.
+		os.Exit(1)
+	default:
+	}
+	logger.Info("go worker stopped", "roles", settings.WorkerRoles)
 }
 
-func probeReadiness(ctx context.Context, api *workerapi.Client, search *opensearch.Client, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
+func selectedRoles(service role.Service, configured string) (role.Set, error) {
+	if service == role.All {
+		return role.Parse(configured)
+	}
+	return role.Set{service: true}, nil
+}
+
+func validateSettings(roles role.Set, settings config.Settings) error {
+	if len(roles) == 0 {
+		return errors.New("at least one worker role is required")
+	}
+	if settings.InternalAPIURL == "" {
+		return errors.New("NIX_WORKER_API_URL is required")
+	}
+	if settings.InternalSecret == "" {
+		return errors.New("NIX_WORKER_INTERNAL_SECRET is required")
+	}
+	if settings.RabbitMQURL == "" {
+		return errors.New("NIX_RABBITMQ_URL is required")
+	}
+	return nil
+}
+
+func healthURL(address string) string {
+	if len(address) > 0 && address[0] == ':' {
+		return "http://127.0.0.1" + address + "/healthz"
+	}
+	return "http://" + address + "/healthz"
+}
+
+func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.Client, search *opensearch.Client, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
 	probe := func() {
 		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
 		defer cancel()
 		err := api.Ping(probeContext)
+		if err == nil {
+			err = rabbit.Ping(probeContext)
+		}
 		if err == nil && search != nil {
 			err = search.Ping(probeContext)
 		}

@@ -26,10 +26,12 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(WorkerOutboxEventResponse))]
 [JsonSerializable(typeof(IReadOnlyList<WorkerOutboxEventResponse>))]
 [JsonSerializable(typeof(DispatchLeaseRequest))]
+[JsonSerializable(typeof(DispatchExecutionRequest))]
 [JsonSerializable(typeof(DispatchJobCompletion))]
 [JsonSerializable(typeof(DispatchOutboxCompletion))]
 [JsonSerializable(typeof(DispatchedWorkerJob))]
 [JsonSerializable(typeof(IReadOnlyList<DispatchedWorkerJob>))]
+[JsonSerializable(typeof(WorkerExecutionState))]
 [JsonSerializable(typeof(DispatchedOutboxEvent))]
 [JsonSerializable(typeof(IReadOnlyList<DispatchedOutboxEvent>))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;

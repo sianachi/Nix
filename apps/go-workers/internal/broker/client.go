@@ -1,0 +1,232 @@
+package broker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+type DeliveryAction int
+
+const (
+	Acknowledge DeliveryAction = iota
+	Requeue
+	Reject
+)
+
+type Handler func(context.Context, Envelope) DeliveryAction
+
+type Client struct {
+	url             string
+	maxMessageBytes int
+	logger          *slog.Logger
+	connectionMu    sync.Mutex
+	connection      *amqp.Connection
+	publishMu       sync.Mutex
+	publisher       *amqp.Channel
+	confirmations   <-chan amqp.Confirmation
+	returns         <-chan amqp.Return
+}
+
+func New(url string, maxMessageBytes int, logger *slog.Logger) (*Client, error) {
+	if url == "" || maxMessageBytes <= 0 || maxMessageBytes > 64*1024 || logger == nil {
+		return nil, errors.New("broker configuration is invalid")
+	}
+	return &Client{url: url, maxMessageBytes: maxMessageBytes, logger: logger}, nil
+}
+
+func (client *Client) Close() error {
+	client.publishMu.Lock()
+	defer client.publishMu.Unlock()
+	client.connectionMu.Lock()
+	defer client.connectionMu.Unlock()
+	if client.publisher != nil {
+		_ = client.publisher.Close()
+		client.publisher = nil
+	}
+	if client.connection != nil {
+		err := client.connection.Close()
+		client.connection = nil
+		return err
+	}
+	return nil
+}
+
+func (client *Client) Ping(ctx context.Context) error {
+	channel, err := client.channel(ctx)
+	if err != nil {
+		return err
+	}
+	return channel.Close()
+}
+
+func (client *Client) Consume(ctx context.Context, queue, consumerName string, prefetch int, handler Handler) error {
+	if queue == "" || consumerName == "" || prefetch <= 0 || handler == nil {
+		return errors.New("consumer configuration is invalid")
+	}
+	channel, err := client.channel(ctx)
+	if err != nil {
+		return err
+	}
+	defer channel.Close()
+	if err := channel.Qos(prefetch, 0, false); err != nil {
+		return fmt.Errorf("set broker prefetch: %w", err)
+	}
+	deliveries, err := channel.ConsumeWithContext(ctx, queue, consumerName, false, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("consume %s: %w", queue, err)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case delivery, ok := <-deliveries:
+			if !ok {
+				return errors.New("broker delivery channel closed")
+			}
+			envelope, parseErr := ParseEnvelope(delivery.Body, client.maxMessageBytes)
+			if parseErr != nil {
+				client.logger.Warn("broker message rejected", "queue", queue, "message_id", delivery.MessageId, "error", parseErr)
+				if err := delivery.Reject(false); err != nil {
+					return fmt.Errorf("reject invalid broker message: %w", err)
+				}
+				continue
+			}
+			switch handler(ctx, envelope) {
+			case Acknowledge:
+				err = delivery.Ack(false)
+			case Requeue:
+				err = delivery.Nack(false, true)
+			case Reject:
+				err = delivery.Reject(false)
+			default:
+				err = delivery.Nack(false, true)
+			}
+			if err != nil {
+				return fmt.Errorf("settle broker delivery: %w", err)
+			}
+		}
+	}
+}
+
+func (client *Client) PublishResult(ctx context.Context, result WorkerResult) error {
+	client.publishMu.Lock()
+	defer client.publishMu.Unlock()
+	body, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if len(body) > client.maxMessageBytes {
+		return errors.New("worker result exceeds the broker message limit")
+	}
+	channel, err := client.publisherChannel(ctx)
+	if err != nil {
+		return err
+	}
+	if err := channel.PublishWithContext(ctx, ResultsExchange, ResultRoutingKey, true, false, amqp.Publishing{
+		ContentType:     "application/json",
+		ContentEncoding: "utf-8",
+		DeliveryMode:    amqp.Persistent,
+		MessageId:       result.MessageID,
+		CorrelationId:   result.JobID,
+		Type:            result.MessageType,
+		Timestamp:       result.OccurredAt,
+		AppId:           "nix-worker",
+		Body:            body,
+	}); err != nil {
+		client.resetPublisher()
+		return fmt.Errorf("publish worker result: %w", err)
+	}
+	select {
+	case returned := <-client.returns:
+		client.resetPublisher()
+		return fmt.Errorf("worker result was unroutable: %s", returned.ReplyText)
+	case confirmation := <-client.confirmations:
+		if !confirmation.Ack {
+			client.resetPublisher()
+			return errors.New("worker result was not confirmed")
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (client *Client) channel(ctx context.Context) (*amqp.Channel, error) {
+	connection, err := client.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	channel, err := connection.Channel()
+	if err != nil {
+		client.dropConnection(connection)
+		return nil, fmt.Errorf("open broker channel: %w", err)
+	}
+	return channel, nil
+}
+
+func (client *Client) publisherChannel(ctx context.Context) (*amqp.Channel, error) {
+	if client.publisher != nil && !client.publisher.IsClosed() {
+		return client.publisher, nil
+	}
+	channel, err := client.channel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := channel.Confirm(false); err != nil {
+		_ = channel.Close()
+		return nil, fmt.Errorf("enable publisher confirms: %w", err)
+	}
+	client.publisher = channel
+	client.confirmations = channel.NotifyPublish(make(chan amqp.Confirmation, 1))
+	client.returns = channel.NotifyReturn(make(chan amqp.Return, 1))
+	return channel, nil
+}
+
+func (client *Client) resetPublisher() {
+	if client.publisher != nil {
+		_ = client.publisher.Close()
+	}
+	client.publisher = nil
+	client.confirmations = nil
+	client.returns = nil
+}
+
+func (client *Client) open(ctx context.Context) (*amqp.Connection, error) {
+	client.connectionMu.Lock()
+	defer client.connectionMu.Unlock()
+	if client.connection != nil && !client.connection.IsClosed() {
+		return client.connection, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	connection, err := amqp.DialConfig(client.url, amqp.Config{
+		Heartbeat: 30 * time.Second,
+		Locale:    "en_US",
+		Dial:      amqp.DefaultDial(10 * time.Second),
+		Properties: amqp.Table{
+			"connection_name": "nix-worker",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("connect to RabbitMQ: %w", err)
+	}
+	client.connection = connection
+	return connection, nil
+}
+
+func (client *Client) dropConnection(connection *amqp.Connection) {
+	client.connectionMu.Lock()
+	defer client.connectionMu.Unlock()
+	if client.connection == connection {
+		_ = client.connection.Close()
+		client.connection = nil
+	}
+}

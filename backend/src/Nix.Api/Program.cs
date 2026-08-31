@@ -27,6 +27,7 @@ using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
 using Nix.Persistence;
+using Nix.Persistence.RabbitMq;
 using Nix.Serialization;
 
 const string nixConnectionStringName = "Nix";
@@ -274,6 +275,7 @@ var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
     builder.Services.AddNixPersistence(nixConnectionString!);
+    builder.Services.AddNixRabbitMq(builder.Configuration);
 
     // Scoped, because it resolves issuers through the request's own connection. The signing-key
     // cache inside it is static and shared, which is the part that must not be per request.
