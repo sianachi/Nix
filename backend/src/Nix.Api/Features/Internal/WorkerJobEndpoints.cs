@@ -48,18 +48,31 @@ internal static class WorkerJobEndpoints
         var now = DateTimeOffset.UtcNow;
         var job = new WorkerJob
         {
-            Id = WorkerJobId.Create(), TenantId = context.TenantId, WorkspaceId = request.WorkspaceId is null ? null : Nix.Domain.Tenancy.WorkspaceId.From(request.WorkspaceId.Value),
-            ActorId = context.PrincipalId, Kind = request.Kind, IdempotencyKey = request.IdempotencyKey, Payload = request.Payload,
-            Status = "queued", CreatedAt = now, UpdatedAt = now,
+            Id = WorkerJobId.Create(),
+            TenantId = context.TenantId,
+            WorkspaceId = request.WorkspaceId is null
+                ? null
+                : Nix.Domain.Tenancy.WorkspaceId.From(request.WorkspaceId.Value),
+            ActorId = context.PrincipalId,
+            Kind = request.Kind,
+            IdempotencyKey = request.IdempotencyKey,
+            Payload = request.Payload,
+            Status = "queued",
+            CreatedAt = now,
+            UpdatedAt = now,
         };
         database.WorkerJobs.Add(job);
         if (request.Outbox is not null)
         {
             database.WorkerOutboxEvents.Add(new WorkerOutboxEvent
             {
-                Id = WorkerOutboxEventId.Create(), TenantId = context.TenantId, WorkspaceId = job.WorkspaceId,
-                Kind = request.Outbox.Kind, AggregateVersion = request.Outbox.AggregateVersion,
-                Payload = request.Outbox.Payload, AvailableAt = now,
+                Id = WorkerOutboxEventId.Create(),
+                TenantId = context.TenantId,
+                WorkspaceId = job.WorkspaceId,
+                Kind = request.Outbox.Kind,
+                AggregateVersion = request.Outbox.AggregateVersion,
+                Payload = request.Outbox.Payload,
+                AvailableAt = now,
             });
         }
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

@@ -19,9 +19,10 @@ type Handler interface {
 }
 
 type JobError struct {
-	Code   string
-	Detail string
-	Cause  error
+	Code      string
+	Detail    string
+	Cause     error
+	Retryable bool
 }
 
 func (err *JobError) Error() string {
@@ -124,19 +125,21 @@ func (runner *Runner) finish(ctx context.Context, job workerapi.Job, result any,
 	completionContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if jobErr == nil {
-		if err := runner.client.CompleteJob(completionContext, job.ID, true, result, nil, nil); err != nil {
+		if err := runner.client.FinishJob(completionContext, job.ID, true, false, result, nil, nil); err != nil {
 			runner.logger.Error("worker job completion failed", "job_id", job.ID, "error", err)
 		}
 		return
 	}
 	code, detail := "worker_failed", "The worker could not complete the job."
 	var typed *JobError
+	retryable := false
 	if errors.As(jobErr, &typed) {
 		code, detail = typed.Code, typed.Error()
+		retryable = typed.Retryable
 	} else if errors.Is(jobErr, ErrCancelled) || errors.Is(jobErr, context.Canceled) {
 		code, detail = "job_cancelled", "The job was cancelled."
 	}
-	if err := runner.client.CompleteJob(completionContext, job.ID, false, nil, code, detail); err != nil {
+	if err := runner.client.FinishJob(completionContext, job.ID, false, retryable, nil, code, detail); err != nil {
 		runner.logger.Error("worker job failure could not be recorded", "job_id", job.ID, "error", err)
 		return
 	}
