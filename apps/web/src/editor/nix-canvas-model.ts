@@ -1,6 +1,6 @@
 import type { CanvasElement } from './canvas-binding';
 
-export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' | 'freehand';
+export type NixCanvasElementType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' | 'freehand' | 'card';
 export type CanvasFill = 'accent' | 'surface' | 'none';
 export type CanvasStroke = 'foreground' | 'accent' | 'muted';
 
@@ -17,6 +17,7 @@ export interface NixCanvasElement extends CanvasElement {
   readonly opacity?: number;
   readonly cornerRadius?: number;
   readonly points?: readonly CanvasPoint[];
+  readonly itemId?: string;
 }
 
 export interface CanvasPoint {
@@ -32,7 +33,7 @@ export function createElement(
   point: CanvasPoint,
   index: string,
 ): NixCanvasElement {
-  const dimensions = type === 'text' ? { width: 160, height: 40 } : { width: 180, height: 110 };
+  const dimensions = type === 'text' ? { width: 160, height: 40 } : type === 'card' ? { width: 240, height: 120 } : { width: 180, height: 110 };
   return {
     id: crypto.randomUUID(),
     type,
@@ -44,6 +45,7 @@ export function createElement(
     height: dimensions.height,
     index,
     ...(type === 'text' ? { text: 'Text' } : {}),
+    ...(type === 'card' ? { itemId: '' } : {}),
     fill: type === 'text' || type === 'line' || type === 'arrow' || type === 'freehand' ? 'none' : 'accent',
     stroke: 'foreground',
     opacity: 1,
@@ -53,7 +55,7 @@ export function createElement(
 
 export function updateElement(
   element: NixCanvasElement,
-  changes: Partial<Pick<NixCanvasElement, 'x' | 'y' | 'width' | 'height' | 'text' | 'isDeleted' | 'fill' | 'stroke' | 'opacity' | 'cornerRadius'>>,
+  changes: Partial<Pick<NixCanvasElement, 'x' | 'y' | 'width' | 'height' | 'text' | 'isDeleted' | 'fill' | 'stroke' | 'opacity' | 'cornerRadius' | 'itemId'>>,
 ): NixCanvasElement {
   return {
     ...element,
