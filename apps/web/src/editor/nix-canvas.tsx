@@ -26,7 +26,7 @@ import {
   createElement,
   boundedPoints,
   clampViewport,
-  intersectsViewport,
+  renderableElements,
   type CanvasPoint,
   type NixCanvasElement,
   type NixCanvasElementType,
@@ -85,7 +85,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
 
   const visible = elements.filter((element) => !element.isDeleted);
   const viewport = clampViewport({ x: viewportOrigin.x, y: viewportOrigin.y, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom });
-  const rendered = visible.filter((element) => intersectsViewport(element, viewport)).slice(0, CANVAS_ELEMENT_CEILING);
+  const rendered = renderableElements(elements, viewport);
   const selectedId = selectedIds[0] ?? null;
   const selected = visible.find((element) => element.id === selectedId) ?? null;
   const itemIds = visible
