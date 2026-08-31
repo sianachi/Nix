@@ -6,6 +6,7 @@ import {
   MousePointer2,
   Pencil,
   Download,
+  ImageDown,
   Redo2,
   Square,
   Type,
@@ -274,8 +275,43 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
     download('nix-canvas.svg', serializeCanvasSvg(elements), 'image/svg+xml');
   }
 
+  async function exportPng(): Promise<void> {
+    const svgBlob = new Blob([serializeCanvasSvg(elements)], { type: 'image/svg+xml' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    try {
+      const image = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.onload = () => { resolve(); };
+        image.onerror = () => { reject(new Error('Canvas SVG could not be rendered')); };
+      });
+      image.src = svgUrl;
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = CANVAS_WIDTH * 2;
+      canvas.height = CANVAS_HEIGHT * 2;
+      const context = canvas.getContext('2d');
+      if (context === null) throw new Error('Canvas export is unavailable');
+      context.scale(2, 2);
+      context.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const png = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob === null) reject(new Error('Canvas PNG could not be created'));
+          else resolve(blob);
+        }, 'image/png');
+      });
+      downloadBlob('nix-canvas.png', png);
+    } catch {
+      // Export failures leave the durable document untouched.
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  }
+
   function download(filename: string, content: string, type: string): void {
-    const blob = new Blob([content], { type });
+    downloadBlob(filename, new Blob([content], { type }));
+  }
+
+  function downloadBlob(filename: string, blob: Blob): void {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -410,6 +446,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
         <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Export canvas" onClick={exportScene}><Icon icon={Download} size="sm" /></Button>
         <Button variant="icon" aria-label="Export canvas as SVG" onClick={exportSvg}><Icon icon={Download} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas as PNG" onClick={() => { void exportPng(); }}><Icon icon={ImageDown} size="sm" /></Button>
         <Button variant="icon" aria-label="Import canvas" onClick={() => { importRef.current?.click(); }}><Icon icon={Upload} size="sm" /></Button>
         <input ref={importRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import canvas file" onChange={importScene} />
         <span className="ml-auto flex items-center gap-1">
