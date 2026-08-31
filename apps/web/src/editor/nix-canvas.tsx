@@ -458,7 +458,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
       <div className="min-h-0 flex-1 overflow-auto bg-surface p-6">
         <svg
           ref={svgRef}
-          className="mx-auto block max-w-full origin-top-left bg-background shadow-sm"
+          className="mx-auto block max-w-full origin-top-left cursor-grab bg-background shadow-sm"
           style={{ width: `${String(CANVAS_WIDTH)}px`, height: `${String(CANVAS_HEIGHT)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
           viewBox={`${String(viewport.x)} ${String(viewport.y)} ${String(viewport.width)} ${String(viewport.height)}`}
           role="application"
