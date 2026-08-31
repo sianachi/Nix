@@ -13,6 +13,7 @@ import (
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/exporter"
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
@@ -61,11 +62,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if err != nil {
 		return nil, transient("export_source_unavailable", err)
 	}
-	records := make([]stream.Record, 0)
-	summary, readErr := stream.ReadRecords(download.Body, handler.limits, func(record stream.Record) error {
-		records = append(records, record)
-		return nil
-	})
+	manifest, bundles, readErr := nixarchive.ReadBundleStream(download.Body, handler.limits)
 	closeErr := download.Body.Close()
 	if readErr != nil {
 		return nil, failure("export_bundle_invalid", readErr)
@@ -83,7 +80,12 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	path := file.Name()
 	defer func() { _ = os.Remove(path) }()
 	digest := sha256.New()
-	writeErr := exporter.Write(format, records, io.MultiWriter(file, digest), handler.limits)
+	var writeErr error
+	if format == "nix" {
+		writeErr = nixarchive.Write(io.MultiWriter(file, digest), manifest, bundles, handler.limits.MaxBytes)
+	} else {
+		writeErr = exporter.Write(format, recordsOf(bundles), io.MultiWriter(file, digest), handler.limits)
+	}
 	closeErr = file.Close()
 	if writeErr != nil {
 		return nil, failure("export_write_failed", writeErr)
@@ -104,7 +106,22 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if err := handler.transfer.Upload(ctx, payload.DestinationURL, contentType(format), output, stat.Size(), checksum); err != nil {
 		return nil, transient("export_upload_failed", err)
 	}
-	return Result{Items: summary.Records, OutputBytes: stat.Size(), OutputSHA256: checksum, Loss: losses(format)}, nil
+	return Result{Items: len(bundles), OutputBytes: stat.Size(), OutputSHA256: checksum, Loss: losses(format)}, nil
+}
+
+func recordsOf(bundles []nixarchive.Bundle) []stream.Record {
+	records := make([]stream.Record, 0, len(bundles))
+	for _, bundle := range bundles {
+		records = append(records, stream.Record{ID: bundle.ID, ParentID: pointerValue(bundle.ParentID), Title: bundle.Title, Body: string(bundle.Body), Properties: bundle.Properties})
+	}
+	return records
+}
+
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func contentType(format string) string {
