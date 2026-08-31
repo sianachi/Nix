@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
+	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
-func Run(ctx context.Context, client *workerapi.Client, target *index.Index, logger *slog.Logger, interval time.Duration) {
+func Run(ctx context.Context, client *workerapi.Client, target *index.Index, searchClient *opensearch.Client, logger *slog.Logger, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -33,6 +34,12 @@ func Run(ctx context.Context, client *workerapi.Client, target *index.Index, log
 				if err := target.Put(record); err != nil {
 					_ = client.FailOutbox(ctx, event.ID, err.Error())
 					continue
+				}
+				if searchClient != nil {
+					if err := searchClient.Upsert(ctx, record); err != nil {
+						_ = client.FailOutbox(ctx, event.ID, err.Error())
+						continue
+					}
 				}
 				if err := client.AcknowledgeOutbox(ctx, event.ID); err != nil {
 					logger.Error("indexer acknowledgement failed", "event_id", event.ID, "error", err)
