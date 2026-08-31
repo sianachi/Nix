@@ -413,8 +413,15 @@ app.UseWhen(
         branch.UseMiddleware<InternalBoundaryMiddleware>();
         if (persistenceConfigured)
         {
-            branch.UseMiddleware<NixUnitOfWorkMiddleware>();
-            branch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+            branch.UseWhen(
+                static context => !context.Request.Path.StartsWithSegments(
+                    "/internal/worker-dispatch",
+                    StringComparison.OrdinalIgnoreCase),
+                static tenantBranch =>
+                {
+                    tenantBranch.UseMiddleware<NixUnitOfWorkMiddleware>();
+                    tenantBranch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+                });
         }
     });
 if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBoundaryMiddleware.SecretConfigurationKey]))
