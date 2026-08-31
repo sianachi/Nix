@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sianachi/Nix/apps/go-workers/internal/exporter"
+	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
@@ -34,8 +37,12 @@ func New(deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
+	mux.Handle("POST /v1/import/document", server.requireInternal(http.HandlerFunc(server.importDocument)))
 	mux.Handle("POST /v1/export/ndjson", server.requireInternal(http.HandlerFunc(server.exportNDJSON)))
+	mux.Handle("POST /v1/export/document", server.requireInternal(http.HandlerFunc(server.exportDocument)))
 	mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
+	mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
+	mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
 	mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
 	timeout := deps.RequestTimeout
 	if timeout <= 0 {
@@ -83,6 +90,22 @@ func (s *Server) importNDJSON(response http.ResponseWriter, request *http.Reques
 	writeJSON(response, http.StatusAccepted, map[string]any{"status": "validated", "summary": summary})
 }
 
+func (s *Server) importDocument(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	format, id, title := query.Get("format"), query.Get("id"), query.Get("title")
+	if format == "" || id == "" || title == "" {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "import_invalid", "detail": "format, id, and title are required."})
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
+	result, err := importer.Parse(format, id, title, request.Body, importer.Limits{MaxBytes: s.deps.MaxInputSize, MaxItems: s.deps.MaxRecords, MaxEntry: int64(s.deps.MaxLineBytes)})
+	if err != nil {
+		writeStreamError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusAccepted, result)
+}
+
 func (s *Server) exportNDJSON(response http.ResponseWriter, request *http.Request) {
 	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
 	response.Header().Set("Content-Type", "application/x-ndjson")
@@ -96,6 +119,37 @@ func (s *Server) exportNDJSON(response http.ResponseWriter, request *http.Reques
 		}
 		return
 	}
+}
+
+func (s *Server) exportDocument(response http.ResponseWriter, request *http.Request) {
+	format := request.URL.Query().Get("format")
+	if format == "" {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "export_invalid", "detail": "format is required."})
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
+	records := make([]stream.Record, 0)
+	if _, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
+		records = append(records, record)
+		return nil
+	}); err != nil {
+		writeStreamError(response, err)
+		return
+	}
+	var output bytes.Buffer
+	if err := exporter.Write(format, records, &output, s.limits()); err != nil {
+		writeStreamError(response, err)
+		return
+	}
+	contentType := "application/octet-stream"
+	if format == "markdown" || format == "md" {
+		contentType = "text/markdown; charset=utf-8"
+	} else if format == "ndjson" || format == "jsonl" {
+		contentType = "application/x-ndjson"
+	}
+	response.Header().Set("Content-Type", contentType)
+	response.WriteHeader(http.StatusOK)
+	_, _ = response.Write(output.Bytes())
 }
 
 func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request) {
@@ -112,6 +166,31 @@ func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request
 		return
 	}
 	writeJSON(response, http.StatusAccepted, map[string]any{"status": "indexed", "summary": summary, "indexed": s.index.Len()})
+}
+
+func (s *Server) rebuildIndex(response http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
+	records := make([]stream.Record, 0)
+	if _, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
+		records = append(records, record)
+		return nil
+	}); err != nil {
+		writeStreamError(response, err)
+		return
+	}
+	if err := s.index.Replace(records); err != nil {
+		if errors.Is(err, index.ErrCapacityExceeded) {
+			writeJSON(response, http.StatusInsufficientStorage, map[string]string{"code": "index_capacity_exceeded", "detail": err.Error()})
+			return
+		}
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": err.Error()})
+		return
+	}
+	writeJSON(response, http.StatusAccepted, map[string]any{"status": "rebuilt", "indexed": s.index.Len()})
+}
+
+func (s *Server) snapshot(response http.ResponseWriter, _ *http.Request) {
+	writeJSON(response, http.StatusOK, s.index.Snapshot())
 }
 
 func (s *Server) search(response http.ResponseWriter, request *http.Request) {

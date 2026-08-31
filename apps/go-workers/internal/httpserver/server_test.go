@@ -55,6 +55,29 @@ func TestImportRefusesAnOversizedRecord(t *testing.T) {
 	}
 }
 
+func TestDocumentImportParsesMarkdownWithHonestResponse(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, MaxTokens: 100})
+	request := httptest.NewRequest(http.MethodPost, "/v1/import/document?format=markdown&id=one&title=Note", strings.NewReader("# Heading"))
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"# Heading"`) {
+		t.Fatalf("document import response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestDocumentExportWritesMarkdown(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, MaxTokens: 100})
+	request := httptest.NewRequest(http.MethodPost, "/v1/export/document?format=markdown", strings.NewReader(`{"id":"one","title":"Note","body":"Body"}
+`))
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "# Note\n\nBody\n\n" {
+		t.Fatalf("document export response = %d %q", response.Code, response.Body.String())
+	}
+}
+
 func TestExportReturnsNdjsonRecords(t *testing.T) {
 	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256})
 	request := httptest.NewRequest(http.MethodPost, "/v1/export/ndjson", strings.NewReader(`{"id":"one","title":"One"}
@@ -86,5 +109,25 @@ func TestIndexAndSearchRoutesReturnMatches(t *testing.T) {
 	server.ServeHTTP(searchResponse, searchRequest)
 	if searchResponse.Code != http.StatusOK || !strings.Contains(searchResponse.Body.String(), `"one"`) {
 		t.Fatalf("search response = %d %q", searchResponse.Code, searchResponse.Body.String())
+	}
+}
+
+func TestRebuildAndSnapshotRoutesReplaceTheIndex(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, MaxTokens: 100})
+	request := httptest.NewRequest(http.MethodPost, "/v1/index/rebuild", strings.NewReader(`{"id":"new","title":"New"}
+`))
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("rebuild response = %d %q", response.Code, response.Body.String())
+	}
+
+	snapshotRequest := httptest.NewRequest(http.MethodGet, "/v1/index/snapshot", nil)
+	snapshotRequest.Header.Set("X-Nix-Internal-Secret", "secret")
+	snapshotResponse := httptest.NewRecorder()
+	server.ServeHTTP(snapshotResponse, snapshotRequest)
+	if snapshotResponse.Code != http.StatusOK || !strings.Contains(snapshotResponse.Body.String(), `"new"`) {
+		t.Fatalf("snapshot response = %d %q", snapshotResponse.Code, snapshotResponse.Body.String())
 	}
 }

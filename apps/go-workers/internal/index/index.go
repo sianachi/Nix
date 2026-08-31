@@ -19,6 +19,11 @@ type Result struct {
 	Score int    `json:"score"`
 }
 
+type Snapshot struct {
+	Version int             `json:"version"`
+	Records []stream.Record `json:"records"`
+}
+
 type Index struct {
 	mu         sync.RWMutex
 	byToken    map[string]map[string]struct{}
@@ -68,6 +73,59 @@ func (index *Index) Remove(id string) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 	index.removeLocked(id)
+}
+
+func (index *Index) Replace(records []stream.Record) error {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	if len(records) > index.maxRecords {
+		return ErrCapacityExceeded
+	}
+	byToken := make(map[string]map[string]struct{})
+	stored := make(map[string]stream.Record, len(records))
+	for _, record := range records {
+		if record.ID == "" || record.Title == "" {
+			return errors.New("every indexed record must contain id and title")
+		}
+		if _, exists := stored[record.ID]; exists {
+			return errors.New("indexed records must contain unique ids")
+		}
+		stored[record.ID] = record
+		seen := make(map[string]struct{})
+		for position, token := range tokenize(record) {
+			if position >= index.maxTokens {
+				break
+			}
+			if _, exists := seen[token]; exists {
+				continue
+			}
+			seen[token] = struct{}{}
+			items := byToken[token]
+			if items == nil {
+				items = make(map[string]struct{})
+				byToken[token] = items
+			}
+			items[record.ID] = struct{}{}
+		}
+	}
+	index.records = stored
+	index.byToken = byToken
+	return nil
+}
+
+func (index *Index) Snapshot() Snapshot {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	ids := make([]string, 0, len(index.records))
+	for id := range index.records {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	records := make([]stream.Record, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, index.records[id])
+	}
+	return Snapshot{Version: 1, Records: records}
 }
 
 func (index *Index) removeLocked(id string) {
