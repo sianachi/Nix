@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
+import { useNavigate, useParams } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { useSessionStore } from '../auth/session-store';
@@ -26,6 +27,8 @@ export interface CanvasEditorProps {
 export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
+  const navigate = useNavigate();
+  const { workspaceId } = useParams<{ workspaceId: string }>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [elements, setElements] = useState<CanvasElement[]>([]);
 
@@ -87,6 +90,11 @@ export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps
           onChange={(nextElements) => {
             setElements([...nextElements]);
             bindingRef.current?.applyLocal(nextElements);
+          }}
+          onOpenItem={(targetItemId) => {
+            if (workspaceId !== undefined) {
+              void navigate(`/w/${workspaceId}?item=${encodeURIComponent(targetItemId)}`);
+            }
           }}
         />
       </div>
