@@ -81,4 +81,10 @@ describe('reading the configuration', () => {
     expect(config.maxConcurrentTemplateParses).toBeGreaterThan(0);
     expect(config.maxOutputBytes).toBeGreaterThan(0);
   });
+
+  it('requires object storage before either Go worker path can be enabled', () => {
+    expect(() => readConfig({ ...MINIMAL, NIX_MEDIA_GO_IMPORT_ENABLED: 'true' })).toThrow(
+      /NIX_MEDIA_CORE_BASE_URL is required/,
+    );
+  });
 });

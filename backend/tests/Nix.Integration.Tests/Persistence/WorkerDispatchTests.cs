@@ -68,8 +68,8 @@ public sealed class WorkerDispatchTests(NixPostgresFixture fixture) : IAsyncLife
         var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
         var first = Assert.Single(await store.LeaseOutboxAsync("item.changed", "indexer", 1, 60, Cancellation));
 
-        Assert.False(await store.FinishOutboxAsync(first.Id, "other", succeeded: true, error: null, Cancellation));
-        Assert.True(await store.FinishOutboxAsync(first.Id, "indexer", succeeded: false, error: "temporary", Cancellation));
+        Assert.False(await store.FinishOutboxAsync(first.Id, "other", succeeded: true, failureDetail: null, Cancellation));
+        Assert.True(await store.FinishOutboxAsync(first.Id, "indexer", succeeded: false, failureDetail: "temporary", Cancellation));
     }
 
     [Fact]

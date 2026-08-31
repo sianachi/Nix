@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -148,6 +149,10 @@ public static class NixPersistenceServiceCollectionExtensions
 
         services.AddScoped<NixSqlExecutor>();
         services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
+        services.AddSingleton<IWorkerDispatchStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerDispatchStore>());
+        services.AddScoped<Nix.Persistence.Workers.WorkerStore>();
+        services.AddScoped<IWorkerJobStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
+        services.AddScoped<IWorkerOutboxStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
 
         // Scoped, like everything else here: a store reads the scope's tenant and shares the
         // context's transaction, so it belongs to one unit of work and one tenant.

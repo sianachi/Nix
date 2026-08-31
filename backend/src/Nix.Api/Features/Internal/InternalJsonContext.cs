@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
+using Nix.Abstractions.Workers;
 using Nix.Features.Internal;
-using Nix.Persistence.Workers;
 
 namespace Nix.Serialization;
 
@@ -15,10 +15,8 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ItemAuthorizationResponse))]
-[JsonSerializable(typeof(CreateWorkerJobRequest))]
 [JsonSerializable(typeof(CreateImportWorkerJobRequest))]
 [JsonSerializable(typeof(CreateExportWorkerJobRequest))]
-[JsonSerializable(typeof(WorkerOutboxRequest))]
 [JsonSerializable(typeof(LeaseWorkerJobsRequest))]
 [JsonSerializable(typeof(CompleteWorkerJobRequest))]
 [JsonSerializable(typeof(WorkerJobResponse))]

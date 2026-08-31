@@ -54,6 +54,10 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
             - name: Nix__InternalSecret
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: Nix__GoWorkers__ExportEnabled
+              value: "true"
+            - name: Nix__GoWorkers__ImportEnabled
+              value: "true"
             - name: Nix__PublicForms__SigningKey
               valueFrom: { secretKeyRef: { name: nix-internal, key: public-forms-signing-key } }
             # Core sits behind Caddy and Traefik. Without this every request appears
