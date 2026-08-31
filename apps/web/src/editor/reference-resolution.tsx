@@ -8,9 +8,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { isCanceledError, references } from '@nix/api-client';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * What a document's references point at, resolved against the server.
@@ -43,23 +43,6 @@ export type ReferenceState =
   /** The lookup failed. Not a refusal, and deliberately not drawn as one. */
   | { readonly status: 'unavailable' };
 
-const ReferenceItemSchema = z.object({
-  id: z.string(),
-  workspaceId: z.string(),
-  type: z.string(),
-  title: z.string().nullable(),
-});
-
-const ReferencesSchema = z.object({
-  references: z.array(
-    z.object({
-      id: z.string(),
-      readable: z.boolean(),
-      item: ReferenceItemSchema.nullable(),
-    }),
-  ),
-});
-
 /** The most identifiers one request may name; the server refuses more. */
 const BATCH_LIMIT = 200;
 
@@ -87,7 +70,7 @@ export function ReferenceResolutionProvider({
 }: {
   readonly children: ReactNode;
 }): ReactNode {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [answers, setAnswers] = useState<ReadonlyMap<string, ReferenceState>>(new Map());
 
   // Held in refs rather than state: they are bookkeeping for the next flush, and a render caused
@@ -164,20 +147,9 @@ export function ReferenceResolutionProvider({
     }
 
     try {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `/api/v1/search/references?ids=${ids.map((id) => encodeURIComponent(id)).join(',')}`,
-        {
-          signal: controller.signal,
-          headers: token === null ? {} : { authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`The reference lookup answered ${String(response.status)}.`);
-      }
-
-      const parsed = ReferencesSchema.parse(await response.json());
+      const parsed = await client.query(references.resolveReferences(ids), {
+        signal: controller.signal,
+      });
       if (!live.current) {
         return;
       }
@@ -200,7 +172,7 @@ export function ReferenceResolutionProvider({
         return next;
       });
     } catch (cause) {
-      if (controller.signal.aborted || !live.current) {
+      if (controller.signal.aborted || !live.current || isCanceledError(cause)) {
         return;
       }
 
@@ -225,7 +197,7 @@ export function ReferenceResolutionProvider({
         return next;
       });
     }
-  }, [getAccessToken, scheduleFlush]);
+  }, [client, scheduleFlush]);
 
   // Assigned in an effect rather than during render: writing a ref while rendering is a side
   // effect React is entitled to discard, and the rule that forbids it is the React Compiler's own.

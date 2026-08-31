@@ -1,38 +1,18 @@
+import { isCanceledError, references, type Backlink } from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * What points at an item.
  *
- * Talks to Core directly with `fetch` rather than through `@nix/api-client`'s cache layer, for the
- * same reason `use-workspace-tree.ts` does: the client's descriptor execution wants a configured
- * `NixClient` and this needs one thing, a bearer token on each request. When the app-wide client is
- * wired, this hook changes with the others.
+ * Uses the configured `NixClient` so the panel shares the application's authentication,
+ * cancellation, error mapping and response parsing path.
  *
  * **Every state the panel renders is represented separately**, because the panel renders them
  * separately. Loading is not empty, and a failed request is not an item nothing points at -
  * collapsing them is how somebody concludes their links are broken when the network hiccupped.
  */
-
-const BacklinksSchema = z.object({
-  backlinks: z.array(
-    z.object({
-      source: z.object({
-        id: z.string(),
-        workspaceId: z.string(),
-        type: z.string(),
-        title: z.string().nullable(),
-      }),
-      occurrences: z.number(),
-    }),
-  ),
-  limit: z.number(),
-  truncated: z.boolean(),
-});
-
-export type Backlink = z.infer<typeof BacklinksSchema>['backlinks'][number];
 
 export type BacklinksStatus = 'loading' | 'ready' | 'error';
 
@@ -62,7 +42,7 @@ interface BacklinksAnswer {
 const NONE: readonly Backlink[] = [];
 
 export function useBacklinks(itemId: string | null): Backlinks {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [answer, setAnswer] = useState<BacklinksAnswer | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -89,17 +69,9 @@ export function useBacklinks(itemId: string | null): Backlinks {
 
     void (async () => {
       try {
-        const token = await getAccessToken();
-        const response = await fetch(`/api/v1/items/${itemId}/backlinks`, {
+        const parsed = await client.query(references.listBacklinks(itemId), {
           signal: controller.signal,
-          headers: token === null ? {} : { authorization: `Bearer ${token}` },
         });
-
-        if (!response.ok) {
-          throw new Error(`Backlinks answered ${String(response.status)}.`);
-        }
-
-        const parsed = BacklinksSchema.parse(await response.json());
         if (!live.current) {
           return;
         }
@@ -111,7 +83,7 @@ export function useBacklinks(itemId: string | null): Backlinks {
           failed: false,
         });
       } catch (cause) {
-        if (controller.signal.aborted || !live.current) {
+        if (controller.signal.aborted || !live.current || isCanceledError(cause)) {
           return;
         }
 
@@ -124,7 +96,7 @@ export function useBacklinks(itemId: string | null): Backlinks {
       live.current = false;
       controller.abort();
     };
-  }, [getAccessToken, itemId, request]);
+  }, [client, itemId, request]);
 
   return {
     status: current === null ? 'loading' : current.failed ? 'error' : 'ready',

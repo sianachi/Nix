@@ -1,10 +1,10 @@
+import { isCanceledError, search, type SearchResults } from '@nix/api-client';
 import { Listbox, useListbox, type ListboxOption } from '@nix/ui';
 import { FileText } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * The reference picker: `[[` and `@`, an item search, and a `reference` node.
@@ -51,18 +51,7 @@ const RESULT_LIMIT = 8;
  */
 const MINIMUM_QUERY = 3;
 
-const SearchSchema = z.object({
-  results: z.array(
-    z.object({
-      id: z.string(),
-      workspaceId: z.string(),
-      type: z.string(),
-      title: z.string().nullable(),
-    }),
-  ),
-});
-
-type SearchHit = z.infer<typeof SearchSchema>['results'][number];
+type SearchHit = SearchResults['results'][number];
 
 /** One completed search, tagged with the query it answers. */
 interface SearchAnswer {
@@ -130,7 +119,7 @@ interface OpenTrigger extends FoundTrigger {
 }
 
 export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNode {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -215,26 +204,16 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const token = await getAccessToken();
-          const response = await fetch(
-            `/api/v1/search?q=${encodeURIComponent(query)}&limit=${String(RESULT_LIMIT)}`,
-            {
-              signal: controller.signal,
-              headers: token === null ? {} : { authorization: `Bearer ${token}` },
-            },
-          );
-
-          if (!response.ok) {
-            throw new Error(`Search answered ${String(response.status)}.`);
-          }
-
+          const response = await client.query(search.searchItems(query, RESULT_LIMIT), {
+            signal: controller.signal,
+          });
           setAnswer({
             query,
-            hits: SearchSchema.parse(await response.json()).results,
+            hits: response.results,
             failed: false,
           });
         } catch (cause) {
-          if (controller.signal.aborted) {
+          if (controller.signal.aborted || isCanceledError(cause)) {
             return;
           }
 
@@ -251,7 +230,7 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
       controller.abort();
       clearTimeout(timer);
     };
-  }, [getAccessToken, open, query]);
+  }, [client, open, query]);
 
   const options: readonly ListboxOption[] = hits.map((hit) => ({
     id: hit.id,
