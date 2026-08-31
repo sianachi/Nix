@@ -3,6 +3,7 @@ using System;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Nix.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Nix.Persistence.Migrations.Generated
 {
     [DbContext(typeof(NixDbContext))]
-    partial class NixDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260831140850_GoWorkersFoundationV3")]
+    partial class GoWorkersFoundationV3
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1449,16 +1452,13 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("actor_id");
 
                     b.Property<int>("Attempts")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempts");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("CancellationRequested")
-                        .HasColumnType("boolean")
-                        .HasColumnName("cancellation_requested");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("completed_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1492,8 +1492,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("lease_owner");
 
                     b.Property<DateTimeOffset?>("LeaseUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("lease_until");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -1505,8 +1504,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("result");
 
                     b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("started_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1547,16 +1545,13 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("event_id");
 
                     b.Property<long?>("AggregateVersion")
-                        .HasColumnType("bigint")
-                        .HasColumnName("aggregate_version");
+                        .HasColumnType("bigint");
 
                     b.Property<int>("Attempts")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempts");
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("AvailableAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("available_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uuid")
@@ -1579,8 +1574,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("lease_owner");
 
                     b.Property<DateTimeOffset?>("LeaseUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("lease_until");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -1588,8 +1582,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnName("payload");
 
                     b.Property<DateTimeOffset?>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("processed_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")

@@ -9,6 +9,7 @@ using Nix.Domain.Links;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
+using Nix.Domain.Workers;
 using Nix.Persistence.Configurations;
 using Nix.Persistence.Conversion;
 
@@ -165,6 +166,12 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets source-to-target item mappings for template applications.</summary>
     public DbSet<TemplateApplicationItem> TemplateApplicationItems => Set<TemplateApplicationItem>();
 
+    /// <summary>Gets durable worker jobs.</summary>
+    public DbSet<WorkerJob> WorkerJobs => Set<WorkerJob>();
+
+    /// <summary>Gets durable worker outbox events.</summary>
+    public DbSet<WorkerOutboxEvent> WorkerOutboxEvents => Set<WorkerOutboxEvent>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -208,6 +215,8 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<TemplateId>().HaveConversion<NixIdConverter<TemplateId>>();
         configurationBuilder.Properties<TemplateOperationId>().HaveConversion<NixIdConverter<TemplateOperationId>>();
         configurationBuilder.Properties<TemplateApplicationId>().HaveConversion<NixIdConverter<TemplateApplicationId>>();
+        configurationBuilder.Properties<WorkerJobId>().HaveConversion<NixIdConverter<WorkerJobId>>();
+        configurationBuilder.Properties<WorkerOutboxEventId>().HaveConversion<NixIdConverter<WorkerOutboxEventId>>();
     }
 
     /// <inheritdoc />
@@ -256,6 +265,8 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TemplateOperationItemConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateApplicationConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateApplicationItemConfiguration());
+        modelBuilder.ApplyConfiguration(new WorkerJobConfiguration());
+        modelBuilder.ApplyConfiguration(new WorkerOutboxEventConfiguration());
 
         // Template trees and half-hydrated regular items are implementation state, not workspace
         // content. Special template/application paths opt out explicitly; every ordinary EF item

@@ -14,4 +14,14 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ItemAuthorizationResponse))]
+[JsonSerializable(typeof(CreateWorkerJobRequest))]
+[JsonSerializable(typeof(WorkerOutboxRequest))]
+[JsonSerializable(typeof(LeaseWorkerJobsRequest))]
+[JsonSerializable(typeof(CompleteWorkerJobRequest))]
+[JsonSerializable(typeof(WorkerJobResponse))]
+[JsonSerializable(typeof(IReadOnlyList<WorkerJobResponse>))]
+[JsonSerializable(typeof(LeaseWorkerOutboxRequest))]
+[JsonSerializable(typeof(FailWorkerOutboxRequest))]
+[JsonSerializable(typeof(WorkerOutboxEventResponse))]
+[JsonSerializable(typeof(IReadOnlyList<WorkerOutboxEventResponse>))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;
