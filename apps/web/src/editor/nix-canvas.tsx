@@ -38,6 +38,7 @@ import {
 export interface NixCanvasProps {
   readonly elements: readonly NixCanvasElement[];
   readonly onChange: (elements: readonly NixCanvasElement[]) => void;
+  readonly workspaceId?: string | undefined;
   readonly onOpenItem?: ((itemId: string) => void) | undefined;
 }
 
@@ -66,7 +67,7 @@ const TOOL_LABELS: Record<Tool, string> = {
   card: 'Item card',
 };
 
-export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): ReactNode {
+export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCanvasProps): ReactNode {
   const [tool, setTool] = useState<Tool>('select');
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [zoom, setZoom] = useState(1);
@@ -80,6 +81,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   const drawingRef = useRef<CanvasPoint[] | null>(null);
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
   const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
+  const [itemOptions, setItemOptions] = useState<readonly { id: string; title: string }[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
@@ -94,6 +96,27 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
     .map((element) => element.itemId)
     .filter((itemId): itemId is string => itemId !== undefined);
   const itemIdKey = itemIds.join('|');
+
+  useEffect(() => {
+    if (workspaceId === undefined) {
+      setItemOptions([]);
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      const options: { id: string; title: string }[] = [];
+      try {
+        for await (const item of client.paginate(coreItems.listItems(workspaceId, { pageSize: 100 }), { signal: controller.signal })) {
+          options.push({ id: item.id, title: item.title });
+          if (options.length >= 100) break;
+        }
+        if (!controller.signal.aborted) setItemOptions(options);
+      } catch {
+        if (!controller.signal.aborted) setItemOptions([]);
+      }
+    })();
+    return () => { controller.abort(); };
+  }, [client, workspaceId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -421,6 +444,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
         {selected?.type === 'text' || selected?.type === 'card' ? (
           <input
             aria-label={selected.type === 'text' ? 'Text content' : 'Item identifier'}
+            list={selected.type === 'card' ? 'canvas-item-options' : undefined}
             className="h-(--control-md) min-w-32 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
             value={textDraft}
             onChange={(event) => { setTextDraft(event.target.value); }}
@@ -432,6 +456,11 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
               }
             }}
           />
+        ) : null}
+        {selected?.type === 'card' ? (
+          <datalist id="canvas-item-options">
+            {itemOptions.map((option) => <option key={option.id} value={option.id} label={option.title} />)}
+          </datalist>
         ) : null}
         {selected !== null && selected.type !== 'line' && selected.type !== 'arrow' && selected.type !== 'text' ? (
           <span className="ml-2 flex items-center gap-1" aria-label="Fill">
