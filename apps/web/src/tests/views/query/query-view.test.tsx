@@ -55,7 +55,9 @@ function stubRun(body: unknown, status = 200): void {
       return Promise.resolve(
         new Response(JSON.stringify(body), {
           status,
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': status >= 400 ? 'application/problem+json' : 'application/json',
+          },
         }),
       );
     }),
