@@ -262,9 +262,11 @@ describe('resolving what a document points at', () => {
     render(
       <StrictMode>
         <AuthProvider>
-          <ReferenceResolutionProvider>
-            <Probe targetId={READABLE} />
-          </ReferenceResolutionProvider>
+          <ApiClientProvider>
+            <ReferenceResolutionProvider>
+              <Probe targetId={READABLE} />
+            </ReferenceResolutionProvider>
+          </ApiClientProvider>
         </AuthProvider>
       </StrictMode>,
     );
