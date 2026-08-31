@@ -1,6 +1,12 @@
+import {
+  isCanceledError,
+  isNixApiError,
+  items as coreItems,
+  structure as coreStructure,
+} from '@nix/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 import { decorateItem, keepComputed } from './computed';
 import {
   EffectiveSchemaSchema,
@@ -39,31 +45,18 @@ export interface ItemProperties {
 }
 
 export function useItemProperties(itemId: string | null): ItemProperties {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
 
   const [loading, setLoading] = useState(true);
   const [schema, setSchema] = useState<EffectiveSchema | null>(null);
   const [item, setItem] = useState<Item | null>(null);
-
-  const request = useCallback(
-    async (path: string, init?: RequestInit): Promise<Response> => {
-      const token = await getAccessToken();
-      return fetch(path, {
-        ...init,
-        headers: {
-          'content-type': 'application/json',
-          ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        },
-      });
-    },
-    [getAccessToken],
-  );
 
   useEffect(() => {
     // A box rather than a bare flag: the cleanup writes it and the async body reads it, and a
     // narrowed boolean would let the compiler decide the second check is dead when it is the one
     // that matters.
     const live = { current: true };
+    const controller = new AbortController();
 
     // queueMicrotask so the first setState lands after the effect returns rather than during it,
     // which is what stops the initial render cascading. The same reason the tree does it.
@@ -84,28 +77,37 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         // Both at once: the panel cannot draw a field without knowing the property exists, and
         // cannot fill it without the value. Sequencing them would make opening a note two round
         // trips deep for one panel.
-        const [schemaResponse, itemResponse] = await Promise.all([
-          request(`/api/v1/items/${itemId}/schema`),
-          request(`/api/v1/items/${itemId}`),
+        const [nextSchema, nextItem] = await Promise.all([
+          queryOrNull(
+            client.query(coreStructure.effectiveSchema(itemId), { signal: controller.signal }),
+          ),
+          queryOrNull(client.query(coreItems.itemById(itemId), { signal: controller.signal })),
         ]);
 
         // Dropped if the item changed while this was in flight. Without the guard, opening two
         // notes quickly could paint the first one's schema over the second's - a panel offering
         // properties that do not apply to what is on screen.
-        if (!live.current) {
+        if (!live.current || controller.signal.aborted) {
           return;
         }
 
-        setSchema(await readOrNull(schemaResponse, EffectiveSchemaSchema));
-        setItem(await readOrNull(itemResponse, ItemSchema));
+        setSchema(nextSchema === null ? null : EffectiveSchemaSchema.parse(nextSchema));
+        setItem(nextItem === null ? null : ItemSchema.parse(nextItem));
         setLoading(false);
-      })();
+      })().catch((reason: unknown) => {
+        if (!controller.signal.aborted && live.current && !isCanceledError(reason)) {
+          setSchema(null);
+          setItem(null);
+          setLoading(false);
+        }
+      });
     });
 
     return () => {
       live.current = false;
+      controller.abort();
     };
-  }, [itemId, request]);
+  }, [client, itemId]);
 
   const write = useCallback(
     async (changes: Record<string, unknown>): Promise<string | null> => {
@@ -113,30 +115,24 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         return 'There is nothing open to write to.';
       }
 
-      const response = await request(`/api/v1/items/${itemId}/properties`, {
-        method: 'PATCH',
-        body: JSON.stringify({ properties: changes }),
-      });
-
-      if (!response.ok) {
-        const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-        return problem?.detail ?? 'That change could not be saved.';
-      }
-
-      // The response carries the item as it now stands, so the panel reflects what was stored
-      // rather than what was typed - which is the difference that shows when the server normalised
-      // something on the way in.
-      const written = ItemSchema.safeParse(await response.json());
-      if (written.success) {
+      try {
+        // The response carries the item as it now stands, so the panel reflects what was stored
+        // rather than what was typed - which is the difference that shows when the server normalised
+        // something on the way in.
+        const written = ItemSchema.parse(
+          await client.execute(coreStructure.setItemProperties(itemId, changes)),
+        );
         // The write answers with the item and not with a fresh fold of its children, so the
         // rollups come back null; keeping the last folded values is more honest than blanking the
         // panel's rollup rows on every edit.
-        setItem((previous) => keepComputed(previous ?? undefined, written.data));
+        setItem((previous) => keepComputed(previous ?? undefined, written));
+      } catch (reason) {
+        return isNixApiError(reason) ? (reason.detail ?? 'That change could not be saved.') : 'That change could not be saved.';
       }
 
       return null;
     },
-    [itemId, request],
+    [client, itemId],
   );
 
   /**
@@ -156,22 +152,14 @@ export function useItemProperties(itemId: string | null): ItemProperties {
   return { loading, schema, item: computed, write };
 }
 
-/** Reads a response the panel can do without, reporting a contract mismatch rather than hiding it. */
-async function readOrNull<TValue>(
-  response: Response,
-  schema: {
-    safeParse: (input: unknown) => { success: boolean; data?: TValue; error?: { message: string } };
-  },
-): Promise<TValue | null> {
-  if (!response.ok) {
+/** Reads a response the panel can do without, reporting a refusal as an absent value. */
+async function queryOrNull<TValue>(request: Promise<TValue>): Promise<TValue | null> {
+  try {
+    return await request;
+  } catch (reason) {
+    if (isCanceledError(reason)) {
+      throw reason;
+    }
     return null;
   }
-
-  const parsed = schema.safeParse(await response.json());
-  if (!parsed.success) {
-    console.warn('A property response did not match the contract:', parsed.error?.message ?? '');
-    return null;
-  }
-
-  return parsed.data ?? null;
 }

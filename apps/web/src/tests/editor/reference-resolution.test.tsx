@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { StrictMode, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import { AuthProvider } from '../../auth/auth-provider';
 import { ReferenceResolutionProvider, useReference } from '../../editor/reference-resolution';
 
@@ -38,7 +39,9 @@ function Probe({ targetId }: { readonly targetId: string }): ReactNode {
 function renderProbes(children: ReactNode): void {
   render(
     <AuthProvider>
-      <ReferenceResolutionProvider>{children}</ReferenceResolutionProvider>
+      <ApiClientProvider>
+        <ReferenceResolutionProvider>{children}</ReferenceResolutionProvider>
+      </ApiClientProvider>
     </AuthProvider>,
   );
 }

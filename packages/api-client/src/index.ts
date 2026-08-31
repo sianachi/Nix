@@ -92,6 +92,11 @@ export {
   graphNodeSchema,
   graphLinkSchema,
   shelfSchema,
+  currentPrincipalSchema,
+  backlinkSchema,
+  backlinksSchema,
+  referenceResolutionSchema,
+  referencesSchema,
   templateCapabilitiesSchema,
   templateCatalogSchema,
   templateDetailSchema,
@@ -132,6 +137,11 @@ export type {
   KnownItemType,
   ProblemDetails,
   Shelf,
+  CurrentPrincipal,
+  Backlink,
+  Backlinks,
+  ReferenceResolution,
+  References,
   TemplateCatalog,
   TemplateDetail,
   TemplateItem,
@@ -199,12 +209,15 @@ export type {
  * to the client, so nothing above this package ever sees a URL.
  */
 export * as accessTokens from './resources/access-tokens.js';
+export * as principal from './resources/principal.js';
+export * as bookmarks from './resources/bookmarks.js';
 export * as items from './resources/items.js';
 export * as workspaces from './resources/workspaces.js';
 export type { AssignableWorkspaceRole } from './resources/workspaces.js';
 export * as views from './resources/views.js';
 export * as structure from './resources/structure.js';
 export * as search from './resources/search.js';
+export * as references from './resources/references.js';
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemChart from './resources/item-chart.js';
 export * as itemQuery from './resources/item-query.js';

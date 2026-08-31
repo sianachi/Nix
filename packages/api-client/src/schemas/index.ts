@@ -44,6 +44,20 @@ export {
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
 export {
+  currentPrincipalSchema,
+  type CurrentPrincipal,
+} from './current-principal.js';
+export {
+  backlinkSchema,
+  backlinksSchema,
+  referenceResolutionSchema,
+  referencesSchema,
+  type Backlink,
+  type Backlinks,
+  type ReferenceResolution,
+  type References,
+} from './references.js';
+export {
   dailyNoteSchema,
   workspaceInvitationSchema,
   workspaceInviteeSchema,

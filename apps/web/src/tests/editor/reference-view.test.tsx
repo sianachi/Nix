@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import { AuthProvider } from '../../auth/auth-provider';
 import { ReferenceResolutionProvider } from '../../editor/reference-resolution';
 import { ReferenceView } from '../../editor/reference-view';
@@ -42,10 +43,12 @@ function renderReference(attrs: Record<string, unknown>): void {
 
   renderAt(
     <AuthProvider>
-      <ReferenceResolutionProvider>
-        <ReferenceView {...props} />
-        <Address />
-      </ReferenceResolutionProvider>
+      <ApiClientProvider>
+        <ReferenceResolutionProvider>
+          <ReferenceView {...props} />
+          <Address />
+        </ReferenceResolutionProvider>
+      </ApiClientProvider>
     </AuthProvider>,
   );
 }
