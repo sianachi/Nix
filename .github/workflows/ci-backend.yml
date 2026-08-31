@@ -73,6 +73,17 @@ jobs:
         working-directory: apps/go-workers
         run: go test ./...
 
+      - name: Race test
+        working-directory: apps/go-workers
+        run: go test -race ./...
+
+      - name: Build service binaries
+        working-directory: apps/go-workers
+        run: |
+          go build ./cmd/nix-import-worker
+          go build ./cmd/nix-export-worker
+          go build ./cmd/nix-indexer
+
   backend-static:
     name: backend static
     runs-on: ubuntu-latest
