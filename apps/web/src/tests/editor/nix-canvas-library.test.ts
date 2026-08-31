@@ -11,7 +11,7 @@ describe('native canvas library items', () => {
   it('accepts only versioned native documents and ignores legacy entries', () => {
     const item = createNativeLibraryItem('Callout', [createElement('rectangle', { x: 10, y: 20 }, 'z00000')]);
 
-    expect(parseNativeLibraryItems([item, { type: 'excalidraw-library-item' }])).toEqual([item]);
+    expect(parseNativeLibraryItems([item, { type: 'legacy-library-item' }])).toEqual([item]);
     expect(parseNativeLibraryItems([{ ...item, document: '{"version":2}' }])).toEqual([]);
   });
 
