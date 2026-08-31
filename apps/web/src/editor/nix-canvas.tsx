@@ -19,6 +19,8 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type Pointe
 
 import { useApiClient } from '../api/api-client-provider';
 import { parseCanvas, serializeCanvas, serializeCanvasSvg } from './nix-canvas-serialization';
+import { useCanvasLibrary } from './use-canvas-library';
+import { createNativeLibraryItem, instantiateLibraryItem, parseNativeLibraryItems } from './nix-canvas-library';
 
 import {
   CANVAS_HEIGHT,
@@ -75,6 +77,8 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
   const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
   const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
   const [textDraft, setTextDraft] = useState('');
+  const [libraryName, setLibraryName] = useState('');
+  const [librarySelection, setLibrarySelection] = useState('');
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
   const spacePressedRef = useRef(false);
@@ -85,6 +89,8 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
   const svgRef = useRef<SVGSVGElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
+  const library = useCanvasLibrary();
+  const nativeLibraryItems = parseNativeLibraryItems(library.items);
 
   const visible = elements.filter((element) => !element.isDeleted);
   const viewport = clampViewport({ x: viewportOrigin.x, y: viewportOrigin.y, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom });
@@ -290,6 +296,22 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
     commit(elements.map((element) => (element.id === selected.id ? updateElement(element, changes) : element)));
   }
 
+  function saveSelectedToLibrary(): void {
+    if (selected === null || library.status !== 'ready') return;
+    const item = createNativeLibraryItem(libraryName, [selected]);
+    library.save([...library.items, item]);
+    setLibraryName('');
+  }
+
+  function insertLibraryItem(): void {
+    const item = nativeLibraryItems.find((candidate) => candidate.name === librarySelection);
+    if (item === undefined) return;
+    const instances = instantiateLibraryItem(item, { x: viewport.x + viewport.width / 2 - 120, y: viewport.y + viewport.height / 2 - 60 });
+    if (instances.length === 0) return;
+    commit([...elements, ...instances]);
+    setSelectedIds(instances.map((instance) => instance.id));
+  }
+
   function exportScene(): void {
     download('nix-canvas.json', serializeCanvas(elements), 'application/json');
   }
@@ -462,6 +484,37 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
             {itemOptions.map((option) => <option key={option.id} value={option.id} label={option.title} />)}
           </datalist>
         ) : null}
+        <span className="ml-2 flex items-center gap-1" aria-label="Canvas library">
+          {library.status === 'loading' ? <Text as="span" variant="caption" tone="muted">Library loading</Text> : null}
+          {library.status === 'error' ? <Text as="span" variant="caption" tone="muted">Library unavailable</Text> : null}
+          {library.status === 'ready' && selected !== null ? (
+            <>
+              <input
+                aria-label="Library item name"
+                className="h-(--control-md) min-w-28 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+                placeholder="Save as"
+                value={libraryName}
+                onChange={(event) => { setLibraryName(event.target.value); }}
+                onKeyDown={(event) => { if (event.key === 'Enter') saveSelectedToLibrary(); }}
+              />
+              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Save selected to library" onClick={saveSelectedToLibrary}>Save shape</Button>
+            </>
+          ) : null}
+          {library.status === 'ready' && nativeLibraryItems.length > 0 ? (
+            <>
+              <select
+                aria-label="Saved canvas shapes"
+                className="h-(--control-md) max-w-36 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+                value={librarySelection}
+                onChange={(event) => { setLibrarySelection(event.target.value); }}
+              >
+                <option value="">Insert shape</option>
+                {nativeLibraryItems.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
+              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Insert saved canvas shape" disabled={librarySelection === ''} onClick={insertLibraryItem}>Insert</Button>
+            </>
+          ) : null}
+        </span>
         {selected !== null && selected.type !== 'line' && selected.type !== 'arrow' && selected.type !== 'text' ? (
           <span className="ml-2 flex items-center gap-1" aria-label="Fill">
             {(['accent', 'surface', 'none'] as CanvasFill[]).map((fill) => (
