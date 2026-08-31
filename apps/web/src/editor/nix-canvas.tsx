@@ -17,7 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
-import { parseCanvas, serializeCanvas } from './nix-canvas-serialization';
+import { parseCanvas, serializeCanvas, serializeCanvasSvg } from './nix-canvas-serialization';
 
 import {
   CANVAS_HEIGHT,
@@ -217,11 +217,19 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
   }
 
   function exportScene(): void {
-    const blob = new Blob([serializeCanvas(elements)], { type: 'application/json' });
+    download('nix-canvas.json', serializeCanvas(elements), 'application/json');
+  }
+
+  function exportSvg(): void {
+    download('nix-canvas.svg', serializeCanvasSvg(elements), 'image/svg+xml');
+  }
+
+  function download(filename: string, content: string, type: string): void {
+    const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'nix-canvas.json';
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -351,6 +359,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
         <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
         <Button variant="icon" aria-label="Export canvas" onClick={exportScene}><Icon icon={Download} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas as SVG" onClick={exportSvg}><Icon icon={Download} size="sm" /></Button>
         <Button variant="icon" aria-label="Import canvas" onClick={() => { importRef.current?.click(); }}><Icon icon={Upload} size="sm" /></Button>
         <input ref={importRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import canvas file" onChange={importScene} />
         <span className="ml-auto flex items-center gap-1">
