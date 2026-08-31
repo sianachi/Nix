@@ -5,6 +5,7 @@ import {
   boundedPoints,
   clampViewport,
   intersectsViewport,
+  renderableElements,
   createElement,
   updateElement,
   type NixCanvasElement,
@@ -99,5 +100,13 @@ describe('the Nix canvas model', () => {
       width: 600,
       height: 400,
     });
+  });
+
+  it('renders only live elements in the viewport up to the collaboration budget', () => {
+    const scene = Array.from({ length: 10_001 }, (_, index) => element({ id: `shape-${String(index)}`, x: index % 100, y: Math.floor(index / 100) }));
+    const rendered = renderableElements(scene, { x: 0, y: 0, width: 1200, height: 800 });
+
+    expect(rendered).toHaveLength(10_000);
+    expect(rendered.every((shape) => !shape.isDeleted)).toBe(true);
   });
 });
