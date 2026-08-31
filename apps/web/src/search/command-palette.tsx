@@ -1,9 +1,9 @@
 import { Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
+import { search, type SearchHit } from '@nix/api-client';
 import { FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 import { filterCommands, type PaletteCommand } from './commands';
 
 /**
@@ -24,20 +24,6 @@ import { filterCommands, type PaletteCommand } from './commands';
  * rather than separated into panes, so one sequence of arrow keys walks the whole answer and Enter
  * always commits whatever is highlighted.
  */
-
-const SearchSchema = z.object({
-  results: z.array(
-    z.object({
-      id: z.string(),
-      workspaceId: z.string(),
-      type: z.string(),
-      title: z.string().nullable(),
-    }),
-  ),
-  truncated: z.boolean(),
-});
-
-type SearchHit = z.infer<typeof SearchSchema>['results'][number];
 
 /** One completed search, tagged with the query it answers, so a stale one is never shown. */
 interface SearchAnswer {
@@ -74,7 +60,7 @@ export interface CommandPaletteProps {
 
 export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const { open, commands, onSelectItem, onClose } = props;
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,20 +105,9 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const token = await getAccessToken();
-          const response = await fetch(
-            `/api/v1/search?q=${encodeURIComponent(needle)}&limit=${String(RESULT_LIMIT)}`,
-            {
-              signal: controller.signal,
-              headers: token === null ? {} : { authorization: `Bearer ${token}` },
-            },
-          );
-
-          if (!response.ok) {
-            throw new Error(`Search answered ${String(response.status)}.`);
-          }
-
-          const parsed = SearchSchema.parse(await response.json());
+          const parsed = await client.query(search.searchItems(needle, RESULT_LIMIT), {
+            signal: controller.signal,
+          });
           setAnswer({
             query: needle,
             hits: parsed.results,
@@ -157,7 +132,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [getAccessToken, needle, open]);
+  }, [client, needle, open]);
 
   const current = answer !== null && answer.query === needle ? answer : null;
   const hits = current?.hits ?? EMPTY_HITS;
