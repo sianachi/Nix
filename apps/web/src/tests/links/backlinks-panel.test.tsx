@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useLocation } from 'react-router';
 
 import { AuthProvider } from '../../auth/auth-provider';
+import { ApiClientProvider } from '../../api/api-client-provider';
 import { BacklinksPane } from '../../links/backlinks-panel';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
@@ -35,8 +36,10 @@ function Address(): ReactNode {
 function renderPane(itemId: string | null): void {
   renderAt(
     <AuthProvider>
-      <BacklinksPane itemId={itemId} />
-      <Address />
+      <ApiClientProvider>
+        <BacklinksPane itemId={itemId} />
+        <Address />
+      </ApiClientProvider>
     </AuthProvider>,
   );
 }
