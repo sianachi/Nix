@@ -15,10 +15,14 @@ import (
 )
 
 func TestHandlerDownloadsBundleAndUploadsExport(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	bundleStream := `{"format":"nix-archive","formatVersion":1,"schemaVersion":2,"exportedAt":"2026-08-31T00:00:00Z","root":"` + root + `","rootEffectiveSchema":null,"includesDeleted":false,"items":[{"id":"` + root + `","parentId":null,"seq":"1","title":"Title","type":"note"}],"omitted":[],"loss":[]}` + "\n" +
+		`{"id":"` + root + `","parentId":null,"workspaceId":"workspace","type":"note","title":"Title","seq":"1","lifecycleState":"active","createdAt":"2026-08-31T00:00:00Z","updatedAt":"2026-08-31T00:00:00Z","properties":{},"schema":null,"views":null,"viewRows":[],"viewRowsTruncated":false,"body":{"schemaVersion":2,"prosemirror":{"type":"doc"}}}` + "\n" +
+		`{"end":true,"items":1}` + "\n"
 	uploaded := make(chan []byte, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodGet {
-			_, _ = io.WriteString(response, `{"id":"one","title":"Title","body":"Body"}`+"\n")
+			_, _ = io.WriteString(response, bundleStream)
 			return
 		}
 		body, _ := io.ReadAll(request.Body)
