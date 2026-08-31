@@ -7,6 +7,7 @@ import {
   Pencil,
   Download,
   ImageDown,
+  Image as ImageIcon,
   Redo2,
   Square,
   Type,
@@ -18,6 +19,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { isFetchableImageAddress } from '../lib/image-address';
 import { parseCanvas, serializeCanvas, serializeCanvasSvg } from './nix-canvas-serialization';
 import { useCanvasLibrary } from './use-canvas-library';
 import { createNativeLibraryItem, instantiateLibraryItem, parseNativeLibraryItems } from './nix-canvas-library';
@@ -67,6 +69,7 @@ const TOOL_LABELS: Record<Tool, string> = {
   text: 'Text',
   freehand: 'Freehand',
   card: 'Item card',
+  image: 'Image',
 };
 
 export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCanvasProps): ReactNode {
@@ -253,7 +256,7 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
     commit(next);
     const added = next.at(-1);
     setSelectedIds(added === undefined ? [] : [added.id]);
-    setTextDraft(added?.text ?? '');
+    setTextDraft(added?.type === 'image' ? added.imageUrl ?? '' : added?.text ?? '');
     setTool('select');
   }
 
@@ -285,10 +288,17 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
   }
 
   function commitText(): void {
-    if (selected?.type !== 'text' && selected?.type !== 'card') return;
+    if (selected?.type !== 'text' && selected?.type !== 'card' && selected?.type !== 'image') return;
     if (selected.type === 'text' && selected.text === textDraft) return;
     if (selected.type === 'card' && selected.itemId === textDraft) return;
-    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, selected.type === 'text' ? { text: textDraft } : { itemId: textDraft }) : element)));
+    if (selected.type === 'image' && selected.imageUrl === textDraft) return;
+    if (selected.type === 'image' && textDraft !== '' && !isFetchableImageAddress(textDraft)) return;
+    commit(elements.map((element) => {
+      if (element.id !== selected.id) return element;
+      if (selected.type === 'text') return updateElement(element, { text: textDraft });
+      if (selected.type === 'card') return updateElement(element, { itemId: textDraft });
+      return updateElement(element, { imageUrl: textDraft });
+    }));
   }
 
   function updateSelected(changes: Partial<Pick<NixCanvasElement, 'fill' | 'stroke' | 'opacity'>>): void {
@@ -386,7 +396,7 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
       ? [...selectedIds, element.id]
       : [element.id];
     setSelectedIds(nextSelection);
-    setTextDraft(element.text ?? '');
+    setTextDraft(element.type === 'image' ? element.imageUrl ?? '' : element.text ?? '');
     const origins = new Map(
       elements.filter((candidate) => nextSelection.includes(candidate.id)).map((candidate) => [candidate.id, candidate]),
     );
@@ -448,7 +458,7 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-divider px-4 py-2" role="toolbar" aria-label="Canvas tools">
         {(Object.keys(TOOL_LABELS) as Tool[]).map((candidate) => {
-          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : candidate === 'freehand' ? Pencil : Minus;
+          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : candidate === 'freehand' ? Pencil : candidate === 'image' ? ImageIcon : Minus;
           return (
             <Button
               key={candidate}
@@ -463,10 +473,11 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
           );
         })}
         <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
-        {selected?.type === 'text' || selected?.type === 'card' ? (
+        {selected?.type === 'text' || selected?.type === 'card' || selected?.type === 'image' ? (
           <input
-            aria-label={selected.type === 'text' ? 'Text content' : 'Item identifier'}
+            aria-label={selected.type === 'text' ? 'Text content' : selected.type === 'card' ? 'Item identifier' : 'Image address'}
             list={selected.type === 'card' ? 'canvas-item-options' : undefined}
+            placeholder={selected.type === 'image' ? 'https://…' : undefined}
             className="h-(--control-md) min-w-32 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
             value={textDraft}
             onChange={(event) => { setTextDraft(event.target.value); }}
@@ -596,6 +607,10 @@ function CanvasShape({ element, selected, onPointerDown, onOpenItem, itemLabel, 
   if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
   if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
   if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }} onDoubleClick={() => { if (element.itemId !== undefined && element.itemId !== '') onOpenItem?.(element.itemId); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">{itemSummary || 'Nix item'}</text></g>;
+  if (element.type === 'image') {
+    if (element.imageUrl === undefined || element.imageUrl === '') return <rect x={element.x} y={element.y} width={element.width} height={element.height} fill="none" {...common} />;
+    return <image href={element.imageUrl} x={element.x} y={element.y} width={element.width} height={element.height} preserveAspectRatio="xMidYMid meet" role="img" aria-label={element.alt ?? 'Canvas image'} {...common} />;
+  }
   if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
   return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
 }

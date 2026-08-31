@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
 import { CANVAS_ELEMENT_CEILING, type NixCanvasElement } from './nix-canvas-model';
+import { isFetchableImageAddress } from '../lib/image-address';
 
 const pointSchema = z.object({ x: z.number(), y: z.number() });
 const elementSchema = z.looseObject({
     id: z.string().min(1),
-    type: z.enum(['rectangle', 'ellipse', 'line', 'arrow', 'text', 'freehand', 'card']),
+    type: z.enum(['rectangle', 'ellipse', 'line', 'arrow', 'text', 'freehand', 'card', 'image']),
     version: z.number().int().nonnegative(),
     versionNonce: z.number().int().nonnegative(),
     x: z.number(),
@@ -16,6 +17,8 @@ const elementSchema = z.looseObject({
     index: z.string().optional(),
     text: z.string().optional(),
     itemId: z.string().optional(),
+    imageUrl: z.string().refine((value) => value === '' || isFetchableImageAddress(value), 'Image address must use http or https.').optional(),
+    alt: z.string().optional(),
     fill: z.enum(['accent', 'surface', 'none']).optional(),
     stroke: z.enum(['foreground', 'accent', 'muted']).optional(),
     opacity: z.number().min(0).max(1).optional(),
@@ -37,6 +40,10 @@ const legacyElementSchema = z.looseObject({
   index: z.string().optional(),
   isDeleted: z.boolean().optional(),
   points: z.array(z.unknown()).optional(),
+  imageUrl: z.string().optional(),
+  src: z.string().optional(),
+  url: z.string().optional(),
+  alt: z.string().optional(),
 });
 const legacyDocumentSchema = z.looseObject({ elements: z.array(legacyElementSchema).max(CANVAS_ELEMENT_CEILING) });
 
@@ -68,6 +75,12 @@ export function serializeCanvasSvg(elements: readonly NixCanvasElement[]): strin
       if (element.type === 'card') {
         return `<rect x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" rx="${number(element.cornerRadius ?? 0)}" fill="currentColor" opacity="${number(element.opacity ?? 1)}" />`;
       }
+      if (element.type === 'image') {
+        if (element.imageUrl === undefined || element.imageUrl === '') {
+          return `<rect x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" fill="none" stroke="currentColor" />`;
+        }
+        return `<image href="${escapeXml(element.imageUrl)}" x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" preserveAspectRatio="xMidYMid meet" />`;
+      }
       return `<rect x="${number(element.x)}" y="${number(element.y)}" width="${number(element.width)}" height="${number(element.height)}" rx="${number(element.cornerRadius ?? 0)}" fill="currentColor" opacity="${number(element.opacity ?? 1)}" />`;
     })
     .join('');
@@ -88,8 +101,12 @@ export function parseCanvas(serialized: string): NixCanvasDocument {
 
 function legacyElement(element: z.infer<typeof legacyElementSchema>): NixCanvasElement {
   const type = element.type === 'diamond' ? 'rectangle' : element.type === 'freedraw' ? 'freehand' : element.type;
-  if (!['rectangle', 'ellipse', 'line', 'arrow', 'text', 'freehand'].includes(type)) {
+  if (!['rectangle', 'ellipse', 'line', 'arrow', 'text', 'freehand', 'image'].includes(type)) {
     throw new Error(`Unsupported legacy canvas element: ${element.type}`);
+  }
+  const imageUrl = type === 'image' ? element.imageUrl ?? element.src ?? element.url : undefined;
+  if (type === 'image' && (imageUrl === undefined || !isFetchableImageAddress(imageUrl))) {
+    throw new Error('Unsupported legacy image source.');
   }
   const points = element.points?.map((point) => {
     if (Array.isArray(point) && point.length >= 2 && typeof point[0] === 'number' && typeof point[1] === 'number') {
@@ -112,6 +129,8 @@ function legacyElement(element: z.infer<typeof legacyElementSchema>): NixCanvasE
     ...(element.text === undefined ? {} : { text: element.text }),
     ...(element.index === undefined ? {} : { index: element.index }),
     ...(element.isDeleted === undefined ? {} : { isDeleted: element.isDeleted }),
+    ...(imageUrl === undefined ? {} : { imageUrl }),
+    ...(element.alt === undefined ? {} : { alt: element.alt }),
     ...(points === undefined ? {} : { points }),
   };
 }
