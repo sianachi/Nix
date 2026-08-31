@@ -12,7 +12,10 @@ import (
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
+	"github.com/sianachi/Nix/apps/go-workers/internal/index"
+	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
+	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
 func Run(service role.Service) {
@@ -34,6 +37,7 @@ func Run(service role.Service) {
 		return
 	}
 
+	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
 	server := httpserver.NewForRole(service, httpserver.Dependencies{
 		Logger:         logger,
 		InternalSecret: settings.InternalSecret,
@@ -42,6 +46,7 @@ func Run(service role.Service) {
 		MaxLineBytes:   settings.MaxLineBytes,
 		MaxTokens:      settings.MaxTokens,
 		RequestTimeout: settings.RequestTimeout,
+		Index:          searchIndex,
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,
@@ -55,6 +60,10 @@ func Run(service role.Service) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if service == role.Index && settings.InternalAPIURL != "" {
+		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.BearerToken, settings.WorkerID, settings.RequestTimeout)
+		go indexer.Run(ctx, client, searchIndex, logger, settings.PollInterval)
+	}
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "role", service)
 		if serveErr := httpServer.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
