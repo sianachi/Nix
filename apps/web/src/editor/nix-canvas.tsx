@@ -423,7 +423,7 @@ export function NixCanvas({ elements, onChange, onOpenItem }: NixCanvasProps): R
           ref={svgRef}
           className="mx-auto block max-w-full origin-top-left bg-background shadow-sm"
           style={{ width: `${String(CANVAS_WIDTH)}px`, height: `${String(CANVAS_HEIGHT)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
-          viewBox={`0 0 ${String(viewport.width)} ${String(viewport.height)}`}
+          viewBox={`${String(viewport.x)} ${String(viewport.y)} ${String(viewport.width)} ${String(viewport.height)}`}
           role="application"
           aria-label="Canvas workspace"
           onPointerDown={(event) => {
