@@ -1,8 +1,13 @@
-import { shelfSchema, type KeptItem } from '@nix/api-client';
+import {
+  bookmarks,
+  isNixApiError,
+  type KeptItem,
+  type NixClient,
+} from '@nix/api-client';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * What the reader has kept, held once for the whole application.
@@ -63,18 +68,13 @@ function idsOf(items: readonly KeptItem[]): ReadonlySet<string> {
  * Module state rather than store state because it is not data: nothing re-renders when it changes,
  * and putting it in the store would invite a selector to subscribe to a function.
  */
-let readToken: (() => Promise<string | null>) | null = null;
+let apiClient: NixClient | null = null;
 
-async function request(path: string, method: string): Promise<Response> {
-  const token = readToken === null ? null : await readToken();
-
-  return fetch(path, {
-    method,
-    headers: {
-      'content-type': 'application/json',
-      ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-    },
-  });
+function configuredClient(): NixClient {
+  if (apiClient === null) {
+    throw new Error('The bookmarks store was used before the API client was configured.');
+  }
+  return apiClient;
 }
 
 export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
@@ -86,47 +86,37 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
 
   reload: async () => {
     try {
-      const response = await request('/api/v1/me/bookmarks', 'GET');
-      if (!response.ok) {
+      const shelf = await configuredClient().query(bookmarks.listBookmarks());
+      set({
+        status: 'ready',
+        items: shelf.items,
+        keptIds: idsOf(shelf.items),
+        hidden: Number(shelf.hidden),
+        error: null,
+      });
+    } catch (reason) {
+      if (isNixApiError(reason) && reason.status === 404) {
         set({
           status: 'error',
           items: [],
           keptIds: new Set<string>(),
           hidden: 0,
           error:
-            response.status === 404
-              ? 'This version of the application asked for a shelf the server does not offer. The server may be running an older build.'
-              : 'The server refused the request.',
+            'This version of the application asked for a shelf the server does not offer. The server may be running an older build.',
         });
         return;
       }
-
-      const parsed = shelfSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        set({
-          status: 'error',
-          items: [],
-          keptIds: new Set<string>(),
-          hidden: 0,
-          error: 'Your bookmarks came back in a shape this version does not understand.',
-        });
-        return;
-      }
-
-      set({
-        status: 'ready',
-        items: parsed.data.items,
-        keptIds: idsOf(parsed.data.items),
-        hidden: Number(parsed.data.hidden),
-        error: null,
-      });
-    } catch {
       set({
         status: 'error',
         items: [],
         keptIds: new Set<string>(),
         hidden: 0,
-        error: 'The server could not be reached.',
+        error:
+          isNixApiError(reason) && reason.kind === 'response_validation'
+            ? 'Your bookmarks came back in a shape this version does not understand.'
+            : isNixApiError(reason)
+              ? 'The server refused the request.'
+              : 'The server could not be reached.',
       });
     }
   },
@@ -142,11 +132,7 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
     }
 
     try {
-      const response = await request(`/api/v1/items/${itemId}/bookmark`, 'PUT');
-      if (!response.ok) {
-        set({ keptIds: before });
-        return;
-      }
+      await configuredClient().execute(bookmarks.keepBookmark(itemId));
 
       // Re-read rather than synthesising a row. The list carries the item's title and workspace and
       // this build has neither, so an invented row would put a name on the shelf that came from
@@ -166,13 +152,10 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
     set({ keptIds: next, items: beforeItems.filter((item) => item.itemId !== itemId) });
 
     try {
-      const response = await request(`/api/v1/items/${itemId}/bookmark`, 'DELETE');
-      if (!response.ok) {
-        // Put it back. The optimistic removal was a guess and the guess was wrong; leaving it off
-        // would show a shelf missing something the server still holds.
-        set({ keptIds: beforeIds, items: beforeItems });
-      }
+      await configuredClient().execute(bookmarks.removeBookmark(itemId));
     } catch {
+      // Put it back. The optimistic removal was a guess and the guess was wrong; leaving it off
+      // would show a shelf missing something the server still holds.
       set({ keptIds: beforeIds, items: beforeItems });
     }
   },
@@ -196,12 +179,12 @@ export function useIsKept(itemId: string | null): boolean {
  * provider exists.
  */
 export function useBookmarksLoader(): void {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const reload = useBookmarksStore((state) => state.reload);
 
   useEffect(() => {
-    readToken = getAccessToken;
-  }, [getAccessToken]);
+    apiClient = client;
+  }, [client]);
 
   // Deferred a microtask, the same way `use-current-principal.ts` defers its own first read: the
   // load sets store state, and doing that synchronously inside an effect body is the cascading

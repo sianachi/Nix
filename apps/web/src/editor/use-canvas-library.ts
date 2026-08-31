@@ -1,8 +1,10 @@
-import type { CanvasLibraryContract } from '@nix/api-client';
+import {
+  canvasLibrary,
+  isCanceledError,
+} from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * A principal's own set of reusable Excalidraw shapes, from `GET`/`PUT /api/v1/me/canvas-library`.
@@ -19,25 +21,9 @@ import { useAuth } from '../auth/auth-provider';
  * `onLibraryChange` into another save - a feedback loop that hammered Core with identical PUTs
  * and hung the tab.
  *
- * Talks to Core directly with `fetch` rather than through `@nix/api-client`'s cache layer, matching
- * `use-current-principal.ts` and `use-backlinks.ts`: the client's descriptor execution wants a
- * configured `NixClient`, and this needs one thing, a bearer token on each request.
+ * Uses the configured `NixClient` so the personal library shares the application's authentication,
+ * cancellation, error mapping and response parsing path.
  */
-
-const CanvasLibrarySchema = z.object({
-  items: z.array(z.unknown()),
-});
-
-/**
- * The compile-time tie to the generated contract.
- *
- * Same idiom `use-current-principal.ts` uses: if Core renames or retypes a field on
- * `CanvasLibraryResponse`, this line stops compiling here rather than the canvas silently losing
- * saved shapes.
- */
-const _canvasLibraryContract = CanvasLibrarySchema satisfies z.ZodType<CanvasLibraryContract>;
-void _canvasLibraryContract;
-
 export type CanvasLibraryStatus = 'loading' | 'ready' | 'error';
 
 export interface CanvasLibraryState {
@@ -51,7 +37,7 @@ export interface CanvasLibraryState {
 const NONE: readonly unknown[] = [];
 
 export function useCanvasLibrary(): CanvasLibraryState {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
   const [status, setStatus] = useState<CanvasLibraryStatus>('loading');
   const [items, setItems] = useState<readonly unknown[]>(NONE);
 
@@ -74,20 +60,9 @@ export function useCanvasLibrary(): CanvasLibraryState {
 
     void (async () => {
       try {
-        const token = await getAccessToken();
-        const response = await fetch('/api/v1/me/canvas-library', {
+        const parsed = await client.query(canvasLibrary.canvasLibrary(), {
           signal: controller.signal,
-          headers: {
-            accept: 'application/json',
-            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-          },
         });
-
-        if (!response.ok) {
-          throw new Error(`The canvas library could not be loaded (${String(response.status)}).`);
-        }
-
-        const parsed = CanvasLibrarySchema.parse(await response.json());
         if (!live.current) {
           return;
         }
@@ -97,7 +72,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
         setItems(parsed.items);
         setStatus('ready');
       } catch (cause) {
-        if (controller.signal.aborted || !live.current) {
+        if (controller.signal.aborted || !live.current || isCanceledError(cause)) {
           return;
         }
 
@@ -110,7 +85,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
       live.current = false;
       controller.abort();
     };
-  }, [getAccessToken]);
+  }, [client]);
 
   const save = useCallback(
     (nextItems: readonly unknown[]) => {
@@ -129,20 +104,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
 
       void (async () => {
         try {
-          const token = await getAccessToken();
-          const response = await fetch('/api/v1/me/canvas-library', {
-            method: 'PUT',
-            headers: {
-              accept: 'application/json',
-              'content-type': 'application/json',
-              ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-            },
-            body,
-          });
-
-          if (!response.ok) {
-            throw new Error(`The canvas library could not be saved (${String(response.status)}).`);
-          }
+          await client.execute(canvasLibrary.saveCanvasLibrary(nextItems));
         } catch (cause) {
           // Core does not hold what we claimed it does, so forget the claim: the next change
           // retries instead of being deduplicated against a write that never landed.
@@ -151,7 +113,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
         }
       })();
     },
-    [getAccessToken],
+    [client],
   );
 
   return { status, items, save };

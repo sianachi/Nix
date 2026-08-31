@@ -1,4 +1,6 @@
-import type { View, ViewFilterRule } from '../core/container-model';
+import { isNixApiError, views as coreViews, type NixClient } from '@nix/api-client';
+
+import { toViewRequest, type View, type ViewFilterRule } from '../core/container-model';
 
 /**
  * The shipped smart-list starting points - a registry in the `templates.ts` shape (ADR-0014):
@@ -81,34 +83,28 @@ export function findSmartList(id: string): SmartListPreset | null {
 /**
  * Stores a preset's query view on a freshly created item, so opening it lands on the results.
  *
- * Raw `fetch` with a bearer token, the same acknowledged tech debt `use-container.ts` carries and
- * for the same reason; both move together when the client's cache layer is wired. Returns the
- * refusal, or null when stored - an item created but left without its view is still a working
- * item whose view can be added by hand, which is why the caller reports rather than rolls back.
+ * Uses the configured API client so the view write shares the application's authentication, error
+ * mapping and response parsing path. Returns the refusal, or null when stored - an item created but
+ * left without its view is still a working item whose view can be added by hand, which is why the
+ * caller reports rather than rolls back.
  */
 export async function applySmartList(
   itemId: string,
   preset: SmartListPreset,
-  getAccessToken: () => Promise<string | null>,
+  client: NixClient,
 ): Promise<string | null> {
   try {
-    const token = await getAccessToken();
-    const response = await fetch(`/api/v1/items/${itemId}/views`, {
-      method: 'PUT',
-      headers: {
-        'content-type': 'application/json',
-        ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-      },
-      body: JSON.stringify({ views: [smartListView(preset)], default: 'query' }),
-    });
-
-    if (!response.ok) {
-      const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
-      return problem?.detail ?? 'The smart list was created but its filters could not be saved.';
-    }
-
+    await client.execute(
+      coreViews.setContainerViews(itemId, {
+        views: [toViewRequest(smartListView(preset))],
+        default: 'query',
+      }),
+    );
     return null;
-  } catch {
+  } catch (reason) {
+    if (isNixApiError(reason) && reason.detail !== undefined) {
+      return reason.detail;
+    }
     return 'The smart list was created but its filters could not be sent. Configure them under Views.';
   }
 }

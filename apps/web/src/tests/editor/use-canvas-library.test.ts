@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useCanvasLibrary } from '../../editor/use-canvas-library';
+import { ApiClientProvider } from '../../api/api-client-provider';
 
 /**
  * A stable reference, not an inline arrow inside the factory: `useAuth()` is a dependency of the
@@ -13,6 +15,10 @@ const getAccessToken = (): Promise<string> => Promise.resolve('token');
 vi.mock('../../auth/auth-provider', () => ({
   useAuth: () => ({ getAccessToken }),
 }));
+
+function Wrapper({ children }: { readonly children: ReactNode }): ReactNode {
+  return createElement(ApiClientProvider, null, children);
+}
 
 /**
  * The library is per caller, not per canvas: one `GET`/`PUT` pair against
@@ -37,7 +43,7 @@ describe('the caller’s own canvas library', () => {
       new Response(JSON.stringify({ items: [{ id: 'shape-1' }] }), { status: 200 }),
     );
 
-    const { result } = renderHook(() => useCanvasLibrary());
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
 
     expect(result.current.status).toBe('loading');
 
@@ -49,18 +55,17 @@ describe('the caller’s own canvas library', () => {
     // Read off the recorded call rather than matched with a nested `expect.objectContaining`,
     // which returns `any` and makes the surrounding object literal an unsafe assignment. The
     // headers are a plain object here, so asserting them is both stricter and simpler.
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/v1/me/canvas-library');
-    expect(init.headers).toEqual({
-      accept: 'application/json',
-      authorization: 'Bearer token',
-    });
+    const [input, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit | undefined];
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    expect(url).toContain('/api/v1/me/canvas-library');
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    expect(headers.get('authorization')).toBe('Bearer token');
   });
 
   it('reports an empty library as an error rather than silently substituting one when the read fails', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
 
-    const { result } = renderHook(() => useCanvasLibrary());
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe('error');
@@ -76,7 +81,7 @@ describe('the caller’s own canvas library', () => {
         new Response(JSON.stringify({ items: [{ id: 'shape-2' }] }), { status: 200 }),
       );
 
-    const { result } = renderHook(() => useCanvasLibrary());
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -90,10 +95,18 @@ describe('the caller’s own canvas library', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    const [path, init] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(path).toBe('/api/v1/me/canvas-library');
-    expect(init.method).toBe('PUT');
-    expect(JSON.parse(init.body as string)).toEqual({ items: [{ id: 'shape-2' }] });
+    const [input, init] = fetchMock.mock.calls[1] as [RequestInfo | URL, RequestInit | undefined];
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    expect(path).toContain('/api/v1/me/canvas-library');
+    const request = input instanceof Request ? input : undefined;
+    expect((init?.method ?? request?.method)).toBe('PUT');
+    const body =
+      typeof init?.body === 'string'
+        ? init.body
+        : request === undefined
+          ? undefined
+          : await request.clone().text();
+    expect(JSON.parse(body ?? '{}')).toEqual({ items: [{ id: 'shape-2' }] });
   });
 
   it('drops a save identical to what Core already holds instead of echoing it back', async () => {
@@ -101,7 +114,7 @@ describe('the caller’s own canvas library', () => {
       new Response(JSON.stringify({ items: [{ id: 'shape-1' }] }), { status: 200 }),
     );
 
-    const { result } = renderHook(() => useCanvasLibrary());
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe('ready');
@@ -120,7 +133,7 @@ describe('the caller’s own canvas library', () => {
   it('does not save back to Core before the initial read has resolved', async () => {
     fetchMock.mockImplementation(() => new Promise(() => undefined));
 
-    const { result } = renderHook(() => useCanvasLibrary());
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);

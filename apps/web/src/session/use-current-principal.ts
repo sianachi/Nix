@@ -1,8 +1,12 @@
-import type { CurrentPrincipalContract } from '@nix/api-client';
+import {
+  isCanceledError,
+  isNixApiError,
+  principal as principalResource,
+  type CurrentPrincipal,
+} from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
-import { z } from 'zod';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * The signed-in caller, from `GET /api/v1/me`.
@@ -17,27 +21,6 @@ import { useAuth } from '../auth/auth-provider';
  * the flag in a debugger would gain a menu entry and no capability at all.
  */
 
-const CurrentPrincipalSchema = z.object({
-  id: z.string(),
-  tenantId: z.string(),
-  displayName: z.string(),
-  email: z.string().nullable(),
-  isTenantAdministrator: z.boolean(),
-});
-
-export type CurrentPrincipal = z.infer<typeof CurrentPrincipalSchema>;
-
-/**
- * The compile-time tie to the generated contract.
- *
- * Same idiom `packages/api-client/src/schemas/item.ts` and `views/core/container-model.ts` use: if
- * Core renames or retypes a field on `CurrentPrincipalResponse`, this line stops compiling here
- * rather than the profile menu silently rendering blank.
- */
-const _currentPrincipalContract =
-  CurrentPrincipalSchema satisfies z.ZodType<CurrentPrincipalContract>;
-void _currentPrincipalContract;
-
 export type PrincipalStatus = 'loading' | 'ready' | 'error';
 
 export interface CurrentPrincipalState {
@@ -48,7 +31,7 @@ export interface CurrentPrincipalState {
 }
 
 export function useCurrentPrincipal(): CurrentPrincipalState {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
 
   const [status, setStatus] = useState<PrincipalStatus>('loading');
   const [principal, setPrincipal] = useState<CurrentPrincipal | null>(null);
@@ -59,37 +42,19 @@ export function useCurrentPrincipal(): CurrentPrincipalState {
     setError(null);
 
     try {
-      const token = await getAccessToken();
-      const response = await fetch('/api/v1/me', {
-        headers: {
-          accept: 'application/json',
-          ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        },
-      });
-
-      if (!response.ok) {
-        setError(`Your profile could not be loaded (${String(response.status)}).`);
-        setStatus('error');
-        return;
-      }
-
-      const parsed = CurrentPrincipalSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        // A parse failure is telemetry, not a silent fallback: it means the contract moved and
-        // this build did not, which is worth knowing about rather than papering over.
-        console.warn('The profile response did not match the contract:', parsed.error.message);
-        setError('Your profile could not be read.');
-        setStatus('error');
-        return;
-      }
-
-      setPrincipal(parsed.data);
+      const loaded = await client.query(principalResource.currentPrincipal());
+      setPrincipal(loaded);
       setStatus('ready');
-    } catch {
-      setError('Core could not be reached.');
+    } catch (reason) {
+      if (isCanceledError(reason)) return;
+      if (isNixApiError(reason) && reason.status !== undefined) {
+        setError(`Your profile could not be loaded (${String(reason.status)}).`);
+      } else {
+        setError('Core could not be reached.');
+      }
       setStatus('error');
     }
-  }, [getAccessToken]);
+  }, [client]);
 
   useEffect(() => {
     queueMicrotask(() => {

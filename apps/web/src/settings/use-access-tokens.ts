@@ -1,17 +1,19 @@
-import { accessTokens, type CommandEndpoint, type QueryEndpoint } from '@nix/api-client';
+import {
+  accessTokens,
+  isCanceledError,
+  isNixApiError,
+  type CommandEndpoint,
+  type QueryEndpoint,
+} from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useAuth } from '../auth/auth-provider';
+import { useApiClient } from '../api/api-client-provider';
 
 /**
  * The caller's personal access tokens: the list, the mint, and the revocation.
  *
- * Talks to Core directly with `fetch` rather than through `@nix/api-client`'s cache layer, for the
- * same reason `use-workspace-tree.ts` does: the client's descriptor execution wants a configured
- * `NixClient` and this needs one thing, a bearer token on each request. The *descriptors* are the
- * package's own, though - `accessTokens.listAccessTokens()` and friends carry the path, the method
- * and the response schema - so neither a URL nor a shape is restated here, and only the transport
- * changes when the app-wide client is wired.
+ * Uses the configured `NixClient`; the descriptors carry the path, method and response schema, so
+ * this hook owns only the screen's states and refusal wording.
  *
  * The token types are derived from those descriptors rather than imported by name, because the
  * package's root barrel does not yet re-export its access-token schema module the way it does
@@ -71,23 +73,25 @@ export interface AccessTokensState {
  * it - the fix is on the same screen - while both prefer the server's own account of what could
  * not mint a token, which names the faulty input.
  */
-function createRefusal(status: number, problem: { code?: string; detail?: string } | null): string {
-  if (problem?.code === 'tokens.limit_reached') {
+function createRefusal(reason: unknown): string {
+  if (isNixApiError(reason) && reason.code === 'tokens.limit_reached') {
     return (
-      problem.detail ??
+      reason.detail ??
       'You already hold the most live tokens one account may. Revoke one you no longer use, then try again.'
     );
   }
 
-  if (problem?.code === 'tokens.invalid') {
-    return problem.detail ?? 'That name, scope set or expiry could not mint a token.';
+  if (isNixApiError(reason) && reason.code === 'tokens.invalid') {
+    return reason.detail ?? 'That name, scope set or expiry could not mint a token.';
   }
 
-  return problem?.detail ?? `The token could not be created (${String(status)}).`;
+  return isNixApiError(reason) && reason.status !== undefined
+    ? `The token could not be created (${String(reason.status)}).`
+    : 'The token could not be sent. Check the connection and try again.';
 }
 
 export function useAccessTokens(): AccessTokensState {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
 
   const [status, setStatus] = useState<AccessTokensStatus>('loading');
   const [tokens, setTokens] = useState<readonly AccessToken[]>([]);
@@ -98,47 +102,27 @@ export function useAccessTokens(): AccessTokensState {
       setStatus('loading');
       setError(null);
 
-      const descriptor = accessTokens.listAccessTokens();
-
       try {
-        const token = await getAccessToken();
-        const response = await fetch(descriptor.path, {
-          ...(signal === undefined ? {} : { signal }),
-          headers: {
-            accept: 'application/json',
-            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-          },
+        const loaded = await client.query(accessTokens.listAccessTokens(), {
+          signal,
         });
-
-        if (!response.ok) {
-          setError(`Your tokens could not be loaded (${String(response.status)}).`);
-          setStatus('error');
-          return;
-        }
-
-        const parsed = descriptor.schema.safeParse(await response.json());
-        if (!parsed.success) {
-          // A parse failure is telemetry, not a silent fallback: the contract moved and this build
-          // did not, which is worth knowing about rather than papering over.
-          console.warn('The token list did not match the contract:', parsed.error.message);
-          setError('Your tokens could not be read.');
-          setStatus('error');
-          return;
-        }
-
-        setTokens(parsed.data.tokens);
+        setTokens(loaded.tokens);
         setStatus('ready');
       } catch (cause) {
-        if (signal?.aborted === true) {
+        if (signal?.aborted === true || isCanceledError(cause)) {
           return;
         }
 
         console.warn('The token list read failed.', cause);
-        setError('Core could not be reached.');
+        setError(
+          isNixApiError(cause) && cause.status !== undefined
+            ? `Your tokens could not be loaded (${String(cause.status)}).`
+            : 'Core could not be reached.',
+        );
         setStatus('error');
       }
     },
-    [getAccessToken],
+    [client],
   );
 
   useEffect(() => {
@@ -164,71 +148,39 @@ export function useAccessTokens(): AccessTokensState {
       readonly scopes: readonly string[];
       readonly expiresInDays: number;
     }): Promise<CreateTokenOutcome> => {
-      const descriptor = accessTokens.createAccessToken(mint);
-
       try {
-        const token = await getAccessToken();
-        const response = await fetch(descriptor.path, {
-          method: descriptor.method,
-          headers: {
-            'content-type': 'application/json',
-            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-          },
-          body: JSON.stringify(descriptor.body),
-        });
-
-        if (!response.ok) {
-          const problem = (await response.json().catch(() => null)) as {
-            code?: string;
-            detail?: string;
-          } | null;
-          return { created: null, refusal: createRefusal(response.status, problem) };
-        }
-
-        const parsed = descriptor.schema.safeParse(await response.json());
-        if (!parsed.success) {
+        const created = await client.execute(accessTokens.createAccessToken(mint));
+        return { created, refusal: null };
+      } catch (reason) {
+        if (isNixApiError(reason) && reason.kind === 'response_validation') {
           // The token may well have been minted - the response just could not be read - so the
           // refusal says to check the list rather than claiming nothing happened.
-          console.warn('The created token did not match the contract:', parsed.error.message);
+          console.warn('The created token did not match the contract.', reason);
           return {
             created: null,
             refusal:
               'The response could not be read. Check the list below before trying again: the token may have been created without its secret ever being shown, in which case revoke it.',
           };
         }
-
-        return { created: parsed.data, refusal: null };
-      } catch {
-        return {
-          created: null,
-          refusal: 'The token could not be sent. Check the connection and try again.',
-        };
+        return { created: null, refusal: createRefusal(reason) };
       }
     },
-    [getAccessToken],
+    [client],
   );
 
   const revoke = useCallback(
     async (tokenId: string): Promise<{ readonly refusal: string | null }> => {
-      const descriptor = accessTokens.revokeAccessToken(tokenId);
-
       try {
-        const token = await getAccessToken();
-        const response = await fetch(descriptor.path, {
-          method: descriptor.method,
-          headers: token === null ? {} : { authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) {
-          return { refusal: `The token could not be revoked (${String(response.status)}).` };
-        }
-
+        await client.execute(accessTokens.revokeAccessToken(tokenId));
         return { refusal: null };
-      } catch {
+      } catch (reason) {
+        if (isNixApiError(reason) && reason.status !== undefined) {
+          return { refusal: `The token could not be revoked (${String(reason.status)}).` };
+        }
         return { refusal: 'The revocation could not be sent. Check the connection and try again.' };
       }
     },
-    [getAccessToken],
+    [client],
   );
 
   return { status, tokens, error, reload, create, revoke };
