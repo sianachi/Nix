@@ -9,9 +9,8 @@ import {
 } from '../../editor/canvas-binding';
 
 /**
- * The scene bridge's contract: whole-element writes ordered by Excalidraw's own version
- * pair, no echo of the binding's writes back into the editor, and deletes that stand as
- * tombstones the way Excalidraw itself models them.
+ * The scene bridge's contract: whole-element writes ordered by the native canvas version
+ * pair, no echo of the binding's writes back into the editor, and durable delete tombstones.
  */
 
 function element(id: string, overrides?: Partial<CanvasElement>): CanvasElement {
@@ -125,7 +124,7 @@ describe('the canvas binding', () => {
     link(a.doc, b.doc);
     a.binding.applyLocal([element('shape', { version: 2 })]);
 
-    // The delete bumps the version - Excalidraw's own behaviour - so it supersedes the
+    // The delete bumps the version so it supersedes the
     // move that happened against the older version.
     b.binding.applyLocal([element('shape', { version: 4, isDeleted: true })]);
     a.binding.applyLocal([element('shape', { version: 3, x: 42 })]);

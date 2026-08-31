@@ -24,8 +24,8 @@ import { useMediaQuery, useNarrowViewport } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
-// Loaded at the moment somebody opens a canvas, not before: Excalidraw and its styles are
-// the single largest thing the editor can pull in, and a workspace of notes never needs it.
+// Loaded at the moment somebody opens a canvas, not before: the editor is deliberately outside
+// the application shell's first-load path, and a workspace of notes never needs it.
 const CanvasEditor = lazy(async () => {
   const module = await import('../editor/canvas-editor');
   return { default: module.CanvasEditor };

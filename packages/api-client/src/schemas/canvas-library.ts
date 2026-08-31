@@ -1,10 +1,9 @@
 /**
- * A principal's own canvas library: the reusable Excalidraw shapes carried into every canvas.
+ * A principal's own canvas library: reusable native shapes carried into every canvas.
  *
- * `items` is `unknown[]`, not a shape-by-shape schema. Core stores and returns exactly what
- * Excalidraw's own `libraryItems` shape is and never inspects a single field of it - the boundary's
- * job is to prove the response is an array, not to know what a library item contains, which is a
- * fact that belongs to the Excalidraw version this build ships, not to the API contract.
+ * `items` is `unknown[]` so the API can preserve forward-compatible native library entries without
+ * coupling Core to the editor's shape schema. The web editor validates the native versioned
+ * document before it renders or instantiates an entry.
  */
 
 import { z } from 'zod';

@@ -27,8 +27,7 @@ export const canvasLibrary = (): QueryEndpoint<CanvasLibrary> =>
 /**
  * Replaces the caller's library wholesale.
  *
- * `items` is the library's complete new contents, matching what Excalidraw's own
- * `onLibraryChange` hands back - always everything, never a delta.
+ * `items` is the library's complete new contents - always everything, never a delta.
  */
 export const saveCanvasLibrary = (items: readonly unknown[]): CommandEndpoint<CanvasLibrary> =>
   defineCommand<CanvasLibrary>({
