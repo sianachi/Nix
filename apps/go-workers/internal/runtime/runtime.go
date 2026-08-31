@@ -14,6 +14,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
+	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
@@ -62,7 +63,11 @@ func Run(service role.Service) {
 	defer stop()
 	if service == role.Index && settings.InternalAPIURL != "" {
 		client := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.BearerToken, settings.WorkerID, settings.RequestTimeout)
-		go indexer.Run(ctx, client, searchIndex, logger, settings.PollInterval)
+		var searchClient *opensearch.Client
+		if settings.OpenSearchURL != "" {
+			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
+		}
+		go indexer.Run(ctx, client, searchIndex, searchClient, logger, settings.PollInterval)
 	}
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "role", service)
