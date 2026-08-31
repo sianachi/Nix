@@ -42,6 +42,7 @@ func New(deps Dependencies) http.Handler {
 	mux.Handle("POST /v1/export/document", server.requireInternal(http.HandlerFunc(server.exportDocument)))
 	mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
 	mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
+	mux.Handle("POST /v1/index/restore", server.requireInternal(http.HandlerFunc(server.restoreIndex)))
 	mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
 	mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
 	timeout := deps.RequestTimeout
@@ -191,6 +192,24 @@ func (s *Server) rebuildIndex(response http.ResponseWriter, request *http.Reques
 
 func (s *Server) snapshot(response http.ResponseWriter, _ *http.Request) {
 	writeJSON(response, http.StatusOK, s.index.Snapshot())
+}
+
+func (s *Server) restoreIndex(response http.ResponseWriter, request *http.Request) {
+	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
+	var snapshot index.Snapshot
+	if err := json.NewDecoder(request.Body).Decode(&snapshot); err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": "The index snapshot is not valid JSON."})
+		return
+	}
+	if snapshot.Version != 1 {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": "The index snapshot version is unsupported."})
+		return
+	}
+	if err := s.index.Replace(snapshot.Records); err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": err.Error()})
+		return
+	}
+	writeJSON(response, http.StatusAccepted, map[string]any{"status": "restored", "indexed": s.index.Len()})
 }
 
 func (s *Server) search(response http.ResponseWriter, request *http.Request) {
