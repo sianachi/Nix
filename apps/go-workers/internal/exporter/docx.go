@@ -57,22 +57,6 @@ func writeDOCX(output io.Writer, next RecordSource, limits stream.Limits, report
 	if records == 0 {
 		return errors.New("cannot export an empty DOCX")
 	}
-	if report != nil {
-		messages := report()
-		if len(messages) > 0 {
-			if err := writeDOCXParagraph(document, "What did not come across", docxParagraph{style: "Heading1", pageBreakBefore: true}); err != nil {
-				return err
-			}
-			if err := writeDOCXParagraph(document, "The workspace still holds the information listed below.", docxParagraph{}); err != nil {
-				return err
-			}
-			for _, message := range messages {
-				if err := writeDOCXParagraph(document, sanitizeText(message), docxParagraph{numbering: 1}); err != nil {
-					return err
-				}
-			}
-		}
-	}
 	if _, err := io.WriteString(document, `<w:sectPr/></w:body></w:document>`); err != nil {
 		return err
 	}

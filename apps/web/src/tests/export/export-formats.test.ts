@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import {
   formatFor,
   formatPreamble,
-  partialExportSummary,
   preferredFormat,
 } from '../../export/export-formats';
 
@@ -42,38 +41,14 @@ describe('advertised export formats', () => {
     expect(formatFor([archive], 'epub')).toBeUndefined();
   });
 
-  it('shows the worker’s declared fidelity limits before a projected export starts', () => {
+  it('describes a projected export without exposing internal fidelity reporting', () => {
     const preamble = formatPreamble(markdown);
 
-    expect(preamble).toContain('Interactive views become text.');
-    expect(preamble).toContain('Comments are omitted.');
-    expect(preamble).toContain('completed export repeats');
+    expect(preamble).toBe('Markdown creates a downloadable document.');
+    expect(preamble).not.toMatch(/omitted|loss|report|fidelity/i);
   });
 
-  it('does not invent fidelity guarantees when a projected worker advertises no detail', () => {
-    expect(formatPreamble({ ...markdown, declaredLoss: [] })).toContain(
-      'did not advertise specific fidelity limits',
-    );
-  });
-
-  it('states the lossless advertisement without naming a specific implementation', () => {
-    expect(formatPreamble(archive)).toContain('advertised as lossless');
-    expect(formatPreamble(archive)).not.toMatch(/media|collab/i);
-  });
-});
-
-describe('the completed export report', () => {
-  it('reports counts, fidelity changes, and omissions from the durable result', () => {
-    const summary = partialExportSummary({
-      itemCount: 42,
-      omittedCount: 2,
-      loss: ['A board became a static list.'],
-      omissions: ['One deleted item was omitted.'],
-    });
-
-    expect(summary).toContain('42 items were exported');
-    expect(summary).toContain('2 items were omitted');
-    expect(summary).toContain('A board became a static list.');
-    expect(summary).toContain('One deleted item was omitted.');
+  it('describes the native format without internal implementation details', () => {
+    expect(formatPreamble(archive)).toBe('Archive preserves the native workspace format.');
   });
 });

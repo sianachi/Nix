@@ -3,18 +3,15 @@ import { Button, Dialog, Field, Segmented, Select, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
-import { PartialNotice } from '../components/states/status-panels';
 import {
   cancelArchive,
   requestArchive,
   saveArchive,
-  type ArchiveResult,
   type ArchiveScope,
 } from './export-archive';
 import {
   formatFor,
   formatPreamble,
-  partialExportSummary,
   preferredFormat,
   type ExportFormat,
   type FormatDescriptor,
@@ -37,8 +34,7 @@ type Progress =
   | { readonly phase: 'running' }
   | { readonly phase: 'cancelling' }
   | { readonly phase: 'cancelled' }
-  | { readonly phase: 'failed'; readonly error: string }
-  | { readonly phase: 'partial'; readonly result: ArchiveResult };
+  | { readonly phase: 'failed'; readonly error: string };
 
 interface ActiveExport {
   readonly controller: AbortController;
@@ -164,17 +160,8 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
     }
 
     saveArchive(outcome.value);
-    if (
-      outcome.value.omittedCount === 0 &&
-      outcome.value.loss.length === 0 &&
-      outcome.value.omissions.length === 0
-    ) {
-      setProgress({ phase: 'idle' });
-      onClose();
-      return;
-    }
-
-    setProgress({ phase: 'partial', result: outcome.value });
+    setProgress({ phase: 'idle' });
+    onClose();
   }
 
   async function cancelCurrent(closeAfter = false): Promise<void> {
@@ -255,9 +242,7 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
               ? progress.phase === 'cancelling'
                 ? 'Cancelling…'
                 : 'Cancel export'
-              : progress.phase === 'partial'
-                ? 'Done'
-                : 'Close'}
+              : 'Close'}
           </Button>
           <Button
             onClick={() => {
@@ -352,9 +337,6 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
           </div>
         ) : null}
 
-        {progress.phase === 'partial' ? (
-          <PartialNotice pending={partialExportSummary(progress.result)} />
-        ) : null}
       </div>
     </Dialog>
   );

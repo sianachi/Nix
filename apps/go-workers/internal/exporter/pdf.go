@@ -111,28 +111,6 @@ func spoolPDFPages(output io.Writer, next RecordSource, limits stream.Limits, re
 	if records == 0 {
 		return 0, nil
 	}
-	if report != nil {
-		messages := report()
-		if len(messages) > 0 {
-			if err := flush(); err != nil {
-				return 0, err
-			}
-			if err := add("What did not come across"); err != nil {
-				return 0, err
-			}
-			if err := add("The workspace still holds the information listed below."); err != nil {
-				return 0, err
-			}
-			if err := add(""); err != nil {
-				return 0, err
-			}
-			for _, message := range messages {
-				if err := add("- " + sanitizeText(message)); err != nil {
-					return 0, err
-				}
-			}
-		}
-	}
 	if err := flush(); err != nil {
 		return 0, err
 	}
