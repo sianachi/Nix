@@ -7,7 +7,7 @@ import { decompress } from 'wawoff2';
 /**
  * Nunito Sans, for a page.
  *
- * **The same bytes the browser renders, decompressed rather than converted.** CLAUDE.md allows one
+ * **The same bytes the browser renders, decompressed rather than converted.** AGENTS.md allows one
  * typeface and no font CDN; `@fontsource/nunito-sans` is where the web app already gets it, and
  * woff2 is a compressed sfnt - so what happens below is decompression, and the outlines in a PDF
  * are byte-for-byte the outlines on screen. Nothing is re-drawn, re-hinted or subset differently.

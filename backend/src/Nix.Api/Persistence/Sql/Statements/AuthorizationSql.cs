@@ -125,6 +125,16 @@ public static class AuthorizationSql
         WHERE workspace.tenant_id = @tenant_id
         """;
 
+    /// <summary>Whether one exact workspace belongs to the current tenant.</summary>
+    public const string WorkspaceExistsInTenant = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM workspace
+            WHERE workspace.tenant_id = @tenant_id
+              AND workspace.workspace_id = @workspace_id
+        )
+        """;
+
     /// <summary>
     /// Whether the acting principal holds a tenant-wide administrative role, by name or through a
     /// group.

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Authorizer } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
 import type { CoreClient } from '../core/client.ts';
+import type { ImportBodyService } from '../imports/bodies.ts';
+import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
@@ -54,6 +56,8 @@ function server(overrides: {
   authorizer?: Authorizer;
   pool?: Pool;
   core?: CoreClient;
+  importBodies?: ImportBodyService;
+  templateImportBodies?: TemplateImportBodyService;
 }) {
   return createServer({
     pool: overrides.pool ?? refusingPool,
@@ -65,6 +69,10 @@ function server(overrides: {
     }),
     core: overrides.core ?? silentCore,
     internalSecret: INTERNAL_SECRET,
+    ...(overrides.importBodies === undefined ? {} : { importBodies: overrides.importBodies }),
+    ...(overrides.templateImportBodies === undefined
+      ? {}
+      : { templateImportBodies: overrides.templateImportBodies }),
   });
 }
 
@@ -276,11 +284,166 @@ describe('the collaboration service HTTP surface', () => {
   });
 });
 
+describe('staged import bodies', () => {
+  it('is invisible without the service secret', async () => {
+    let called = false;
+    const app = track(
+      server({
+        importBodies: {
+          write: () => {
+            called = true;
+            return Promise.resolve({ written: 1 });
+          },
+        },
+      }),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/internal/imports/${ITEM}/bodies`,
+      headers: {
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: { writes: [] },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(called).toBe(false);
+  });
+
+  it('passes the exact worker execution proof to the staged body service', async () => {
+    const seen: unknown[] = [];
+    const app = track(
+      server({
+        importBodies: {
+          write: (input) => {
+            seen.push(input);
+            return Promise.resolve({ written: 1 });
+          },
+        },
+      }),
+    );
+    const body = {
+      writes: [{ sourceId: 'root', body: { encoding: 'plain_text', text: 'Imported' } }],
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/internal/imports/${ITEM}/bodies`,
+      headers: {
+        'x-nix-internal-secret': INTERNAL_SECRET,
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: body,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ written: 1 });
+    expect(seen).toEqual([
+      {
+        importId: ITEM,
+        jobId: ITEM,
+        executionId: 'worker:execution',
+        body,
+      },
+    ]);
+  });
+});
+
+describe('worker-fenced template import bodies', () => {
+  it('requires the internal secret and both worker execution headers', async () => {
+    let called = false;
+    const app = track(
+      server({
+        templateImportBodies: {
+          write: () => {
+            called = true;
+            return Promise.resolve({ writtenTargetItemIds: [ITEM] });
+          },
+        },
+      }),
+    );
+    const body = { writes: [] };
+
+    const responses = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/internal/worker-executions/template-imports/${ITEM}/bodies`,
+        headers: {
+          'x-nix-worker-job-id': ITEM,
+          'x-nix-worker-execution-id': 'worker:execution',
+        },
+        payload: body,
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/internal/worker-executions/template-imports/${ITEM}/bodies`,
+        headers: {
+          'x-nix-internal-secret': INTERNAL_SECRET,
+          'x-nix-worker-execution-id': 'worker:execution',
+        },
+        payload: body,
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/internal/worker-executions/template-imports/${ITEM}/bodies`,
+        headers: {
+          'x-nix-internal-secret': INTERNAL_SECRET,
+          'x-nix-worker-job-id': ITEM,
+        },
+        payload: body,
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404]);
+    expect(called).toBe(false);
+  });
+
+  it('accepts exact worker proof without requiring a bearer token', async () => {
+    const seen: unknown[] = [];
+    const app = track(
+      server({
+        templateImportBodies: {
+          write: (input) => {
+            seen.push(input);
+            return Promise.resolve({ writtenTargetItemIds: [ITEM] });
+          },
+        },
+      }),
+    );
+    const body = { writes: [{ sourceId: 'root', body: { schemaVersion: 2 } }] };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/internal/worker-executions/template-imports/${ITEM}/bodies`,
+      headers: {
+        'x-nix-internal-secret': INTERNAL_SECRET,
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: body,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ writtenTargetItemIds: [ITEM] });
+    expect(seen).toEqual([
+      {
+        importId: ITEM,
+        jobId: ITEM,
+        executionId: 'worker:execution',
+        body,
+      },
+    ]);
+  });
+});
+
 /**
  * The export routes.
  *
  * The archive route is the one the web client already points at; the bundles route is the internal
- * surface the media service reads to convert a document into a format this process does not know
+ * surface the Go export worker reads to convert a document into a format this process does not know
  * about. Both refuse before touching the database, which is why they belong in this file.
  */
 describe('exporting', () => {
@@ -296,7 +459,7 @@ describe('exporting', () => {
     expect(response.json<{ code: string }>().code).toBe('unauthenticated');
   });
 
-  it('names the media service when asked for a format it does not produce', async () => {
+  it('directs lossy formats to the durable Go export workflow', async () => {
     const response = await track(server({ authorizer: granting })).inject({
       method: 'GET',
       url: `/documents/${ITEM}/export?format=pdf`,
@@ -306,7 +469,7 @@ describe('exporting', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json<{ code: string }>().code).toBe('unsupported_format');
     // A wrong-service call gets told which service to ask, rather than a bare 404.
-    expect(response.json<{ detail: string }>().detail).toContain('media service');
+    expect(response.json<{ detail: string }>().detail).toContain('Go worker jobs');
   });
 
   it('refuses a scope it does not serve', async () => {

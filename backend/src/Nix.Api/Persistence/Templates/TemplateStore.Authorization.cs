@@ -19,6 +19,58 @@ namespace Nix.Persistence.Templates;
 
 public sealed partial class TemplateStore
 {
+    /// <summary>Authorizes every item mapping and identifies required body targets in one worker-owned import stage.</summary>
+    public async ValueTask<Result<TemplateOperationWriteAuthorization>> AuthorizeOperationWritesAsync(
+        TemplateOperationId operationId,
+        CancellationToken cancellationToken)
+    {
+        var operation = await _database.TemplateOperations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken)
+            .ConfigureAwait(false);
+        if (operation is null
+            || operation.ActorId != Context.PrincipalId
+            || operation.Kind != TemplateOperationKind.Import
+            || operation.State != TemplateOperationState.Provisioning
+            || operation.ExpiresAt <= _clock.GetUtcNow()
+            || !await _permissions.CanWriteWorkspaceAsync(operation.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<TemplateOperationWriteAuthorization>(
+                TemplateErrors.NotFound("No such template import stage is visible."));
+        }
+
+        var mappings = await _database.TemplateOperationItems
+            .AsNoTracking()
+            .Where(candidate => candidate.OperationId == operationId)
+            .OrderBy(candidate => candidate.TemplateSourceId)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (mappings.Count > 0)
+        {
+            var targets = mappings.Select(value => value.TargetItemId).ToArray();
+            var provisioning = await _database.Items.IgnoreQueryFilters()
+                .CountAsync(candidate => targets.Contains(candidate.Id)
+                    && candidate.LifecycleState == ItemLifecycleState.Provisioning, cancellationToken)
+                .ConfigureAwait(false);
+            if (provisioning != targets.Length)
+            {
+                return Result.Failure<TemplateOperationWriteAuthorization>(
+                    TemplateErrors.NotFound("No such template import stage is visible."));
+            }
+        }
+
+        return Result.Success(new TemplateOperationWriteAuthorization(
+            operationId,
+            Context.TenantId,
+            Context.PrincipalId,
+            operation.WorkspaceId,
+            mappings.Select(value => new TemplateBodyWrite(
+                value.TemplateSourceId,
+                value.TargetItemId,
+                value.ItemType,
+                value.BodyRequired)).ToArray(),
+            CanWrite: true));
+    }
+
     /// <summary>Authorizes a source or staged target body for one in-progress operation.</summary>
     public async ValueTask<Result<TemplateOperationAuthorization>> AuthorizeOperationItemAsync(
         Guid operationId,

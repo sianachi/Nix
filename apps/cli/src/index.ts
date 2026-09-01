@@ -51,6 +51,7 @@ import {
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
+import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
@@ -104,7 +105,7 @@ export function buildProgram(): Command {
     .requiredOption('--api-url <url>', "Core's base URL, e.g. http://localhost:5014")
     .requiredOption('--token <token>', 'a personal access token, nixpat_...')
     .option('--collab-url <url>', 'the collaboration service URL (defaults from the API URL)')
-    .option('--media-url <url>', 'the media service URL (defaults from the API URL)')
+    .option('--media-url <url>', 'legacy media URL retained in the profile for compatibility')
     .option('--no-default', 'store the profile without making it the default')
     .action(async (options: LoginOptions, command: Command) => {
       const flags = globalFlags(command);
@@ -186,7 +187,12 @@ export function buildProgram(): Command {
     .requiredOption('--role <role>', 'owner, editor, or viewer')
     .description('Invite a collaborator.')
     .action(
-      async (workspaceId: string, principalId: string, options: { role: string }, command: Command) => {
+      async (
+        workspaceId: string,
+        principalId: string,
+        options: { role: string },
+        command: Command,
+      ) => {
         const flags = globalFlags(command);
         await run(() =>
           inviteWorkspaceMember(
@@ -201,37 +207,51 @@ export function buildProgram(): Command {
     );
   ws.command('accept-invite <workspaceId> <invitationId>')
     .description('Accept an invitation addressed to the current principal.')
-    .action(async (workspaceId: string, invitationId: string, _options: unknown, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() =>
-        acceptWorkspaceInvitation(
-          flags.profile,
-          workspaceId,
-          invitationId,
-          outputOptions(flags.json),
-        ),
-      );
-    });
+    .action(
+      async (workspaceId: string, invitationId: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          acceptWorkspaceInvitation(
+            flags.profile,
+            workspaceId,
+            invitationId,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
   ws.command('decline-invite <workspaceId> <invitationId>')
     .description('Decline an invitation and remove provisional access.')
     .option('--yes', 'confirm this destructive operation', false)
-    .action(async (workspaceId: string, invitationId: string, options: ConfirmCliOptions, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() =>
-        declineWorkspaceInvitation(
-          flags.profile,
-          workspaceId,
-          invitationId,
-          options.yes === true,
-          outputOptions(flags.json),
-        ),
-      );
-    });
+    .action(
+      async (
+        workspaceId: string,
+        invitationId: string,
+        options: ConfirmCliOptions,
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          declineWorkspaceInvitation(
+            flags.profile,
+            workspaceId,
+            invitationId,
+            options.yes === true,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
   ws.command('revoke-invite <workspaceId> <invitationId>')
     .description('Revoke a pending invitation.')
     .option('--yes', 'confirm this destructive operation', false)
     .action(
-      async (workspaceId: string, invitationId: string, options: ConfirmCliOptions, command: Command) => {
+      async (
+        workspaceId: string,
+        invitationId: string,
+        options: ConfirmCliOptions,
+        command: Command,
+      ) => {
         const flags = globalFlags(command);
         await run(() =>
           revokeWorkspaceInvitation(
@@ -280,7 +300,12 @@ export function buildProgram(): Command {
     .description('Remove a workspace member.')
     .option('--yes', 'confirm this destructive operation', false)
     .action(
-      async (workspaceId: string, principalId: string, options: ConfirmCliOptions, command: Command) => {
+      async (
+        workspaceId: string,
+        principalId: string,
+        options: ConfirmCliOptions,
+        command: Command,
+      ) => {
         const flags = globalFlags(command);
         await run(() =>
           removeWorkspaceMember(
@@ -299,12 +324,7 @@ export function buildProgram(): Command {
     .action(async (workspaceId: string, options: ConfirmCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
-        leaveWorkspace(
-          flags.profile,
-          workspaceId,
-          options.yes === true,
-          outputOptions(flags.json),
-        ),
+        leaveWorkspace(flags.profile, workspaceId, options.yes === true, outputOptions(flags.json)),
       );
     });
 
@@ -488,8 +508,8 @@ export function buildProgram(): Command {
 
   program
     .command('export <itemId>')
-    .description('Download an export: nix (lossless) from collab, md/pdf/docx from media.')
-    .option('--format <format>', 'nix | md | pdf | docx', 'nix')
+    .description('Create a durable Core export and download its verified result.')
+    .option('--format <format>', 'an active worker format (md aliases markdown)', 'nix')
     .option('--scope <scope>', 'item | subtree', 'item')
     .option('-o, --out <file>', 'write the export here instead of stdout')
     .action(
@@ -513,9 +533,7 @@ export function buildProgram(): Command {
   program
     .command('import <path>')
     .description(
-      'Import a Markdown file or folder tree as items (client-side). Front matter becomes properties; ' +
-        'wiki links, Obsidian embeds, local or unsupported images, and inline image flattening are reported; ' +
-        '.nix/docx/pdf need the server import, not built yet.',
+      'Import Markdown trees, PDF, DOCX, or UTF-8 TXT. Documents become editable notes and retain their originals.',
     )
     .requiredOption('--workspace <id>', 'the workspace to import into')
     .option('--parent <id>', 'the container to import under (default: workspace root)')
@@ -535,6 +553,69 @@ export function buildProgram(): Command {
         ),
       );
     });
+
+  const file = program
+    .command('file')
+    .description('Upload, replace, inspect, and download file items.');
+  file
+    .command('upload <path>')
+    .requiredOption('--workspace <id>', 'the workspace to upload into')
+    .option('--parent <id>', 'the parent item')
+    .action(
+      async (path: string, options: { workspace: string; parent?: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          uploadFile(
+            flags.profile,
+            {
+              path,
+              workspaceId: options.workspace,
+              ...(options.parent === undefined ? {} : { parentId: options.parent }),
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  file
+    .command('replace <itemId> <path>')
+    .requiredOption('--workspace <id>', 'the item workspace')
+    .action(
+      async (itemId: string, path: string, options: { workspace: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          uploadFile(
+            flags.profile,
+            { path, workspaceId: options.workspace, targetItemId: itemId },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  file
+    .command('versions <itemId>')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listFileVersions(flags.profile, itemId, outputOptions(flags.json)));
+    });
+  file
+    .command('download <itemId>')
+    .requiredOption('-o, --out <path>', 'output file')
+    .option('--version <id>', 'historical version id')
+    .action(
+      async (itemId: string, options: { out: string; version?: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          downloadFile(
+            flags.profile,
+            itemId,
+            options.out,
+            options.version,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
 
   const stress = program.command('stress').description('Seed and exercise a workspace at scale.');
 

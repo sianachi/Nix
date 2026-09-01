@@ -38,7 +38,7 @@ describe('exporting the document being read', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Export/ }));
 
     await waitFor(() => {
-      expect(screen.getByRole('group', { name: 'Format' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Format' })).toBeInTheDocument();
     });
   });
 
@@ -50,7 +50,7 @@ describe('exporting the document being read', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Export/ }));
 
     await waitFor(() => {
-      expect(screen.getByRole('group', { name: 'Format' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Format' })).toBeInTheDocument();
     });
     expect(screen.queryByRole('group', { name: 'What to export' })).not.toBeInTheDocument();
   });

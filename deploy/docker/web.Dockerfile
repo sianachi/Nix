@@ -8,7 +8,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/ packages/
 COPY apps/web/ apps/web/
 COPY apps/collab/package.json apps/collab/
-COPY apps/media/package.json apps/media/
 RUN pnpm install --frozen-lockfile
 
 RUN pnpm --filter @nix/web build

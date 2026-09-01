@@ -98,7 +98,7 @@ public sealed class CompositionRootTests
                 "Nix.Features.Templates",
                 StringComparison.Ordinal))
             .ToHashSet();
-        Assert.Equal(25, templateHandlers.Count);
+        Assert.Equal(26, templateHandlers.Count);
 
         var services = new ServiceCollection();
         services.AddNixPersistence(RuntimeConnectionString);

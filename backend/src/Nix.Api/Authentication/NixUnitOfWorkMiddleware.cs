@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
 using Nix.Domain.Provisioning;
 using Nix.Errors;
@@ -103,6 +104,7 @@ public sealed class NixUnitOfWorkMiddleware
         FailedAuthenticationThrottle throttle,
         IPersonalAccessTokens accessTokens,
         IBrowserSessions browserSessions,
+        IWorkerDispatchStore workerDispatch,
         AccessTokenSessionContext scopeContext,
         IUserInfoClient userInfo,
         NixDispatcher dispatcher,
@@ -117,6 +119,7 @@ public sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(throttle);
         ArgumentNullException.ThrowIfNull(accessTokens);
         ArgumentNullException.ThrowIfNull(browserSessions);
+        ArgumentNullException.ThrowIfNull(workerDispatch);
         ArgumentNullException.ThrowIfNull(scopeContext);
         ArgumentNullException.ThrowIfNull(userInfo);
         ArgumentNullException.ThrowIfNull(dispatcher);
@@ -174,6 +177,19 @@ public sealed class NixUnitOfWorkMiddleware
             return;
         }
 
+        if (validated is ValidatedWorkerExecutionToken workerDelegation
+            && !WorkerExportDelegationPolicy.Allows(context.Request, workerDelegation, execution: null))
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status403Forbidden,
+                InsufficientScopeCode,
+                "Worker delegation is read-only",
+                "This worker execution token can only read metadata needed for its export.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         var principal = validated switch
         {
             ValidatedCoreToken core => await directory.FindPrincipalByIdAsync(
@@ -188,6 +204,10 @@ public sealed class NixUnitOfWorkMiddleware
             ValidatedBrowserSessionToken browser => await directory.FindPrincipalByIdAsync(
                 browser.TenantId,
                 browser.PrincipalId,
+                context.RequestAborted).ConfigureAwait(false),
+            ValidatedWorkerExecutionToken worker => await directory.FindPrincipalByIdAsync(
+                worker.TenantId,
+                worker.PrincipalId,
                 context.RequestAborted).ConfigureAwait(false),
             _ => throw new InvalidOperationException("Unknown validated token kind."),
         };
@@ -277,6 +297,36 @@ public sealed class NixUnitOfWorkMiddleware
                 "This account has been suspended or deprovisioned.")
                 .ConfigureAwait(false);
             return;
+        }
+
+        WorkerExecutionAuthorization? authorizedWorkerExecution = null;
+        if (validated is ValidatedWorkerExecutionToken workerToken)
+        {
+            var execution = await workerDispatch.AuthorizeExecutionAsync(
+                workerToken.JobId,
+                workerToken.ExecutionId,
+                context.RequestAborted).ConfigureAwait(false);
+            if (execution is null
+                || execution.TenantId != workerToken.TenantId.Value
+                || execution.ActorId != workerToken.PrincipalId.Value
+                || !execution.Kind.StartsWith("export.", StringComparison.Ordinal)
+                || !WorkerExportDelegationPolicy.Allows(context.Request, workerToken, execution))
+            {
+                await WriteProblemAsync(
+                    context,
+                    StatusCodes.Status401Unauthorized,
+                    TokenRevokedCode,
+                    "Worker delegation ended",
+                    "The worker execution that delegated this request no longer owns its lease.")
+                    .ConfigureAwait(false);
+                return;
+            }
+            authorizedWorkerExecution = execution;
+
+            // Collaboration asks Core whether the delegated actor may write while it establishes
+            // the export. Keep that downstream answer read-only too; otherwise a GET-only token
+            // could still acquire a writable collaboration session from the authorization reply.
+            scopeContext.SetTokenCeiling(mayWrite: false, mayAdminister: false);
         }
 
         var scopedPrincipalId = principal?.Id
@@ -377,9 +427,39 @@ public sealed class NixUnitOfWorkMiddleware
                 }
             }
 
+            if (validated is ValidatedWorkerExecutionToken boundedWorker
+                && (authorizedWorkerExecution is null
+                    || !await WorkerExportDelegationPolicy.AuthorizesTargetAsync(
+                        context.Request,
+                        boundedWorker,
+                        authorizedWorkerExecution,
+                        dbContext,
+                        context.RequestAborted).ConfigureAwait(false)))
+            {
+                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                await WriteProblemAsync(
+                    context,
+                    StatusCodes.Status403Forbidden,
+                    InsufficientScopeCode,
+                    "Worker delegation is outside its export root",
+                    "This worker execution token cannot read metadata outside its signed export boundary.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
             await _next(context).ConfigureAwait(false);
 
             if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+            {
+                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                return;
+            }
+
+            if (validated is ValidatedWorkerExecutionToken endingWorker
+                && await workerDispatch.AuthorizeExecutionAsync(
+                    endingWorker.JobId,
+                    endingWorker.ExecutionId,
+                    context.RequestAborted).ConfigureAwait(false) is null)
             {
                 await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
                 return;

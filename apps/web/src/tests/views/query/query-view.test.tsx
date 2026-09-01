@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderAt, signedIn } from '../../render-with-router';
 import { aContainer } from '../../container-fixture';
 import { aView } from '../../view-fixture';
+import { ApiClientProvider } from '../../../api/api-client-provider';
 import { AuthProvider } from '../../../auth/auth-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
@@ -49,6 +50,17 @@ function stubRun(body: unknown, status = 200): void {
     'fetch',
     vi.fn((input: string | URL) => {
       const url = typeof input === 'string' ? input : input.href;
+      if (url.endsWith('/auth/token')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              accessToken: 'core-session-token',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }
       if (!url.includes('/query?view=')) {
         return Promise.reject(new Error(`Unexpected request: ${url}`));
       }

@@ -4,8 +4,8 @@
  *
  * **The personal access token never leaves this process to anywhere but Core's exchange, and the
  * JWT it buys is what everything downstream sees.** That is the same shape the web application's
- * sessions have and the same one the collaboration and media services already validate, so the CLI
- * is a client of the API rather than a second thing to authorize. The exchange is re-minted when
+ * sessions have and the same one the collaboration service already validates, so the CLI is a
+ * client of the API rather than a second thing to authorize. The exchange is re-minted when
  * the JWT is close to expiring and, as a fallback, whenever a request comes back 401 - the
  * api-client's own single-flight refresh collapses a burst of those into one exchange.
  *
@@ -96,8 +96,8 @@ export function createPatTokenProvider(options: SessionOptions): TokenProvider {
 }
 
 /**
- * The endpoints a run talks to, with the collaboration and media URLs defaulted from Core's when a
- * profile does not name them.
+ * The endpoints retained by a profile. New durable operations use Core; collaboration remains the
+ * direct note-body boundary, and the media URL remains only for profile compatibility.
  */
 export interface SessionEndpoints {
   readonly apiUrl: string;
@@ -105,7 +105,7 @@ export interface SessionEndpoints {
   readonly mediaUrl: string;
 }
 
-/** Resolves the three service URLs for a profile, falling back to conventional dev-stack ports. */
+/** Resolves Core, collaboration, and the legacy media profile value. */
 export function endpointsFor(profile: Profile): SessionEndpoints {
   return {
     apiUrl: profile.apiUrl,
@@ -155,10 +155,15 @@ export interface CurrentPrincipal {
  * @param fetchImpl The fetch to use; the session's default in production.
  * @returns The acting principal.
  */
-export async function whoami(session: Session, fetchImpl: FetchImpl = globalThis.fetch): Promise<CurrentPrincipal> {
+export async function whoami(
+  session: Session,
+  fetchImpl: FetchImpl = globalThis.fetch,
+): Promise<CurrentPrincipal> {
   const token = await session.tokens.getAccessToken();
   if (token === null) {
-    throw new Error('Could not obtain a session for this profile. Check the token with `nixctl auth login`.');
+    throw new Error(
+      'Could not obtain a session for this profile. Check the token with `nixctl auth login`.',
+    );
   }
 
   const response = await fetchImpl(`${session.endpoints.apiUrl}/api/v1/me`, {

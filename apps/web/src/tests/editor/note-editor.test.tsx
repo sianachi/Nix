@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import type * as collabSync from '../../editor/collab-sync';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { NoteEditor } from '../../editor/note-editor';

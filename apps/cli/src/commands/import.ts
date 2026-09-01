@@ -1,11 +1,9 @@
 /**
- * `nixctl import`: bring a Markdown file or a folder tree into a workspace.
+ * `nixctl import`: preview and import a document or Markdown folder into a workspace.
  *
- * This is the Markdown lane of MVP-7's import (7.3/7.9), built client-side from primitives the
- * workspace already trusts - `item create`, the collab body write, the property merge - so it adds
- * no server surface and inherits the same authorization and refusals every other command has. The
- * `.nix`/DOCX/PDF lanes need the server import endpoint that phase still owes and are refused by
- * name here rather than half-handled.
+ * A single `.nix`, PDF, DOCX, or TXT document uses the durable Core/RabbitMQ/Go path and publishes
+ * atomically only after its body and retained files are ready. Markdown folders retain the existing
+ * client-side traversal so their per-file mapping and partial-write report remain compatible.
  *
  * The report is the point. Every file the walk meets ends up in exactly one bucket - created,
  * skipped (with why), failed (with why), or not attempted (because its parent failed or the run
@@ -23,9 +21,8 @@
  * as a whole. There is no resume: removing the partial import (`nixctl item rm <rootItemId>`) and
  * running again is the honest path, and the report says so.
  *
- * The planned tree - paths, titles, front matter, bodies - is held in memory for the run, so the
- * command is sized for trees that fit there comfortably; the streaming shape a 10k-note import
- * needs is goal 7.7's, not this commit's claim.
+ * The Markdown tree - paths, front matter, and bodies - is held in memory for that lane. Worker
+ * document uploads and object downloads are streamed and bounded.
  *
  * The web application carries a twin of this run loop (`apps/web/src/import/import-run.ts`): the
  * transports differ, but the bucket names, the stop policy, and "the root is the first thing
@@ -33,9 +30,10 @@
  * change there.
  */
 
+import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
-import { isNixApiError, items, structure } from '@nix/api-client';
+import { imports, isNixApiError, items, operations, structure } from '@nix/api-client';
 // The subpaths, not the package root: the root re-exports the whole Markdown mapping, and a static
 // import of it here would load ProseMirror into every command - the cold start §2.4 protects.
 import { noteFromMarkdown } from '@nix/markdown/front-matter';
@@ -108,11 +106,31 @@ export async function runImport(
   options: ImportOptions,
   output: OutputOptions,
   deps: SessionDeps = {},
+  execution: {
+    readonly writeResult?: (value: unknown) => void;
+    readonly setExitCode?: boolean;
+  } = {},
 ): Promise<void> {
+  const writeResult = execution.writeResult ?? ((value: unknown) => {
+    printResult(value, output);
+  });
+  const setExitCode = execution.setExitCode ?? true;
   const skipped: SkippedEntry[] = [];
   const failed: FailedEntry[] = [];
 
+  const documentFormat = asDocumentFormat(options.path);
+  if (documentFormat !== null) {
+    await runWorkerDocumentImport(
+      profileName,
+      options,
+      documentFormat,
+      deps,
+      writeResult,
+    );
+    return;
+  }
   const root = await plan(options.path, skipped, failed);
+  const conversionLoss: readonly string[] = [];
   if (root === null) {
     // The one path the caller named is itself unimportable; that is a failure of the whole
     // command, not a report with an empty middle.
@@ -132,18 +150,16 @@ export async function runImport(
 
   if (options.dryRun) {
     const valid = validate(root, markdownToDocument, failed);
-    printResult(
-      {
-        dryRun: true,
-        workspaceId: options.workspaceId,
-        parentId: options.parentId ?? null,
-        planned: valid === null ? [] : flattenPlan(valid, []),
-        skipped,
-        failed,
-      },
-      output,
-    );
-    if (failed.length > 0) {
+    writeResult({
+      dryRun: true,
+      workspaceId: options.workspaceId,
+      parentId: options.parentId ?? null,
+      planned: valid === null ? [] : flattenPlan(valid, []),
+      skipped,
+      failed,
+      conversionLoss,
+    });
+    if (setExitCode && failed.length > 0) {
       process.exitCode = ExitCode.General;
     }
     return;
@@ -292,30 +308,166 @@ export async function runImport(
     }
   }
 
-  printResult(
-    {
-      workspaceId: options.workspaceId,
-      parentId: options.parentId ?? null,
-      rootItemId,
-      created,
-      skipped,
-      failed,
-      notAttempted,
-      createdCount: created.length,
-      stoppedEarly,
-      ...(stopReason !== undefined ? { reason: stopReason } : {}),
-    },
-    output,
-  );
+  writeResult({
+    workspaceId: options.workspaceId,
+    parentId: options.parentId ?? null,
+    rootItemId,
+    created,
+    skipped,
+    failed,
+    notAttempted,
+    createdCount: created.length,
+    stoppedEarly,
+    conversionLoss,
+    ...(stopReason !== undefined ? { reason: stopReason } : {}),
+  });
 
   // The report goes out first, then the exit code says whether the import was whole: anything
   // failed, unattempted, or created-with-a-loss means a script must not read this as a success.
   const lossy = created.some(
     (entry) => entry.bodyError !== undefined || entry.propertiesError !== undefined,
   );
-  if (failed.length > 0 || notAttempted.length > 0 || stoppedEarly || lossy) {
+  if (setExitCode && (failed.length > 0 || notAttempted.length > 0 || stoppedEarly || lossy)) {
     process.exitCode = ExitCode.General;
   }
+}
+
+function asDocumentFormat(path: string): 'nix' | 'docx' | 'pdf' | 'txt' | null {
+  const extension = extname(path).toLowerCase();
+  if (extension === '.nix') return 'nix';
+  if (extension === '.docx') return 'docx';
+  if (extension === '.pdf') return 'pdf';
+  if (extension === '.txt') return 'txt';
+  return null;
+}
+
+async function runWorkerDocumentImport(
+  profileName: string | undefined,
+  options: ImportOptions,
+  format: 'nix' | 'docx' | 'pdf' | 'txt',
+  deps: SessionDeps,
+  writeResult: (value: unknown) => void,
+): Promise<void> {
+  const info = await stat(options.path);
+  if (!info.isFile() || info.size > 100 * 1024 * 1024)
+    throw new Error('The document must be a file no larger than 100 MiB.');
+  const session = await resolveSession(profileName, deps);
+  const title = basename(options.path, extname(options.path));
+  let importId: string | null = null;
+  try {
+    const initiated = await session.client.execute(
+      imports.beginDocumentImport({
+        workspaceId: options.workspaceId,
+        parentId: options.parentId ?? null,
+        format,
+        title,
+        fileName: basename(options.path),
+        mediaType: documentMediaType(format),
+        byteLength: info.size,
+        idempotencyKey: `cli-document:${crypto.randomUUID()}`,
+      }),
+    );
+    importId = initiated.id;
+    if (initiated.uploadUrl === null) {
+      throw new Error('The import upload capability is no longer available.');
+    }
+    const uploadUrl = new URL(initiated.uploadUrl);
+    if (
+      uploadUrl.protocol !== 'https:' &&
+      uploadUrl.hostname !== 'localhost' &&
+      uploadUrl.hostname !== '127.0.0.1'
+    ) {
+      throw new Error('Object capabilities must use HTTPS outside local development.');
+    }
+    if (uploadUrl.username !== '' || uploadUrl.password !== '') {
+      throw new Error('Object capabilities cannot contain URL credentials.');
+    }
+    const uploaded = await (deps.fetchImpl ?? globalThis.fetch)(uploadUrl.toString(), {
+      method: 'PUT',
+      body: createReadStream(options.path),
+      headers: {
+        'content-type': documentMediaType(format),
+        'content-length': String(info.size),
+      },
+      duplex: 'half',
+      redirect: 'error',
+      credentials: 'omit',
+    });
+    if (!uploaded.ok) {
+      throw new Error(`The document object upload was refused (${String(uploaded.status)}).`);
+    }
+    const previewJob = await session.client.execute(imports.previewDocumentImport(importId));
+    await operations.waitForOperation(session.client, previewJob.id);
+    const preview = await session.client.query(imports.documentImportById(importId), {
+      forceRefresh: true,
+    });
+    if (preview.status !== 'preview_ready') {
+      throw new Error(preview.failureCode ?? 'The document preview did not become ready.');
+    }
+    const previewPlan = await imports.fetchDocumentImportPlan(session.client, importId);
+    const mapping = previewPlan.items.map((item) => ({
+      sourceId: item.sourceId,
+      parentSourceId: item.parentSourceId,
+      title: item.title,
+      itemType: item.itemType,
+      lifecycleState: item.finalLifecycleState,
+      file:
+        item.file === undefined
+          ? null
+          : {
+              name: item.file.fileName,
+              mediaType: item.file.mediaType,
+              bytes: item.file.byteLength,
+              source: item.file.sourceKind,
+            },
+    }));
+
+    if (options.dryRun) {
+      writeResult({
+        dryRun: true,
+        atomic: true,
+        workspaceId: options.workspaceId,
+        parentId: options.parentId ?? null,
+        importId,
+        planned: mapping,
+        loss: preview.loss ?? previewPlan.loss,
+        omissions: preview.omissions ?? previewPlan.omissions,
+      });
+      await session.client.execute(imports.cancelDocumentImport(importId));
+      importId = null;
+      return;
+    }
+
+    const completed = await imports.commitAndWaitDocumentImport(session.client, importId);
+    writeResult({
+      atomic: true,
+      workspaceId: options.workspaceId,
+      parentId: options.parentId ?? null,
+      importId,
+      rootItemId: completed.rootItemId,
+      createdCount: completed.itemCount ?? mapping.length,
+      assetCount: completed.assetCount ?? 0,
+      created: mapping,
+      loss: completed.loss ?? previewPlan.loss,
+      omissions: completed.omissions ?? previewPlan.omissions,
+      status: completed.status,
+    });
+    importId = null;
+  } catch (error) {
+    if (importId !== null) {
+      await session.client.execute(imports.cancelDocumentImport(importId)).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+function documentMediaType(format: 'nix' | 'docx' | 'pdf' | 'txt'): string {
+  if (format === 'pdf') return 'application/pdf';
+  if (format === 'txt') return 'text/plain';
+  if (format === 'docx') {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  return 'application/vnd.nix.archive';
 }
 
 /** Declares an entry and its whole subtree as not attempted, with the reason. */

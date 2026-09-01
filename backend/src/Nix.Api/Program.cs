@@ -11,22 +11,31 @@ using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Charts;
 using Nix.Features.CurrentUser;
+using Nix.Features.DocumentImports;
+using Nix.Features.Exports;
+using Nix.Features.Files;
 using Nix.Features.Graph;
 using Nix.Features.Health;
 using Nix.Features.Internal;
 using Nix.Features.Items;
+using Nix.Features.Operations;
 using Nix.Features.Permissions;
+using Nix.Features.Plugins;
 using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Recurrence;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.TemplateImports;
 using Nix.Features.Templates;
 using Nix.Features.Tokens;
 using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
 using Nix.Persistence;
+using Nix.Persistence.ObjectStorage;
+using Nix.Persistence.RabbitMq;
+using Nix.Persistence.Search;
 using Nix.Serialization;
 
 const string nixConnectionStringName = "Nix";
@@ -68,14 +77,21 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(ChartJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(TemplateImportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BrowserAuthJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(FilesJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(OperationsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(ExportsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(PluginsJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
 // controllable in tests.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PublicFormTokenService>();
+builder.Services.AddNixObjectStorage(builder.Configuration);
 
 // Singleton: it holds the one signing key, and the mint is pure computation over it. Registered
 // whether or not persistence is, because the token validator takes it as a dependency and the
@@ -274,6 +290,8 @@ var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
     builder.Services.AddNixPersistence(nixConnectionString!);
+    builder.Services.AddNixSearch(builder.Configuration);
+    builder.Services.AddNixRabbitMq(builder.Configuration);
 
     // Scoped, because it resolves issuers through the request's own connection. The signing-key
     // cache inside it is static and shared, which is the part that must not be per request.
@@ -413,8 +431,28 @@ app.UseWhen(
         branch.UseMiddleware<InternalBoundaryMiddleware>();
         if (persistenceConfigured)
         {
-            branch.UseMiddleware<NixUnitOfWorkMiddleware>();
-            branch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+            branch.UseWhen(
+                static context => context.Request.Path.StartsWithSegments(
+                    "/internal/worker-executions",
+                    StringComparison.OrdinalIgnoreCase),
+                static executionBranch =>
+                {
+                    executionBranch.UseMiddleware<Nix.Authentication.WorkerExecutionMiddleware>();
+                    executionBranch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+                });
+            branch.UseWhen(
+                static context =>
+                    !context.Request.Path.StartsWithSegments(
+                        "/internal/worker-dispatch",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !context.Request.Path.StartsWithSegments(
+                        "/internal/worker-executions",
+                        StringComparison.OrdinalIgnoreCase),
+                static tenantBranch =>
+                {
+                    tenantBranch.UseMiddleware<NixUnitOfWorkMiddleware>();
+                    tenantBranch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+                });
         }
     });
 if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBoundaryMiddleware.SecretConfigurationKey]))
@@ -426,6 +464,12 @@ if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBound
 
 app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
+app.MapFileEndpoints();
+app.MapDocumentImportEndpoints();
+app.MapTemplateImportEndpoints();
+app.MapExportEndpoints();
+app.MapPluginEndpoints();
+app.MapOperationEndpoints();
 app.MapMeEndpoints();
 app.MapStructureEndpoints();
 app.MapPermissionEndpoints();

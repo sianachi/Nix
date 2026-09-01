@@ -3,3 +3,4 @@
 node = "22"
 pnpm = "10"
 dotnet = "10"
+go = "1.26"

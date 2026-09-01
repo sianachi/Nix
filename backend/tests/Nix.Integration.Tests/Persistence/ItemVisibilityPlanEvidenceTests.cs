@@ -3,10 +3,16 @@ using System.Data.Common;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Nix.Abstractions;
+using Nix.Abstractions.Workers;
+using Nix.Authentication;
+using Nix.Domain.Identity;
 using Nix.Domain.Items;
+using Nix.Domain.Tenancy;
 using Nix.Integration.Tests.Harness;
+using Nix.Persistence;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -51,7 +57,7 @@ public sealed class ItemVisibilityPlanEvidenceTests : IAsyncLifetime
     [Fact]
     public async Task A_deep_visible_item_uses_the_descendant_and_ancestor_indexes_as_the_runtime_role()
     {
-        var planCapture = new ExplainFindItemInterceptor();
+        var planCapture = new ExplainQueryInterceptor("ItemTree.FindAsync");
         var application = NixPersistenceHost.Create(
             _fixture.ApplicationConnectionString,
             planCapture);
@@ -103,6 +109,66 @@ public sealed class ItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Assert.DoesNotContain("Seq Scan on item_closure", text, StringComparison.Ordinal);
                 Assert.DoesNotContain("Seq Scan on item", text, StringComparison.Ordinal);
                 Assert.Contains("actual", text, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Export_subtree_delegation_uses_point_indexes_as_the_runtime_role()
+    {
+        var planCapture = new ExplainQueryInterceptor(
+            "WorkerExportDelegationPolicy.AuthorizesTargetAsync");
+        var application = NixPersistenceHost.Create(
+            _fixture.ApplicationConnectionString,
+            planCapture);
+        await using (application.ConfigureAwait(false))
+        {
+            var work = await application.BeginUnitOfWorkAsync(
+                TestTenants.AlphaContext,
+                TestContext.Current.CancellationToken);
+            await using (work.ConfigureAwait(false))
+            {
+                var target = ChainItem(ChainDepth);
+                var http = new DefaultHttpContext();
+                http.Request.Method = HttpMethods.Get;
+                http.Request.Path = $"/api/v1/items/{target:D}";
+                var token = new ValidatedWorkerExecutionToken(
+                    TenantId.From(TestTenants.Alpha),
+                    PrincipalId.From(TestTenants.AlphaPrincipal),
+                    Guid.NewGuid(),
+                    M0SchemaSeed.Alpha.ItemId,
+                    TestTenants.AlphaWorkspace,
+                    "subtree",
+                    "plan-evidence");
+                var execution = new WorkerExecutionAuthorization(
+                    TestTenants.Alpha,
+                    TestTenants.AlphaWorkspace,
+                    TestTenants.AlphaPrincipal,
+                    "export.pdf");
+
+                var authorized = await WorkerExportDelegationPolicy.AuthorizesTargetAsync(
+                    http.Request,
+                    token,
+                    execution,
+                    work.Resolve<NixDbContext>(),
+                    TestContext.Current.CancellationToken);
+
+                Assert.True(authorized);
+                var text = Assert.IsType<string>(planCapture.Plan);
+                _output.WriteLine(
+                    "Export subtree authorization, {0} rows per tenant and depth {1}, runtime role:",
+                    CorpusSizePerTenant,
+                    ChainDepth);
+                _output.WriteLine(text);
+                Assert.Contains("Index Scan using \"PK_item_closure\"", text, StringComparison.Ordinal);
+                Assert.Contains(
+                    "Index Scan using \"AK_item_tenant_id_id\"",
+                    text,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain("Seq Scan on item_closure", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("Seq Scan on item", text, StringComparison.Ordinal);
+                Assert.Contains("actual", text, StringComparison.Ordinal);
+                Assert.Contains("Buffers:", text, StringComparison.Ordinal);
             }
         }
     }
@@ -213,7 +279,7 @@ public sealed class ItemVisibilityPlanEvidenceTests : IAsyncLifetime
     private static string Literal(Guid value) =>
         $"'{value.ToString("D", CultureInfo.InvariantCulture)}'::uuid";
 
-    private sealed class ExplainFindItemInterceptor : DbCommandInterceptor
+    private sealed class ExplainQueryInterceptor(string marker) : DbCommandInterceptor
     {
         public string? Plan { get; private set; }
 
@@ -226,7 +292,7 @@ public sealed class ItemVisibilityPlanEvidenceTests : IAsyncLifetime
             ArgumentNullException.ThrowIfNull(command);
 
             if (Plan is null
-                && command.CommandText.Contains("ItemTree.FindAsync", StringComparison.Ordinal))
+                && command.CommandText.Contains(marker, StringComparison.Ordinal))
             {
                 Plan = await ExplainAsync(command, cancellationToken);
             }

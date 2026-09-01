@@ -1,0 +1,640 @@
+import { Button, Icon, Input, Select, Text } from '@nix/ui';
+import { items as coreItems } from '@nix/api-client';
+import {
+  Circle,
+  Minus,
+  MousePointer2,
+  Pencil,
+  Download,
+  ImageDown,
+  Image as ImageIcon,
+  Redo2,
+  Square,
+  Type,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+  Upload,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from 'react';
+
+import { useApiClient } from '../api/api-client-provider';
+import { isFetchableImageAddress } from '../lib/image-address';
+import { parseCanvas, serializeCanvas, serializeCanvasSvg } from './nix-canvas-serialization';
+import { useCanvasLibrary } from './use-canvas-library';
+import { createNativeLibraryItem, instantiateLibraryItem, parseNativeLibraryItems } from './nix-canvas-library';
+
+import {
+  CANVAS_HEIGHT,
+  CANVAS_ELEMENT_CEILING,
+  CANVAS_WIDTH,
+  createElement,
+  boundedPoints,
+  clampViewport,
+  renderableElements,
+  type CanvasPoint,
+  type NixCanvasElement,
+  type NixCanvasElementType,
+  type CanvasFill,
+  updateElement,
+} from './nix-canvas-model';
+
+export interface NixCanvasProps {
+  readonly elements: readonly NixCanvasElement[];
+  readonly onChange: (elements: readonly NixCanvasElement[]) => void;
+  readonly workspaceId?: string | undefined;
+  readonly onOpenItem?: ((itemId: string) => void) | undefined;
+}
+
+type Tool = 'select' | NixCanvasElementType;
+interface DragState {
+  readonly ids: readonly string[];
+  readonly start: CanvasPoint;
+  readonly origins: ReadonlyMap<string, NixCanvasElement>;
+  readonly before: readonly NixCanvasElement[];
+  readonly resize: boolean;
+}
+
+interface PanState {
+  readonly start: CanvasPoint;
+  readonly origin: CanvasPoint;
+}
+
+const TOOL_LABELS: Record<Tool, string> = {
+  select: 'Select',
+  rectangle: 'Rectangle',
+  ellipse: 'Ellipse',
+  line: 'Line',
+  arrow: 'Arrow',
+  text: 'Text',
+  freehand: 'Freehand',
+  card: 'Item card',
+  image: 'Image',
+};
+
+export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCanvasProps): ReactNode {
+  const [tool, setTool] = useState<Tool>('select');
+  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const [zoom, setZoom] = useState(1);
+  const [viewportOrigin, setViewportOrigin] = useState<CanvasPoint>({ x: 0, y: 0 });
+  const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
+  const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
+  const [textDraft, setTextDraft] = useState('');
+  const [libraryName, setLibraryName] = useState('');
+  const [librarySelection, setLibrarySelection] = useState('');
+  const dragRef = useRef<DragState | null>(null);
+  const panRef = useRef<PanState | null>(null);
+  const spacePressedRef = useRef(false);
+  const drawingRef = useRef<CanvasPoint[] | null>(null);
+  const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
+  const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
+  const [loadedItemOptions, setLoadedItemOptions] = useState<{
+    readonly workspaceId: string;
+    readonly options: readonly { id: string; title: string }[];
+  } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const client = useApiClient();
+  const library = useCanvasLibrary();
+  const nativeLibraryItems = parseNativeLibraryItems(library.items);
+
+  const visible = elements.filter((element) => !element.isDeleted);
+  const viewport = clampViewport({ x: viewportOrigin.x, y: viewportOrigin.y, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom });
+  const rendered = renderableElements(elements, viewport);
+  const selectedId = selectedIds[0] ?? null;
+  const selected = visible.find((element) => element.id === selectedId) ?? null;
+  const itemIds = visible
+    .filter((element) => element.type === 'card' && element.itemId !== '')
+    .map((element) => element.itemId)
+    .filter((itemId): itemId is string => itemId !== undefined);
+  const itemIdKey = itemIds.join('|');
+  const itemOptions =
+    workspaceId !== undefined && loadedItemOptions?.workspaceId === workspaceId
+      ? loadedItemOptions.options
+      : [];
+
+  useEffect(() => {
+    if (workspaceId === undefined) {
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      const options: { id: string; title: string }[] = [];
+      try {
+        for await (const item of client.paginate(coreItems.listItems(workspaceId, { pageSize: 100 }), { signal: controller.signal })) {
+          options.push({ id: item.id, title: item.title });
+          if (options.length >= 100) break;
+        }
+        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options });
+      } catch {
+        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options: [] });
+      }
+    })();
+    return () => { controller.abort(); };
+  }, [client, workspaceId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    const ids = itemIdKey === '' ? [] : itemIdKey.split('|');
+    void Promise.all(ids.map(async (itemId) => {
+      try {
+        const item = await client.query(coreItems.itemById(itemId), { signal: controller.signal });
+        return [itemId, { title: item.title, summary: propertySummary(item.computed ?? item.properties) }] as const;
+      } catch {
+        return [itemId, { title: 'Item unavailable', summary: '' }] as const;
+      }
+    })).then((entries) => {
+      if (live) setItemCards(Object.fromEntries(entries));
+    });
+    return () => { live = false; controller.abort(); };
+  }, [client, itemIdKey]);
+
+  const commit = useCallback(
+    (next: readonly NixCanvasElement[]): void => {
+      setPast((current) => [...current, [...elements]]);
+      setFuture([]);
+      onChange(next);
+    },
+    [elements, onChange],
+  );
+
+  const undo = useCallback((): void => {
+    const previous = past.at(-1);
+    if (previous === undefined) return;
+    setPast((current) => current.slice(0, -1));
+    setFuture((current) => [[...elements], ...current]);
+    onChange(previous);
+  }, [elements, onChange, past]);
+
+  const redo = useCallback((): void => {
+    const next = future[0];
+    if (next === undefined) return;
+    setFuture((current) => current.slice(1));
+    setPast((current) => [...current, [...elements]]);
+    onChange(next);
+  }, [elements, future, onChange]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.code === 'Space') {
+        spacePressedRef.current = true;
+        if (event.target === document.body) event.preventDefault();
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      if (selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+        const distance = event.shiftKey ? 10 : 1;
+        const delta = {
+          ArrowUp: { x: 0, y: -distance },
+          ArrowDown: { x: 0, y: distance },
+          ArrowLeft: { x: -distance, y: 0 },
+          ArrowRight: { x: distance, y: 0 },
+        }[event.key];
+        if (delta === undefined) return;
+        commit(
+          elements.map((element) =>
+            selectedIds.includes(element.id)
+              ? updateElement(element, { x: element.x + delta.x, y: element.y + delta.y })
+              : element,
+          ),
+        );
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        redo();
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length > 0) {
+        event.preventDefault();
+        const next = elements.map((element) =>
+          selectedIds.includes(element.id) ? updateElement(element, { isDeleted: true }) : element,
+        );
+        commit(next);
+        setSelectedIds([]);
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.code === 'Space') spacePressedRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [commit, elements, redo, selectedIds, undo]);
+
+  function pointFromEvent(event: PointerEvent<SVGSVGElement>): CanvasPoint {
+    const svg = svgRef.current;
+    if (svg === null) return { x: 0, y: 0 };
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
+    return { x: transformed.x, y: transformed.y };
+  }
+
+  function addAt(point: CanvasPoint): void {
+    if (tool === 'freehand') {
+      drawingRef.current = [point];
+      setDrawingPoints([point]);
+      return;
+    }
+    if (tool === 'select') {
+      setSelectedIds([]);
+      return;
+    }
+    const next = [...elements, createElement(tool, point, `z${String(elements.length).padStart(5, '0')}`)];
+    commit(next);
+    const added = next.at(-1);
+    setSelectedIds(added === undefined ? [] : [added.id]);
+    setTextDraft(added?.type === 'image' ? added.imageUrl ?? '' : added?.text ?? '');
+    setTool('select');
+  }
+
+  function startPan(event: PointerEvent<SVGSVGElement>): void {
+    panRef.current = { start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function movePan(event: PointerEvent<SVGSVGElement>): void {
+    const pan = panRef.current;
+    if (pan === null) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const scaleX = bounds.width === 0 ? 1 : viewport.width / bounds.width;
+    const scaleY = bounds.height === 0 ? 1 : viewport.height / bounds.height;
+    const next = clampViewport({
+      ...viewport,
+      x: pan.origin.x - (event.clientX - pan.start.x) * scaleX,
+      y: pan.origin.y - (event.clientY - pan.start.y) * scaleY,
+    });
+    setViewportOrigin({ x: next.x, y: next.y });
+  }
+
+  function finishPan(): void {
+    panRef.current = null;
+  }
+
+  function isPanGesture(event: PointerEvent<SVGSVGElement>): boolean {
+    return event.button === 1 || spacePressedRef.current;
+  }
+
+  function commitText(): void {
+    if (selected?.type !== 'text' && selected?.type !== 'card' && selected?.type !== 'image') return;
+    if (selected.type === 'text' && selected.text === textDraft) return;
+    if (selected.type === 'card' && selected.itemId === textDraft) return;
+    if (selected.type === 'image' && selected.imageUrl === textDraft) return;
+    if (selected.type === 'image' && textDraft !== '' && !isFetchableImageAddress(textDraft)) return;
+    commit(elements.map((element) => {
+      if (element.id !== selected.id) return element;
+      if (selected.type === 'text') return updateElement(element, { text: textDraft });
+      if (selected.type === 'card') return updateElement(element, { itemId: textDraft });
+      return updateElement(element, { imageUrl: textDraft });
+    }));
+  }
+
+  function updateSelected(changes: Partial<Pick<NixCanvasElement, 'fill' | 'stroke' | 'opacity'>>): void {
+    if (selected === null) return;
+    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, changes) : element)));
+  }
+
+  function saveSelectedToLibrary(): void {
+    if (selected === null || library.status !== 'ready') return;
+    const item = createNativeLibraryItem(libraryName, [selected]);
+    library.save([...library.items, item]);
+    setLibraryName('');
+  }
+
+  function insertLibraryItem(): void {
+    const item = nativeLibraryItems.find((candidate) => candidate.name === librarySelection);
+    if (item === undefined) return;
+    const instances = instantiateLibraryItem(item, { x: viewport.x + viewport.width / 2 - 120, y: viewport.y + viewport.height / 2 - 60 });
+    if (instances.length === 0) return;
+    commit([...elements, ...instances]);
+    setSelectedIds(instances.map((instance) => instance.id));
+  }
+
+  function exportScene(): void {
+    download('nix-canvas.json', serializeCanvas(elements), 'application/json');
+  }
+
+  function exportSvg(): void {
+    download('nix-canvas.svg', serializeCanvasSvg(elements), 'image/svg+xml');
+  }
+
+  async function exportPng(): Promise<void> {
+    const svgBlob = new Blob([serializeCanvasSvg(elements)], { type: 'image/svg+xml' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    try {
+      const image = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.onload = () => { resolve(); };
+        image.onerror = () => { reject(new Error('Canvas SVG could not be rendered')); };
+      });
+      image.src = svgUrl;
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = CANVAS_WIDTH * 2;
+      canvas.height = CANVAS_HEIGHT * 2;
+      const context = canvas.getContext('2d');
+      if (context === null) throw new Error('Canvas export is unavailable');
+      context.scale(2, 2);
+      context.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const png = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob === null) reject(new Error('Canvas PNG could not be created'));
+          else resolve(blob);
+        }, 'image/png');
+      });
+      downloadBlob('nix-canvas.png', png);
+    } catch {
+      // Export failures leave the durable document untouched.
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  }
+
+  function download(filename: string, content: string, type: string): void {
+    downloadBlob(filename, new Blob([content], { type }));
+  }
+
+  function downloadBlob(filename: string, blob: Blob): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importScene(event: ChangeEvent<HTMLInputElement>): void {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file === undefined) return;
+    void file.text().then((serialized) => {
+      try {
+        commit(parseCanvas(serialized).elements);
+        setSelectedIds([]);
+      } catch {
+        // Invalid files are ignored; the durable document remains untouched.
+      }
+    });
+  }
+
+  function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
+    event.stopPropagation();
+    const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
+    const nextSelection = event.shiftKey && !selectedIds.includes(element.id)
+      ? [...selectedIds, element.id]
+      : [element.id];
+    setSelectedIds(nextSelection);
+    setTextDraft(element.type === 'image' ? element.imageUrl ?? '' : element.text ?? '');
+    const origins = new Map(
+      elements.filter((candidate) => nextSelection.includes(candidate.id)).map((candidate) => [candidate.id, candidate]),
+    );
+    dragRef.current = { ids: nextSelection, start: point, origins, before: [...elements], resize };
+    (event.currentTarget).setPointerCapture(event.pointerId);
+  }
+
+  function moveDrag(event: PointerEvent<SVGSVGElement>): void {
+    const drag = dragRef.current;
+    if (drag === null) return;
+    const point = pointFromEvent(event);
+    const dx = point.x - drag.start.x;
+    const dy = point.y - drag.start.y;
+    const next = elements.map((element) => {
+      if (!drag.ids.includes(element.id)) return element;
+      const origin = drag.origins.get(element.id) ?? element;
+      if (drag.resize && element.id === drag.ids[0]) {
+        return updateElement(element, {
+          width: Math.max(40, origin.width + dx),
+          height: Math.max(30, origin.height + dy),
+        });
+      }
+      return updateElement(element, { x: origin.x + dx, y: origin.y + dy });
+    });
+    onChange(next);
+  }
+
+  function finishDrag(): void {
+    const drag = dragRef.current;
+    if (drag !== null && elements.some((element) => drag.ids.includes(element.id) && element !== drag.origins.get(element.id))) {
+      setPast((current) => [...current, [...drag.before]]);
+      setFuture([]);
+    }
+    dragRef.current = null;
+  }
+
+  function finishDrawing(): void {
+    const points = drawingRef.current;
+    if (points === null) return;
+    drawingRef.current = null;
+    setDrawingPoints([]);
+    if (points.length < 2) return;
+    const left = Math.min(...points.map((point) => point.x));
+    const top = Math.min(...points.map((point) => point.y));
+    const right = Math.max(...points.map((point) => point.x));
+    const bottom = Math.max(...points.map((point) => point.y));
+    const bounded = boundedPoints(points);
+    const base = createElement('freehand', { x: left, y: top }, `z${String(elements.length).padStart(5, '0')}`);
+    const drawn = updateElement(base, {
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    });
+    commit([...elements, { ...drawn, points: bounded }]);
+    setSelectedIds([drawn.id]);
+    setTool('select');
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-divider px-4 py-2" role="toolbar" aria-label="Canvas tools">
+        {(Object.keys(TOOL_LABELS) as Tool[]).map((candidate) => {
+          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : candidate === 'freehand' ? Pencil : candidate === 'image' ? ImageIcon : Minus;
+          return (
+            <Button
+              key={candidate}
+              variant="icon"
+              aria-label={TOOL_LABELS[candidate]}
+              aria-pressed={tool === candidate}
+              className={tool === candidate ? 'bg-accent/15 text-accent-text' : ''}
+              onClick={() => { setTool(candidate); }}
+            >
+              <Icon icon={glyph} size="sm" />
+            </Button>
+          );
+        })}
+        <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
+        {selected?.type === 'text' || selected?.type === 'card' || selected?.type === 'image' ? (
+          <Input
+            aria-label={selected.type === 'text' ? 'Text content' : selected.type === 'card' ? 'Item identifier' : 'Image address'}
+            list={selected.type === 'card' ? 'canvas-item-options' : undefined}
+            placeholder={selected.type === 'image' ? 'https://…' : undefined}
+            className="min-w-32 max-w-64"
+            value={textDraft}
+            onChange={(event) => { setTextDraft(event.target.value); }}
+            onBlur={commitText}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitText();
+              }
+            }}
+          />
+        ) : null}
+        {selected?.type === 'card' ? (
+          <datalist id="canvas-item-options">
+            {itemOptions.map((option) => <option key={option.id} value={option.id} label={option.title} />)}
+          </datalist>
+        ) : null}
+        <span className="ml-2 flex items-center gap-1" aria-label="Canvas library">
+          {library.status === 'loading' ? <Text as="span" variant="caption" tone="muted">Library loading</Text> : null}
+          {library.status === 'error' ? <Text as="span" variant="caption" tone="muted">Library unavailable</Text> : null}
+          {library.status === 'ready' && selected !== null ? (
+            <>
+              <Input
+                aria-label="Library item name"
+                className="min-w-28 max-w-36"
+                placeholder="Save as"
+                value={libraryName}
+                onChange={(event) => { setLibraryName(event.target.value); }}
+                onKeyDown={(event) => { if (event.key === 'Enter') saveSelectedToLibrary(); }}
+              />
+              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Save selected to library" onClick={saveSelectedToLibrary}>Save shape</Button>
+            </>
+          ) : null}
+          {library.status === 'ready' && nativeLibraryItems.length > 0 ? (
+            <>
+              <Select
+                aria-label="Saved canvas shapes"
+                className="max-w-36"
+                value={librarySelection}
+                onChange={(event) => { setLibrarySelection(event.target.value); }}
+              >
+                <option value="">Insert shape</option>
+                {nativeLibraryItems.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </Select>
+              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Insert saved canvas shape" disabled={librarySelection === ''} onClick={insertLibraryItem}>Insert</Button>
+            </>
+          ) : null}
+        </span>
+        {selected !== null && selected.type !== 'line' && selected.type !== 'arrow' && selected.type !== 'text' ? (
+          <span className="ml-2 flex items-center gap-1" aria-label="Fill">
+            {(['accent', 'surface', 'none'] as CanvasFill[]).map((fill) => (
+              <Button key={fill} variant="ghost" className="px-2 py-1 text-xs" aria-label={`Fill ${fill}`} aria-pressed={(selected.fill ?? 'accent') === fill} onClick={() => { updateSelected({ fill }); }}>
+                {fill === 'none' ? 'None' : fill === 'accent' ? 'Accent' : 'Surface'}
+              </Button>
+            ))}
+          </span>
+        ) : null}
+        <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
+        <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas" onClick={exportScene}><Icon icon={Download} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas as SVG" onClick={exportSvg}><Icon icon={Download} size="sm" /></Button>
+        <Button variant="icon" aria-label="Export canvas as PNG" onClick={() => { void exportPng(); }}><Icon icon={ImageDown} size="sm" /></Button>
+        <Button variant="icon" aria-label="Import canvas" onClick={() => { importRef.current?.click(); }}><Icon icon={Upload} size="sm" /></Button>
+        <input ref={importRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import canvas file" onChange={importScene} />
+        <span className="ml-auto flex items-center gap-1">
+          <Button variant="icon" aria-label="Zoom out" onClick={() => { setZoom((value) => Math.max(0.5, value - 0.1)); }}><Icon icon={ZoomOut} size="sm" /></Button>
+          <Text as="span" variant="caption" tone="muted" className="min-w-12 text-center">{Math.round(zoom * 100)}%</Text>
+          <Button variant="icon" aria-label="Zoom in" onClick={() => { setZoom((value) => Math.min(2, value + 0.1)); }}><Icon icon={ZoomIn} size="sm" /></Button>
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto bg-surface p-6">
+        <svg
+          ref={svgRef}
+          className="mx-auto block max-w-full origin-top-left cursor-grab bg-background shadow-sm"
+          style={{ width: `${String(CANVAS_WIDTH)}px`, height: `${String(CANVAS_HEIGHT)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
+          viewBox={`${String(viewport.x)} ${String(viewport.y)} ${String(viewport.width)} ${String(viewport.height)}`}
+          role="application"
+          aria-label="Canvas workspace"
+          onPointerDown={(event) => {
+            if (isPanGesture(event)) {
+              event.preventDefault();
+              startPan(event);
+              return;
+            }
+            addAt(pointFromEvent(event));
+          }}
+          onPointerMove={(event) => {
+            if (panRef.current !== null) {
+              movePan(event);
+            } else if (drawingRef.current !== null) {
+              drawingRef.current = [...drawingRef.current, pointFromEvent(event)];
+              setDrawingPoints(drawingRef.current);
+            } else {
+              moveDrag(event);
+            }
+          }}
+          onPointerUp={() => { finishPan(); finishDrawing(); finishDrag(); }}
+          onPointerCancel={() => { finishPan(); finishDrawing(); finishDrag(); }}
+        >
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--color-foreground)" />
+            </marker>
+            <pattern id="canvas-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+              <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--color-divider)" strokeWidth="0.6" opacity="0.5" />
+            </pattern>
+          </defs>
+          <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
+          {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
+          {rendered.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} onOpenItem={onOpenItem} itemLabel={element.itemId === undefined ? '' : itemCards[element.itemId]?.title ?? 'Loading item…'} itemSummary={element.itemId === undefined ? '' : itemCards[element.itemId]?.summary ?? ''} />)}
+          {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
+        </svg>
+      </div>
+      <div className="flex shrink-0 items-center justify-between px-4 py-1.5">
+        <Text as="span" variant="caption" tone={visible.length > CANVAS_ELEMENT_CEILING ? 'accent' : 'muted'}>{selected === null ? `${String(visible.length)} objects${visible.length > CANVAS_ELEMENT_CEILING ? `; showing ${String(CANVAS_ELEMENT_CEILING)}` : ''}` : `${TOOL_LABELS[selected.type]} selected`}</Text>
+        <Text as="span" variant="caption" tone="muted">Drag to move. Select a tool, then click the canvas.</Text>
+      </div>
+    </div>
+  );
+}
+
+function CanvasShape({ element, selected, onPointerDown, onOpenItem, itemLabel, itemSummary }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void; readonly onOpenItem?: ((itemId: string) => void) | undefined; readonly itemLabel: string; readonly itemSummary: string }): ReactNode {
+  const stroke = selected ? 'var(--color-accent)' : element.stroke === 'accent' ? 'var(--color-accent)' : element.stroke === 'muted' ? 'var(--color-muted)' : 'var(--color-foreground)';
+  const fill = element.fill === 'surface' ? 'var(--color-surface)' : element.fill === 'none' ? 'none' : 'var(--color-accent-100)';
+  const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
+  if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
+  if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
+  if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
+  if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }} onDoubleClick={() => { if (element.itemId !== undefined && element.itemId !== '') onOpenItem?.(element.itemId); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">{itemSummary || 'Nix item'}</text></g>;
+  if (element.type === 'image') {
+    if (element.imageUrl === undefined || element.imageUrl === '') return <rect x={element.x} y={element.y} width={element.width} height={element.height} fill="none" {...common} />;
+    return <image href={element.imageUrl} x={element.x} y={element.y} width={element.width} height={element.height} preserveAspectRatio="xMidYMid meet" role="img" aria-label={element.alt ?? 'Canvas image'} {...common} />;
+  }
+  if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
+  return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
+}
+
+function pathFor(points: readonly CanvasPoint[]): string {
+  const first = points[0];
+  if (first === undefined) return '';
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${String(point.x)} ${String(point.y)}`).join(' ');
+}
+
+function propertySummary(properties: Readonly<Record<string, unknown>> | null): string {
+  const entry = Object.entries(properties ?? {})[0];
+  if (entry === undefined) return '';
+  const [key, value] = entry;
+  const rendered = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : JSON.stringify(value);
+  return `${key}: ${rendered}`.slice(0, 34);
+}
+
+function ResizeHandle({ element, onPointerDown }: { readonly element: NixCanvasElement; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize?: boolean) => void }): ReactNode {
+  return <rect x={element.x + element.width - 7} y={element.y + element.height - 7} width="14" height="14" fill="var(--color-accent-fill)" stroke="var(--color-background)" strokeWidth="2" cursor="nwse-resize" aria-label="Resize selected object" onPointerDown={(event) => { onPointerDown(event, element, true); }} />;
+}
