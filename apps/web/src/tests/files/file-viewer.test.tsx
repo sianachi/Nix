@@ -69,15 +69,15 @@ beforeEach(() => {
 });
 
 describe('the file item viewer', () => {
-  it('labels opaque files as unscanned and download-only without fetching their bytes', async () => {
+  it('shows opaque files without a safety warning and does not fetch preview bytes', async () => {
     client = fakeClient(false);
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
 
     render(<FileViewer itemId={ITEM} />);
 
-    expect(await screen.findByText(/unscanned attachment/i)).toBeVisible();
-    expect(screen.getByText('diagram.png')).toBeVisible();
+    expect(screen.queryByText(/unscanned attachment/i)).not.toBeInTheDocument();
+    expect(await screen.findByText('diagram.png')).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
   });
 
