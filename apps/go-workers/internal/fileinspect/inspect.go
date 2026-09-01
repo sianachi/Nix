@@ -51,6 +51,7 @@ func InspectHeader(header []byte, totalBytes int64) Metadata {
 		metadata.Malformed = metadata.Width == nil || metadata.Height == nil
 	case len(header) >= 5 && string(header[:5]) == "%PDF-":
 		metadata.MediaType = "application/pdf"
+		metadata.Preview = totalBytes >= 0 && totalBytes <= previewBytes
 	case len(header) >= 4 && bytes.Equal(header[:4], []byte{'P', 'K', 3, 4}):
 		metadata.MediaType = "application/zip"
 	case looksLikeSVG(header):
