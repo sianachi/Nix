@@ -42,8 +42,8 @@ func WriteStream(format string, next RecordSource, output io.Writer, limits stre
 	return WriteStreamWithReport(format, next, output, limits, nil)
 }
 
-// WriteStreamWithReport converts records and appends a bounded, durable fidelity report when one
-// is available. The report lives in the file because the file commonly outlives its job status.
+// WriteStreamWithReport converts records. The report remains available to internal callers for
+// job diagnostics, but is not embedded in user downloads.
 func WriteStreamWithReport(format string, next RecordSource, output io.Writer, limits stream.Limits, report ReportSource) error {
 	if next == nil || output == nil || limits.MaxBytes <= 0 || limits.MaxLine <= 0 || limits.MaxRecords <= 0 {
 		return errors.New("export writer configuration is invalid")
@@ -88,22 +88,6 @@ func writeMarkdown(output io.Writer, next RecordSource, limits stream.Limits, re
 	}, limited)
 	if err != nil {
 		return err
-	}
-	if report != nil {
-		entries := report()
-		if len(entries) > 0 {
-			if _, err := io.WriteString(limited, "## What did not come across\n\nThe workspace still holds the information listed below.\n\n"); err != nil {
-				return err
-			}
-			for _, entry := range entries {
-				if _, err := io.WriteString(limited, "- "+escapeMarkdownLiteral(sanitizeText(entry), false)+"\n"); err != nil {
-					return err
-				}
-			}
-			if _, err := io.WriteString(limited, "\n"); err != nil {
-				return err
-			}
-		}
 	}
 	return limited.err
 }

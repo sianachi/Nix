@@ -85,7 +85,7 @@ func TestStreamingMarkdownConsumesEachRecordOnce(t *testing.T) {
 	}
 }
 
-func TestConvertedFilesCarryTheirObservedLossReport(t *testing.T) {
+func TestConvertedFilesDoNotEmbedInternalLossReports(t *testing.T) {
 	records := []stream.Record{{ID: "one", Title: "One", Body: "Body"}}
 	limits := stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}
 	index := 0
@@ -101,12 +101,12 @@ func TestConvertedFilesCarryTheirObservedLossReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "## What did not come across") || !strings.Contains(output.String(), "- A view was omitted.") {
-		t.Fatalf("Markdown omitted its fidelity appendix: %q", output.String())
+	if strings.Contains(output.String(), "What did not come across") || strings.Contains(output.String(), "A view was omitted.") {
+		t.Fatalf("Markdown embedded its internal fidelity report: %q", output.String())
 	}
 }
 
-func TestDOCXPreservesProjectedHeadingsListsLinksTablesAndReport(t *testing.T) {
+func TestDOCXPreservesProjectedHeadingsListsLinksAndTablesWithoutInternalReport(t *testing.T) {
 	body := "## Plan\n\n**Bold** and *italic* with [site](https://example.test/a_\\(b\\) \"A title\").\n\n- First\n1. Step\n\n| Name | State |\n| --- | --- |\n| Nix | Ready |"
 	var output bytes.Buffer
 	index := 0
@@ -136,12 +136,13 @@ func TestDOCXPreservesProjectedHeadingsListsLinksTablesAndReport(t *testing.T) {
 		`<w:fldSimple`,
 		`https://example.test/a_(b)`,
 		`<w:tbl>`,
-		`What did not come across`,
-		`A property was omitted.`,
 	} {
 		if !strings.Contains(document, expected) {
 			t.Fatalf("document.xml omitted %q:\n%s", expected, document)
 		}
+	}
+	if strings.Contains(document, "What did not come across") || strings.Contains(document, "A property was omitted.") {
+		t.Fatalf("DOCX embedded its internal fidelity report: %s", document)
 	}
 	numbering := readZipText(t, archive, "word/numbering.xml")
 	if !strings.Contains(numbering, `w:ilvl="8"`) {
@@ -170,7 +171,7 @@ func TestDOCXFlattensAFieldInstructionTargetToVisibleText(t *testing.T) {
 	}
 }
 
-func TestPDFFlattensMarkdownSyntaxAndCarriesItsReport(t *testing.T) {
+func TestPDFFlattensMarkdownSyntaxWithoutInternalReport(t *testing.T) {
 	var output bytes.Buffer
 	index := 0
 	err := WriteStreamWithReport("pdf", func() (stream.Record, bool, error) {
@@ -186,10 +187,13 @@ func TestPDFFlattensMarkdownSyntaxAndCarriesItsReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	for _, expected := range []string{"(Plan) Tj", "(Bold site) Tj", "(What did not come across) Tj", "(- A view was omitted.) Tj"} {
+	for _, expected := range []string{"(Plan) Tj", "(Bold site) Tj"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("PDF omitted %q", expected)
 		}
+	}
+	if strings.Contains(text, "What did not come across") || strings.Contains(text, "A view was omitted.") {
+		t.Fatalf("PDF embedded its internal fidelity report: %s", text)
 	}
 	if strings.Contains(text, "**Bold**") {
 		t.Fatal("PDF exposed Markdown formatting syntax")

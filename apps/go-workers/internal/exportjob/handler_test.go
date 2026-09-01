@@ -90,11 +90,6 @@ func TestHandlerObtainsLeaseBoundCapabilitiesAndPublishesAnImmutableExport(t *te
 	}
 	for _, expected := range []string{
 		"(Plan) Tj",
-		"(What did not come across) Tj",
-		"Interactive workspace behavior is flattened into a document.",
-		"Images are linked or described rather than embedded",
-		"Collapsible sections were expanded",
-		"hidden: A child was unavailable.",
 	} {
 		if !strings.Contains(string(output), expected) {
 			t.Fatalf("exported PDF omitted %q", expected)
