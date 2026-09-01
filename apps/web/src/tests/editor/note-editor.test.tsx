@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import type * as collabSync from '../../editor/collab-sync';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { NoteEditor } from '../../editor/note-editor';
@@ -81,7 +82,11 @@ beforeEach(() => {
 
 /** Renders the editor and returns the shared document it handed the provider. */
 async function open(): Promise<Y.Doc> {
-  render(<NoteEditor itemId="00000000-0000-4000-8000-000000000001" />);
+  render(
+    <ApiClientProvider>
+      <NoteEditor itemId="00000000-0000-4000-8000-000000000001" />
+    </ApiClientProvider>,
+  );
 
   await waitFor(() => {
     expect(captured).not.toBeNull();
@@ -569,7 +574,11 @@ describe('the block drag handle', () => {
 
   /** Renders the editor and returns the handle element from within this render's own tree. */
   async function openWithHandle(): Promise<HTMLElement> {
-    const { container } = render(<NoteEditor itemId="00000000-0000-4000-8000-000000000001" />);
+    const { container } = render(
+      <ApiClientProvider>
+        <NoteEditor itemId="00000000-0000-4000-8000-000000000001" />
+      </ApiClientProvider>,
+    );
 
     // `data-dragging` is set by the drag-handle plugin's own view setup, so finding it means the
     // plugin registered against this editor - not merely that some div rendered. Scoped to the
