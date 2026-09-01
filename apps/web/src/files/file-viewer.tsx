@@ -153,12 +153,6 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
           The image preview is unavailable. You can still download the file.
         </Text>
       ) : null}
-      {!file.previewable ? (
-        <Text variant="note" tone="muted">
-          This is an unscanned attachment and cannot be previewed safely. Download it only if you
-          trust its source.
-        </Text>
-      ) : null}
       {visibleError === null ? null : (
         <Text variant="note" as="p" role="alert">
           {visibleError}
