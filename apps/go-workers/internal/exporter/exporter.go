@@ -2,139 +2,142 @@ package exporter
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
+
+type RecordSource func() (stream.Record, bool, error)
+
+// ReportSource is evaluated only after every record has been projected, so it can include losses
+// discovered lazily while the source stream was consumed.
+type ReportSource func() []string
 
 func Write(format string, records []stream.Record, output io.Writer, limits stream.Limits) error {
 	if len(records) > limits.MaxRecords {
 		return stream.ErrLimitExceeded
 	}
+	if strings.EqualFold(format, "nix") {
+		return writeNix(output, records, limits)
+	}
+	index := 0
+	return WriteStream(format, func() (stream.Record, bool, error) {
+		if index == len(records) {
+			return stream.Record{}, false, nil
+		}
+		record := records[index]
+		index++
+		return record, true, nil
+	}, output, limits)
+}
+
+// WriteStream converts records without retaining the workspace body set in memory.
+func WriteStream(format string, next RecordSource, output io.Writer, limits stream.Limits) error {
+	return WriteStreamWithReport(format, next, output, limits, nil)
+}
+
+// WriteStreamWithReport converts records and appends a bounded, durable fidelity report when one
+// is available. The report lives in the file because the file commonly outlives its job status.
+func WriteStreamWithReport(format string, next RecordSource, output io.Writer, limits stream.Limits, report ReportSource) error {
+	if next == nil || output == nil || limits.MaxBytes <= 0 || limits.MaxLine <= 0 || limits.MaxRecords <= 0 {
+		return errors.New("export writer configuration is invalid")
+	}
 	switch strings.ToLower(format) {
 	case "ndjson", "jsonl":
-		_, err := stream.WriteRecords(output, records, limits)
-		return err
+		return writeNDJSON(output, next, limits)
 	case "markdown", "md":
-		return writeMarkdown(output, records, limits)
-	case "nix":
-		return writeNix(output, records, limits)
+		return writeMarkdown(output, next, limits, report)
 	case "docx":
-		return writeDOCX(output, records, limits)
+		return writeDOCX(output, next, limits, report)
 	case "pdf":
-		return writePDF(output, records, limits)
+		return writePDF(output, next, limits, report)
 	default:
-		return fmt.Errorf("unsupported export format: %s", format)
+		return fmt.Errorf("unsupported streaming export format: %s", format)
 	}
 }
 
-func writeDOCX(output io.Writer, records []stream.Record, limits stream.Limits) error {
-	limitedOutput := &limitedWriter{writer: output, remaining: limits.MaxBytes}
-	archive := zip.NewWriter(limitedOutput)
-	entries := []struct{ name, body string }{
-		{"[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`},
-		{"_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`},
-		{"word/document.xml", docxDocument(records)},
-	}
-	for _, entry := range entries {
-		if err := writeZipEntry(archive, entry.name, []byte(entry.body), limits); err != nil {
+func writeNDJSON(output io.Writer, next RecordSource, limits stream.Limits) error {
+	limited := &limitedWriter{writer: output, remaining: limits.MaxBytes}
+	encoder := json.NewEncoder(limited)
+	return eachRecord(next, limits.MaxRecords, func(record stream.Record) error {
+		return encoder.Encode(record)
+	}, limited)
+}
+
+func writeMarkdown(output io.Writer, next RecordSource, limits stream.Limits, report ReportSource) error {
+	limited := &limitedWriter{writer: output, remaining: limits.MaxBytes}
+	err := eachRecord(next, limits.MaxRecords, func(record stream.Record) error {
+		if record.Title == "" {
+			return errors.New("export record title is required")
+		}
+		title, _ := ProjectTitle(record.Title, true)
+		if _, err := io.WriteString(limited, "# "+title+"\n\n"); err != nil {
 			return err
 		}
-	}
-	if err := archive.Close(); err != nil {
+		if _, err := io.WriteString(limited, strings.TrimSpace(sanitizeText(record.Body))); err != nil {
+			return err
+		}
+		_, err := io.WriteString(limited, "\n\n")
+		return err
+	}, limited)
+	if err != nil {
 		return err
 	}
-	return limitedOutput.err
-}
-
-func docxDocument(records []stream.Record) string {
-	var body strings.Builder
-	for _, record := range records {
-		body.WriteString(`<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>`)
-		body.WriteString(html.EscapeString(record.Title))
-		body.WriteString(`</w:t></w:r></w:p>`)
-		for _, line := range strings.Split(record.Body, "\n") {
-			body.WriteString(`<w:p><w:r><w:t xml:space="preserve">`)
-			body.WriteString(html.EscapeString(line))
-			body.WriteString(`</w:t></w:r></w:p>`)
+	if report != nil {
+		entries := report()
+		if len(entries) > 0 {
+			if _, err := io.WriteString(limited, "## What did not come across\n\nThe workspace still holds the information listed below.\n\n"); err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if _, err := io.WriteString(limited, "- "+escapeMarkdownLiteral(sanitizeText(entry), false)+"\n"); err != nil {
+					return err
+				}
+			}
+			if _, err := io.WriteString(limited, "\n"); err != nil {
+				return err
+			}
 		}
 	}
-	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` + body.String() + `<w:sectPr/></w:body></w:document>`
+	return limited.err
 }
 
-func writePDF(output io.Writer, records []stream.Record, limits stream.Limits) error {
-	lines := make([]string, 0, len(records)*2)
-	for _, record := range records {
-		lines = append(lines, record.Title)
-		lines = append(lines, strings.Split(record.Body, "\n")...)
-	}
-	var content strings.Builder
-	content.WriteString("BT /F1 12 Tf 50 790 Td 14 TL ")
-	for index, line := range lines {
-		if index > 0 {
-			content.WriteString("T* ")
+func eachRecord(next RecordSource, maximum int, consume func(stream.Record) error, limited *limitedWriter) error {
+	count := 0
+	for {
+		record, ok, err := next()
+		if err != nil {
+			return err
 		}
-		content.WriteByte('(')
-		content.WriteString(pdfEscape(line))
-		content.WriteString(") Tj ")
-	}
-	content.WriteString("ET")
-	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", content.Len(), content.String()),
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-	}
-	var document bytes.Buffer
-	document.WriteString("%PDF-1.4\n")
-	offsets := make([]int, len(objects)+1)
-	for index, object := range objects {
-		offsets[index+1] = document.Len()
-		fmt.Fprintf(&document, "%d 0 obj\n%s\nendobj\n", index+1, object)
-	}
-	xref := document.Len()
-	fmt.Fprintf(&document, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
-	for index := 1; index <= len(objects); index++ {
-		fmt.Fprintf(&document, "%010d 00000 n \n", offsets[index])
-	}
-	fmt.Fprintf(&document, "trailer << /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
-	if int64(document.Len()) > limits.MaxBytes {
-		return stream.ErrLimitExceeded
-	}
-	_, err := document.WriteTo(output)
-	return err
-}
-
-func pdfEscape(value string) string {
-	value = strings.Map(func(character rune) rune {
-		if character < 32 || character > 126 {
-			return '?'
+		if !ok {
+			return limited.err
 		}
-		return character
-	}, value)
-	return strings.NewReplacer(`\`, `\\`, `(`, `\(`, `)`, `\)`).Replace(value)
-}
-
-func writeMarkdown(output io.Writer, records []stream.Record, limits stream.Limits) error {
-	var bytesWritten int64
-	for _, record := range records {
-		body := strings.TrimSpace(record.Body)
-		text := "# " + record.Title + "\n\n" + body + "\n\n"
-		if bytesWritten+int64(len(text)) > limits.MaxBytes {
+		count++
+		if count > maximum {
 			return stream.ErrLimitExceeded
 		}
-		if _, err := io.WriteString(output, text); err != nil {
+		if err := consume(record); err != nil {
 			return err
 		}
-		bytesWritten += int64(len(text))
+	}
+}
+
+func eachLine(value string, consume func(string) error) error {
+	start := 0
+	for index := 0; index <= len(value); index++ {
+		if index != len(value) && value[index] != '\n' {
+			continue
+		}
+		if err := consume(strings.TrimSuffix(value[start:index], "\r")); err != nil {
+			return err
+		}
+		start = index + 1
 	}
 	return nil
 }
@@ -206,11 +209,20 @@ func (writer *limitedWriter) Write(value []byte) (int, error) {
 	return written, err
 }
 
+func createZipEntry(archive *zip.Writer, name string) (io.Writer, error) {
+	if strings.Contains(name, "..") || strings.Contains(name, "\\") {
+		return nil, errors.New("unsafe archive path")
+	}
+	header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	header.SetModTime(time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC))
+	return archive.CreateHeader(header)
+}
+
 func writeZipEntry(archive *zip.Writer, name string, body []byte, limits stream.Limits) error {
 	if len(body) > limits.MaxLine {
 		return stream.ErrLimitExceeded
 	}
-	entry, err := archive.Create(name)
+	entry, err := createZipEntry(archive, name)
 	if err != nil {
 		return err
 	}

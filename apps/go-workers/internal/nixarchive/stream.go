@@ -15,55 +15,100 @@ type StreamEnd struct {
 	Items int  `json:"items"`
 }
 
-func ReadBundleStream(reader io.Reader, limits stream.Limits) (Manifest, []Bundle, error) {
-	if limits.MaxBytes <= 0 || limits.MaxLine <= 0 || limits.MaxRecords <= 0 {
-		return Manifest{}, nil, errors.New("bundle stream limits must be positive")
+// BundleStream validates and yields one Collaboration bundle at a time. The manifest is retained
+// because it is the bounded index of the stream; item bodies are not.
+type BundleStream struct {
+	scanner   *bufio.Scanner
+	limits    stream.Limits
+	Manifest  Manifest
+	seenBytes int64
+	index     int
+	ended     bool
+}
+
+func OpenBundleStream(reader io.Reader, limits stream.Limits) (*BundleStream, error) {
+	if reader == nil || limits.MaxBytes <= 0 || limits.MaxLine <= 0 || limits.MaxRecords <= 0 {
+		return nil, errors.New("bundle stream limits must be positive")
 	}
 	scanner := bufio.NewScanner(io.LimitReader(reader, limits.MaxBytes+1))
 	scanner.Buffer(make([]byte, min(limits.MaxLine, 64*1024)), limits.MaxLine)
 	if !scanner.Scan() {
-		return Manifest{}, nil, errors.New("bundle stream is empty")
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("bundle stream is empty")
 	}
-	seenBytes := int64(len(scanner.Bytes()) + 1)
 	var manifest Manifest
 	if err := json.Unmarshal(scanner.Bytes(), &manifest); err != nil {
-		return Manifest{}, nil, fmt.Errorf("bundle stream manifest: %w", err)
+		return nil, fmt.Errorf("bundle stream manifest: %w", err)
 	}
 	if err := ValidateManifest(manifest, limits.MaxRecords); err != nil {
+		return nil, err
+	}
+	manifest.Raw = append(manifest.Raw[:0], scanner.Bytes()...)
+	return &BundleStream{
+		scanner: scanner, limits: limits, Manifest: manifest,
+		seenBytes: int64(len(scanner.Bytes()) + 1),
+	}, nil
+}
+
+func (input *BundleStream) Next() (Bundle, bool, error) {
+	if input.ended {
+		return Bundle{}, false, nil
+	}
+	if !input.scanner.Scan() {
+		if err := input.scanner.Err(); err != nil {
+			return Bundle{}, false, err
+		}
+		return Bundle{}, false, errors.New("bundle stream is truncated")
+	}
+	input.seenBytes += int64(len(input.scanner.Bytes()) + 1)
+	if input.seenBytes > input.limits.MaxBytes {
+		return Bundle{}, false, stream.ErrLimitExceeded
+	}
+	var end StreamEnd
+	if err := json.Unmarshal(input.scanner.Bytes(), &end); err == nil && end.End {
+		if end.Items != input.index || input.index != len(input.Manifest.Items) {
+			return Bundle{}, false, errors.New("bundle stream sentinel count does not match manifest")
+		}
+		if input.scanner.Scan() {
+			return Bundle{}, false, errors.New("bundle stream has data after its sentinel")
+		}
+		if err := input.scanner.Err(); err != nil {
+			return Bundle{}, false, err
+		}
+		input.ended = true
+		return Bundle{}, false, nil
+	}
+	if input.index >= input.limits.MaxRecords || input.index >= len(input.Manifest.Items) {
+		return Bundle{}, false, stream.ErrLimitExceeded
+	}
+	var bundle Bundle
+	if err := json.Unmarshal(input.scanner.Bytes(), &bundle); err != nil || bundle.ID == "" || bundle.Title == "" {
+		return Bundle{}, false, errors.New("bundle stream contains an invalid item")
+	}
+	if bundle.ID != input.Manifest.Items[input.index].ID {
+		return Bundle{}, false, errors.New("bundle stream order does not match manifest")
+	}
+	bundle.Raw = append(bundle.Raw[:0], input.scanner.Bytes()...)
+	input.index++
+	return bundle, true, nil
+}
+
+func ReadBundleStream(reader io.Reader, limits stream.Limits) (Manifest, []Bundle, error) {
+	input, err := OpenBundleStream(reader, limits)
+	if err != nil {
 		return Manifest{}, nil, err
 	}
-	bundles := make([]Bundle, 0, len(manifest.Items))
-	ended := false
-	for scanner.Scan() {
-		seenBytes += int64(len(scanner.Bytes()) + 1)
-		if seenBytes > limits.MaxBytes {
-			return Manifest{}, nil, stream.ErrLimitExceeded
+	bundles := make([]Bundle, 0, len(input.Manifest.Items))
+	for {
+		bundle, ok, err := input.Next()
+		if err != nil {
+			return Manifest{}, nil, err
 		}
-		var end StreamEnd
-		if err := json.Unmarshal(scanner.Bytes(), &end); err == nil && end.End {
-			if end.Items != len(bundles) || len(bundles) != len(manifest.Items) {
-				return Manifest{}, nil, errors.New("bundle stream sentinel count does not match manifest")
-			}
-			ended = true
-			break
-		}
-		if len(bundles) >= limits.MaxRecords {
-			return Manifest{}, nil, stream.ErrLimitExceeded
-		}
-		var bundle Bundle
-		if err := json.Unmarshal(scanner.Bytes(), &bundle); err != nil || bundle.ID == "" || bundle.Title == "" {
-			return Manifest{}, nil, errors.New("bundle stream contains an invalid item")
-		}
-		if bundle.ID != manifest.Items[len(bundles)].ID {
-			return Manifest{}, nil, errors.New("bundle stream order does not match manifest")
+		if !ok {
+			return input.Manifest, bundles, nil
 		}
 		bundles = append(bundles, bundle)
 	}
-	if err := scanner.Err(); err != nil {
-		return Manifest{}, nil, err
-	}
-	if !ended || scanner.Scan() {
-		return Manifest{}, nil, errors.New("bundle stream is truncated or has data after its sentinel")
-	}
-	return manifest, bundles, nil
 }

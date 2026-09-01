@@ -28,7 +28,7 @@ export interface Profile {
   /** The collaboration service, for note bodies. Defaults are derived from `apiUrl` when absent. */
   readonly collabUrl?: string;
 
-  /** The media service, for PDF/DOCX/Markdown export. */
+  /** Legacy media endpoint retained when reading and rewriting existing profiles. */
   readonly mediaUrl?: string;
 }
 
@@ -43,7 +43,9 @@ const EMPTY: Config = { defaultProfile: 'default', profiles: {} };
 /** The directory the config file sits in. */
 export function configDir(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_CONFIG_HOME;
-  return base !== undefined && base.length > 0 ? join(base, 'nixctl') : join(homedir(), '.config', 'nixctl');
+  return base !== undefined && base.length > 0
+    ? join(base, 'nixctl')
+    : join(homedir(), '.config', 'nixctl');
 }
 
 /** The config file's absolute path. */
@@ -109,7 +111,10 @@ export async function saveProfile(
  *
  * @returns Whether a profile was removed.
  */
-export async function removeProfile(name: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+export async function removeProfile(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
   const existing = await loadConfig(env);
   if (!(name in existing.profiles)) {
     return false;
@@ -153,7 +158,8 @@ function normalise(value: unknown): Config {
   }
 
   const record = value as Record<string, unknown>;
-  const profilesRaw = typeof record.profiles === 'object' && record.profiles !== null ? record.profiles : {};
+  const profilesRaw =
+    typeof record.profiles === 'object' && record.profiles !== null ? record.profiles : {};
   const profiles: Record<string, Profile> = {};
 
   for (const [name, entry] of Object.entries(profilesRaw as Record<string, unknown>)) {
@@ -178,5 +184,7 @@ function normalise(value: unknown): Config {
 }
 
 function isNotFound(cause: unknown): boolean {
-  return typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT';
+  return (
+    typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT'
+  );
 }

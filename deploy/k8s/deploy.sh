@@ -25,7 +25,7 @@ require_template_boot_config
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
 export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -35,10 +35,36 @@ if ! kubectl -n nix get secret nix-auth >/dev/null 2>&1; then
   echo "secret nix-auth not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
+if ! kubectl -n nix get secret nix-rabbitmq >/dev/null 2>&1; then
+  echo "secret nix-rabbitmq not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
+  exit 1
+fi
+for rabbitmq_key in api-password import-password export-password index-password api-url import-url export-url index-url; do
+  rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
+  if [ -z "$rabbitmq_value" ]; then
+    echo "secret nix-rabbitmq is missing $rabbitmq_key - run deploy/k8s/create-secrets.sh --rabbitmq-only" >&2
+    exit 1
+  fi
+done
+RABBITMQ_SECRET_VERSION="$(kubectl -n nix get secret nix-rabbitmq -o jsonpath='{.metadata.resourceVersion}')"
+if [ -z "$RABBITMQ_SECRET_VERSION" ]; then
+  echo "secret nix-rabbitmq has no resource version" >&2
+  exit 1
+fi
+export RABBITMQ_SECRET_VERSION
 
 echo "== Postgres =="
 kubectl apply -f deploy/k8s/postgres.yaml
 kubectl -n nix rollout status statefulset/postgres --timeout=180s
+
+echo "== RabbitMQ =="
+kubectl -n nix create configmap nix-rabbitmq-config \
+  --from-file=rabbitmq.conf=deploy/rabbitmq/rabbitmq.conf \
+  --from-file=definitions.json=deploy/rabbitmq/definitions.json \
+  --from-file=start.sh=deploy/rabbitmq/start.sh \
+  --dry-run=client -o yaml | kubectl apply -f -
+render deploy/k8s/rabbitmq.yaml | kubectl apply -f -
+kubectl -n nix rollout status statefulset/nix-rabbitmq --timeout=180s
 
 echo "== Seed =="
 kubectl apply -f deploy/k8s/job-seed.yaml

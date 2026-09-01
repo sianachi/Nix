@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Nix.Abstractions;
+using Nix.Abstractions.Workers;
 using Nix.Authentication;
 using Nix.Domain.Identity;
 using Nix.Domain.Tenancy;
@@ -271,11 +272,26 @@ public sealed class NixUnitOfWorkJitTests
             Throttle,
             new StubAccessTokens(),
             new StubBrowserSessions(),
+            new UnusedWorkerDispatch(),
             new AccessTokenSessionContext(),
             UserInfo,
             new NixDispatcher(new ServiceCollection().BuildServiceProvider()),
             TimeProvider.System,
             Logger);
+
+        private sealed class UnusedWorkerDispatch : IWorkerDispatchStore
+        {
+            public ValueTask<IReadOnlyList<DispatchedWorkerJob>> LeaseJobsAsync(string? kind, string owner, int limit, int leaseSeconds, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<DispatchedWorkerJob?> ClaimJobAsync(Guid jobId, string owner, int leaseSeconds, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<bool> RenewJobAsync(Guid jobId, string owner, int leaseSeconds, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<WorkerExecutionState?> GetJobStateAsync(Guid jobId, string owner, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<WorkerExecutionAuthorization?> AuthorizeExecutionAsync(Guid jobId, string owner, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<WorkerResultApplication> ApplyResultAsync(Guid jobId, string owner, bool succeeded, bool retryable, string? result, string? errorCode, string? errorDetail, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<bool> FinishJobAsync(Guid jobId, string owner, bool succeeded, bool retryable, string? result, string? errorCode, string? errorDetail, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<bool> ScheduleExportCleanupAsync(Guid jobId, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<IReadOnlyList<DispatchedOutboxEvent>> LeaseOutboxAsync(string? kind, string owner, int limit, int leaseSeconds, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public ValueTask<bool> FinishOutboxAsync(Guid eventId, string owner, bool succeeded, string? failureDetail, CancellationToken cancellationToken) => throw new NotSupportedException();
+        }
 
         public async ValueTask DisposeAsync()
         {

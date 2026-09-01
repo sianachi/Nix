@@ -59,6 +59,26 @@ type WorkerResult struct {
 	TraceParent   *string         `json:"traceParent,omitempty"`
 }
 
+type ExportFormatCapability struct {
+	Format       string   `json:"format"`
+	Label        string   `json:"label"`
+	Extension    string   `json:"extension"`
+	MediaType    string   `json:"mediaType"`
+	Lossless     bool     `json:"lossless"`
+	DeclaredLoss []string `json:"declaredLoss"`
+}
+
+type WorkerCapabilities struct {
+	SchemaVersion int                      `json:"schemaVersion"`
+	MessageID     string                   `json:"messageId"`
+	MessageType   string                   `json:"messageType"`
+	InstanceID    string                   `json:"instanceId"`
+	Role          string                   `json:"role"`
+	OccurredAt    time.Time                `json:"occurredAt"`
+	ExpiresAt     time.Time                `json:"expiresAt"`
+	ExportFormats []ExportFormatCapability `json:"exportFormats"`
+}
+
 func ParseEnvelope(body []byte, maxBytes int) (Envelope, error) {
 	if len(body) == 0 || len(body) > maxBytes {
 		return Envelope{}, ErrInvalidMessage

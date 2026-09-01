@@ -211,11 +211,14 @@ func resultMessage(jobID, executionID string, result any, jobErr error, cancelle
 		return message
 	}
 	code, detail, retryable := "worker_failed", "The worker could not complete the job.", false
+	if cancelled || errors.Is(jobErr, jobrunner.ErrCancelled) || errors.Is(jobErr, context.Canceled) {
+		code, detail = "job_cancelled", "The job was cancelled."
+		message.ErrorCode, message.ErrorDetail, message.Retryable = &code, &detail, false
+		return message
+	}
 	var typed *jobrunner.JobError
 	if errors.As(jobErr, &typed) {
 		code, detail, retryable = typed.Code, typed.Error(), typed.Retryable
-	} else if cancelled || errors.Is(jobErr, jobrunner.ErrCancelled) || errors.Is(jobErr, context.Canceled) {
-		code, detail = "job_cancelled", "The job was cancelled."
 	}
 	if len(code) > 64 {
 		code = code[:64]

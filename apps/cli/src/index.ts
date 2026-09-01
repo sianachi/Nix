@@ -105,7 +105,7 @@ export function buildProgram(): Command {
     .requiredOption('--api-url <url>', "Core's base URL, e.g. http://localhost:5014")
     .requiredOption('--token <token>', 'a personal access token, nixpat_...')
     .option('--collab-url <url>', 'the collaboration service URL (defaults from the API URL)')
-    .option('--media-url <url>', 'the media service URL (defaults from the API URL)')
+    .option('--media-url <url>', 'legacy media URL retained in the profile for compatibility')
     .option('--no-default', 'store the profile without making it the default')
     .action(async (options: LoginOptions, command: Command) => {
       const flags = globalFlags(command);
@@ -508,8 +508,8 @@ export function buildProgram(): Command {
 
   program
     .command('export <itemId>')
-    .description('Download an export: nix (lossless) from collab, md/pdf/docx from media.')
-    .option('--format <format>', 'nix | md | pdf | docx', 'nix')
+    .description('Create a durable Core export and download its verified result.')
+    .option('--format <format>', 'an active worker format (md aliases markdown)', 'nix')
     .option('--scope <scope>', 'item | subtree', 'item')
     .option('-o, --out <file>', 'write the export here instead of stdout')
     .action(

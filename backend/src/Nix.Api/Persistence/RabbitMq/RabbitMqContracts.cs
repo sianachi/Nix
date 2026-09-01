@@ -33,8 +33,27 @@ public sealed record WorkerResultEnvelope(
     string? ErrorDetail = null,
     string? TraceParent = null);
 
+public sealed record ExportFormatCapabilityMessage(
+    string Format,
+    string Label,
+    string Extension,
+    string MediaType,
+    bool Lossless,
+    IReadOnlyList<string> DeclaredLoss);
+
+public sealed record WorkerCapabilityEnvelope(
+    int SchemaVersion,
+    Guid MessageId,
+    string MessageType,
+    string InstanceId,
+    string Role,
+    DateTimeOffset OccurredAt,
+    DateTimeOffset ExpiresAt,
+    IReadOnlyList<ExportFormatCapabilityMessage> ExportFormats);
+
 /// <summary>Source-generated internal broker JSON.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(RabbitMessageEnvelope))]
 [JsonSerializable(typeof(WorkerResultEnvelope))]
+[JsonSerializable(typeof(WorkerCapabilityEnvelope))]
 internal sealed partial class RabbitMqJsonContext : JsonSerializerContext;

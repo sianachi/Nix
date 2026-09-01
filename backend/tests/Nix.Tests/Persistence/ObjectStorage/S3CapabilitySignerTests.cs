@@ -36,6 +36,17 @@ public sealed class S3CapabilitySignerTests
         Assert.NotEqual(sized.Query, immutable.Query);
     }
 
+    [Fact]
+    public void Verified_immutable_uploads_bind_the_storage_checksum_header()
+    {
+        var verified = Signer().PutImmutableVerified("exports/result", 42, new string('a', 64)).Url;
+
+        Assert.Contains(
+            "X-Amz-SignedHeaders=content-length%3Bhost%3Bif-none-match%3Bx-amz-checksum-sha256",
+            verified.Query,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("/absolute")]

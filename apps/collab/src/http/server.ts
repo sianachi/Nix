@@ -7,7 +7,12 @@ import type { Pool } from 'pg';
 
 import type { CoreClient } from '../core/client.ts';
 import { STREAM_MEDIA_TYPE, writeBundleStream } from '../export/ndjson.ts';
-import { prepareExport, readScope, type PreparedExport } from '../export/prepare.ts';
+import {
+  prepareExport,
+  readExportedAt,
+  readScope,
+  type PreparedExport,
+} from '../export/prepare.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { strategyFor } from '../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../documents/limits.ts';
@@ -588,8 +593,8 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
       return problem(reply, 404, 'document_not_found', 'No such item.');
     }
 
-    const query = request.query as { scope?: string };
-    const prepared = await establishExport(request, reply, deps, query.scope);
+    const query = request.query as { scope?: string; exportedAt?: string };
+    const prepared = await establishExport(request, reply, deps, query.scope, query.exportedAt);
     if (prepared === null) {
       return reply;
     }
@@ -786,6 +791,7 @@ async function establishExport(
   reply: FastifyReply,
   deps: ServerDependencies,
   rawScope: string | undefined,
+  rawExportedAt?: string,
 ): Promise<PreparedExport | null> {
   const context = await establish(request, reply, deps);
   if (context === null) {
@@ -795,6 +801,18 @@ async function establishExport(
   const scope = readScope(rawScope ?? 'item');
   if (scope === null) {
     problem(reply, 400, 'invalid_scope', "'scope' must be 'item' or 'subtree'.");
+    return null;
+  }
+
+  const exportedAt =
+    rawExportedAt === undefined ? (deps.now?.() ?? new Date()) : readExportedAt(rawExportedAt);
+  if (exportedAt === null) {
+    problem(
+      reply,
+      400,
+      'invalid_exported_at',
+      "'exportedAt' must be a bounded RFC 3339 timestamp.",
+    );
     return null;
   }
 
@@ -815,7 +833,7 @@ async function establishExport(
     itemId: context.itemId,
     scope,
     includeDeleted: false,
-    exportedAt: deps.now?.() ?? new Date(),
+    exportedAt,
   });
 
   if (prepared === null) {

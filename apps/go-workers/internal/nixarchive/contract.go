@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 const (
@@ -12,6 +13,7 @@ const (
 )
 
 type Manifest struct {
+	Raw                 json.RawMessage `json:"-"`
 	Format              string          `json:"format"`
 	FormatVersion       int             `json:"formatVersion"`
 	SchemaVersion       int             `json:"schemaVersion"`
@@ -44,6 +46,7 @@ type LossEntry struct {
 }
 
 type Bundle struct {
+	Raw               json.RawMessage   `json:"-"`
 	ID                string            `json:"id"`
 	ParentID          *string           `json:"parentId"`
 	WorkspaceID       string            `json:"workspaceId"`
@@ -86,5 +89,25 @@ func ValidateManifest(manifest Manifest, maxItems int) error {
 	if _, ok := seen[manifest.Root]; !ok {
 		return fmt.Errorf("manifest root is not listed")
 	}
+	if len(manifest.Omitted) > maxItems || len(manifest.Loss) > 128 {
+		return fmt.Errorf("manifest report count is outside limits")
+	}
+	for _, omission := range manifest.Omitted {
+		if omission.ID != nil && !safeID.MatchString(*omission.ID) ||
+			omission.ParentID != "" && !safeID.MatchString(omission.ParentID) ||
+			!safeReportText(omission.Reason, 64) || !safeReportText(omission.Detail, 500) {
+			return fmt.Errorf("manifest contains an invalid omission")
+		}
+	}
+	for _, loss := range manifest.Loss {
+		if loss.ItemID != "" && !safeID.MatchString(loss.ItemID) ||
+			!safeReportText(loss.Kind, 64) || !safeReportText(loss.Detail, 500) {
+			return fmt.Errorf("manifest contains an invalid loss entry")
+		}
+	}
 	return nil
+}
+
+func safeReportText(value string, maximum int) bool {
+	return strings.TrimSpace(value) != "" && len(value) <= maximum && !strings.ContainsAny(value, "\r\n")
 }

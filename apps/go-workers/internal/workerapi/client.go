@@ -206,6 +206,25 @@ type DocumentImportResult struct {
 	RootItemID *string `json:"rootItemId"`
 }
 
+type ExportSource struct {
+	ExportID          string    `json:"exportId"`
+	Format            string    `json:"format"`
+	SourceURL         string    `json:"sourceUrl"`
+	BearerToken       string    `json:"bearerToken"`
+	DelegationExpires time.Time `json:"delegationExpiresAt"`
+}
+
+type ExportDestination struct {
+	ExportID          string    `json:"exportId"`
+	AttemptID         string    `json:"attemptId"`
+	Format            string    `json:"format"`
+	ObjectKey         string    `json:"objectKey"`
+	UploadURL         string    `json:"uploadUrl"`
+	ReadURL           string    `json:"readUrl"`
+	DeleteURL         string    `json:"deleteUrl"`
+	CapabilityExpires time.Time `json:"capabilityExpiresAt"`
+}
+
 type ResponseError struct {
 	Status int
 	Path   string
@@ -451,6 +470,27 @@ func (client *Client) RejectDocumentImport(ctx context.Context, importID, code s
 	}
 	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/reject"
 	return client.requestJSON(ctx, http.MethodPost, path, strings.NewReader(string(body)), nil)
+}
+
+func (client *Client) GetExportSource(ctx context.Context, exportID string) (*ExportSource, error) {
+	path := "/internal/worker-executions/exports/" + url.PathEscape(exportID)
+	var source ExportSource
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &source); err != nil {
+		return nil, err
+	}
+	return &source, nil
+}
+
+func (client *Client) GetExportDestination(ctx context.Context, exportID string, byteLength int64, sha256 string) (*ExportDestination, error) {
+	query := url.Values{}
+	query.Set("byteLength", fmt.Sprint(byteLength))
+	query.Set("sha256", sha256)
+	path := "/internal/worker-executions/exports/" + url.PathEscape(exportID) + "/destination?" + query.Encode()
+	var destination ExportDestination
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &destination); err != nil {
+		return nil, err
+	}
+	return &destination, nil
 }
 
 func (client *Client) CompleteJob(ctx context.Context, id string, succeeded bool, result, errorCode, errorDetail any) error {

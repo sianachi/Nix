@@ -3,10 +3,13 @@ package objecttransfer
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,9 +33,22 @@ func New(timeout time.Duration, origins ...string) *Client {
 			allowed[origin] = struct{}{}
 		}
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableCompression = true
+	transport.ForceAttemptHTTP2 = false
+	transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	transport.ResponseHeaderTimeout = timeout
+	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		connection, err := dialer.DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &idleDeadlineConn{Conn: connection, timeout: timeout}, nil
+	}
 	return &Client{httpClient: &http.Client{
-		Timeout:       timeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+		Transport:     transport,
 	}, allowedOrigins: allowed}
 }
 
@@ -46,6 +62,17 @@ type hashReader interface {
 }
 
 func (client *Client) Download(ctx context.Context, rawURL string, maxBytes int64) (*Download, error) {
+	return client.download(ctx, rawURL, maxBytes, "", "")
+}
+
+func (client *Client) DownloadAuthorized(ctx context.Context, rawURL string, maxBytes int64, bearerToken, internalSecret string) (*Download, error) {
+	if strings.TrimSpace(bearerToken) == "" || strings.TrimSpace(internalSecret) == "" || strings.ContainsAny(bearerToken+internalSecret, "\r\n") {
+		return nil, errors.New("authorized download credentials are invalid")
+	}
+	return client.download(ctx, rawURL, maxBytes, bearerToken, internalSecret)
+}
+
+func (client *Client) download(ctx context.Context, rawURL string, maxBytes int64, bearerToken, internalSecret string) (*Download, error) {
 	if maxBytes <= 0 {
 		return nil, errors.New("download byte limit must be positive")
 	}
@@ -54,11 +81,15 @@ func (client *Client) Download(ctx context.Context, rawURL string, maxBytes int6
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("create source download request failed")
+	}
+	if bearerToken != "" {
+		request.Header.Set("Authorization", "Bearer "+bearerToken)
+		request.Header.Set("X-Nix-Internal-Secret", internalSecret)
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, requestError("source download", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_ = response.Body.Close()
@@ -73,14 +104,18 @@ func (client *Client) Download(ctx context.Context, rawURL string, maxBytes int6
 }
 
 func (client *Client) Upload(ctx context.Context, rawURL, contentType string, body io.Reader, size int64, digest string) error {
-	return client.upload(ctx, rawURL, contentType, body, size, digest, false)
+	return client.upload(ctx, rawURL, contentType, body, size, digest, false, false)
 }
 
 func (client *Client) UploadCreateOnly(ctx context.Context, rawURL, contentType string, body io.Reader, size int64, digest string) error {
-	return client.upload(ctx, rawURL, contentType, body, size, digest, true)
+	return client.upload(ctx, rawURL, contentType, body, size, digest, true, false)
 }
 
-func (client *Client) upload(ctx context.Context, rawURL, contentType string, body io.Reader, size int64, digest string, createOnly bool) error {
+func (client *Client) UploadCreateOnlyVerified(ctx context.Context, rawURL, contentType string, body io.Reader, size int64, digest string) error {
+	return client.upload(ctx, rawURL, contentType, body, size, digest, true, true)
+}
+
+func (client *Client) upload(ctx context.Context, rawURL, contentType string, body io.Reader, size int64, digest string, createOnly, storageChecksum bool) error {
 	if size < 0 {
 		return errors.New("upload size must be known")
 	}
@@ -89,7 +124,7 @@ func (client *Client) upload(ctx context.Context, rawURL, contentType string, bo
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, body)
 	if err != nil {
-		return err
+		return errors.New("create destination upload request failed")
 	}
 	request.ContentLength = size
 	request.Header.Set("Content-Type", contentType)
@@ -99,9 +134,16 @@ func (client *Client) upload(ctx context.Context, rawURL, contentType string, bo
 	if digest != "" {
 		request.Header.Set("X-Nix-Content-SHA256", strings.ToLower(digest))
 	}
+	if storageChecksum {
+		checksum, decodeErr := hex.DecodeString(digest)
+		if decodeErr != nil || len(checksum) != sha256.Size {
+			return errors.New("destination checksum is invalid")
+		}
+		request.Header.Set("X-Amz-Checksum-Sha256", base64.StdEncoding.EncodeToString(checksum))
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return err
+		return requestError("destination upload", err)
 	}
 	defer response.Body.Close()
 	if createOnly && (response.StatusCode == http.StatusConflict || response.StatusCode == http.StatusPreconditionFailed) {
@@ -119,11 +161,11 @@ func (client *Client) Delete(ctx context.Context, rawURL string) error {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, rawURL, nil)
 	if err != nil {
-		return err
+		return errors.New("create object deletion request failed")
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return err
+		return requestError("object deletion", err)
 	}
 	defer response.Body.Close()
 	if (response.StatusCode < 200 || response.StatusCode >= 300) && response.StatusCode != http.StatusNotFound {
@@ -181,15 +223,55 @@ type boundedReadCloser struct {
 	reader    io.Reader
 	closer    io.Closer
 	remaining int64
+	overflow  bool
 }
 
 func (reader *boundedReadCloser) Read(buffer []byte) (int, error) {
-	count, err := reader.reader.Read(buffer)
-	reader.remaining -= int64(count)
-	if reader.remaining < 0 {
-		return count, ErrTooLarge
+	if reader.overflow {
+		return 0, ErrTooLarge
 	}
+	count, err := reader.reader.Read(buffer)
+	if int64(count) > reader.remaining {
+		allowed := int(reader.remaining)
+		reader.remaining = 0
+		reader.overflow = true
+		return allowed, ErrTooLarge
+	}
+	reader.remaining -= int64(count)
 	return count, err
 }
 
 func (reader *boundedReadCloser) Close() error { return reader.closer.Close() }
+
+type idleDeadlineConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (connection *idleDeadlineConn) Read(buffer []byte) (int, error) {
+	if err := connection.SetReadDeadline(time.Now().Add(connection.timeout)); err != nil {
+		return 0, err
+	}
+	return connection.Conn.Read(buffer)
+}
+
+func (connection *idleDeadlineConn) Write(buffer []byte) (int, error) {
+	if err := connection.SetWriteDeadline(time.Now().Add(connection.timeout)); err != nil {
+		return 0, err
+	}
+	return connection.Conn.Write(buffer)
+}
+
+func requestError(operation string, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%s cancelled: %w", operation, context.Canceled)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s timed out: %w", operation, context.DeadlineExceeded)
+	}
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) {
+		return fmt.Errorf("%s failed: %w", operation, requestErr.Err)
+	}
+	return fmt.Errorf("%s failed", operation)
+}

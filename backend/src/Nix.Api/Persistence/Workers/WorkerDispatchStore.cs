@@ -1,4 +1,5 @@
 using Nix.Abstractions.Workers;
+using Nix.Persistence.ObjectStorage;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -13,7 +14,8 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
     private const string JobStateSql = "SELECT * FROM nix_worker_job_state(@job_id, @owner)";
     private const string AuthorizeExecutionSql = "SELECT * FROM nix_authorize_worker_execution(@job_id, @owner)";
     private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
-    private const string FinishJobSql = "SELECT nix_finish_worker_job(@job_id, @owner, @succeeded, @retryable, @result, @error_code, @error_detail)";
+    private const string ApplyResultSql = "SELECT * FROM nix_apply_worker_result(@job_id, @owner, @succeeded, @retryable, @result, @error_code, @error_detail, @expected_attempt_id)";
+    private const string ScheduleExportCleanupSql = "SELECT nix_schedule_export_result_cleanup(@job_id)";
     private const string LeaseOutboxSql = "SELECT * FROM nix_lease_worker_outbox(@kind, @owner, @limit, @lease_seconds)";
     private const string FinishOutboxSql = "SELECT nix_finish_worker_outbox(@event_id, @owner, @succeeded, @error)";
 
@@ -126,7 +128,8 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
                     return new WorkerExecutionState(
                         reader.GetString(0),
                         reader.GetBoolean(1),
-                        reader.GetBoolean(2),
+                        !await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false)
+                            && reader.GetBoolean(2),
                         await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false)
                             ? null
                             : await reader.GetFieldValueAsync<DateTimeOffset>(3, cancellationToken).ConfigureAwait(false));
@@ -189,8 +192,8 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
             ],
             cancellationToken);
 
-    /// <summary>Completes, retries, or dead-letters a job while the caller owns its live lease.</summary>
-    public ValueTask<bool> FinishJobAsync(
+    /// <summary>Atomically validates and applies a fenced worker result.</summary>
+    public async ValueTask<WorkerResultApplication> ApplyResultAsync(
         Guid jobId,
         string owner,
         bool succeeded,
@@ -198,17 +201,87 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
         string? result,
         string? errorCode,
         string? errorDetail,
+        CancellationToken cancellationToken)
+    {
+        if (jobId == Guid.Empty
+            || string.IsNullOrWhiteSpace(owner)
+            || owner.Length > 128
+            || owner.Any(char.IsControl))
+        {
+            return new WorkerResultApplication(
+                WorkerResultApplicationOutcome.InvalidRequest,
+                RequiresExportCleanup: false);
+        }
+
+        var expectedAttemptId = ObjectStorageKeys.ExportAttempt(jobId, owner);
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(ApplyResultSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Uuid("job_id", jobId));
+                command.Parameters.Add(Text("owner", owner));
+                command.Parameters.Add(Boolean("succeeded", succeeded));
+                command.Parameters.Add(Boolean("retryable", retryable));
+                command.Parameters.Add(Json("result", result));
+                command.Parameters.Add(Text("error_code", errorCode));
+                command.Parameters.Add(Text("error_detail", errorDetail));
+                command.Parameters.Add(Uuid("expected_attempt_id", expectedAttemptId));
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException("The worker result application returned no outcome.");
+                    }
+
+                    var application = new WorkerResultApplication(
+                        ParseApplicationOutcome(reader.GetString(0)),
+                        reader.GetBoolean(1));
+                    if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException("The worker result application returned multiple outcomes.");
+                    }
+                    return application;
+                }
+            }
+        }
+    }
+
+    /// <summary>Compatibility result for the existing internal HTTP completion endpoint.</summary>
+    public async ValueTask<bool> FinishJobAsync(
+        Guid jobId,
+        string owner,
+        bool succeeded,
+        bool retryable,
+        string? result,
+        string? errorCode,
+        string? errorDetail,
+        CancellationToken cancellationToken)
+    {
+        var application = await ApplyResultAsync(
+            jobId,
+            owner,
+            succeeded,
+            retryable,
+            result,
+            errorCode,
+            errorDetail,
+            cancellationToken).ConfigureAwait(false);
+        return application.Outcome is WorkerResultApplicationOutcome.Completed
+            or WorkerResultApplicationOutcome.RetryScheduled
+            or WorkerResultApplicationOutcome.Failed
+            or WorkerResultApplicationOutcome.Cancelled
+            or WorkerResultApplicationOutcome.InvalidExportResult;
+    }
+
+    /// <summary>Idempotently schedules deletion of one completed export at the durable retention boundary.</summary>
+    public ValueTask<bool> ScheduleExportCleanupAsync(
+        Guid jobId,
         CancellationToken cancellationToken) => ExecuteBooleanAsync(
-            FinishJobSql,
-            [
-                Uuid("job_id", jobId),
-                Text("owner", owner),
-                Boolean("succeeded", succeeded),
-                Boolean("retryable", retryable),
-                Json("result", result),
-                Text("error_code", errorCode),
-                Text("error_detail", errorDetail),
-            ],
+            ScheduleExportCleanupSql,
+            [Uuid("job_id", jobId)],
             cancellationToken);
 
     /// <summary>Atomically leases globally queued derived-data events.</summary>
@@ -294,6 +367,21 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
 
     private static NpgsqlParameter Boolean(string name, bool value) =>
         new(name, NpgsqlDbType.Boolean) { Value = value };
+
+    private static WorkerResultApplicationOutcome ParseApplicationOutcome(string value) => value switch
+    {
+        "completed" => WorkerResultApplicationOutcome.Completed,
+        "retry_scheduled" => WorkerResultApplicationOutcome.RetryScheduled,
+        "failed" => WorkerResultApplicationOutcome.Failed,
+        "cancelled" => WorkerResultApplicationOutcome.Cancelled,
+        "invalid_export_result" => WorkerResultApplicationOutcome.InvalidExportResult,
+        "already_completed" => WorkerResultApplicationOutcome.AlreadyCompleted,
+        "already_terminal" => WorkerResultApplicationOutcome.AlreadyTerminal,
+        "stale_execution" => WorkerResultApplicationOutcome.StaleExecution,
+        "not_found" => WorkerResultApplicationOutcome.NotFound,
+        "invalid_request" => WorkerResultApplicationOutcome.InvalidRequest,
+        _ => throw new InvalidOperationException("The worker result application returned an unknown outcome."),
+    };
 
     private static async ValueTask<DispatchedWorkerJob> ReadJobAsync(
         NpgsqlDataReader reader,

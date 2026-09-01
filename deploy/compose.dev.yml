@@ -77,19 +77,25 @@ services:
   rabbitmq:
     image: rabbitmq:4.1-management-alpine
     profiles: ["core"]
+    user: "100:101"
     environment:
-      RABBITMQ_DEFAULT_USER: ${NIX_RABBITMQ_USER:-nix}
-      RABBITMQ_DEFAULT_PASS: ${NIX_RABBITMQ_PASSWORD:-nix-dev-rabbit}
-      RABBITMQ_DEFAULT_VHOST: /nix
+      NIX_RABBITMQ_API_PASSWORD: ${NIX_RABBITMQ_API_PASSWORD:-nix-dev-api-rabbit}
+      NIX_RABBITMQ_IMPORT_PASSWORD: ${NIX_RABBITMQ_IMPORT_PASSWORD:-nix-dev-import-rabbit}
+      NIX_RABBITMQ_EXPORT_PASSWORD: ${NIX_RABBITMQ_EXPORT_PASSWORD:-nix-dev-export-rabbit}
+      NIX_RABBITMQ_INDEX_PASSWORD: ${NIX_RABBITMQ_INDEX_PASSWORD:-nix-dev-index-rabbit}
+      NIX_RABBITMQ_DEV_WORKER_PASSWORD: ${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-nix-dev-combined-worker-rabbit}
+      NIX_RABBITMQ_ADMIN_PASSWORD: ${NIX_RABBITMQ_ADMIN_PASSWORD:-nix-dev-admin-rabbit}
     ports:
-      - "${NIX_RABBITMQ_PORT:-5673}:5672"
-      - "${NIX_RABBITMQ_MANAGEMENT_PORT:-15673}:15672"
+      - "127.0.0.1:${NIX_RABBITMQ_PORT:-5673}:5672"
+      - "127.0.0.1:${NIX_RABBITMQ_MANAGEMENT_PORT:-15673}:15672"
     volumes:
       - nix-rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/start.sh:/usr/local/bin/nix-rabbitmq-start:ro
+    command: ["/bin/sh", "/usr/local/bin/nix-rabbitmq-start"]
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      test: ["CMD-SHELL", "test -f /var/lib/rabbitmq/.nix-topology-ready && rabbitmq-diagnostics -q check_running"]
       interval: 5s
       timeout: 5s
       retries: 18

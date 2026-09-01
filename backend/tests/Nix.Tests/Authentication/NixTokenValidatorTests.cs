@@ -45,6 +45,50 @@ public sealed class NixTokenValidatorTests
         Assert.Equal(accessTokenId, core.AccessTokenId);
     }
 
+    [Fact]
+    public async Task Core_issuer_classifies_an_exact_worker_execution_separately()
+    {
+        using var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [SelfIssuedTokenService.IssuerConfigurationKey] = "https://core.nix.test",
+                [SelfIssuedTokenService.AudienceConfigurationKey] = "nix-core",
+                [SelfIssuedTokenService.KeyIdConfigurationKey] = "core-key",
+                [SelfIssuedTokenService.SigningKeyConfigurationKey] = signingKey.ExportPkcs8PrivateKeyPem(),
+            })
+            .Build();
+        using var selfIssued = new SelfIssuedTokenService(configuration, TimeProvider.System);
+        var tenantId = TenantId.From(Guid.Parse("11111111-1111-4111-8111-111111111111"));
+        var principalId = PrincipalId.From(Guid.Parse("22222222-2222-4222-8222-222222222222"));
+        var jobId = Guid.Parse("33333333-3333-4333-8333-333333333333");
+        var itemId = Guid.Parse("44444444-4444-4444-8444-444444444444");
+        var workspaceId = Guid.Parse("55555555-5555-4555-8555-555555555555");
+        const string executionId = "exporter:019946d1-fbc1-7d99-9ce7-1c721b406ff0";
+        var token = selfIssued.MintWorkerExecution(
+            principalId,
+            tenantId,
+            jobId,
+            itemId,
+            workspaceId,
+            "subtree",
+            executionId);
+        var validator = new NixTokenValidator(
+            new RegistrationDirectory(new Dictionary<string, IdentityProviderRegistration>()),
+            selfIssued);
+
+        var result = await validator.ValidateAsync(token, TestContext.Current.CancellationToken);
+
+        var worker = Assert.IsType<ValidatedWorkerExecutionToken>(result);
+        Assert.Equal(tenantId, worker.TenantId);
+        Assert.Equal(principalId, worker.PrincipalId);
+        Assert.Equal(jobId, worker.JobId);
+        Assert.Equal(itemId, worker.ItemId);
+        Assert.Equal(workspaceId, worker.WorkspaceId);
+        Assert.Equal("subtree", worker.Scope);
+        Assert.Equal(executionId, worker.ExecutionId);
+    }
+
     [Theory]
     [InlineData("api", "service")]
     [InlineData("service", "api")]
