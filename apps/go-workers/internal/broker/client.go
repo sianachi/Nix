@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -116,9 +117,28 @@ func (client *Client) Consume(ctx context.Context, queue, consumerName string, p
 }
 
 func (client *Client) PublishResult(ctx context.Context, result WorkerResult) error {
+	return client.publish(ctx, ResultsExchange, ResultRoutingKey, result.MessageID, result.JobID, result.MessageType, result.OccurredAt, "", true, result)
+}
+
+func (client *Client) PublishCapabilities(ctx context.Context, capabilities WorkerCapabilities) error {
+	return client.publish(ctx, CapabilitiesExchange, "worker."+capabilities.Role, capabilities.MessageID, capabilities.InstanceID, capabilities.MessageType, capabilities.OccurredAt, "90000", false, capabilities)
+}
+
+func (client *Client) NewMessageID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	value[6] = value[6]&0x0f | 0x40
+	value[8] = value[8]&0x3f | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
+}
+
+func (client *Client) publish(ctx context.Context, exchange, routingKey, messageID, correlationID, messageType string, occurredAt time.Time, expiration string, persistent bool, value any) error {
 	client.publishMu.Lock()
 	defer client.publishMu.Unlock()
-	body, err := json.Marshal(result)
+	body, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -129,28 +149,41 @@ func (client *Client) PublishResult(ctx context.Context, result WorkerResult) er
 	if err != nil {
 		return err
 	}
-	if err := channel.PublishWithContext(ctx, ResultsExchange, ResultRoutingKey, true, false, amqp.Publishing{
+	deliveryMode := uint8(amqp.Transient)
+	if persistent {
+		deliveryMode = amqp.Persistent
+	}
+	if err := channel.PublishWithContext(ctx, exchange, routingKey, true, false, amqp.Publishing{
 		ContentType:     "application/json",
 		ContentEncoding: "utf-8",
-		DeliveryMode:    amqp.Persistent,
-		MessageId:       result.MessageID,
-		CorrelationId:   result.JobID,
-		Type:            result.MessageType,
-		Timestamp:       result.OccurredAt,
+		DeliveryMode:    deliveryMode,
+		Expiration:      expiration,
+		MessageId:       messageID,
+		CorrelationId:   correlationID,
+		Type:            messageType,
+		Timestamp:       occurredAt,
 		AppId:           "nix-worker",
 		Body:            body,
 	}); err != nil {
 		client.resetPublisher()
-		return fmt.Errorf("publish worker result: %w", err)
+		return fmt.Errorf("publish broker message: %w", err)
 	}
 	select {
 	case returned := <-client.returns:
 		client.resetPublisher()
-		return fmt.Errorf("worker result was unroutable: %s", returned.ReplyText)
+		return fmt.Errorf("broker message was unroutable: %s", returned.ReplyText)
 	case confirmation := <-client.confirmations:
 		if !confirmation.Ack {
 			client.resetPublisher()
-			return errors.New("worker result was not confirmed")
+			return errors.New("broker message was not confirmed")
+		}
+		// A mandatory unroutable publish is returned before its positive publisher confirmation.
+		// Check the buffered return after the ack so select cannot report a false success.
+		select {
+		case returned := <-client.returns:
+			client.resetPublisher()
+			return fmt.Errorf("broker message was unroutable: %s", returned.ReplyText)
+		default:
 		}
 		return nil
 	case <-ctx.Done():

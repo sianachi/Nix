@@ -3,6 +3,13 @@ package exporter
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
+	"encoding/xml"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,4 +55,266 @@ func TestWriteProducesDOCXAndPDF(t *testing.T) {
 			t.Fatalf("Write(%s) produced no output", format)
 		}
 	}
+}
+
+func TestProseProjectionRetainsReadableStructureWithoutLeakingJSON(t *testing.T) {
+	body := json.RawMessage(`{"schemaVersion":2,"prosemirror":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Plan"}]},{"type":"paragraph","content":[{"type":"text","text":"Ship it","marks":[{"type":"bold"}]}]}]}}`)
+	projected, losses, err := ProjectBody(body, true, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected != "## Plan\n\n**Ship it**" || len(losses) != 0 || strings.Contains(projected, "prosemirror") {
+		t.Fatalf("ProjectBody() = %q, %#v", projected, losses)
+	}
+}
+
+func TestStreamingMarkdownConsumesEachRecordOnce(t *testing.T) {
+	records := []stream.Record{{ID: "one", Title: "One", Body: "First"}, {ID: "two", Title: "Two", Body: "Second"}}
+	index := 0
+	var output bytes.Buffer
+	err := WriteStream("markdown", func() (stream.Record, bool, error) {
+		if index == len(records) {
+			return stream.Record{}, false, nil
+		}
+		value := records[index]
+		index++
+		return value, true, nil
+	}, &output, stream.Limits{MaxBytes: 4096, MaxLine: 1024, MaxRecords: 2})
+	if err != nil || index != 2 || output.String() != "# One\n\nFirst\n\n# Two\n\nSecond\n\n" {
+		t.Fatalf("WriteStream() = %q, calls %d, %v", output.String(), index, err)
+	}
+}
+
+func TestConvertedFilesCarryTheirObservedLossReport(t *testing.T) {
+	records := []stream.Record{{ID: "one", Title: "One", Body: "Body"}}
+	limits := stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}
+	index := 0
+	var output bytes.Buffer
+	err := WriteStreamWithReport("markdown", func() (stream.Record, bool, error) {
+		if index == len(records) {
+			return stream.Record{}, false, nil
+		}
+		record := records[index]
+		index++
+		return record, true, nil
+	}, &output, limits, func() []string { return []string{"A view was omitted."} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "## What did not come across") || !strings.Contains(output.String(), "- A view was omitted.") {
+		t.Fatalf("Markdown omitted its fidelity appendix: %q", output.String())
+	}
+}
+
+func TestDOCXPreservesProjectedHeadingsListsLinksTablesAndReport(t *testing.T) {
+	body := "## Plan\n\n**Bold** and *italic* with [site](https://example.test/a_\\(b\\) \"A title\").\n\n- First\n1. Step\n\n| Name | State |\n| --- | --- |\n| Nix | Ready |"
+	var output bytes.Buffer
+	index := 0
+	err := WriteStreamWithReport("docx", func() (stream.Record, bool, error) {
+		if index > 0 {
+			return stream.Record{}, false, nil
+		}
+		index++
+		return stream.Record{ID: "one", Title: "Title", Body: body}, true, nil
+	}, &output, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}, func() []string {
+		return []string{"A property was omitted."}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := readZipText(t, archive, "word/document.xml")
+	for _, expected := range []string{
+		`w:pStyle w:val="Heading2"`,
+		`w:numId w:val="1"`,
+		`w:numId w:val="2"`,
+		`<w:b/>`,
+		`<w:i/>`,
+		`<w:fldSimple`,
+		`https://example.test/a_(b)`,
+		`<w:tbl>`,
+		`What did not come across`,
+		`A property was omitted.`,
+	} {
+		if !strings.Contains(document, expected) {
+			t.Fatalf("document.xml omitted %q:\n%s", expected, document)
+		}
+	}
+	numbering := readZipText(t, archive, "word/numbering.xml")
+	if !strings.Contains(numbering, `w:ilvl="8"`) {
+		t.Fatalf("numbering.xml omitted bounded nested levels: %s", numbering)
+	}
+}
+
+func TestDOCXFlattensAFieldInstructionTargetToVisibleText(t *testing.T) {
+	var output bytes.Buffer
+	err := Write("docx", []stream.Record{{
+		ID: "one", Title: "Title", Body: `[unsafe](https://example.test/a\"\\l) after`,
+	}}, &output, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := readZipText(t, archive, "word/document.xml")
+	if strings.Contains(document, `<w:fldSimple`) || strings.Contains(document, `\\l`) {
+		t.Fatalf("DOCX retained an unsafe field instruction: %s", document)
+	}
+	if !strings.Contains(document, "unsafe") || !strings.Contains(document, "after") {
+		t.Fatalf("DOCX did not retain the visible link text: %s", document)
+	}
+}
+
+func TestPDFFlattensMarkdownSyntaxAndCarriesItsReport(t *testing.T) {
+	var output bytes.Buffer
+	index := 0
+	err := WriteStreamWithReport("pdf", func() (stream.Record, bool, error) {
+		if index > 0 {
+			return stream.Record{}, false, nil
+		}
+		index++
+		return stream.Record{ID: "one", Title: "Title", Body: "## Plan\n\n**Bold** [site](https://example.test)"}, true, nil
+	}, &output, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}, func() []string {
+		return []string{"A view was omitted."}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, expected := range []string{"(Plan) Tj", "(Bold site) Tj", "(What did not come across) Tj", "(- A view was omitted.) Tj"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("PDF omitted %q", expected)
+		}
+	}
+	if strings.Contains(text, "**Bold**") {
+		t.Fatal("PDF exposed Markdown formatting syntax")
+	}
+}
+
+func TestDOCXAndPDFAreDeterministicForTheSameRecords(t *testing.T) {
+	records := []stream.Record{{ID: "one", Title: "Title", Body: "Body"}}
+	limits := stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}
+	for _, format := range []string{"docx", "pdf"} {
+		var first, second bytes.Buffer
+		if err := Write(format, records, &first, limits); err != nil {
+			t.Fatal(err)
+		}
+		if err := Write(format, records, &second, limits); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(first.Bytes(), second.Bytes()) {
+			t.Fatalf("%s output changed for identical input", format)
+		}
+	}
+}
+
+func TestDOCXContainsOnlyWellFormedXMLAfterHostileText(t *testing.T) {
+	var output bytes.Buffer
+	err := Write("docx", []stream.Record{{
+		ID: "one", Title: "Line\nwith\u0001control", Body: "Body\ufffe text",
+	}}, &output, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range archive.File {
+		if !strings.HasSuffix(entry.Name, ".xml") && !strings.HasSuffix(entry.Name, ".rels") {
+			continue
+		}
+		reader, err := entry.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoder := xml.NewDecoder(reader)
+		for {
+			if _, err := decoder.Token(); err == io.EOF {
+				break
+			} else if err != nil {
+				_ = reader.Close()
+				t.Fatalf("%s is not well-formed XML: %v", entry.Name, err)
+			}
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPDFStartXrefPointsAtTheCrossReferenceTable(t *testing.T) {
+	var output bytes.Buffer
+	if err := Write("pdf", []stream.Record{{ID: "one", Title: "Title", Body: strings.Repeat("line\n", 80)}}, &output, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10}); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	marker := strings.LastIndex(text, "startxref\n")
+	if marker < 0 {
+		t.Fatal("PDF omitted startxref")
+	}
+	line := strings.SplitN(text[marker+len("startxref\n"):], "\n", 2)[0]
+	offset, err := strconv.Atoi(line)
+	if err != nil || offset < 0 || !strings.HasPrefix(text[offset:], "xref\n") {
+		t.Fatalf("startxref = %q, %v", line, err)
+	}
+}
+
+func TestPDFPassesPopplerValidationWhenAvailable(t *testing.T) {
+	pdfinfo, err := exec.LookPath("pdfinfo")
+	if err != nil {
+		t.Skip("pdfinfo is not installed")
+	}
+	path := filepath.Join(t.TempDir(), "export.pdf")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeErr := Write("pdf", []stream.Record{{ID: "one", Title: "Title", Body: strings.Repeat("line\n", 80)}}, file, stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10})
+	closeErr := file.Close()
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if output, err := exec.CommandContext(t.Context(), pdfinfo, path).CombinedOutput(); err != nil {
+		t.Fatalf("pdfinfo refused export: %v\n%s", err, output)
+	}
+}
+
+func TestProjectedTitleIsOneSafeLine(t *testing.T) {
+	title, lost := ProjectTitle("  A\nB\u0001\ufffe  ", false)
+	if title != "A B" || !lost {
+		t.Fatalf("ProjectTitle() = %q, %v", title, lost)
+	}
+}
+
+func readZipText(t *testing.T, archive *zip.Reader, name string) string {
+	t.Helper()
+	for _, entry := range archive.File {
+		if entry.Name != name {
+			continue
+		}
+		reader, err := entry.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		return string(body)
+	}
+	t.Fatalf("archive omitted %s", name)
+	return ""
 }

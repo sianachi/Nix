@@ -1,85 +1,79 @@
+import type { ExportFormat } from '@nix/api-client';
 import { describe, expect, it } from 'vitest';
 
-import { EXPORT_FORMATS, formatFor, type ExportFormat } from '../../export/export-formats';
+import {
+  formatFor,
+  formatPreamble,
+  partialExportSummary,
+  preferredFormat,
+} from '../../export/export-formats';
 
-/**
- * The formats offered, and the promises made about them.
- *
- * The substantive guarantee - that what somebody is told matches what the converter actually drops
- * - is enforced in the converter packages, where `declaredLoss()` is asserted to cover every loss a
- * document of every block produces. Those packages are Node-only, so this suite checks the part
- * that lives here: that the copy exists, names specifics, and points at where the file repeats it.
- */
+const markdown: ExportFormat = {
+  format: 'markdown',
+  label: 'Markdown',
+  extension: 'md',
+  mediaType: 'text/markdown',
+  lossless: false,
+  declaredLoss: ['Interactive views become text.', 'Comments are omitted.'],
+};
+const archive: ExportFormat = {
+  format: 'nix',
+  label: 'Archive',
+  extension: 'nix',
+  mediaType: 'application/vnd.nix.archive+zip',
+  lossless: true,
+  declaredLoss: [],
+};
 
-describe('the formats on offer', () => {
-  it('offers the lossless one and the three lossy ones', () => {
-    expect(EXPORT_FORMATS.map((format) => format.value)).toEqual(['nix', 'pdf', 'docx', 'md']);
+describe('advertised export formats', () => {
+  it('prefers whichever active format advertises itself as lossless', () => {
+    expect(preferredFormat([markdown, archive])).toBe(archive);
   });
 
-  it('sends the lossless one to the service that holds the documents', () => {
-    // Not the media service, deliberately: leaving with everything cannot depend on a converter.
-    expect(formatFor('nix').baseUrl).toBe('/collab');
-    expect(formatFor('pdf').baseUrl).toBe('/media');
-    expect(formatFor('docx').baseUrl).toBe('/media');
-    expect(formatFor('md').baseUrl).toBe('/media');
+  it('uses the first advertised projection when no lossless worker is active', () => {
+    expect(preferredFormat([markdown])).toBe(markdown);
+    expect(preferredFormat([])).toBeUndefined();
   });
 
-  it('says what the page-shaped lossy formats will not carry, in specifics rather than hedges', () => {
-    for (const format of ['pdf', 'docx'] as const) {
-      const { preamble } = formatFor(format);
+  it('finds formats by their advertised identifier without a hardcoded format union', () => {
+    const pluginFormat = { ...markdown, format: 'epub', label: 'EPUB', extension: 'epub' };
 
-      // The three a person is most likely to notice missing, named rather than gestured at.
-      expect(preamble).toContain('Comments');
-      expect(preamble).toContain('images stored elsewhere');
-      expect(preamble).toMatch(/collapsed section/);
-    }
+    expect(formatFor([archive, pluginFormat], 'epub')).toBe(pluginFormat);
+    expect(formatFor([archive], 'epub')).toBeUndefined();
   });
 
-  it('says what Markdown will not carry, without claiming it drops links or images', () => {
-    // Markdown keeps references as nix:// links and images as image links, so it loses a different
-    // set than the page formats: comments, inline colour, columns and views - not images or links.
-    const { preamble } = formatFor('md');
+  it('shows the worker’s declared fidelity limits before a projected export starts', () => {
+    const preamble = formatPreamble(markdown);
 
-    expect(preamble).toContain('Comments');
-    expect(preamble).toMatch(/text colour and highlighting/);
-    expect(preamble).toMatch(/single column/);
-    expect(preamble).toMatch(/[Bb]oards, calendars and galleries/);
-    expect(preamble).not.toContain('images stored elsewhere');
+    expect(preamble).toContain('Interactive views become text.');
+    expect(preamble).toContain('Comments are omitted.');
+    expect(preamble).toContain('completed export repeats');
   });
 
-  it('claims no loss for the archive, which is the one format that has none', () => {
-    expect(formatFor('nix').preamble).toContain('without losing anything');
+  it('does not invent fidelity guarantees when a projected worker advertises no detail', () => {
+    expect(formatPreamble({ ...markdown, declaredLoss: [] })).toContain(
+      'did not advertise specific fidelity limits',
+    );
   });
 
-  it('says where the file repeats what it left out', () => {
-    expect(formatFor('pdf').reportLocation).toContain('last page');
-    expect(formatFor('docx').reportLocation).toContain('last section');
-    expect(formatFor('nix').reportLocation).toContain('manifest');
-  });
-
-  it('gives every format a file extension of its own', () => {
-    const extensions = EXPORT_FORMATS.map((format) => format.extension);
-
-    expect(new Set(extensions).size).toBe(extensions.length);
-  });
-
-  it('refuses a format it does not have rather than falling back to one it does', () => {
-    // Falling back would export a format nobody asked for, which is worse than an error.
-    expect(() => formatFor('markdown' as ExportFormat)).toThrow(/no export format/);
+  it('states the lossless advertisement without naming a specific implementation', () => {
+    expect(formatPreamble(archive)).toContain('advertised as lossless');
+    expect(formatPreamble(archive)).not.toMatch(/media|collab/i);
   });
 });
 
-describe('what the copy says about views', () => {
-  it('tells somebody a board becomes a picture, before they choose', () => {
-    // A view is the thing an item is *for* in a workspace that uses boards, so "it became a
-    // picture" is the sentence most likely to change which format somebody picks.
-    for (const format of ['pdf', 'docx'] as const) {
-      expect(formatFor(format).preamble).toMatch(/[Bb]oards, calendars and galleries/);
-    }
-  });
+describe('the completed export report', () => {
+  it('reports counts, fidelity changes, and omissions from the durable result', () => {
+    const summary = partialExportSummary({
+      itemCount: 42,
+      omittedCount: 2,
+      loss: ['A board became a static list.'],
+      omissions: ['One deleted item was omitted.'],
+    });
 
-  it('says what a picture cannot do, rather than only that it is one', () => {
-    expect(formatFor('pdf').preamble).toContain('cannot be sorted or clicked');
-    expect(formatFor('docx').preamble).toContain('cannot be edited');
+    expect(summary).toContain('42 items were exported');
+    expect(summary).toContain('2 items were omitted');
+    expect(summary).toContain('A board became a static list.');
+    expect(summary).toContain('One deleted item was omitted.');
   });
 });

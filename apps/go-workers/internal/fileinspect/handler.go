@@ -14,6 +14,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
+	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
 var Kinds = []string{"file.inspect"}
@@ -75,7 +76,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		}
 		return nil, transient("files.object_unavailable", err)
 	}
-	temporary, err := os.CreateTemp("", "nix-file-inspection-*")
+	temporary, err := worktemp.Create("nix-file-inspection-*")
 	if err != nil {
 		_ = download.Body.Close()
 		return nil, transient("files.staging_unavailable", err)

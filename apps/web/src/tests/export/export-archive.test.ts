@@ -1,180 +1,234 @@
+import type { Export, NixClient } from '@nix/api-client';
 import { describe, expect, it, vi } from 'vitest';
 
-import { fileNameFrom, requestArchive, type ArchiveOutcome } from '../../export/export-archive';
+import {
+  fileNameFrom,
+  requestArchive,
+  saveArchive,
+  type ArchiveOutcome,
+} from '../../export/export-archive';
 
-/** The refusal, or a failed test. Narrows the outcome so the message can be read from it. */
+const EXPORT_ID = 'a1111111-1111-4111-8111-111111111111';
+const ITEM_ID = 'a2222222-2222-4222-8222-222222222222';
+const WORKSPACE_ID = 'a3333333-3333-4333-8333-333333333333';
+
+function state(status: Export['status'], overrides: Partial<Export> = {}): Export {
+  const completed = status === 'completed';
+  return {
+    id: EXPORT_ID,
+    itemId: ITEM_ID,
+    workspaceId: WORKSPACE_ID,
+    format: 'nix',
+    scope: 'subtree',
+    fileName: 'notes.nix',
+    mediaType: 'application/vnd.nix.archive+zip',
+    status,
+    itemCount: completed ? 3 : null,
+    omittedCount: completed ? 0 : null,
+    byteLength: completed ? 128 : null,
+    sha256: completed ? 'a'.repeat(64) : null,
+    loss: [],
+    omissions: [],
+    failureCode: null,
+    failureDetail: null,
+    cancellationRequested: false,
+    downloadReady: completed,
+    createdAt: '2026-09-01T09:00:00+00:00',
+    completedAt: completed ? '2026-09-01T09:00:02+00:00' : null,
+    expiresAt: completed ? '2026-09-02T09:00:02+00:00' : null,
+    ...overrides,
+  };
+}
+
+function capability() {
+  return {
+    url: 'https://objects.example/private/notes.nix?signature=secret',
+    expiresAt: '2999-09-01T09:10:00+00:00',
+    fileName: 'notes.nix',
+    mediaType: 'application/vnd.nix.archive+zip',
+    byteLength: 128,
+    sha256: 'a'.repeat(64),
+  };
+}
+
+interface SeenEndpoint {
+  readonly operation: string;
+  readonly body?: {
+    readonly itemId: string;
+    readonly scope: string;
+    readonly format: string;
+    readonly idempotencyKey: string;
+  };
+}
+
+function clientFor(states: readonly Export[], download = capability()) {
+  const pending = [...states];
+  const execute = vi.fn((endpoint: SeenEndpoint) => {
+    if (endpoint.operation === 'exports.begin') return Promise.resolve(state('queued'));
+    if (endpoint.operation === 'exports.cancel') return Promise.resolve(undefined);
+    return Promise.reject(new Error(`Unexpected command ${endpoint.operation}`));
+  });
+  const query = vi.fn((endpoint: SeenEndpoint) => {
+    if (endpoint.operation === 'exports.get') {
+      return Promise.resolve(pending.shift() ?? state('completed'));
+    }
+    if (endpoint.operation === 'exports.download.authorize') {
+      return Promise.resolve(download);
+    }
+    return Promise.reject(new Error(`Unexpected query ${endpoint.operation}`));
+  });
+  return {
+    client: { execute, query } as unknown as NixClient,
+    execute,
+    query,
+  };
+}
+
 function refusalOf(outcome: ArchiveOutcome): string {
-  if (outcome.ok) {
-    throw new Error('Expected a refusal, but the export succeeded.');
-  }
-
+  if (outcome.ok) throw new Error('Expected a refusal, but the export succeeded.');
   return outcome.error;
 }
 
-const ITEM = 'c1000000-0000-4000-8000-000000000031';
-
-function ok(headers: Record<string, string> = {}): Response {
-  return new Response(new Blob(['zip bytes']), {
-    status: 200,
-    headers: {
-      'content-type': 'application/zip',
-      'content-disposition': 'attachment; filename="notes.nix"',
-      'x-nix-export-items': '3',
-      'x-nix-export-omitted': '0',
-      ...headers,
-    },
-  });
-}
-
-function request(overrides: Partial<Parameters<typeof requestArchive>[0]> = {}) {
-  return requestArchive({
-    itemId: ITEM,
-    scope: 'subtree',
-    getAccessToken: () => Promise.resolve('token'),
-    fetchImpl: () => Promise.resolve(ok()),
-    ...overrides,
-  });
-}
-
 describe('requestArchive', () => {
-  it('asks the collaboration service for the scope it was given, with the caller’s token', async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(ok()));
+  it('creates and polls a Core job before authorizing its download', async () => {
+    const fake = clientFor([state('running'), state('completed')]);
+    const progress: string[] = [];
 
-    await request({ fetchImpl, scope: 'item' });
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      `/collab/documents/${ITEM}/export?scope=item&format=nix`,
-      expect.objectContaining({ headers: { authorization: 'Bearer token' } }),
-    );
-  });
-
-  it('reports what the archive holds and what it left out', async () => {
-    const outcome = await request({
-      fetchImpl: () =>
-        Promise.resolve(ok({ 'x-nix-export-items': '42', 'x-nix-export-omitted': '6' })),
+    const outcome = await requestArchive({
+      client: fake.client,
+      itemId: ITEM_ID,
+      scope: 'subtree',
+      format: 'nix',
+      pollIntervalMs: 10,
+      onProgress: (exportState) => progress.push(exportState.status),
     });
 
     expect(outcome).toMatchObject({
       ok: true,
-      value: { itemCount: 42, omittedCount: 6, fileName: 'notes.nix' },
+      value: {
+        fileName: 'notes.nix',
+        downloadUrl: capability().url,
+        itemCount: 3,
+        omittedCount: 0,
+      },
+    });
+    expect(progress).toEqual(['queued', 'running', 'completed']);
+    const command = fake.execute.mock.calls[0]?.[0];
+    expect(command?.operation).toBe('exports.begin');
+    expect(command?.body).toMatchObject({
+      itemId: ITEM_ID,
+      scope: 'subtree',
+      format: 'nix',
+    });
+    expect(command?.body?.idempotencyKey).toMatch(/^web-export:/);
+    expect(fake.query.mock.calls.at(-1)?.[0].operation).toBe('exports.download.authorize');
+  });
+
+  it('returns the worker failure detail instead of asking for a download', async () => {
+    const fake = clientFor([
+      state('failed', {
+        failureCode: 'export.converter_failed',
+        failureDetail: 'The PDF converter rejected this document.',
+      }),
+    ]);
+
+    const outcome = await requestArchive({
+      client: fake.client,
+      itemId: ITEM_ID,
+      scope: 'item',
+      format: 'pdf',
+      pollIntervalMs: 10,
+    });
+
+    expect(refusalOf(outcome)).toBe('The PDF converter rejected this document.');
+    expect(
+      fake.query.mock.calls.some(
+        ([endpoint]) => endpoint.operation === 'exports.download.authorize',
+      ),
+    ).toBe(false);
+  });
+
+  it('reports durable cancellation separately from a worker failure', async () => {
+    const outcome = await requestArchive({
+      client: clientFor([state('cancelled')]).client,
+      itemId: ITEM_ID,
+      scope: 'item',
+      format: 'nix',
+      pollIntervalMs: 10,
+    });
+
+    expect(outcome).toEqual({
+      ok: false,
+      cancelled: true,
+      error: 'The export was cancelled.',
     });
   });
 
-  it('says the session expired rather than sending an unauthenticated request', async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(ok()));
-
-    const outcome = await request({ getAccessToken: () => Promise.resolve(null), fetchImpl });
-
-    expect(refusalOf(outcome)).toContain('session has expired');
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('passes the service’s own refusal through rather than inventing one', async () => {
-    const outcome = await request({
-      fetchImpl: () =>
-        Promise.resolve(
-          new Response(JSON.stringify({ code: 'invalid_scope', detail: 'Not a scope.' }), {
-            status: 400,
-            headers: { 'content-type': 'application/problem+json' },
-          }),
-        ),
+  it('does not claim a download exists when a completed job says it is unavailable', async () => {
+    const outcome = await requestArchive({
+      client: clientFor([state('completed', { downloadReady: false })]).client,
+      itemId: ITEM_ID,
+      scope: 'item',
+      format: 'nix',
+      pollIntervalMs: 10,
     });
 
-    expect(outcome).toEqual({ ok: false, error: 'Not a scope.' });
+    expect(refusalOf(outcome)).toContain('download is not available');
   });
 
-  it('does not claim a reason when the refusal carries none', async () => {
-    const outcome = await request({
-      fetchImpl: () => Promise.resolve(new Response('<html>gateway</html>', { status: 502 })),
+  it('refuses a capability whose checksum does not match the completed job', async () => {
+    const outcome = await requestArchive({
+      client: clientFor([state('completed')], { ...capability(), sha256: 'b'.repeat(64) }).client,
+      itemId: ITEM_ID,
+      scope: 'item',
+      format: 'nix',
+      pollIntervalMs: 10,
     });
 
-    expect(refusalOf(outcome)).toContain('502');
+    expect(refusalOf(outcome)).toContain('did not match the completed job');
   });
+});
 
-  it('reports a cancelled export as cancelled, not as a failure to reach the service', async () => {
-    const outcome = await request({
-      fetchImpl: () => Promise.reject(new DOMException('aborted', 'AbortError')),
+describe('saveArchive', () => {
+  it('hands the private capability directly to the browser without fetching it into memory', () => {
+    const clicked: HTMLAnchorElement[] = [];
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function capture(this: HTMLAnchorElement) {
+        clicked.push(this);
+      });
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+
+    saveArchive({
+      exportId: EXPORT_ID,
+      fileName: 'notes.nix',
+      downloadUrl: capability().url,
+      capabilityExpiresAt: capability().expiresAt,
+      mediaType: capability().mediaType,
+      byteLength: capability().byteLength,
+      sha256: capability().sha256,
+      itemCount: 3,
+      omittedCount: 0,
+      loss: [],
+      omissions: [],
     });
 
-    expect(outcome).toEqual({ ok: false, error: 'The export was cancelled.' });
-  });
-
-  it('treats a missing count header as nothing rather than as NaN', async () => {
-    const outcome = await request({
-      fetchImpl: () =>
-        Promise.resolve(
-          new Response(new Blob(['zip']), {
-            status: 200,
-            headers: { 'content-disposition': 'attachment; filename="a.nix"' },
-          }),
-        ),
-    });
-
-    expect(outcome).toMatchObject({ ok: true, value: { itemCount: 0, omittedCount: 0 } });
+    expect(click).toHaveBeenCalledOnce();
+    const anchor = clicked[0];
+    expect(anchor?.href).toBe(capability().url);
+    expect(anchor?.download).toBe('notes.nix');
+    expect(anchor?.referrerPolicy).toBe('no-referrer');
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
 describe('fileNameFrom', () => {
-  it('takes the name the service chose', () => {
+  it('keeps the legacy template archive name parser bounded to one quoted filename', () => {
     expect(fileNameFrom('attachment; filename="quarterly-review.nix"')).toBe(
       'quarterly-review.nix',
     );
-  });
-
-  it('falls back rather than downloading something with no name', () => {
     expect(fileNameFrom(null)).toBe('export.nix');
-    expect(fileNameFrom('attachment')).toBe('export.nix');
-  });
-});
-
-/**
- * Which service answers, and what the file is called.
- *
- * Two services produce exports - the collaboration service holds the document log and writes the
- * lossless archive, the media service converts - and the format is the only thing that decides
- * between them. A client picking the wrong one gets a 400 rather than a file, so this is worth
- * pinning rather than assuming.
- */
-describe('choosing a format', () => {
-  it('asks the collaboration service for the archive, which is the default', async () => {
-    const fetchImpl = vi.fn((url: string) => {
-      expect(url).toContain('/collab/documents/');
-      return Promise.resolve(ok());
-    });
-
-    await request({ fetchImpl, scope: 'item' });
-
-    expect(fetchImpl).toHaveBeenCalled();
-  });
-
-  it('asks the media service for a PDF', async () => {
-    const seen: string[] = [];
-    const fetchImpl = vi.fn((url: string) => {
-      seen.push(url);
-      return Promise.resolve(ok());
-    });
-
-    await request({ fetchImpl, scope: 'item', format: 'pdf' });
-
-    expect(seen).toEqual([`/media/documents/${ITEM}/export?scope=item&format=pdf`]);
-  });
-
-  it('asks the media service for a Word document', async () => {
-    const seen: string[] = [];
-    const fetchImpl = vi.fn((url: string) => {
-      seen.push(url);
-      return Promise.resolve(ok());
-    });
-
-    await request({ fetchImpl, scope: 'subtree', format: 'docx' });
-
-    expect(seen).toEqual([`/media/documents/${ITEM}/export?scope=subtree&format=docx`]);
-  });
-
-  it('falls back to a name in the format that was asked for, when a proxy strips the header', () => {
-    // A download with no name is worse than a generic one, and a .nix suffix on a PDF is worse
-    // still - the operating system would open it with nothing.
-    expect(fileNameFrom(null, 'pdf')).toBe('export.pdf');
-    expect(fileNameFrom(null)).toBe('export.nix');
+    expect(fileNameFrom('attachment', 'pdf')).toBe('export.pdf');
   });
 });

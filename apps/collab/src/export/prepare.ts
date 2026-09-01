@@ -106,3 +106,16 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
 export function readScope(value: unknown): ExportScope | null {
   return value === 'item' || value === 'subtree' ? value : null;
 }
+
+/** Parses the durable job timestamp used to keep retries byte-stable where the format permits. */
+export function readExportedAt(value: unknown): Date | null {
+  if (
+    typeof value !== 'string' ||
+    value.length > 64 ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  ) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}

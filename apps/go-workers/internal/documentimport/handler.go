@@ -18,6 +18,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
+	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
 var Kinds = []string{
@@ -359,7 +360,7 @@ func (handler *Handler) download(ctx context.Context, sourceURL string, maximum 
 	if err != nil {
 		return localObject{}, err
 	}
-	file, err := os.CreateTemp("", "nix-document-import-*")
+	file, err := worktemp.Create("nix-document-import-*")
 	if err != nil {
 		_ = download.Body.Close()
 		return localObject{}, err

@@ -667,7 +667,6 @@ function OpenItem({
           // Straight from the tree node, which already carries it - the scope picker is hidden for
           // an item with nothing inside rather than offering a question with one real answer.
           hasChildren={tree.find(itemId)?.hasChildren ?? false}
-          getAccessToken={getAccessToken}
           onClose={() => {
             setExportOpen(false);
           }}

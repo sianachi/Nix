@@ -17,6 +17,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
+	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
 var Kinds = []string{"import.nix", "import.markdown", "import.txt", "import.docx", "import.pdf"}
@@ -86,7 +87,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if payload.DestinationURL == "" {
 		return nil, invalid("import_payload_invalid", errors.New("destinationUrl is required outside preview mode"))
 	}
-	file, err := os.CreateTemp("", "nix-import-stage-*")
+	file, err := worktemp.Create("nix-import-stage-*")
 	if err != nil {
 		return nil, invalid("import_stage_failed", err)
 	}
