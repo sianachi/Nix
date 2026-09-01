@@ -61,6 +61,37 @@ type Job struct {
 	CancellationRequested bool            `json:"cancellationRequested"`
 }
 
+// UnmarshalJSON accepts the dispatch contract's legacy string-encoded payload
+// as well as a native JSON value. Core stores payloads as JSON text, and the
+// current internal response contract exposes that text as a JSON string.
+// Normalizing it here keeps every worker handler on the same payload shape.
+func (job *Job) UnmarshalJSON(data []byte) error {
+	type wireJob Job
+	var value struct {
+		ID                    string          `json:"id"`
+		TenantID              string          `json:"tenantId"`
+		WorkspaceID           *string         `json:"workspaceId"`
+		ActorID               *string         `json:"actorId"`
+		Kind                  string          `json:"kind"`
+		Payload               json.RawMessage `json:"payload"`
+		Attempts              int             `json:"attempts"`
+		CancellationRequested bool            `json:"cancellationRequested"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	payload, err := unwrapJSONText(value.Payload)
+	if err != nil {
+		return fmt.Errorf("decode job payload: %w", err)
+	}
+	*job = Job(wireJob{
+		ID: value.ID, TenantID: value.TenantID, WorkspaceID: value.WorkspaceID,
+		ActorID: value.ActorID, Kind: value.Kind, Payload: payload,
+		Attempts: value.Attempts, CancellationRequested: value.CancellationRequested,
+	})
+	return nil
+}
+
 type OutboxEvent struct {
 	ID          string          `json:"id"`
 	TenantID    string          `json:"tenantId"`
@@ -70,6 +101,58 @@ type OutboxEvent struct {
 	Payload     json.RawMessage `json:"payload"`
 	Attempts    int             `json:"attempts"`
 	AvailableAt time.Time       `json:"availableAt"`
+}
+
+// UnmarshalJSON mirrors Job so outbox consumers receive the same canonical
+// payload representation regardless of which Core response serializer they
+// are talking to.
+func (event *OutboxEvent) UnmarshalJSON(data []byte) error {
+	type wireEvent OutboxEvent
+	var value struct {
+		ID          string          `json:"id"`
+		TenantID    string          `json:"tenantId"`
+		WorkspaceID *string         `json:"workspaceId"`
+		ItemID      *string         `json:"itemId"`
+		Kind        string          `json:"kind"`
+		Payload     json.RawMessage `json:"payload"`
+		Attempts    int             `json:"attempts"`
+		AvailableAt time.Time       `json:"availableAt"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	payload, err := unwrapJSONText(value.Payload)
+	if err != nil {
+		return fmt.Errorf("decode outbox payload: %w", err)
+	}
+	*event = OutboxEvent(wireEvent{
+		ID: value.ID, TenantID: value.TenantID, WorkspaceID: value.WorkspaceID,
+		ItemID: value.ItemID, Kind: value.Kind, Payload: payload,
+		Attempts: value.Attempts, AvailableAt: value.AvailableAt,
+	})
+	return nil
+}
+
+func unwrapJSONText(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, errors.New("payload is missing")
+	}
+	if trimmed[0] != '"' {
+		if !json.Valid(trimmed) {
+			return nil, errors.New("payload is not valid JSON")
+		}
+		return append(json.RawMessage(nil), trimmed...), nil
+	}
+	var encoded string
+	if err := json.Unmarshal(trimmed, &encoded); err != nil {
+		return nil, fmt.Errorf("payload text is invalid: %w", err)
+	}
+	decoded := []byte(encoded)
+	if !json.Valid(decoded) {
+		return nil, errors.New("payload text is not valid JSON")
+	}
+	return decoded, nil
 }
 
 // IndexItemMetadata is the authoritative, body-free search projection hydrated
