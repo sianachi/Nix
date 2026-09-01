@@ -51,7 +51,7 @@ if [[ " $* " == *" apply -f - "* ]]; then
   if [[ "$payload" == *"name: nix-api-data-protection"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_API"
   fi
-  if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* ]]; then
+  if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* && "$payload" == *"name: nix-plugin-worker"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WORKERS"
   fi
   exit 0
@@ -148,11 +148,13 @@ grep -Fq 'key: api-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: import-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: export-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: index-password' "$RENDERED_RABBITMQ"
+grep -Fq 'key: plugin-password' "$RENDERED_RABBITMQ"
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_API"
 grep -Fq 'key: api-url' "$RENDERED_API"
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
 grep -Fq 'key: import-url' "$RENDERED_WORKERS"
 grep -Fq 'key: export-url' "$RENDERED_WORKERS"
 grep -Fq 'key: index-url' "$RENDERED_WORKERS"
+grep -Fq 'key: plugin-url' "$RENDERED_WORKERS"
 
 echo "deployment render-order self-test passed"

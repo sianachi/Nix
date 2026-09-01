@@ -72,6 +72,7 @@ public sealed class AccessTokenScopePolicyTests
         ["ListTemplates"] = Requirement.Read,
         ["GetTemplate"] = Requirement.Read,
         ["GetTemplateItem"] = Requirement.Read,
+        ["ListWorkspacePlugins"] = Requirement.Read,
 
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
@@ -132,6 +133,10 @@ public sealed class AccessTokenScopePolicyTests
         ["RemoveWorkspaceMember"] = Requirement.Admin,
         ["LeaveWorkspace"] = Requirement.Admin,
         ["RecoverWorkspace"] = Requirement.Admin,
+        ["BeginPluginComponentUpload"] = Requirement.Admin,
+        ["RegisterWorkspacePlugin"] = Requirement.Admin,
+        ["SetWorkspacePluginEnabled"] = Requirement.Admin,
+        ["ReplaceWorkspacePluginCapabilities"] = Requirement.Admin,
 
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,

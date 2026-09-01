@@ -81,6 +81,15 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
     }
 
     /// <inheritdoc />
+    public async ValueTask<bool> CanManageWorkspaceAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var role = await RoleInAsync(workspaceId, cancellationToken).ConfigureAwait(false);
+        return role == WorkspaceRole.Owner;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(
         CancellationToken cancellationToken)
     {
@@ -218,14 +227,30 @@ public sealed class WorkspaceMembershipResolver : IPermissionResolver
             }
         }
 
-        if (strongest is null
-            && await IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false))
+        if (strongest != WorkspaceRole.Owner
+            && await IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false)
+            && (strongest is not null
+                || await WorkspaceExistsInTenantAsync(workspaceId, cancellationToken).ConfigureAwait(false)))
         {
             strongest = WorkspaceRole.Owner;
         }
 
         _roles[workspaceId] = strongest;
         return strongest;
+    }
+
+    private async ValueTask<bool> WorkspaceExistsInTenantAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        return await _sql.ScalarOrDefaultAsync<bool>(
+            AuthorizationSql.WorkspaceExistsInTenant,
+            [
+                Uuid("tenant_id", context.TenantId.Value),
+                Uuid("workspace_id", workspaceId.Value),
+            ],
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static NpgsqlParameter Uuid(string name, Guid value) =>

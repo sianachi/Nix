@@ -52,13 +52,18 @@ rabbitmqctl await_startup
 : "${NIX_RABBITMQ_IMPORT_PASSWORD:?set NIX_RABBITMQ_IMPORT_PASSWORD}"
 : "${NIX_RABBITMQ_EXPORT_PASSWORD:?set NIX_RABBITMQ_EXPORT_PASSWORD}"
 : "${NIX_RABBITMQ_INDEX_PASSWORD:?set NIX_RABBITMQ_INDEX_PASSWORD}"
+: "${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}"
 
 if [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
+  || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ]; then
+  || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
+  || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
+  || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
+  || [ "$NIX_RABBITMQ_INDEX_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ]; then
   echo "RabbitMQ service passwords must be distinct." >&2
   exit 1
 fi
@@ -120,20 +125,25 @@ ensure_user nix-index "$NIX_RABBITMQ_INDEX_PASSWORD"
 rabbitmqctl set_permissions --vhost /nix nix-index "$no_resources" \
   "$no_resources" '^nix\.worker\.index\.v1$'
 
+ensure_user nix-plugin "$NIX_RABBITMQ_PLUGIN_PASSWORD"
+rabbitmqctl set_permissions --vhost /nix nix-plugin "$no_resources" \
+  "$no_resources" '^nix\.worker\.plugin-events\.v1$'
+
 # The all-in-one local binary needs the union of worker permissions. Production never sets this
-# value: its three deployments use the role-specific accounts above.
+# value: its role-specific deployments use the dedicated accounts above.
 if [ -n "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
   if [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_API_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ]; then
+    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ]; then
     echo "The development worker password must be distinct from service passwords." >&2
     exit 1
   fi
   ensure_user nix-worker-dev "$NIX_RABBITMQ_DEV_WORKER_PASSWORD"
   rabbitmqctl set_permissions --vhost /nix nix-worker-dev "$no_resources" \
     '^(nix\.results\.v1|nix\.capabilities\.v1)$' \
-    '^nix\.worker\.(import|export|index)\.v1$'
+    '^nix\.worker\.(import|export|index|plugin-events)\.v1$'
   rabbitmqctl set_topic_permissions --vhost /nix nix-worker-dev nix.results.v1 \
     '^job\.result$' "$no_resources"
   rabbitmqctl set_topic_permissions --vhost /nix nix-worker-dev nix.capabilities.v1 \
@@ -149,6 +159,7 @@ if [ -n "${NIX_RABBITMQ_ADMIN_PASSWORD:-}" ]; then
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
     echo "The development administrator password must be distinct from service passwords." >&2
     exit 1

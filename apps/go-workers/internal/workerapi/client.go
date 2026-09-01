@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sianachi/Nix/apps/go-workers/internal/broker"
+	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
 )
 
 const (
@@ -284,6 +287,8 @@ func (err *ResponseError) Error() string {
 	return fmt.Sprintf("worker API request to %s returned %d", err.Path, err.Status)
 }
 
+func (err *ResponseError) StatusCode() int { return err.Status }
+
 func New(baseURL, secret, owner string, timeout time.Duration) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -413,6 +418,95 @@ func (client *Client) GetIndexStatus(ctx context.Context) (*IndexQueueStatus, er
 		return nil, errors.New("worker API index status is invalid")
 	}
 	return &status, nil
+}
+
+func (client *Client) PreparePluginEvent(ctx context.Context, event broker.WorkspaceEvent, leaseSeconds int) (pluginworker.Preparation, error) {
+	if !canonicalUUID(event.MessageID) || !canonicalUUID(event.TenantID) || !canonicalUUID(event.WorkspaceID) || !canonicalUUID(event.ItemID) || leaseSeconds < 5 || leaseSeconds > 300 {
+		return pluginworker.Preparation{}, errors.New("plugin event preparation request is invalid")
+	}
+	causationID := event.MessageID
+	if event.CausationID != nil {
+		causationID = *event.CausationID
+	}
+	body, err := json.Marshal(struct {
+		TenantID         string `json:"tenantId"`
+		WorkspaceID      string `json:"workspaceId"`
+		ItemID           string `json:"itemId"`
+		Kind             string `json:"kind"`
+		AggregateVersion *int64 `json:"aggregateVersion,omitempty"`
+		CausationID      string `json:"causationId"`
+		CausationDepth   int    `json:"causationDepth"`
+		LeaseSeconds     int    `json:"leaseSeconds"`
+	}{event.TenantID, event.WorkspaceID, event.ItemID, event.Kind, event.AggregateVersion, causationID, event.CausationDepth, leaseSeconds})
+	if err != nil {
+		return pluginworker.Preparation{}, err
+	}
+	path := "/internal/worker-dispatch/plugins/events/" + url.PathEscape(event.MessageID) + "/prepare"
+	var preparation pluginworker.Preparation
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &preparation, 512<<10); err != nil {
+		return pluginworker.Preparation{}, err
+	}
+	switch preparation.Outcome {
+	case "prepared":
+		if len(preparation.Plans) == 0 || len(preparation.Plans) > 128 {
+			return pluginworker.Preparation{}, errors.New("worker API plugin plans are invalid")
+		}
+	case "busy", "settled":
+		if len(preparation.Plans) != 0 {
+			return pluginworker.Preparation{}, errors.New("worker API plugin outcome contains unexpected plans")
+		}
+	default:
+		return pluginworker.Preparation{}, errors.New("worker API plugin preparation outcome is invalid")
+	}
+	for _, plan := range preparation.Plans {
+		if !canonicalUUID(plan.InvocationID) || !canonicalUUID(plan.InstallationID) || plan.Attempt < 1 || plan.Attempt > 5 || plan.LeaseUntil.IsZero() || plan.Component.ID == "" || plan.Component.Version == "" || len(plan.Component.PublicKey) != 32 || len(plan.Component.Signature) != 64 || plan.Component.ByteLength <= 0 || plan.Component.ByteLength > 8<<20 || plan.Component.DownloadURL == "" || plan.Component.DownloadExpiresAt.IsZero() {
+			return pluginworker.Preparation{}, errors.New("worker API plugin invocation plan is invalid")
+		}
+	}
+	return preparation, nil
+}
+
+func (client *Client) CallPluginHost(ctx context.Context, invocationID, capability string, payload json.RawMessage) (json.RawMessage, error) {
+	if !canonicalUUID(invocationID) || capability == "" || len(capability) > 64 || len(payload) == 0 || len(payload) > 64<<10 || !json.Valid(payload) {
+		return nil, errors.New("plugin host call request is invalid")
+	}
+	body, err := json.Marshal(struct {
+		Capability string          `json:"capability"`
+		Request    json.RawMessage `json:"request"`
+	}{capability, payload})
+	if err != nil {
+		return nil, err
+	}
+	path := "/internal/worker-dispatch/plugins/invocations/" + url.PathEscape(invocationID) + "/host-calls"
+	var response struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &response, 256<<10); err != nil {
+		return nil, err
+	}
+	if len(response.Result) == 0 || !json.Valid(response.Result) {
+		return nil, errors.New("worker API plugin host response is invalid")
+	}
+	return append(json.RawMessage(nil), response.Result...), nil
+}
+
+func (client *Client) CompletePluginInvocation(ctx context.Context, invocationID string, completion pluginworker.Completion) (pluginworker.CompletionResult, error) {
+	if !canonicalUUID(invocationID) {
+		return pluginworker.CompletionResult{}, errors.New("plugin completion identity is invalid")
+	}
+	body, err := json.Marshal(completion)
+	if err != nil {
+		return pluginworker.CompletionResult{}, err
+	}
+	path := "/internal/worker-dispatch/plugins/invocations/" + url.PathEscape(invocationID) + "/complete"
+	var result pluginworker.CompletionResult
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
+		return pluginworker.CompletionResult{}, err
+	}
+	if result.Outcome != "applied" && result.Outcome != "replayed" {
+		return pluginworker.CompletionResult{}, errors.New("worker API plugin completion outcome is invalid")
+	}
+	return result, nil
 }
 
 func (client *Client) LeaseJobs(ctx context.Context, kind string, limit int) ([]Job, error) {

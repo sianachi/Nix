@@ -151,3 +151,67 @@ spec:
       ports: [{ protocol: TCP, port: 9200 }]
     - ports: [{ protocol: TCP, port: 443 }]
     - ports: [{ protocol: UDP, port: 53 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-plugin-worker, namespace: nix }
+spec:
+  selector: { app: nix-plugin-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-plugin-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-plugin-worker } }
+  template:
+    metadata:
+      labels: { app: nix-plugin-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: plugin-worker
+          image: ${REGISTRY}/plugin-worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_ROLES
+              value: plugin-events
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: plugin-url } }
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+            - name: NIX_PLUGIN_MAX_MODULE_BYTES
+              value: "8388608"
+            - name: NIX_PLUGIN_MEMORY_PAGES
+              value: "1024"
+            - name: NIX_PLUGIN_TIMEOUT_MILLISECONDS
+              value: "250"
+            - name: NIX_PLUGIN_MAX_HOST_CALLS
+              value: "32"
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: plugin-worker-egress, namespace: nix }
+spec:
+  podSelector: { matchLabels: { app: nix-plugin-worker } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-rabbitmq } } }]
+      ports: [{ protocol: TCP, port: 5672 }]
+    - ports: [{ protocol: TCP, port: 443 }]
+    - ports: [{ protocol: UDP, port: 53 }]
