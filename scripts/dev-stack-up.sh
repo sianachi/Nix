@@ -14,7 +14,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-docker compose -f deploy/compose.dev.yml --profile core up -d
+docker compose -f deploy/compose.dev.yml --profile core --profile search up -d
 export NIX_OBJECT_STORE_ENDPOINT="${NIX_OBJECT_STORE_ENDPOINT:-http://localhost:${VERSITY_PORT:-7070}}"
 export NIX_OBJECT_STORE_REGION="${NIX_OBJECT_STORE_REGION:-us-east-1}"
 export NIX_OBJECT_STORE_BUCKET="${NIX_OBJECT_STORE_BUCKET:-nix-worker-jobs}"

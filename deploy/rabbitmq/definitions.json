@@ -13,7 +13,7 @@
   "queues": [
     { "name": "nix.worker.import.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.worker.export.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
-    { "name": "nix.worker.index.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.worker.index.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-delivery-limit": 5, "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.worker.plugin-events.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.api.results.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.retry.5s.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-message-ttl": 5000, "x-dead-letter-exchange": "nix.commands.v1" } },

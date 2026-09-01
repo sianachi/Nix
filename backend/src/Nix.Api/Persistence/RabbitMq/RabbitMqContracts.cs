@@ -16,7 +16,8 @@ public sealed record RabbitMessageEnvelope(
     JsonElement Payload,
     string CorrelationId,
     string? CausationId = null,
-    string? TraceParent = null);
+    string? TraceParent = null,
+    long? AggregateVersion = null);
 
 /// <summary>Terminal or retryable execution result emitted by a Go worker.</summary>
 public sealed record WorkerResultEnvelope(

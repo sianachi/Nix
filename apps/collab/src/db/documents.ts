@@ -333,11 +333,12 @@ export async function writeItemSearchText(
   input: { tenantId: string; itemId: string; seq: bigint; text: string },
 ): Promise<void> {
   await sql.query(
-    `INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_vector)
-     VALUES ($1, $2, $3, now(), to_tsvector('english', $4))
+    `INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_text, body_vector)
+     VALUES ($1, $2, $3, now(), $4, to_tsvector('english', $4))
      ON CONFLICT (tenant_id, item_id) DO UPDATE
         SET seq = EXCLUDED.seq,
             updated_at = EXCLUDED.updated_at,
+            body_text = EXCLUDED.body_text,
             body_vector = EXCLUDED.body_vector
       WHERE item_search.seq < EXCLUDED.seq`,
     [input.tenantId, input.itemId, input.seq.toString(), input.text],
