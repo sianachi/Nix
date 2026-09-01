@@ -14,12 +14,17 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/broker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/brokerjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
+	"github.com/sianachi/Nix/apps/go-workers/internal/documentimport"
 	"github.com/sianachi/Nix/apps/go-workers/internal/exportjob"
+	"github.com/sianachi/Nix/apps/go-workers/internal/fileinspect"
 	"github.com/sianachi/Nix/apps/go-workers/internal/httpserver"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importjob"
+	"github.com/sianachi/Nix/apps/go-workers/internal/importplan"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
+	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
+	"github.com/sianachi/Nix/apps/go-workers/internal/objectcleanup"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
@@ -110,11 +115,53 @@ func Run(service role.Service) {
 		go indexer.Run(ctx, apiClient, searchIndex, searchClient, logger, settings.PollInterval)
 	}
 	if roles.Has(role.Import) {
-		handler := importjob.New(
-			objecttransfer.New(settings.RequestTimeout),
+		transfer := objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...)
+		imports := importjob.New(
+			transfer,
 			importer.Limits{MaxBytes: settings.MaxInputBytes, MaxItems: settings.MaxRecords, MaxEntry: int64(settings.MaxLineBytes)},
 			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
-		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ImportQueue, importjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
+		files := fileinspect.New(apiClient, transfer, settings.MaxInputBytes)
+		cleanup := objectcleanup.New(apiClient, transfer)
+		documents, documentsErr := documentimport.New(
+			apiClient,
+			transfer,
+			settings.CollaborationURL,
+			settings.InternalSecret,
+			importplan.Limits{
+				MaxSourceBytes: settings.MaxInputBytes,
+				MaxPlanBytes:   16 << 20,
+				MaxBodyBytes:   8 << 20,
+				MaxEntryBytes:  8 << 20,
+				MaxItems:       min(settings.MaxRecords, 10_000),
+				MaxDepth:       32,
+				PDFTimeoutSecs: max(1, int(settings.RequestTimeout/time.Second)),
+			},
+			settings.RequestTimeout,
+		)
+		if documentsErr != nil {
+			logger.Error("document import handler configuration failed", "error", documentsErr)
+			os.Exit(1)
+		}
+		routes := make(map[string]jobrunner.Handler, len(importjob.Kinds)+len(documentimport.Kinds)+len(fileinspect.Kinds)+len(objectcleanup.Kinds))
+		for _, kind := range importjob.Kinds {
+			routes[kind] = imports
+		}
+		for _, kind := range fileinspect.Kinds {
+			routes[kind] = files
+		}
+		for _, kind := range documentimport.Kinds {
+			routes[kind] = documents
+		}
+		for _, kind := range objectcleanup.Kinds {
+			routes[kind] = cleanup
+		}
+		handler, routeErr := jobrunner.NewRouter(routes)
+		if routeErr != nil {
+			logger.Error("import handler routing failed", "error", routeErr)
+			os.Exit(1)
+		}
+		kinds := append(append(append(append([]string{}, importjob.Kinds...), documentimport.Kinds...), fileinspect.Kinds...), objectcleanup.Kinds...)
+		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ImportQueue, kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("import job runner configuration failed", "error", runnerErr)
 			os.Exit(1)
@@ -122,7 +169,7 @@ func Run(service role.Service) {
 		go runner.Run(ctx)
 	}
 	if roles.Has(role.Export) {
-		handler := exportjob.New(objecttransfer.New(settings.RequestTimeout), stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
+		handler := exportjob.New(objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...), stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
 		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ExportQueue, exportjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("export job runner configuration failed", "error", runnerErr)
@@ -176,6 +223,9 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	}
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
+	}
+	if roles.Has(role.Import) && settings.CollaborationURL == "" {
+		return errors.New("NIX_WORKER_COLLAB_URL is required for document imports")
 	}
 	return nil
 }

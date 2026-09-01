@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
+	"os/exec"
+	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
@@ -26,6 +28,13 @@ type Limits struct {
 type Result struct {
 	Records []stream.Record `json:"records"`
 	Loss    []string        `json:"loss,omitempty"`
+	Assets  []Asset         `json:"assets,omitempty"`
+}
+
+type Asset struct {
+	Name      string
+	MediaType string
+	Body      []byte
 }
 
 func Parse(format, id, title string, source io.Reader, limits Limits) (Result, error) {
@@ -36,8 +45,10 @@ func Parse(format, id, title string, source io.Reader, limits Limits) (Result, e
 		return Result{}, errors.New("import limits must be positive")
 	}
 	switch strings.ToLower(format) {
-	case "markdown", "md", "text", "txt":
+	case "markdown", "md":
 		return markdown(id, title, source, limits.MaxBytes)
+	case "text", "txt":
+		return text(id, title, source, limits.MaxBytes)
 	case "docx":
 		return docx(id, title, source, limits)
 	case "pdf":
@@ -47,6 +58,19 @@ func Parse(format, id, title string, source io.Reader, limits Limits) (Result, e
 	default:
 		return Result{}, fmt.Errorf("%w: %s", ErrUnsupportedFormat, format)
 	}
+}
+
+func text(id, title string, source io.Reader, maxBytes int64) (Result, error) {
+	body, err := readBounded(source, maxBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	body = bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf})
+	if bytes.IndexByte(body, 0) >= 0 || !utf8.Valid(body) {
+		return Result{}, errors.New("text input is not valid UTF-8 or appears to be binary")
+	}
+	normalized := strings.ReplaceAll(strings.ReplaceAll(string(body), "\r\n", "\n"), "\r", "\n")
+	return Result{Records: []stream.Record{{ID: id, Title: title, Body: normalized}}}, nil
 }
 
 func markdown(id, title string, source io.Reader, maxBytes int64) (Result, error) {
@@ -66,11 +90,51 @@ func docx(id, title string, source io.Reader, limits Limits) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	text, err := xmlText(document)
+	text, err := docxText(document)
 	if err != nil {
 		return Result{}, fmt.Errorf("DOCX document.xml: %w", err)
 	}
-	return Result{Records: []stream.Record{{ID: id, Title: title, Body: text}}}, nil
+	assets := make([]Asset, 0)
+	loss := make([]string, 0)
+	for _, entry := range archive.File {
+		if !strings.HasPrefix(entry.Name, "word/media/") || strings.HasSuffix(entry.Name, "/") {
+			continue
+		}
+		assetLimit := limits.MaxEntry*3/4 - 1024
+		body, readErr := archiveEntry(archive, entry.Name, assetLimit)
+		if readErr != nil {
+			loss = append(loss, fmt.Sprintf("Embedded image %s exceeded the extraction limit and remains in the original document.", path.Base(entry.Name)))
+			continue
+		}
+		mediaType := imageMediaType(body)
+		if mediaType == "" {
+			loss = append(loss, fmt.Sprintf("Embedded media %s is unsupported and remains in the original document.", path.Base(entry.Name)))
+			continue
+		}
+		assets = append(assets, Asset{Name: path.Base(entry.Name), MediaType: mediaType, Body: body})
+	}
+	if len(assets) > 0 {
+		text += "\n\n"
+		for _, asset := range assets {
+			text += fmt.Sprintf("[Imported image: %s]\n", asset.Name)
+		}
+	}
+	return Result{Records: []stream.Record{{ID: id, Title: title, Body: text}}, Assets: assets, Loss: loss}, nil
+}
+
+func imageMediaType(body []byte) string {
+	switch {
+	case len(body) >= 8 && bytes.Equal(body[:8], []byte{137, 80, 78, 71, 13, 10, 26, 10}):
+		return "image/png"
+	case len(body) >= 3 && body[0] == 0xff && body[1] == 0xd8 && body[2] == 0xff:
+		return "image/jpeg"
+	case len(body) >= 12 && string(body[:4]) == "RIFF" && string(body[8:12]) == "WEBP":
+		return "image/webp"
+	case len(body) >= 6 && (string(body[:6]) == "GIF87a" || string(body[:6]) == "GIF89a"):
+		return "image/gif"
+	default:
+		return ""
+	}
 }
 
 func pdf(id, title string, source io.Reader, maxBytes int64) (Result, error) {
@@ -81,8 +145,14 @@ func pdf(id, title string, source io.Reader, maxBytes int64) (Result, error) {
 	if !bytes.HasPrefix(body, []byte("%PDF-")) {
 		return Result{}, errors.New("PDF input does not start with a PDF signature")
 	}
-	text := pdfText(body)
-	return Result{Records: []stream.Record{{ID: id, Title: title, Body: text}}, Loss: []string{"PDF layout, images, and non-text content are not preserved."}}, nil
+	text, err := popplerText(body, maxBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	if strings.TrimSpace(text) == "" {
+		return Result{}, errors.New("PDF contains no extractable text; OCR is not available")
+	}
+	return Result{Records: []stream.Record{{ID: id, Title: title, Body: text}}, Loss: []string{"PDF fonts, vector graphics, images, and exact layout are not preserved."}}, nil
 }
 
 func nix(id, title string, source io.Reader, limits Limits) (Result, error) {
@@ -172,6 +242,10 @@ func readZip(source io.Reader, maxBytes int64, maxEntries int) (*zip.Reader, err
 	}
 	var expandedBytes uint64
 	for _, entry := range archive.File {
+		clean := path.Clean(entry.Name)
+		if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(entry.Name, "/") || strings.Contains(entry.Name, "\\") {
+			return nil, errors.New("archive contains an unsafe path")
+		}
 		expandedBytes += entry.UncompressedSize64
 		if expandedBytes > uint64(maxBytes) {
 			return nil, stream.ErrLimitExceeded
@@ -210,9 +284,14 @@ func archiveRecord(payload []byte) (stream.Record, error) {
 	return record, nil
 }
 
-func xmlText(document []byte) (string, error) {
+func docxText(document []byte) (string, error) {
+	upper := bytes.ToUpper(document)
+	if bytes.Contains(upper, []byte("<!DOCTYPE")) || bytes.Contains(upper, []byte("<!ENTITY")) {
+		return "", errors.New("XML document types and entities are not supported")
+	}
 	decoder := xml.NewDecoder(bytes.NewReader(document))
 	var builder strings.Builder
+	paragraphOpen := false
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
@@ -221,27 +300,55 @@ func xmlText(document []byte) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if character, ok := token.(xml.CharData); ok {
-			text := strings.TrimSpace(string(character))
-			if text != "" {
+		switch value := token.(type) {
+		case xml.StartElement:
+			if value.Name.Local == "p" {
 				if builder.Len() > 0 {
-					builder.WriteByte(' ')
+					builder.WriteString("\n\n")
 				}
-				builder.WriteString(text)
+				paragraphOpen = true
+			} else if value.Name.Local == "tab" {
+				builder.WriteByte('\t')
+			} else if value.Name.Local == "br" {
+				builder.WriteByte('\n')
+			}
+		case xml.EndElement:
+			if value.Name.Local == "p" {
+				paragraphOpen = false
+			}
+		case xml.CharData:
+			if paragraphOpen {
+				builder.Write([]byte(value))
 			}
 		}
 	}
 }
 
-var pdfString = regexp.MustCompile(`\(([^()]*)\)\s*Tj`)
-
-func pdfText(body []byte) string {
-	matches := pdfString.FindAllSubmatch(body, -1)
-	parts := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) == 2 {
-			parts = append(parts, string(match[1]))
-		}
+func popplerText(body []byte, maxBytes int64) (string, error) {
+	command := exec.Command("pdftotext", "-layout", "-", "-")
+	command.Stdin = bytes.NewReader(body)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("start pdftotext: %w", err)
 	}
-	return strings.Join(parts, " ")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		return "", fmt.Errorf("pdftotext is unavailable: %w", err)
+	}
+	output, readErr := readBounded(stdout, maxBytes)
+	if readErr != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return "", readErr
+	}
+	waitErr := command.Wait()
+	if waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = waitErr.Error()
+		}
+		return "", fmt.Errorf("PDF extraction failed: %s", detail)
+	}
+	return strings.TrimSpace(strings.ReplaceAll(string(output), "\f", "\n\n")), nil
 }

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Authorizer } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
 import type { CoreClient } from '../core/client.ts';
+import type { ImportBodyService } from '../imports/bodies.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
@@ -54,6 +55,7 @@ function server(overrides: {
   authorizer?: Authorizer;
   pool?: Pool;
   core?: CoreClient;
+  importBodies?: ImportBodyService;
 }) {
   return createServer({
     pool: overrides.pool ?? refusingPool,
@@ -65,6 +67,7 @@ function server(overrides: {
     }),
     core: overrides.core ?? silentCore,
     internalSecret: INTERNAL_SECRET,
+    ...(overrides.importBodies === undefined ? {} : { importBodies: overrides.importBodies }),
   });
 }
 
@@ -273,6 +276,74 @@ describe('the collaboration service HTTP surface', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('nix_collab_open_sockets');
+  });
+});
+
+describe('staged import bodies', () => {
+  it('is invisible without the service secret', async () => {
+    let called = false;
+    const app = track(
+      server({
+        importBodies: {
+          write: () => {
+            called = true;
+            return Promise.resolve({ written: 1 });
+          },
+        },
+      }),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/internal/imports/${ITEM}/bodies`,
+      headers: {
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: { writes: [] },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(called).toBe(false);
+  });
+
+  it('passes the exact worker execution proof to the staged body service', async () => {
+    const seen: unknown[] = [];
+    const app = track(
+      server({
+        importBodies: {
+          write: (input) => {
+            seen.push(input);
+            return Promise.resolve({ written: 1 });
+          },
+        },
+      }),
+    );
+    const body = {
+      writes: [{ sourceId: 'root', body: { encoding: 'plain_text', text: 'Imported' } }],
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/internal/imports/${ITEM}/bodies`,
+      headers: {
+        'x-nix-internal-secret': INTERNAL_SECRET,
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: body,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ written: 1 });
+    expect(seen).toEqual([
+      {
+        importId: ITEM,
+        jobId: ITEM,
+        executionId: 'worker:execution',
+        body,
+      },
+    ]);
   });
 });
 

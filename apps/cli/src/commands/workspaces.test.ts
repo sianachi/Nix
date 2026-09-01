@@ -57,7 +57,9 @@ describe('workspace administration commands', () => {
       }),
     );
 
-    expect(await capture((json) => createWorkspace('default', 'Created', json, profile.deps))).toMatchObject({
+    expect(
+      await capture((json) => createWorkspace('default', 'Created', json, profile.deps)),
+    ).toMatchObject({
       name: 'Created',
     });
     expect(
@@ -91,14 +93,7 @@ describe('workspace administration commands', () => {
     ).toMatchObject({ count: 1 });
     expect(
       await capture((json) =>
-        inviteWorkspaceMember(
-          'default',
-          WORKSPACE,
-          PRINCIPAL,
-          'editor',
-          json,
-          profile.deps,
-        ),
+        inviteWorkspaceMember('default', WORKSPACE, PRINCIPAL, 'editor', json, profile.deps),
       ),
     ).toMatchObject({ id: INVITATION, status: 'pending' });
     expect(inviteBody).toEqual({ principalId: PRINCIPAL, role: 'editor' });
@@ -128,7 +123,10 @@ describe('workspace administration commands', () => {
 
     expect(
       await capture((json) => listWorkspaceInvitees('default', WORKSPACE, {}, json, profile.deps)),
-    ).toMatchObject({ count: 1, invitees: [{ principalId: PRINCIPAL, displayName: 'Collaborator' }] });
+    ).toMatchObject({
+      count: 1,
+      invitees: [{ principalId: PRINCIPAL, displayName: 'Collaborator' }],
+    });
     expect(
       await capture((json) =>
         acceptWorkspaceInvitation('default', WORKSPACE, INVITATION, json, profile.deps),
@@ -166,18 +164,13 @@ describe('workspace administration commands', () => {
       await capture((json) => listWorkspaceMembers('default', WORKSPACE, {}, json, profile.deps)),
     ).toMatchObject({
       count: 1,
-      members: [{ canChangeRole: true, canRemove: true, assignableRoles: ['owner', 'editor', 'viewer'] }],
+      members: [
+        { canChangeRole: true, canRemove: true, assignableRoles: ['owner', 'editor', 'viewer'] },
+      ],
     });
     expect(
       await capture((json) =>
-        changeWorkspaceMemberRole(
-          'default',
-          WORKSPACE,
-          PRINCIPAL,
-          'editor',
-          json,
-          profile.deps,
-        ),
+        changeWorkspaceMemberRole('default', WORKSPACE, PRINCIPAL, 'editor', json, profile.deps),
       ),
     ).toMatchObject({ role: 'editor' });
     expect(roleBody).toEqual({ role: 'editor' });
@@ -191,13 +184,7 @@ describe('workspace administration commands', () => {
 
   it('refuses commenter on the new CLI assignment surface before opening a session', async () => {
     await expect(
-      inviteWorkspaceMember(
-        undefined,
-        WORKSPACE,
-        PRINCIPAL,
-        'commenter',
-        outputOptions(true),
-      ),
+      inviteWorkspaceMember(undefined, WORKSPACE, PRINCIPAL, 'commenter', outputOptions(true)),
     ).rejects.toThrow("Role must be 'owner', 'editor', or 'viewer'.");
   });
 
@@ -211,9 +198,9 @@ describe('workspace administration commands', () => {
     await expect(
       removeWorkspaceMember(undefined, WORKSPACE, PRINCIPAL, false, outputOptions(true)),
     ).rejects.toThrow('requires --yes');
-    await expect(
-      leaveWorkspace(undefined, WORKSPACE, false, outputOptions(true)),
-    ).rejects.toThrow('requires --yes');
+    await expect(leaveWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
+      'requires --yes',
+    );
   });
 });
 
@@ -252,6 +239,7 @@ function workspace(name: string): Record<string, unknown> {
     canRename: true,
     canManageMembers: true,
     canLeave: false,
+    canUseDailyNotes: true,
     pendingInvitationId: null,
   };
 }

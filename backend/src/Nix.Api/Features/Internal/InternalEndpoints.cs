@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Features.DocumentImports;
+using Nix.Features.Files;
 using Nix.Http;
 
 namespace Nix.Features.Internal;
@@ -38,6 +40,10 @@ internal static class InternalEndpoints
         WorkerJobEndpoints.Map(group);
         WorkerOutboxEndpoints.Map(group);
         WorkerDispatchEndpoints.Map(group);
+        FileEndpoints.MapInternal(group);
+        FileEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        DocumentImportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        ObjectCleanupEndpoints.Map(group.MapGroup("/worker-executions"));
 
         return endpoints;
     }

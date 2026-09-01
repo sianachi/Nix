@@ -225,3 +225,22 @@ export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
 export * as recurrence from './resources/recurrence.js';
+export * as files from './resources/files.js';
+export * as imports from './resources/imports.js';
+export * as operations from './resources/operations.js';
+export type {
+  FileDownloadCapability,
+  FileRecord,
+  FileUpload,
+  FileUploadStatus,
+  FileVersion,
+} from './schemas/files.js';
+export {
+  fileDownloadCapabilitySchema,
+  fileRecordSchema,
+  fileUploadSchema,
+  fileUploadStatusSchema,
+  fileVersionSchema,
+} from './schemas/files.js';
+export type { DocumentImport, DocumentImportPlan, DocumentImportUpload } from './schemas/imports.js';
+export type { Operation } from './schemas/operations.js';

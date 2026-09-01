@@ -15,6 +15,8 @@ import { RateWindow } from '../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, describeSchema, openDocument } from '../documents/service.ts';
 import { updatesAfter } from '../db/documents.ts';
 import type { CollabMetrics } from '../metrics.ts';
+import { importBodyProblem, type ImportBodyService } from '../imports/bodies.ts';
+import { CoreImportError } from '../imports/core.ts';
 import { TemplateBodyError } from '../templates/bodies.ts';
 import { CoreTemplateError } from '../templates/core.ts';
 import {
@@ -68,6 +70,7 @@ export interface ServerDependencies {
   readonly newDocId?: (() => string) | undefined;
   readonly metrics?: CollabMetrics | undefined;
   readonly templates?: TemplateService | undefined;
+  readonly importBodies?: ImportBodyService | undefined;
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
   readonly hub?: SessionHub | undefined;
@@ -140,6 +143,46 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   });
 
   app.get('/healthz', () => ({ status: 'healthy', schema: describeSchema() }));
+
+  const importBodies = deps.importBodies;
+  if (importBodies !== undefined) {
+    app.post(
+      '/internal/imports/:importId/bodies',
+      { bodyLimit: 16 * 1024 * 1024 },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { importId } = request.params as { importId: string };
+        const jobId = stringHeader(request, 'x-nix-worker-job-id');
+        const executionId = stringHeader(request, 'x-nix-worker-execution-id');
+        if (
+          !internalCaller(request, deps) ||
+          !isUuid(importId) ||
+          jobId === null ||
+          executionId === null
+        ) {
+          return problem(reply, 404, 'import_not_found', 'No such staged import is available.');
+        }
+        try {
+          return await reply.send(
+            await importBodies.write({
+              importId,
+              jobId,
+              executionId,
+              body: request.body,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof CoreImportError) {
+            return problem(reply, error.status, error.code, error.message);
+          }
+          const refusal = importBodyProblem(error);
+          if (refusal !== null) {
+            return problem(reply, refusal.status, refusal.code, refusal.message);
+          }
+          throw error;
+        }
+      },
+    );
+  }
 
   if (deps.metrics !== undefined) {
     const metrics = deps.metrics;
@@ -704,6 +747,11 @@ function internalCaller(request: FastifyRequest, deps: ServerDependencies): bool
   const expectedDigest = createHash('sha256').update(deps.internalSecret, 'utf8').digest();
   const candidateDigest = createHash('sha256').update(candidate, 'utf8').digest();
   return timingSafeEqual(candidateDigest, expectedDigest);
+}
+
+function stringHeader(request: FastifyRequest, name: string): string | null {
+  const value = request.headers[name];
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
 }
 
 function requestToken(request: FastifyRequest, reply: FastifyReply): string | null {

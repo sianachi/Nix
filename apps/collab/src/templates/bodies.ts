@@ -459,6 +459,16 @@ export function remapItemReferences(
       };
     }
   }
+  if (value.type === 'image' && isRecord(value.attrs)) {
+    const source = value.attrs.src;
+    if (typeof source === 'string' && source.startsWith('nix-file:')) {
+      const replacement = mappings.get(source.slice('nix-file:'.length));
+      mapped.attrs = {
+        ...record(mapped.attrs),
+        src: replacement === undefined ? '' : `nix-file:${replacement}`,
+      };
+    }
+  }
   return mapped;
 }
 
