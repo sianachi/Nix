@@ -15,6 +15,12 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
 docker compose -f deploy/compose.dev.yml --profile core up -d
+export NIX_OBJECT_STORE_ENDPOINT="${NIX_OBJECT_STORE_ENDPOINT:-http://localhost:${VERSITY_PORT:-7070}}"
+export NIX_OBJECT_STORE_REGION="${NIX_OBJECT_STORE_REGION:-us-east-1}"
+export NIX_OBJECT_STORE_BUCKET="${NIX_OBJECT_STORE_BUCKET:-nix-worker-jobs}"
+export NIX_OBJECT_STORE_ACCESS_KEY="${NIX_OBJECT_STORE_ACCESS_KEY:-${VERSITY_ROOT_ACCESS_KEY:-nix-dev-access}}"
+export NIX_OBJECT_STORE_SECRET_KEY="${NIX_OBJECT_STORE_SECRET_KEY:-${VERSITY_ROOT_SECRET_KEY:-nix-dev-secret-key}}"
+node --experimental-strip-types scripts/ensure-dev-object-store.mts
 deploy/seed/seed.sh
 scripts/dev-migrate.sh
 deploy/seed/zitadel-configure.sh

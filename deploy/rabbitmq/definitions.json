@@ -31,6 +31,8 @@
   ],
   "bindings": [
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "import.#", "arguments": {} },
+    { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "file.#", "arguments": {} },
+    { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "object.#", "arguments": {} },
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.export.v1", "destination_type": "queue", "routing_key": "export.#", "arguments": {} },
     { "source": "nix.results.v1", "vhost": "/nix", "destination": "nix.api.results.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
     { "source": "nix.workspace.v1", "vhost": "/nix", "destination": "nix.worker.index.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },

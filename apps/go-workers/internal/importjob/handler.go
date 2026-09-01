@@ -3,6 +3,7 @@ package importjob
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,7 +19,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
-var Kinds = []string{"import.nix", "import.markdown", "import.docx", "import.pdf"}
+var Kinds = []string{"import.nix", "import.markdown", "import.txt", "import.docx", "import.pdf"}
 
 type Payload struct {
 	SourceURL      string `json:"sourceUrl"`
@@ -74,6 +75,13 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	result := Result{Items: len(parsed.Records), Loss: nonNil(parsed.Loss), Preview: payload.Preview}
 	if payload.Preview {
 		return result, nil
+	}
+	for index, asset := range parsed.Assets {
+		parsed.Records = append(parsed.Records, stream.Record{
+			ID: fmt.Sprintf("%s-asset-%d", payload.RootID, index+1), ParentID: payload.RootID,
+			Title: asset.Name, Body: base64.StdEncoding.EncodeToString(asset.Body),
+			Properties: map[string]any{"$file": map[string]any{"mediaType": asset.MediaType, "encoding": "base64"}},
+		})
 	}
 	if payload.DestinationURL == "" {
 		return nil, invalid("import_payload_invalid", errors.New("destinationUrl is required outside preview mode"))

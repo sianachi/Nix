@@ -11,6 +11,7 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
     private const string ClaimJobSql = "SELECT * FROM nix_claim_worker_job(@job_id, @owner, @lease_seconds)";
     private const string RenewJobSql = "SELECT nix_renew_worker_job(@job_id, @owner, @lease_seconds)";
     private const string JobStateSql = "SELECT * FROM nix_worker_job_state(@job_id, @owner)";
+    private const string AuthorizeExecutionSql = "SELECT * FROM nix_authorize_worker_execution(@job_id, @owner)";
     private const string CompleteJobSql = "SELECT nix_complete_worker_job(@job_id, @owner, @succeeded, @result, @error_code, @error_detail)";
     private const string FinishJobSql = "SELECT nix_finish_worker_job(@job_id, @owner, @succeeded, @retryable, @result, @error_code, @error_detail)";
     private const string LeaseOutboxSql = "SELECT * FROM nix_lease_worker_outbox(@kind, @owner, @limit, @lease_seconds)";
@@ -129,6 +130,40 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
                         await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false)
                             ? null
                             : await reader.GetFieldValueAsync<DateTimeOffset>(3, cancellationToken).ConfigureAwait(false));
+                }
+            }
+        }
+    }
+
+    /// <summary>Resolves the tenant and actor only for an active principal holding this exact live execution.</summary>
+    public async ValueTask<WorkerExecutionAuthorization?> AuthorizeExecutionAsync(
+        Guid jobId,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(AuthorizeExecutionSql, connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(Uuid("job_id", jobId));
+                command.Parameters.Add(Text("owner", owner));
+                var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await using (reader.ConfigureAwait(false))
+                {
+                    if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        return null;
+                    }
+
+                    return new WorkerExecutionAuthorization(
+                        reader.GetGuid(0),
+                        await reader.IsDBNullAsync(1, cancellationToken).ConfigureAwait(false)
+                            ? null
+                            : reader.GetGuid(1),
+                        reader.GetGuid(2),
+                        reader.GetString(3));
                 }
             }
         }

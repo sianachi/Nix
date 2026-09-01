@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -213,6 +214,153 @@ describe('nixctl import --dry-run', () => {
 });
 
 describe('nixctl import', () => {
+  it('streams a TXT document through the durable worker and publishes its subtree atomically', async () => {
+    const { env, done } = await withProfile();
+    const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-document-'));
+    const file = join(dir, 'notes.txt');
+    const source = 'Hello from a worker.\n';
+    await writeFile(file, source, 'utf8');
+    const importId = 'a1111111-1111-4111-8111-111111111111';
+    const previewId = 'a2222222-2222-4222-8222-222222222222';
+    const commitId = 'a3333333-3333-4333-8333-333333333333';
+    const rootId = 'a4444444-4444-4444-8444-444444444444';
+    const sourceSha256 = createHash('sha256').update(source).digest('hex');
+    const plan = JSON.stringify({
+      version: 1,
+      format: 'txt',
+      title: 'notes',
+      sourceSha256,
+      items: [
+        {
+          sourceId: 'root',
+          parentSourceId: null,
+          order: 0,
+          title: 'notes',
+          itemType: 'note',
+          finalLifecycleState: 'active',
+          body: { encoding: 'plain_text', text: source },
+        },
+        {
+          sourceId: 'original',
+          parentSourceId: 'root',
+          order: 0,
+          title: 'notes.txt',
+          itemType: 'file',
+          finalLifecycleState: 'active',
+          file: {
+            sourceKind: 'source',
+            fileName: 'notes.txt',
+            mediaType: 'text/plain',
+            byteLength: Buffer.byteLength(source),
+            sha256: sourceSha256,
+            previewable: false,
+          },
+        },
+      ],
+      loss: [],
+      omissions: [],
+    });
+    const planSha256 = createHash('sha256').update(plan).digest('hex');
+    let uploaded = '';
+    let importReads = 0;
+    const operation = (id: string, kind: string) => ({
+      id,
+      kind,
+      status: 'completed',
+      result: null,
+      errorCode: null,
+      errorDetail: null,
+      attempts: 1,
+      cancellationRequested: false,
+      createdAt: '2026-09-01T00:00:00Z',
+      completedAt: '2026-09-01T00:00:01Z',
+    });
+    server.use(
+      http.post(`${API}/api/v1/imports`, () =>
+        HttpResponse.json({
+          id: importId,
+          status: 'pending_upload',
+          uploadUrl: 'http://127.0.0.1:9445/source',
+          capabilityExpiresAt: '2026-09-01T00:10:00Z',
+          expiresAt: '2026-09-01T01:00:00Z',
+        }),
+      ),
+      http.put('http://127.0.0.1:9445/source', async ({ request }) => {
+        uploaded = await request.text();
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.post(`${API}/api/v1/imports/${importId}/preview`, () =>
+        HttpResponse.json(operation(previewId, 'import.preview.txt'), { status: 202 }),
+      ),
+      http.get(`${API}/api/v1/operations/${previewId}`, () =>
+        HttpResponse.json(operation(previewId, 'import.preview.txt')),
+      ),
+      http.get(`${API}/api/v1/imports/${importId}`, () => {
+        importReads += 1;
+        const completed = importReads > 1;
+        return HttpResponse.json({
+          id: importId,
+          workspaceId: WS,
+          uploadId: 'a5555555-5555-4555-8555-555555555555',
+          parentId: null,
+          format: 'txt',
+          title: 'notes',
+          status: completed ? 'completed' : 'preview_ready',
+          previewOperationId: previewId,
+          commitOperationId: completed ? commitId : null,
+          itemCount: 2,
+          assetCount: 0,
+          loss: [],
+          omissions: [],
+          rootItemId: completed ? rootId : null,
+          failureCode: null,
+          expiresAt: '2026-09-01T01:00:00Z',
+          completedAt: completed ? '2026-09-01T00:00:02Z' : null,
+        });
+      }),
+      http.get(`${API}/api/v1/imports/${importId}/preview`, () =>
+        HttpResponse.json({
+          url: 'http://127.0.0.1:9445/plan',
+          expiresAt: '2026-09-01T00:10:00Z',
+          sha256: planSha256,
+          byteLength: Buffer.byteLength(plan),
+        }),
+      ),
+      http.get('http://127.0.0.1:9445/plan', () => new HttpResponse(plan)),
+      http.post(`${API}/api/v1/imports/${importId}/commit`, () =>
+        HttpResponse.json(operation(commitId, 'import.commit'), { status: 202 }),
+      ),
+      http.get(`${API}/api/v1/operations/${commitId}`, () =>
+        HttpResponse.json(operation(commitId, 'import.commit')),
+      ),
+    );
+
+    const printed = (await capture((json) =>
+      runImport(
+        'default',
+        { path: file, workspaceId: WS, parentId: undefined, dryRun: false },
+        json,
+        { env },
+      ),
+    )) as {
+      atomic: boolean;
+      rootItemId: string;
+      createdCount: number;
+      status: string;
+    };
+
+    expect(uploaded).toBe(source);
+    expect(printed).toMatchObject({
+      atomic: true,
+      rootItemId: rootId,
+      createdCount: 2,
+      status: 'completed',
+    });
+    expect(process.exitCode ?? 0).toBe(0);
+    await rm(dir, { recursive: true, force: true });
+    await done();
+  });
+
   it('imports a folder tree as a coherent item tree with bodies and properties', async () => {
     const { env, done } = await withProfile();
     const { dir, done: dropTree } = await withSourceTree();
@@ -484,7 +632,7 @@ describe('nixctl import', () => {
   it('refuses a single file that is not Markdown, naming the reason', async () => {
     const { env, done } = await withProfile();
     const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-txt-'));
-    const file = join(dir, 'notes.txt');
+    const file = join(dir, 'notes.bin');
     await writeFile(file, 'plain text', 'utf8');
 
     await expect(

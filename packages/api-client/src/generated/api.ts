@@ -448,6 +448,182 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/files/uploads': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['BeginFileUpload'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/files/uploads/{uploadId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetFileUpload'];
+    put?: never;
+    post?: never;
+    delete: operations['CancelFileUpload'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/files/uploads/{uploadId}/complete': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CompleteFileUpload'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/file': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetFile'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/file/download': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['AuthorizeFileDownload'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/imports': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['BeginDocumentImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/imports/{importId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetDocumentImport'];
+    put?: never;
+    post?: never;
+    delete: operations['CancelDocumentImport'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/imports/{importId}/preview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['AuthorizeDocumentImportPreview'];
+    put?: never;
+    post: operations['PreviewDocumentImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/imports/{importId}/commit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CommitDocumentImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/operations/{operationId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetOperation'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/operations/{operationId}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CancelOperation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/view-setups': {
     parameters: {
       query?: never;
@@ -1054,6 +1230,32 @@ export interface components {
       limit: number | string;
       truncated: boolean;
     };
+    BeginDocumentImportRequest: {
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      parentId: null | string;
+      format: string;
+      title: string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      idempotencyKey: string;
+    };
+    BeginFileUploadRequest: {
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      parentId: null | string;
+      /** Format: uuid */
+      targetItemId: null | string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      idempotencyKey: string;
+    };
     CalendarEntryResponse: {
       /** Format: uuid */
       itemId: string;
@@ -1179,10 +1381,125 @@ export interface components {
       /** Format: uuid */
       itemId: string;
     };
+    DocumentImportPreviewCapabilityResponse: {
+      /** Format: uri */
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+      sha256: string;
+      /** Format: int64 */
+      byteLength: number | string;
+    };
+    DocumentImportResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      uploadId: string;
+      /** Format: uuid */
+      parentId: null | string;
+      format: string;
+      title: string;
+      status: string;
+      /** Format: uuid */
+      previewOperationId: null | string;
+      /** Format: uuid */
+      commitOperationId: null | string;
+      /** Format: int32 */
+      itemCount: null | number | string;
+      /** Format: int32 */
+      assetCount: null | number | string;
+      loss: null | components['schemas']['JsonElement'];
+      omissions: null | components['schemas']['JsonElement'];
+      /** Format: uuid */
+      rootItemId: null | string;
+      failureCode: null | string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: date-time */
+      completedAt: null | string;
+    };
+    DocumentImportUploadResponse: {
+      /** Format: uuid */
+      id: string;
+      status: string;
+      /** Format: uri */
+      uploadUrl: null | string;
+      /** Format: date-time */
+      capabilityExpiresAt: null | string;
+      /** Format: date-time */
+      expiresAt: string;
+    };
     EffectiveSchemaResponse: {
       properties: components['schemas']['PropertyDefinitionResponse'][];
       declared: components['schemas']['PropertyDefinitionResponse'][];
       inherit: boolean;
+    };
+    FileDownloadCapabilityResponse: {
+      /** Format: uri */
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      sha256: string;
+      inline: boolean;
+      unscanned: boolean;
+      noSniff: boolean;
+    };
+    FileRecord: {
+      /** Format: uuid */
+      itemId: string;
+      /** Format: uuid */
+      workspaceId: string;
+      current: components['schemas']['FileVersionRecord'];
+      versions: components['schemas']['FileVersionRecord'][];
+    };
+    FileUploadCapabilityResponse: {
+      /** Format: uuid */
+      id: string;
+      status: string;
+      /** Format: uri */
+      uploadUrl: null | string;
+      /** Format: date-time */
+      capabilityExpiresAt: null | string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: uuid */
+      itemId: null | string;
+      failureCode: null | string;
+    };
+    FileUploadStatusResponse: {
+      /** Format: uuid */
+      id: string;
+      status: string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: uuid */
+      itemId: null | string;
+      failureCode: null | string;
+    };
+    FileVersionRecord: {
+      /** Format: uuid */
+      id: string;
+      /** Format: int32 */
+      version: number | string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      sha256: string;
+      previewable: boolean;
+      /** Format: int32 */
+      pixelWidth: null | number | string;
+      /** Format: int32 */
+      pixelHeight: null | number | string;
+      /** Format: date-time */
+      createdAt: string;
+      current: boolean;
     };
     FilterRuleContract: {
       property: string;
@@ -1265,6 +1582,7 @@ export interface components {
       updatedAt: string;
     };
     JsonArray: unknown[];
+    JsonElement: unknown;
     JsonObject: {
       [key: string]: unknown;
     };
@@ -1298,6 +1616,22 @@ export interface components {
       parentId: null | string;
       /** Format: uuid */
       afterId: null | string;
+    };
+    OperationResponse: {
+      /** Format: uuid */
+      id: string;
+      kind: string;
+      status: string;
+      result: null | components['schemas']['JsonElement'];
+      errorCode: null | string;
+      errorDetail: null | string;
+      /** Format: int32 */
+      attempts: number | string;
+      cancellationRequested: boolean;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      completedAt: null | string;
     };
     ProblemDetails: {
       type?: null | string;
@@ -3146,6 +3480,531 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  BeginFileUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BeginFileUploadRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FileUploadCapabilityResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFileUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        uploadId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FileUploadStatusResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CancelFileUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        uploadId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CompleteFileUpload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        uploadId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FileRecord'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AuthorizeFileDownload: {
+    parameters: {
+      query: {
+        versionId?: string;
+        preview: boolean;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FileDownloadCapabilityResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  BeginDocumentImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BeginDocumentImportRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DocumentImportUploadResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetDocumentImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DocumentImportResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CancelDocumentImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AuthorizeDocumentImportPreview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DocumentImportPreviewCapabilityResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PreviewDocumentImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CommitDocumentImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetOperation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        operationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CancelOperation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        operationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

@@ -173,7 +173,11 @@ func (runner *Runner) execute(ctx context.Context, job workerapi.Job, executionI
 			}
 		}
 	}()
-	result, jobErr = runner.handleSafely(workContext, job)
+	result, jobErr = runner.handleSafely(workerapi.WithExecution(workContext, job.ID, executionID), job)
+	var responseError *workerapi.ResponseError
+	if errors.As(jobErr, &responseError) && responseError.Status == 409 {
+		lost.Store(true)
+	}
 	cancel()
 	<-monitorDone
 	return result, jobErr, lost.Load(), requested.Load()

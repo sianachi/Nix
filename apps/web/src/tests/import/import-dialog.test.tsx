@@ -2,6 +2,11 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
+import {
+  imports as importResources,
+  type DocumentImport,
+  type DocumentImportPlan,
+} from '@nix/api-client';
 
 import { ImportDialog } from '../../import/import-dialog';
 import * as run from '../../import/import-run';
@@ -17,6 +22,66 @@ vi.mock('../../workspaces/workspace-context', () => ({
 }));
 
 const PARENT = 'c1000000-0000-4000-8000-000000000031';
+const DOCUMENT_IMPORT_ID = 'd1000000-0000-4000-8000-000000000001';
+
+const documentPlan: DocumentImportPlan = {
+  version: 1,
+  format: 'pdf',
+  title: 'Report',
+  sourceSha256: 'a'.repeat(64),
+  items: [
+    {
+      sourceId: 'root',
+      parentSourceId: null,
+      order: 0,
+      title: 'Report',
+      itemType: 'note',
+      finalLifecycleState: 'active',
+      body: { encoding: 'plain_text', text: 'Body' },
+    },
+    {
+      sourceId: 'original',
+      parentSourceId: 'root',
+      order: 0,
+      title: 'report.pdf',
+      itemType: 'file',
+      finalLifecycleState: 'active',
+      file: {
+        sourceKind: 'source',
+        fileName: 'report.pdf',
+        mediaType: 'application/pdf',
+        byteLength: 4,
+        sha256: 'a'.repeat(64),
+        previewable: false,
+      },
+    },
+  ],
+  loss: ['Exact PDF layout is not preserved.'],
+  omissions: [],
+};
+
+function documentOperation(overrides: Partial<DocumentImport> = {}): DocumentImport {
+  return {
+    id: DOCUMENT_IMPORT_ID,
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    uploadId: 'd2000000-0000-4000-8000-000000000001',
+    parentId: PARENT,
+    format: 'pdf',
+    title: 'Report',
+    status: 'preview_ready',
+    previewOperationId: 'd3000000-0000-4000-8000-000000000001',
+    commitOperationId: null,
+    itemCount: 2,
+    assetCount: 0,
+    loss: ['Exact PDF layout is not preserved.'],
+    omissions: [],
+    rootItemId: null,
+    failureCode: null,
+    expiresAt: '2026-09-01T12:00:00Z',
+    completedAt: null,
+    ...overrides,
+  };
+}
 
 function report(overrides: Partial<run.ImportRunReport> = {}): run.ImportRunReport {
   return {
@@ -85,17 +150,44 @@ afterEach(() => {
 });
 
 describe('the import dialog', () => {
-  it('says what it can import - and what it cannot yet - before anything is chosen', () => {
+  it('says which document and Markdown sources it can import before anything is chosen', () => {
     open();
 
     expect(screen.getByText(/Obsidian vault/)).toBeInTheDocument();
     expect(screen.getByText(/folders containing Markdown notes/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Headings, lists, tables and inline formatting are kept/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Simple front matter fields/)).toBeInTheDocument();
-    expect(screen.getByText(/Archives, Word and PDF cannot be imported yet/)).toBeInTheDocument();
+    expect(screen.getByText(/PDF, Word document, UTF-8 text file/)).toBeInTheDocument();
+    expect(screen.getByText(/Nix archive/)).toBeInTheDocument();
+    expect(screen.getByText(/original files are retained as children/)).toBeInTheDocument();
+    expect(screen.getByText(/does not perform OCR/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeInTheDocument();
+  });
+
+  it('previews and publishes worker document imports atomically', async () => {
+    vi.spyOn(importResources, 'beginAndPreviewDocument').mockResolvedValue({
+      operation: documentOperation(),
+      plan: documentPlan,
+    });
+    vi.spyOn(importResources, 'commitAndWaitDocumentImport').mockResolvedValue(
+      documentOperation({
+        status: 'completed',
+        commitOperationId: 'd4000000-0000-4000-8000-000000000001',
+        rootItemId: 'd5000000-0000-4000-8000-000000000001',
+        completedAt: '2026-09-01T10:00:00Z',
+      }),
+    );
+
+    const { onImported } = open();
+    await pick(new File(['%PDF'], 'report.pdf', { type: 'application/pdf' }));
+
+    expect(await screen.findByRole('heading', { name: 'Item mapping' })).toBeInTheDocument();
+    expect(screen.getByText(/report.pdf becomes a file/)).toHaveTextContent(
+      'retained as a file',
+    );
+    expect(screen.getByText('Exact PDF layout is not preserved.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Import 2 items' }));
+
+    expect(await screen.findByText('2 items were created atomically.')).toBeInTheDocument();
+    expect(onImported).toHaveBeenCalledWith('d5000000-0000-4000-8000-000000000001');
   });
 
   it('previews an Obsidian vault recursively, preserving its nested folders', async () => {

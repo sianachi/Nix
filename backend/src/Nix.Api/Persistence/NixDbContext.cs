@@ -3,7 +3,9 @@ using Nix.Domain.Audit;
 using Nix.Domain.Authorization;
 using Nix.Domain.Bookmarks;
 using Nix.Domain.Content;
+using Nix.Domain.Files;
 using Nix.Domain.Identity;
+using Nix.Domain.Importing;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
 using Nix.Domain.Templates;
@@ -172,6 +174,13 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets durable worker outbox events.</summary>
     public DbSet<WorkerOutboxEvent> WorkerOutboxEvents => Set<WorkerOutboxEvent>();
 
+    public DbSet<FileBody> FileBodies => Set<FileBody>();
+    public DbSet<FileVersion> FileVersions => Set<FileVersion>();
+    public DbSet<FileUpload> FileUploads => Set<FileUpload>();
+
+    public DbSet<DocumentImport> DocumentImports => Set<DocumentImport>();
+    public DbSet<DocumentImportItem> DocumentImportItems => Set<DocumentImportItem>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -212,11 +221,14 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<ContentDocId>().HaveConversion<NixIdConverter<ContentDocId>>();
         configurationBuilder.Properties<PersonalAccessTokenId>().HaveConversion<NixIdConverter<PersonalAccessTokenId>>();
         configurationBuilder.Properties<BrowserSessionId>().HaveConversion<NixIdConverter<BrowserSessionId>>();
+        configurationBuilder.Properties<DocumentImportId>().HaveConversion<NixIdConverter<DocumentImportId>>();
         configurationBuilder.Properties<TemplateId>().HaveConversion<NixIdConverter<TemplateId>>();
         configurationBuilder.Properties<TemplateOperationId>().HaveConversion<NixIdConverter<TemplateOperationId>>();
         configurationBuilder.Properties<TemplateApplicationId>().HaveConversion<NixIdConverter<TemplateApplicationId>>();
         configurationBuilder.Properties<WorkerJobId>().HaveConversion<NixIdConverter<WorkerJobId>>();
         configurationBuilder.Properties<WorkerOutboxEventId>().HaveConversion<NixIdConverter<WorkerOutboxEventId>>();
+        configurationBuilder.Properties<FileVersionId>().HaveConversion<NixIdConverter<FileVersionId>>();
+        configurationBuilder.Properties<FileUploadId>().HaveConversion<NixIdConverter<FileUploadId>>();
     }
 
     /// <inheritdoc />
@@ -267,6 +279,11 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TemplateApplicationItemConfiguration());
         modelBuilder.ApplyConfiguration(new WorkerJobConfiguration());
         modelBuilder.ApplyConfiguration(new WorkerOutboxEventConfiguration());
+        modelBuilder.ApplyConfiguration(new FileBodyConfiguration());
+        modelBuilder.ApplyConfiguration(new FileVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new FileUploadConfiguration());
+        modelBuilder.ApplyConfiguration(new DocumentImportConfiguration());
+        modelBuilder.ApplyConfiguration(new DocumentImportItemConfiguration());
 
         // Template trees and half-hydrated regular items are implementation state, not workspace
         // content. Special template/application paths opt out explicitly; every ordinary EF item
