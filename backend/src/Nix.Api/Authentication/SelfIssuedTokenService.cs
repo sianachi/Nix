@@ -78,7 +78,28 @@ public sealed class SelfIssuedTokenService : IDisposable
     /// <summary>The claim carrying the revocable browser session behind an interactive token.</summary>
     public const string BrowserSessionClaim = "nix_browser_session_id";
 
+    /// <summary>The durable worker job backing an exact delegated execution token.</summary>
+    public const string WorkerJobClaim = "nix_worker_job_id";
+
+    /// <summary>The opaque current lease owner backing a delegated execution token.</summary>
+    public const string WorkerExecutionClaim = "nix_worker_execution_id";
+
+    /// <summary>The single item whose body boundary a worker delegation may authorize.</summary>
+    public const string WorkerItemClaim = "nix_worker_item_id";
+
+    /// <summary>The workspace containing the delegated export root.</summary>
+    public const string WorkerWorkspaceClaim = "nix_worker_workspace_id";
+
+    /// <summary>Whether the delegated export may read only its root or the complete subtree.</summary>
+    public const string WorkerScopeClaim = "nix_worker_scope";
+
     private const int DefaultLifetimeMinutes = 10;
+
+    /// <summary>
+    /// Cryptographic lifetime of an export delegation. Core still verifies the exact live lease
+    /// on every delegated request, so lease loss revokes it before this outer bound.
+    /// </summary>
+    public static readonly TimeSpan WorkerExecutionLifetime = TimeSpan.FromMinutes(15);
 
     private readonly ECDsa? _key;
     private readonly ECDsaSecurityKey? _securityKey;
@@ -239,6 +260,51 @@ public sealed class SelfIssuedTokenService : IDisposable
         return _handler.WriteToken(token);
     }
 
+    /// <summary>Mints a short-lived actor delegation that remains valid only while its worker lease is live.</summary>
+    public string MintWorkerExecution(
+        PrincipalId principalId,
+        TenantId tenantId,
+        Guid jobId,
+        Guid itemId,
+        Guid workspaceId,
+        string scope,
+        string executionId)
+    {
+        if (principalId.Value == Guid.Empty
+            || jobId == Guid.Empty
+            || itemId == Guid.Empty
+            || workspaceId == Guid.Empty
+            || scope is not ("item" or "subtree")
+            || string.IsNullOrWhiteSpace(executionId)
+            || executionId.Length > 128)
+        {
+            throw new ArgumentException("The worker execution delegation is invalid.");
+        }
+        if (!IsConfigured)
+        {
+            throw new InvalidOperationException("Cannot mint a worker execution token while Core signing is unconfigured.");
+        }
+        var now = Clock.GetUtcNow();
+        var token = new JwtSecurityToken(
+            issuer: Issuer,
+            audience: Audience,
+            claims:
+            [
+                new Claim("sub", principalId.Value.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(TenantClaim, tenantId.Value.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(WorkerJobClaim, jobId.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(WorkerItemClaim, itemId.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(WorkerWorkspaceClaim, workspaceId.ToString("D", CultureInfo.InvariantCulture)),
+                new Claim(WorkerScopeClaim, scope),
+                new Claim(WorkerExecutionClaim, executionId),
+                new Claim("jti", Guid.CreateVersion7().ToString("D", CultureInfo.InvariantCulture)),
+            ],
+            notBefore: now.UtcDateTime,
+            expires: (now + WorkerExecutionLifetime).UtcDateTime,
+            signingCredentials: new SigningCredentials(_securityKey, SecurityAlgorithms.EcdsaSha256));
+        return _handler.WriteToken(token);
+    }
+
     /// <summary>
     /// Builds the validation parameters the token validator's self-issuer branch uses.
     /// </summary>
@@ -334,6 +400,50 @@ public sealed class SelfIssuedTokenService : IDisposable
         tenantId = TenantId.From(tenant);
         principalId = PrincipalId.From(principal);
         browserSessionId = BrowserSessionId.From(session);
+        return true;
+    }
+
+    /// <summary>Reads the exact durable lease named by a Core-signed worker delegation.</summary>
+    public static bool TryReadWorkerExecutionClaims(
+        ClaimsIdentity identity,
+        out TenantId tenantId,
+        out PrincipalId principalId,
+        out Guid jobId,
+        out Guid itemId,
+        out Guid workspaceId,
+        out string scope,
+        out string executionId)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        tenantId = default;
+        principalId = default;
+        jobId = default;
+        itemId = default;
+        workspaceId = default;
+        scope = string.Empty;
+        executionId = string.Empty;
+        var execution = identity.FindFirst(WorkerExecutionClaim)?.Value;
+        var workerScope = identity.FindFirst(WorkerScopeClaim)?.Value;
+        if (!Guid.TryParseExact(identity.FindFirst("sub")?.Value, "D", out var principal)
+            || !Guid.TryParseExact(identity.FindFirst(TenantClaim)?.Value, "D", out var tenant)
+            || !Guid.TryParseExact(identity.FindFirst(WorkerJobClaim)?.Value, "D", out jobId)
+            || !Guid.TryParseExact(identity.FindFirst(WorkerItemClaim)?.Value, "D", out itemId)
+            || !Guid.TryParseExact(identity.FindFirst(WorkerWorkspaceClaim)?.Value, "D", out workspaceId)
+            || workerScope is not ("item" or "subtree")
+            || string.IsNullOrWhiteSpace(execution)
+            || execution.Length > 128
+            || principal == Guid.Empty
+            || tenant == Guid.Empty
+            || jobId == Guid.Empty
+            || itemId == Guid.Empty
+            || workspaceId == Guid.Empty)
+        {
+            return false;
+        }
+        tenantId = TenantId.From(tenant);
+        principalId = PrincipalId.From(principal);
+        scope = workerScope;
+        executionId = execution;
         return true;
     }
 

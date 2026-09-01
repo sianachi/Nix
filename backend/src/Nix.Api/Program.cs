@@ -12,6 +12,7 @@ using Nix.Features.Canvas;
 using Nix.Features.Charts;
 using Nix.Features.CurrentUser;
 using Nix.Features.DocumentImports;
+using Nix.Features.Exports;
 using Nix.Features.Files;
 using Nix.Features.Graph;
 using Nix.Features.Health;
@@ -78,6 +79,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(FilesJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(OperationsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(ExportsJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -458,6 +460,7 @@ app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
 app.MapFileEndpoints();
 app.MapDocumentImportEndpoints();
+app.MapExportEndpoints();
 app.MapOperationEndpoints();
 app.MapMeEndpoints();
 app.MapStructureEndpoints();

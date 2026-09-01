@@ -9,6 +9,9 @@ fake_bin="$test_root/bin"
 mkdir -p "$fake_bin"
 export KUBECTL_LOG="$test_root/kubectl.log"
 export RENDERED_PRESET_JOB="$test_root/template-presets.yaml"
+export RENDERED_RABBITMQ="$test_root/rabbitmq.yaml"
+export RENDERED_API="$test_root/api.yaml"
+export RENDERED_WORKERS="$test_root/workers.yaml"
 
 cat > "$fake_bin/git" <<EOF
 #!/usr/bin/env bash
@@ -23,6 +26,16 @@ cat > "$fake_bin/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *"metadata.resourceVersion"* ]]; then
+  printf '12345'
+  exit 0
+fi
+
+if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *" jsonpath="* ]]; then
+  printf 'dGVzdA=='
+  exit 0
+fi
+
 if [[ " $* " == *" apply -f - "* ]]; then
   payload="$(</dev/stdin)"
   names="$(printf '%s\n' "$payload" | sed -nE \
@@ -31,6 +44,15 @@ if [[ " $* " == *" apply -f - "* ]]; then
   printf 'apply-stdin:%s\n' "$names" >> "$KUBECTL_LOG"
   if [[ "$payload" == *"nix-template-presets-"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_PRESET_JOB"
+  fi
+  if [[ "$payload" == *"kind: StatefulSet"* && "$payload" == *"name: nix-rabbitmq"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_RABBITMQ"
+  fi
+  if [[ "$payload" == *"name: nix-api-data-protection"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_API"
+  fi
+  if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_WORKERS"
   fi
   exit 0
 fi
@@ -104,6 +126,9 @@ assert_before \
   "apply-stdin:nix-template-presets-render-order" \
   "wait:-n nix wait --for=condition=complete job/nix-template-presets-render-order"
 assert_before \
+  "rollout:-n nix rollout status statefulset/nix-rabbitmq" \
+  "apply-stdin:nix-api-data-protection,nix-api,nix-api"
+assert_before \
   "wait:-n nix wait --for=condition=complete job/nix-template-presets-render-order" \
   "apply-stdin:nix-api-data-protection,nix-api,nix-api"
 assert_before \
@@ -116,5 +141,18 @@ grep -Fq 'fsGroup: 999' "$RENDERED_PRESET_JOB"
 grep -Fq 'automountServiceAccountToken: false' "$RENDERED_PRESET_JOB"
 grep -Fq 'configMap: { name: nix-template-presets }' "$RENDERED_PRESET_JOB"
 grep -Fq 'name: PGUSER, value: nix_migrator' "$RENDERED_PRESET_JOB"
+grep -Fq 'create-configmap:nix-rabbitmq-config' "$KUBECTL_LOG"
+grep -Fq 'apply-stdin:nix-rabbitmq,nix-rabbitmq,rabbitmq-ingress' "$KUBECTL_LOG"
+grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_RABBITMQ"
+grep -Fq 'key: api-password' "$RENDERED_RABBITMQ"
+grep -Fq 'key: import-password' "$RENDERED_RABBITMQ"
+grep -Fq 'key: export-password' "$RENDERED_RABBITMQ"
+grep -Fq 'key: index-password' "$RENDERED_RABBITMQ"
+grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_API"
+grep -Fq 'key: api-url' "$RENDERED_API"
+grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
+grep -Fq 'key: import-url' "$RENDERED_WORKERS"
+grep -Fq 'key: export-url' "$RENDERED_WORKERS"
+grep -Fq 'key: index-url' "$RENDERED_WORKERS"
 
 echo "deployment render-order self-test passed"

@@ -58,6 +58,25 @@ public sealed class S3CapabilitySigner
             });
     }
 
+    /// <summary>Signs an immutable upload whose bytes object storage verifies by SHA-256.</summary>
+    public ObjectCapability PutImmutableVerified(string key, long byteLength, string sha256)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(byteLength);
+        if (sha256 is not { Length: 64 } || sha256.Any(character => !char.IsAsciiHexDigit(character)))
+        {
+            throw new ArgumentException("The object checksum must be a SHA-256 hex digest.", nameof(sha256));
+        }
+        return Sign(
+            "PUT",
+            key,
+            requestHeaders: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["content-length"] = byteLength.ToString(CultureInfo.InvariantCulture),
+                ["if-none-match"] = "*",
+                ["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(sha256)),
+            });
+    }
+
     /// <summary>Signs a read capability.</summary>
     public ObjectCapability Get(string key) => Sign("GET", key, null);
 

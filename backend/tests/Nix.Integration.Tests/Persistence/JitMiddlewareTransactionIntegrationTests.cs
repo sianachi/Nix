@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using Nix.Abstractions;
+using Nix.Abstractions.Workers;
 using Nix.Authentication;
 using Nix.Domain.Audit;
 using Nix.Domain.Identity;
@@ -153,6 +154,7 @@ public sealed class JitMiddlewareTransactionIntegrationTests : IAsyncLifetime
                 new FailedAuthenticationThrottle(TimeProvider.System, 3, TimeSpan.FromMinutes(5)),
                 services.GetRequiredService<IPersonalAccessTokens>(),
                 services.GetRequiredService<IBrowserSessions>(),
+                services.GetRequiredService<IWorkerDispatchStore>(),
                 services.GetRequiredService<AccessTokenSessionContext>(),
                 new UserInfoClient(userInfoClient, TimeSpan.FromSeconds(5)),
                 services.GetRequiredService<NixDispatcher>(),

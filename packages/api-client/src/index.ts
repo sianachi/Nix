@@ -228,6 +228,7 @@ export * as recurrence from './resources/recurrence.js';
 export * as files from './resources/files.js';
 export * as imports from './resources/imports.js';
 export * as operations from './resources/operations.js';
+export * as exports from './resources/exports.js';
 export type {
   FileDownloadCapability,
   FileRecord,
@@ -242,5 +243,23 @@ export {
   fileUploadStatusSchema,
   fileVersionSchema,
 } from './schemas/files.js';
-export type { DocumentImport, DocumentImportPlan, DocumentImportUpload } from './schemas/imports.js';
+export type {
+  DocumentImport,
+  DocumentImportPlan,
+  DocumentImportUpload,
+} from './schemas/imports.js';
 export type { Operation } from './schemas/operations.js';
+export type {
+  Export,
+  ExportDownloadCapability,
+  ExportFormat,
+  ExportFormatCatalog,
+  ExportStatus,
+} from './schemas/exports.js';
+export {
+  exportDownloadCapabilitySchema,
+  exportFormatCatalogSchema,
+  exportFormatSchema,
+  exportSchema,
+  exportStatusSchema,
+} from './schemas/exports.js';

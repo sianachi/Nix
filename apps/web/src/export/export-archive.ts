@@ -1,146 +1,146 @@
-/**
- * Asking for an exported file.
- *
- * Exports live outside Core because they need the document bodies, and Core never touches document
- * content - the block set has one definition, in `@nix/editor-schema`, and a second one in C# to
- * render exports is the drift that package exists to prevent.
- *
- * **Two services answer here, and the format decides which.** `.nix` comes from the collaboration
- * service, which holds the document log; PDF and Word come from the media service, which converts.
- * The shape of the request and of the refusal is identical either way, so this is one function with
- * a base URL looked up per format rather than two clients to keep in step.
- */
+import {
+  exports as exportResources,
+  isCanceledError,
+  isNixApiError,
+  type Export,
+  type ExportDownloadCapability,
+  type NixClient,
+} from '@nix/api-client';
 
-import { formatFor, type ExportFormat } from './export-formats';
+import type { ExportFormat } from './export-formats';
 
 export type ArchiveScope = 'item' | 'subtree';
 
 export interface ArchiveResult {
+  readonly exportId: string;
   readonly fileName: string;
-  readonly blob: Blob;
-
-  /** How many items the archive holds. */
+  readonly downloadUrl: string;
+  readonly capabilityExpiresAt: string;
+  readonly mediaType: string;
+  readonly byteLength: number | string;
+  readonly sha256: string;
   readonly itemCount: number;
-
-  /**
-   * How many were left out - unreadable, deleted, or past the export ceiling.
-   *
-   * Read from a response header rather than from the archive, so the interface can say what is
-   * missing without unpacking a zip it is about to hand to the downloader. The archive's own
-   * manifest carries the detail.
-   */
   readonly omittedCount: number;
+  readonly loss: readonly string[];
+  readonly omissions: readonly string[];
 }
 
 export type ArchiveOutcome =
   | { readonly ok: true; readonly value: ArchiveResult }
-  | { readonly ok: false; readonly error: string };
+  | { readonly ok: false; readonly error: string; readonly cancelled: boolean };
 
 export interface ArchiveRequest {
+  readonly client: NixClient;
   readonly itemId: string;
   readonly scope: ArchiveScope;
-
-  /** Defaults to the lossless archive, which is what the first version of this only produced. */
-  readonly format?: ExportFormat;
-
-  readonly getAccessToken: () => Promise<string | null>;
+  readonly format: ExportFormat;
   readonly signal?: AbortSignal;
-  readonly baseUrl?: string;
-  readonly fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
+  readonly pollIntervalMs?: number;
+  readonly onStarted?: (state: Export) => void;
+  readonly onProgress?: (state: Export) => void;
 }
 
 export async function requestArchive(request: ArchiveRequest): Promise<ArchiveOutcome> {
-  const {
-    itemId,
-    scope,
-    format = 'nix',
-    getAccessToken,
-    signal,
-    fetchImpl = globalThis.fetch,
-  } = request;
-
-  const descriptor = formatFor(format);
-  const baseUrl = request.baseUrl ?? descriptor.baseUrl;
-
-  const token = await getAccessToken();
-  if (token === null) {
-    return { ok: false, error: 'Your session has expired. Sign in again to export.' };
-  }
-
-  let response: Response;
-
   try {
-    response = await fetchImpl(
-      `${baseUrl}/documents/${itemId}/export?scope=${scope}&format=${format}`,
-      signal === undefined
-        ? { headers: { authorization: `Bearer ${token}` } }
-        : { headers: { authorization: `Bearer ${token}` }, signal },
+    const state = await exportResources.beginAndWait(
+      request.client,
+      {
+        itemId: request.itemId,
+        scope: request.scope,
+        format: request.format,
+        idempotencyKey: `web-export:${globalThis.crypto.randomUUID()}`,
+      },
+      {
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.pollIntervalMs === undefined ? {} : { pollIntervalMs: request.pollIntervalMs }),
+        ...(request.onStarted === undefined ? {} : { onStarted: request.onStarted }),
+        ...(request.onProgress === undefined ? {} : { onProgress: request.onProgress }),
+      },
     );
-  } catch (cause) {
-    if (cause instanceof DOMException && cause.name === 'AbortError') {
-      return { ok: false, error: 'The export was cancelled.' };
+
+    if (state.status === 'cancelled') {
+      return { ok: false, error: 'The export was cancelled.', cancelled: true };
+    }
+    if (state.status === 'failed') {
+      return {
+        ok: false,
+        error: state.failureDetail ?? state.failureCode ?? 'The export worker could not finish.',
+        cancelled: false,
+      };
+    }
+    if (!state.downloadReady) {
+      return {
+        ok: false,
+        error: 'The export finished, but its download is not available.',
+        cancelled: false,
+      };
     }
 
-    return { ok: false, error: 'The export could not be reached. Check your connection.' };
+    const capability = await exportResources.downloadForCompletedExport(
+      request.client,
+      state,
+      request.signal,
+    );
+    return {
+      ok: true,
+      value: resultFrom(state, capability),
+    };
+  } catch (reason) {
+    const cancelled =
+      request.signal?.aborted === true || isCanceledError(reason) || isAbort(reason);
+    return {
+      ok: false,
+      cancelled,
+      error: cancelled ? 'The export was cancelled.' : exportFailure(reason),
+    };
   }
+}
 
-  if (!response.ok) {
-    return { ok: false, error: await refusal(response) };
-  }
+export async function cancelArchive(client: NixClient, exportId: string): Promise<void> {
+  await client.execute(exportResources.cancel(exportId));
+}
 
-  // Buffered, deliberately: a download needs the whole file before the browser can name it, and the
-  // service caps an export at a size this can hold. When a workspace-sized export arrives it will
-  // arrive as a job with a link, not as a bigger buffer here.
-  const blob = await response.blob();
-
+function resultFrom(state: Export, capability: ExportDownloadCapability): ArchiveResult {
   return {
-    ok: true,
-    value: {
-      fileName: fileNameFrom(response.headers.get('content-disposition'), descriptor.extension),
-      blob,
-      itemCount: count(response.headers.get('x-nix-export-items')),
-      omittedCount: count(response.headers.get('x-nix-export-omitted')),
-    },
+    exportId: state.id,
+    fileName: capability.fileName,
+    downloadUrl: capability.url,
+    capabilityExpiresAt: capability.expiresAt,
+    mediaType: capability.mediaType,
+    byteLength: capability.byteLength,
+    sha256: capability.sha256,
+    itemCount: safeCount(state.itemCount, 'item count'),
+    omittedCount: safeCount(state.omittedCount, 'omitted count'),
+    loss: state.loss,
+    omissions: state.omissions,
   };
 }
 
-/**
- * The service's own words where it gave them, and a plain sentence where it did not.
- *
- * Refusals arrive as RFC 9457 problem details with a stable `code`; a body that is not one is a
- * proxy or a gateway answering instead, and inventing a specific reason for it would be a guess
- * presented as a fact.
- */
-async function refusal(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: unknown };
-    if (typeof body.detail === 'string' && body.detail.length > 0) {
-      return body.detail;
-    }
-  } catch {
-    // Falls through to the generic sentence below.
+function safeCount(value: number | string | null, field: string): number {
+  if (value === null) return 0;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`The export ${field} was outside the supported range.`);
   }
-
-  return response.status === 404
-    ? 'That item is no longer available to you.'
-    : `The export was refused (${String(response.status)}).`;
+  return parsed;
 }
 
-function count(header: string | null): number {
-  if (header === null) {
-    return 0;
-  }
+function isAbort(reason: unknown): boolean {
+  return reason instanceof DOMException && reason.name === 'AbortError';
+}
 
-  const value = Number(header);
-  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+function exportFailure(reason: unknown): string {
+  if (isNixApiError(reason)) {
+    return reason.detail ?? 'The export service refused the request.';
+  }
+  return reason instanceof Error ? reason.message : 'The export could not be prepared.';
 }
 
 /**
- * The file name the service chose.
+ * The file name from a legacy authenticated binary response.
  *
- * Taken from the response rather than built from the item's title here, so the name in the download
- * folder is the one the archive was written under. The fallback exists because a proxy may strip
- * the header, and a download with no name is worse than a generic one.
+ * Template archives still use the direct binary boundary. Durable item exports get their name
+ * from Core's capability response and do not need to parse a header in the browser.
  */
 export function fileNameFrom(header: string | null, extension = 'nix'): string {
   const match = header === null ? null : /filename="([^"]+)"/.exec(header);
@@ -149,24 +149,35 @@ export function fileNameFrom(header: string | null, extension = 'nix'): string {
   return name === undefined || name.length === 0 ? `export.${extension}` : name;
 }
 
-/**
- * Hands the archive to the browser's downloader.
- *
- * The object URL is revoked on the next frame rather than immediately: revoking it in the same task
- * as the click races the download in Safari, which has not yet read the blob when the handler
- * returns.
- */
-export function saveArchive(result: ArchiveResult, target: Document = document): void {
-  const url = URL.createObjectURL(result.blob);
+interface BlobDownload {
+  readonly fileName: string;
+  readonly blob: Blob;
+}
+
+/** Hands either a legacy Blob or a private export capability to the browser's downloader. */
+export function saveArchive(
+  result: ArchiveResult | BlobDownload,
+  target: Document = document,
+): void {
+  let objectUrl: string | null = null;
   const anchor = target.createElement('a');
 
-  anchor.href = url;
+  if ('blob' in result) {
+    objectUrl = URL.createObjectURL(result.blob);
+    anchor.href = objectUrl;
+  } else {
+    anchor.href = result.downloadUrl;
+  }
   anchor.download = result.fileName;
+  anchor.rel = 'noopener';
+  anchor.referrerPolicy = 'no-referrer';
   target.body.append(anchor);
   anchor.click();
   anchor.remove();
 
-  requestAnimationFrame(() => {
-    URL.revokeObjectURL(url);
-  });
+  if (objectUrl !== null) {
+    requestAnimationFrame(() => {
+      URL.revokeObjectURL(objectUrl);
+    });
+  }
 }

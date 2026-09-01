@@ -16,7 +16,13 @@ func TestResultMessagePreservesRetryClassification(t *testing.T) {
 }
 
 func TestResultMessageClassifiesCancellation(t *testing.T) {
-	message := resultMessage("job", "execution", nil, errors.New("interrupted"), true, nil)
+	message := resultMessage(
+		"job",
+		"execution",
+		nil,
+		&jobrunner.JobError{Code: "export_upload_failed", Detail: "interrupted", Retryable: true, Cause: errors.New("interrupted")},
+		true,
+		nil)
 	if message.ErrorCode == nil || *message.ErrorCode != "job_cancelled" || message.Retryable {
 		t.Fatalf("unexpected result: %#v", message)
 	}

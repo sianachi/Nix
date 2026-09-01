@@ -592,6 +592,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/exports/formats': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListExportFormats'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/exports': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['BeginExport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/exports/{exportId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetExport'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/exports/{exportId}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CancelExport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/exports/{exportId}/download': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['AuthorizeExportDownload'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/operations/{operationId}': {
     parameters: {
       query?: never;
@@ -1243,6 +1323,13 @@ export interface components {
       byteLength: number | string;
       idempotencyKey: string;
     };
+    BeginExportRequest: {
+      /** Format: uuid */
+      itemId: string;
+      format: string;
+      scope: string;
+      idempotencyKey: string;
+    };
     BeginFileUploadRequest: {
       /** Format: uuid */
       workspaceId: string;
@@ -1435,6 +1522,62 @@ export interface components {
       properties: components['schemas']['PropertyDefinitionResponse'][];
       declared: components['schemas']['PropertyDefinitionResponse'][];
       inherit: boolean;
+    };
+    ExportDownloadCapabilityResponse: {
+      /** Format: uri */
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      sha256: string;
+    };
+    ExportFormatCatalogResponse: {
+      formats: components['schemas']['ExportFormatResponse'][];
+      /** Format: date-time */
+      observedAt: string;
+    };
+    ExportFormatResponse: {
+      format: string;
+      label: string;
+      extension: string;
+      mediaType: string;
+      lossless: boolean;
+      declaredLoss: string[];
+    };
+    ExportResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      itemId: string;
+      /** Format: uuid */
+      workspaceId: string;
+      format: string;
+      scope: string;
+      fileName: string;
+      mediaType: string;
+      status: string;
+      /** Format: int32 */
+      itemCount: null | number | string;
+      /** Format: int32 */
+      omittedCount: null | number | string;
+      /** Format: int64 */
+      byteLength: null | number | string;
+      sha256: null | string;
+      loss: string[];
+      omissions: string[];
+      failureCode: null | string;
+      failureDetail: null | string;
+      cancellationRequested: boolean;
+      downloadReady: boolean;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      completedAt: null | string;
+      /** Format: date-time */
+      expiresAt: null | string;
     };
     FileDownloadCapabilityResponse: {
       /** Format: uri */
@@ -3945,6 +4088,222 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListExportFormats: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ExportFormatCatalogResponse'];
+        };
+      };
+    };
+  };
+  BeginExport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BeginExportRequest'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ExportResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetExport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        exportId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ExportResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CancelExport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        exportId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AuthorizeExportDownload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        exportId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ExportDownloadCapabilityResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Gone */
+      410: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };

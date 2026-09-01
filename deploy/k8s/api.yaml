@@ -23,7 +23,9 @@ spec:
   replicas: 1
   selector: { matchLabels: { app: nix-api } }
   template:
-    metadata: { labels: { app: nix-api } }
+    metadata:
+      labels: { app: nix-api }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
     spec:
       securityContext:
         runAsNonRoot: true
@@ -54,6 +56,20 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
             - name: Nix__InternalSecret
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: Nix__Collaboration__BaseUrl
+              value: http://nix-collab:8100
+            - name: Nix__RabbitMq__Uri
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: api-url } }
+            - name: Nix__ObjectStorage__Endpoint
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: Nix__ObjectStorage__Region
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: region } }
+            - name: Nix__ObjectStorage__Bucket
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            - name: Nix__ObjectStorage__AccessKey
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: Nix__ObjectStorage__SecretKey
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
             - name: Nix__GoWorkers__ExportEnabled
               value: "true"
             - name: Nix__GoWorkers__ImportEnabled

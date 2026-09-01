@@ -553,6 +553,52 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         );
       }
 
+      if (parsedUrl.pathname === '/api/v1/exports/formats' && method === 'GET') {
+        return Promise.resolve(
+          json({
+            formats: [
+              {
+                format: 'nix',
+                label: 'Archive',
+                extension: 'nix',
+                mediaType: 'application/vnd.nix.archive+zip',
+                lossless: true,
+                declaredLoss: [],
+              },
+              {
+                format: 'markdown',
+                label: 'Markdown',
+                extension: 'md',
+                mediaType: 'text/markdown; charset=utf-8',
+                lossless: false,
+                declaredLoss: ['Views and interactive metadata are represented as text.'],
+              },
+              {
+                format: 'docx',
+                label: 'Word',
+                extension: 'docx',
+                mediaType:
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                lossless: false,
+                declaredLoss: ['Interactive workspace behavior is flattened into a document.'],
+              },
+              {
+                format: 'pdf',
+                label: 'PDF',
+                extension: 'pdf',
+                mediaType: 'application/pdf',
+                lossless: false,
+                declaredLoss: [
+                  'Interactive workspace behavior is flattened into fixed pages.',
+                  'Characters outside printable ASCII are replaced by the built-in PDF font.',
+                ],
+              },
+            ],
+            observedAt: '2026-09-01T09:00:00+00:00',
+          }),
+        );
+      }
+
       if (parsedUrl.pathname === '/api/v1/workspaces' && method === 'GET') {
         if (workspacesPartial) {
           return Promise.resolve(

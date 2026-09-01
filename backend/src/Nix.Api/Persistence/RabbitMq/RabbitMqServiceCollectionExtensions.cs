@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Nix.Abstractions.Workers;
 
 namespace Nix.Persistence.RabbitMq;
 
@@ -12,6 +14,7 @@ public static class RabbitMqServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+        services.TryAddSingleton<IWorkerCapabilityRegistry, WorkerCapabilityRegistry>();
         var options = new RabbitMqOptions();
         configuration.GetSection(RabbitMqOptions.SectionName).Bind(options);
         if (options.Uri is null)
@@ -31,6 +34,7 @@ public static class RabbitMqServiceCollectionExtensions
         services.AddSingleton<RabbitMqConnection>();
         services.AddHostedService<RabbitOutboxPublisher>();
         services.AddHostedService<RabbitResultConsumer>();
+        services.AddHostedService<RabbitCapabilityConsumer>();
         return services;
     }
 }
