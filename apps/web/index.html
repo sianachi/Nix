@@ -10,11 +10,10 @@
     <meta name="theme-color" content="#f2f2f3" />
 
     <!--
-      Content security policy, in the document so it also holds where no reverse proxy fronts the
-      app (the Vite dev server, a static preview). deploy/Caddyfile carries the same policy as a
-      header, plus frame-ancestors, which a meta CSP is not allowed to express. The two are one
-      policy in two places: change them together, or the deployed app and the dev server disagree
-      about what is allowed. src/tests/app/content-security-policy.test.ts holds them in step.
+      This same-origin policy is the fail-closed fallback for an unprocessed index file. Vite strips
+      the marked tag below and supplies a response header containing the exact configured public
+      object-store origin; production Caddy does the same at runtime. A header is required because
+      a deployment-specific origin cannot safely be represented by a portable static meta tag.
 
       The script-src hash covers the inline theme script below - its exact content between the
       script tags. Any change to that script, including whitespace, must recompute the hash
@@ -35,13 +34,15 @@
         http: out makes the picture picker lie: the browser blocks the image, onError fires, and the
         UI reports an address the server just accepted as wrong. img-src cannot execute anything,
         which is what makes the loosest directive here the cheapest one.
-      Provider communication is server-side. Browser fetches and WebSockets remain same-origin;
-      no identity-provider origin is admitted to connect-src or frame-src, and provider tokens
+      Provider communication is server-side. Application API calls and WebSockets remain
+      same-origin; the serving header admits only the configured object-store origin in addition.
+      No identity-provider origin is admitted to connect-src or frame-src, and provider tokens
       never enter JavaScript.
     -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+      data-nix-csp-fallback
     />
 
     <!--

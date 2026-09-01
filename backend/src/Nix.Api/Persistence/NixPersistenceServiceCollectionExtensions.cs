@@ -4,7 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
+using Nix.Abstractions.Files;
+using Nix.Abstractions.Importing;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -37,6 +40,8 @@ using Nix.Persistence.Graph;
 using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
+using Nix.Persistence.ObjectStorage;
+using Nix.Persistence.Plugins;
 using Nix.Persistence.Properties;
 using Nix.Persistence.Query;
 using Nix.Persistence.Recurrence;
@@ -147,6 +152,21 @@ public static class NixPersistenceServiceCollectionExtensions
         });
 
         services.AddScoped<NixSqlExecutor>();
+        services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
+        services.AddSingleton<IWorkerDispatchStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerDispatchStore>());
+        services.AddScoped<IWorkerExecutionFence, Nix.Persistence.Workers.WorkerExecutionFence>();
+        services.AddSingleton<Nix.Persistence.Workers.SearchIndexDispatchStore>();
+        services.AddSingleton<PluginDispatchStore>();
+        services.AddScoped<PluginInstallationStore>();
+        services.AddScoped<Nix.Persistence.Workers.WorkerStore>();
+        services.AddScoped<IWorkerJobStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
+        services.AddScoped<IWorkerOutboxStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
+        services.AddScoped<IFileStore, Nix.Persistence.Files.FileStore>();
+        services.AddScoped<IDocumentImportStore, Nix.Persistence.Importing.DocumentImportStore>();
+        services.AddSingleton<AbandonedObjectOperationStore>();
+        services.AddSingleton<AbandonedObjectReaper>();
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+            provider => provider.GetRequiredService<AbandonedObjectReaper>());
 
         // Scoped, like everything else here: a store reads the scope's tenant and shares the
         // context's transaction, so it belongs to one unit of work and one tenant.
@@ -174,7 +194,8 @@ public static class NixPersistenceServiceCollectionExtensions
         // The two readers over the derived tables. Scoped like the stores: both borrow the unit of
         // work's connection so their statements run inside the transaction that published the RLS
         // session context.
-        services.AddScoped<IItemSearch, ItemSearch>();
+        services.AddScoped<ItemSearch>();
+        services.AddScoped<IItemSearch>(provider => provider.GetRequiredService<ItemSearch>());
         services.AddScoped<IItemLinks, ItemLinks>();
         services.AddScoped<ICanvasLibraryStore, CanvasLibraryStore>();
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
@@ -305,6 +326,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SweepExpiredTemplateStages, TemplateStageSweepResult>, SweepExpiredTemplateStagesHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateImport, Result<TemplateWorkspaceAuthorization>>, AuthorizeTemplateImportHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateOperationItem, Result<TemplateOperationAuthorization>>, AuthorizeTemplateOperationItemHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateOperationWrites, Result<TemplateOperationWriteAuthorization>>, AuthorizeTemplateOperationWritesHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateItem, Result<TemplateItemAuthorization>>, AuthorizeTemplateItemHandler>();
 
         return services;

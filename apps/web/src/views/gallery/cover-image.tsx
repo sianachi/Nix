@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
  * The one place a cover picture is drawn.
  *
  * **Covers go through `<Duotone>`**, which is the design grammar's answer for any image
- * (CLAUDE.md, styling rules): it maps the picture's luminance onto two token colours so a wall of
+ * (AGENTS.md, styling rules): it maps the picture's luminance onto two token colours so a wall of
  * arbitrary photographs reads as one surface rather than as somebody's camera roll. This file
  * existed first as a seam - a plain `<img>` with exactly Duotone's interface - because the two were
  * built in parallel and the treatment did not exist yet. It now forwards to the real thing, and the

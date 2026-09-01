@@ -204,7 +204,7 @@ describe('producing the file', () => {
 
     expect(xml).toContain('Quarterly Review');
     expect(xml).toContain('A paragraph.');
-    // The ASCII marker CLAUDE.md mandates, rather than a symbol from a font Word may not have.
+    // The ASCII marker AGENTS.md mandates, rather than a symbol from a font Word may not have.
     expect(xml).toContain('[x] ');
   });
 });

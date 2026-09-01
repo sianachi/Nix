@@ -406,10 +406,38 @@ public sealed partial class TemplateStore
         }
 
         await DeleteProvisioningApplicationTargetsAsync(templateId, cancellationToken).ConfigureAwait(false);
+        var trackedApplicationIds = _database.ChangeTracker.Entries<TemplateApplication>()
+            .Where(entry => entry.Entity.TemplateId == templateId)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var trackedOperationIds = _database.ChangeTracker.Entries<TemplateOperation>()
+            .Where(entry => entry.Entity.TemplateId == templateId)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
         await _database.TemplateApplications
             .Where(application => application.TemplateId == templateId)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
+        foreach (var entry in _database.ChangeTracker.Entries<TemplateApplicationItem>()
+            .Where(entry => trackedApplicationIds.Contains(entry.Entity.ApplicationId)))
+        {
+            entry.State = EntityState.Detached;
+        }
+        foreach (var entry in _database.ChangeTracker.Entries<TemplateApplication>()
+            .Where(entry => trackedApplicationIds.Contains(entry.Entity.Id)))
+        {
+            entry.State = EntityState.Detached;
+        }
+        foreach (var entry in _database.ChangeTracker.Entries<TemplateOperationItem>()
+            .Where(entry => trackedOperationIds.Contains(entry.Entity.OperationId)))
+        {
+            entry.State = EntityState.Detached;
+        }
+        foreach (var entry in _database.ChangeTracker.Entries<TemplateOperation>()
+            .Where(entry => trackedOperationIds.Contains(entry.Entity.Id)))
+        {
+            entry.State = EntityState.Detached;
+        }
         await _database.TemplateOperations
             .Where(operation => operation.TemplateId == templateId)
             .ExecuteDeleteAsync(cancellationToken)
@@ -491,6 +519,11 @@ public sealed partial class TemplateStore
             .Where(item => itemIds.Contains(item.Id))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
+        foreach (var entry in _database.ChangeTracker.Entries<Item>()
+            .Where(entry => itemIds.Contains(entry.Entity.Id)))
+        {
+            entry.State = EntityState.Detached;
+        }
     }
 
 }

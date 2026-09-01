@@ -14,10 +14,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-docker compose -f deploy/compose.dev.yml --profile core up -d
+docker compose -f deploy/compose.dev.yml --profile core --profile search up -d
+export NIX_OBJECT_STORE_ENDPOINT="${NIX_OBJECT_STORE_ENDPOINT:-http://localhost:${VERSITY_PORT:-7070}}"
+export NIX_OBJECT_STORE_REGION="${NIX_OBJECT_STORE_REGION:-us-east-1}"
+export NIX_OBJECT_STORE_BUCKET="${NIX_OBJECT_STORE_BUCKET:-nix-worker-jobs}"
+export NIX_OBJECT_STORE_ACCESS_KEY="${NIX_OBJECT_STORE_ACCESS_KEY:-${VERSITY_ROOT_ACCESS_KEY:-nix-dev-access}}"
+export NIX_OBJECT_STORE_SECRET_KEY="${NIX_OBJECT_STORE_SECRET_KEY:-${VERSITY_ROOT_SECRET_KEY:-nix-dev-secret-key}}"
+node --experimental-strip-types scripts/ensure-dev-object-store.mts
 deploy/seed/seed.sh
 scripts/dev-migrate.sh
 deploy/seed/zitadel-configure.sh
 deploy/seed/seed.sh   # second pass: the schema exists now, seeds tenants + identity_provider
 
-echo "dev-stack-up: start Core with scripts/dev-api.sh and web with pnpm --filter @nix/web dev"
+echo "dev-stack-up: start Core (scripts/dev-api.sh), Collaboration (scripts/dev-collab.sh), the Go worker (scripts/dev-worker.sh), and web (pnpm --filter @nix/web dev)"

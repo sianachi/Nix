@@ -94,6 +94,7 @@ internal static class M0SchemaSeed
         var templateApplication = Literal(rows.TemplateApplicationId);
         var templateSource = Literal(rows.TemplateSourceId);
         var slug = rows.Slug;
+        var pluginDigest = new string(slug == "alpha" ? 'A' : 'B', 64);
         var browserSessionHash = new string(slug == "alpha" ? 'a' : 'b', BrowserSession.TokenHashLength);
 
         return $"""
@@ -265,6 +266,124 @@ internal static class M0SchemaSeed
                  target_item_id, is_root, created, body_required)
             VALUES ({templateApplication}, {templateSource}, {tenant}, {item}, 'folder', {item},
                     true, false, false);
+
+            DO $seed$
+            BEGIN
+                IF to_regclass('public.worker_job') IS NOT NULL THEN
+                    INSERT INTO worker_job
+                        (job_id, tenant_id, workspace_id, actor_id, kind, idempotency_key, payload,
+                         status, attempts, cancellation_requested, created_at, updated_at)
+                    VALUES ({acl}, {tenant}, {workspace}, {principal}, 'import.nix',
+                            '{slug}-worker-job', jsonb_build_object('source', '{slug}'), 'queued',
+                            0, false, now(), now());
+
+                    INSERT INTO worker_outbox_event
+                        (event_id, tenant_id, workspace_id, item_id, kind, aggregate_version,
+                         payload, available_at, attempts)
+                    VALUES ({auditEvent}, {tenant}, {workspace}, {item}, 'item.changed', 1,
+                            jsonb_build_object('id', {item}, 'title', '{slug} item'), now(), 0);
+
+                    IF to_regclass('public.plugin_publisher') IS NOT NULL THEN
+                        INSERT INTO plugin_publisher
+                            (tenant_id, publisher_id, ed25519_public_key, pinned_by, pinned_at)
+                        VALUES ({tenant}, 'nix.seed', decode(repeat('11', 32), 'hex'),
+                                {principal}, now());
+
+                        INSERT INTO plugin_component
+                            (tenant_id, publisher_id, component_id, component_version, object_key,
+                             sha256, byte_length, ed25519_signature, registered_by, registered_at)
+                        VALUES ({tenant}, 'nix.seed', 'nix.seed/{slug}', '1.0.0',
+                                'plugins/components/{rows.TenantId:D}/nix.seed/{slug}/1.0.0/{pluginDigest}.wasm',
+                                '{pluginDigest}', 8, decode(repeat('22', 64), 'hex'),
+                                {principal}, now());
+
+                        INSERT INTO plugin_installation
+                            (installation_id, tenant_id, workspace_id, component_id,
+                             component_version, enabled, installed_by, installed_at, updated_at)
+                        VALUES ({provider}, {tenant}, {workspace}, 'nix.seed/{slug}', '1.0.0',
+                                true, {principal}, now(), now());
+
+                        INSERT INTO plugin_capability_grant
+                            (tenant_id, installation_id, capability, granted_by, granted_at)
+                        VALUES ({tenant}, {provider}, 'items.read-metadata', {principal}, now());
+
+                        INSERT INTO plugin_event_receipt
+                            (tenant_id, event_id, workspace_id, kind, item_id, aggregate_version,
+                             causation_id, causation_depth, received_at)
+                        VALUES ({tenant}, {auditEvent}, {workspace}, 'item.changed', {item}, 1,
+                                {auditEvent}, 0, now());
+
+                        INSERT INTO plugin_event_inbox
+                            (tenant_id, event_id, installation_id, workspace_id, kind, item_id,
+                             aggregate_version, causation_id, causation_depth, status, attempts,
+                             current_invocation_id, error_code, error_detail, created_at, updated_at,
+                             completed_at)
+                        VALUES ({tenant}, {auditEvent}, {provider}, {workspace}, 'item.changed',
+                                {item}, 1, {auditEvent}, 0, 'completed', 1, {invitation}, NULL,
+                                NULL, now(), now(), now());
+
+                        INSERT INTO plugin_invocation
+                            (invocation_id, tenant_id, event_id, installation_id, workspace_id,
+                             attempt, causation_id, causation_depth, status, lease_until,
+                             completion_fingerprint, succeeded, retryable, error_code,
+                             error_detail, created_at, completed_at)
+                        VALUES ({invitation}, {tenant}, {auditEvent}, {provider}, {workspace}, 1,
+                                {auditEvent}, 0, 'completed', now() + interval '1 minute',
+                                decode(repeat('33', 32), 'hex'), true, false, NULL, NULL,
+                                now(), now());
+                    END IF;
+                END IF;
+
+                IF to_regclass('public.file_version') IS NOT NULL THEN
+                    INSERT INTO file_version
+                        (file_version_id, tenant_id, workspace_id, item_id, version, object_key,
+                         file_name, media_type, byte_length, sha256, pixel_width, pixel_height,
+                         previewable, created_by, created_at)
+                    VALUES ({templateSource}, {tenant}, {workspace}, {item}, 1,
+                            'files/seed/{slug}', '{slug}.bin', 'application/octet-stream', 4,
+                            repeat('{(slug == "alpha" ? "a" : "b")}', 64), NULL, NULL, false,
+                            {principal}, now());
+
+                    INSERT INTO file_body
+                        (item_id, tenant_id, workspace_id, current_version_id)
+                    VALUES ({item}, {tenant}, {workspace}, {templateSource});
+
+                    INSERT INTO file_upload
+                        (upload_id, tenant_id, workspace_id, parent_id, target_item_id, actor_id,
+                         idempotency_key, purpose, file_name, declared_media_type, declared_byte_length,
+                         object_key, status, failure_code, published_item_id, expires_at, created_at,
+                         updated_at)
+                    VALUES ({templateApplication}, {tenant}, {workspace}, NULL, {item}, {principal},
+                            '{slug}-file-upload', 'document_import', '{slug}.bin',
+                            'application/octet-stream', 4,
+                            'files/upload/{slug}', 'completed', NULL, {item}, now() + interval '1 hour',
+                            now(), now());
+
+                    IF to_regclass('public.document_import') IS NOT NULL THEN
+                        INSERT INTO document_import
+                            (import_id, tenant_id, workspace_id, actor_id, upload_id, parent_id,
+                             format, title, idempotency_key, status, preview_job_id, commit_job_id,
+                             plan_object_key, plan_sha256, plan_byte_length, source_sha256,
+                             item_count, asset_count, loss, omissions, root_item_id, failure_code,
+                             expires_at, created_at, updated_at, completed_at)
+                        VALUES ({templateOperation}, {tenant}, {workspace}, {principal},
+                                {templateApplication}, NULL, 'nix', '{slug} import',
+                                '{slug}-document-import', 'completed', NULL, NULL,
+                                'imports/plans/{slug}.json', repeat('c', 64), 4,
+                                repeat('{(slug == "alpha" ? "a" : "b")}', 64), 1, 0,
+                                '[]'::jsonb, '[]'::jsonb, {item}, NULL,
+                                now() + interval '1 hour', now(), now(), now());
+
+                        INSERT INTO document_import_item
+                            (import_id, source_id, tenant_id, parent_source_id, target_item_id,
+                             item_type, final_lifecycle_state, body_required, file_version_id,
+                             object_key, object_ready)
+                        VALUES ({templateOperation}, 'root', {tenant}, NULL, {item}, 'folder',
+                                'active', false, NULL, NULL, true);
+                    END IF;
+                END IF;
+            END
+            $seed$;
 
             """;
     }

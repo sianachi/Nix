@@ -2,8 +2,9 @@ import { createNixClient, templateDetailSchema, templates } from '@nix/api-clien
 import { describe, expect, it } from 'vitest';
 
 import {
-  importTemplateFile,
-  previewTemplateFile,
+  beginAndPreviewTemplate,
+  cancelTemplateImport,
+  templateImportById,
   TemplateImportPreviewSchema,
   updateTemplateEditDraftItem,
 } from '../../templates/template-api';
@@ -33,26 +34,39 @@ describe('the template API boundary', () => {
     expect(library.capabilities.canManage).toBe(true);
   });
 
-  it('sends a template archive as binary data for validation', () => {
-    const archive = new File(['archive'], 'daily-check-in.nix', {
-      type: 'application/x-nix-template',
+  it('exports the durable Core template import workflow through the web boundary', async () => {
+    const importId = 'a9000000-0000-4000-8000-000000000001';
+    const writes = stubCoreApi();
+
+    expect(templateImportById(importId)).toMatchObject({
+      path: `/api/v1/template-imports/${importId}`,
+      cacheKey: ['template-imports', importId],
     });
-
-    const endpoint = previewTemplateFile(TEMPLATE_WORKSPACE_ID, archive);
-
-    expect(endpoint.body).toBe(archive);
-    expect(endpoint.path).toBe('/media/templates/preview');
-    expect(endpoint.query).toEqual({ workspaceId: TEMPLATE_WORKSPACE_ID });
+    await cancelTemplateImport(client(), importId);
+    expect(writes.templateImportCancellations).toEqual([importId]);
   });
 
-  it('binds a commit to both the preview digest and one logical attempt', () => {
-    const archive = new Blob(['archive']);
-    const endpoint = importTemplateFile(TEMPLATE_WORKSPACE_ID, archive, 'digest', 'attempt-one');
+  it('waits for an already queued preview when an idempotent begin has no upload capability', async () => {
+    const writes = stubCoreApi({ templateImportReplayPreviewQueued: true });
+    const archive = new Blob(['template archive'], { type: 'application/x-nix-template' });
 
-    expect(endpoint.headers).toEqual({
-      'x-nix-template-digest': 'digest',
-      'x-idempotency-key': 'attempt-one',
-    });
+    const result = await beginAndPreviewTemplate(
+      client(),
+      {
+        workspaceId: TEMPLATE_WORKSPACE_ID,
+        fileName: 'template.nix',
+        mediaType: archive.type,
+        byteLength: archive.size,
+        idempotencyKey: 'a0000000-0000-4000-8000-000000000031',
+      },
+      archive,
+    );
+
+    expect(result.status).toBe('preview_ready');
+    expect(result.preview?.digest).toBe('a'.repeat(64));
+    expect(writes.templateUploadBodies).toEqual([]);
+    expect(writes.templateImportReads).toEqual([result.id, result.id]);
+    expect(writes.templateImportCancellations).toEqual([]);
   });
 
   it('rejects a preview that does not carry a template profile', () => {

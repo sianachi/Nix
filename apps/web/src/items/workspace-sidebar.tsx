@@ -1,4 +1,5 @@
 import { Button, Icon, Text, cn, disabledState, fieldLabel, focusRing } from '@nix/ui';
+import { files as fileResources, isNixApiError } from '@nix/api-client';
 import {
   ChevronDown,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Plus,
   Shapes,
   Trash2,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -24,6 +26,8 @@ import {
   type RefObject,
 } from 'react';
 import { announce } from '../a11y/announcer';
+import { useApiClient } from '../api/api-client-provider';
+import { useWorkspace } from '../workspaces/workspace-context';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-open-item';
@@ -127,6 +131,47 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadParentRef = useRef<string | null>(null);
+  const client = useApiClient();
+  const { workspaceId } = useWorkspace();
+
+  async function uploadFiles(selected: FileList | null): Promise<void> {
+    if (selected === null || selected.length === 0) return;
+    setUploading(true);
+    setRefusal(null);
+    try {
+      for (const file of Array.from(selected)) {
+        const upload = await client.execute(
+          fileResources.beginUpload({
+            workspaceId,
+            parentId: uploadParentRef.current,
+            fileName: file.name,
+            mediaType: file.type || 'application/octet-stream',
+            byteLength: file.size,
+            idempotencyKey: `web-file:${crypto.randomUUID()}`,
+          }),
+        );
+        await fileResources.uploadAndCompleteFile(client, upload, file);
+      }
+      await tree.reload();
+      announce(
+        selected.length === 1 ? 'File uploaded.' : `${String(selected.length)} files uploaded.`,
+      );
+    } catch (error) {
+      setRefusal(
+        isNixApiError(error)
+          ? (error.detail ?? 'The file could not be uploaded.')
+          : error instanceof Error
+            ? error.message
+            : 'The file could not be uploaded.',
+      );
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current !== null) uploadInputRef.current.value = '';
+    }
+  }
 
   /** The explicit child destination offered alongside the workspace-level create actions. */
   const childDestination = ((): { readonly id: string; readonly name: string } | null => {
@@ -187,6 +232,21 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           }}
           onBrowseTemplates={(parentId) => {
             props.onBrowseTemplates?.(parentId);
+          }}
+          onUpload={(parentId) => {
+            uploadParentRef.current = parentId;
+            uploadInputRef.current?.click();
+          }}
+        />
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          className="sr-only"
+          aria-label="Upload files"
+          disabled={uploading}
+          onChange={(event) => {
+            void uploadFiles(event.currentTarget.files);
           }}
         />
       </div>
@@ -261,6 +321,7 @@ interface CreateMenuProps {
   readonly templateStatus: TemplateLibraryStatus;
   readonly onStartTemplate: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates: (parentId: string | null) => void;
+  readonly onUpload: (parentId: string | null) => void;
 }
 
 /**
@@ -283,6 +344,7 @@ function CreateMenu({
   templateStatus,
   onStartTemplate,
   onBrowseTemplates,
+  onUpload,
 }: CreateMenuProps): ReactNode {
   const [open, setOpen] = useState(false);
   const [insideSelected, setInsideSelected] = useState(false);
@@ -435,6 +497,18 @@ function CreateMenu({
               {kind.label}
             </button>
           ))}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onUpload(insideSelected && childDestination !== null ? childDestination.id : null);
+            }}
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 ${focusRing}`}
+          >
+            <Icon icon={Upload} size="sm" />
+            Upload files
+          </button>
 
           <div role="separator" className="border-t border-divider" />
           <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>

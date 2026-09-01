@@ -311,6 +311,217 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("content_update", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Files.FileBody", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<Guid>("CurrentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_version_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("ItemId");
+
+                    b.HasAlternateKey("TenantId", "ItemId");
+
+                    b.HasIndex("TenantId", "ItemId", "CurrentVersionId");
+
+                    b.ToTable("file_body", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Files.FileUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("upload_id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("DeclaredByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("declared_byte_length");
+
+                    b.Property<string>("DeclaredMediaType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("declared_media_type");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("object_key");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<Guid?>("PublishedItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("published_item_id");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("file")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.HasIndex("TenantId", "TargetItemId");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("file_upload", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Files.FileVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_version_id");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("media_type");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("object_key");
+
+                    b.Property<int?>("PixelHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_height");
+
+                    b.Property<int?>("PixelWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_width");
+
+                    b.Property<bool>("Previewable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("previewable");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ObjectKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "ItemId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("file_version", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Identity.BrowserSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -766,6 +977,255 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("workspace_member", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("import_id");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<int?>("AssetCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("asset_count");
+
+                    b.Property<Guid?>("CommitJobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("commit_job_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("format");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<int?>("ItemCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("item_count");
+
+                    b.Property<string>("Loss")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("loss");
+
+                    b.Property<string>("ManagedSource")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("managed_source");
+
+                    b.Property<string>("Omissions")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("omissions");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<long?>("PlanByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_byte_length");
+
+                    b.Property<string>("PlanObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("plan_object_key");
+
+                    b.Property<string>("PlanSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("plan_sha256");
+
+                    b.Property<Guid?>("PreviewJobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("preview_job_id");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("purpose");
+
+                    b.Property<Guid?>("RootItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("root_item_id");
+
+                    b.Property<string>("SourceSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_sha256");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TemplateDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("template_digest");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid?>("TemplateOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_operation_id");
+
+                    b.Property<string>("TemplatePreview")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("template_preview");
+
+                    b.Property<string>("TemplateStableKey")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("template_stable_key");
+
+                    b.Property<bool?>("TemplateUnchanged")
+                        .HasColumnType("boolean")
+                        .HasColumnName("template_unchanged");
+
+                    b.Property<string>("TemplateWrittenTargetItemIds")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("template_written_target_item_ids");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UploadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("upload_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.HasIndex("TenantId", "CommitJobId");
+
+                    b.HasIndex("TenantId", "PreviewJobId");
+
+                    b.HasIndex("TenantId", "RootItemId");
+
+                    b.HasIndex("TenantId", "TemplateId");
+
+                    b.HasIndex("TenantId", "TemplateOperationId");
+
+                    b.HasIndex("TenantId", "UploadId");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("document_import", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImportItem", b =>
+                {
+                    b.Property<Guid>("ImportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("import_id");
+
+                    b.Property<string>("SourceId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("source_id");
+
+                    b.Property<bool>("BodyRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("body_required");
+
+                    b.Property<Guid?>("FileVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_version_id");
+
+                    b.Property<string>("FinalLifecycleState")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("final_lifecycle_state");
+
+                    b.Property<string>("ItemType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("item_type");
+
+                    b.Property<string>("ObjectKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("object_key");
+
+                    b.Property<bool>("ObjectReady")
+                        .HasColumnType("boolean")
+                        .HasColumnName("object_ready");
+
+                    b.Property<string>("ParentSourceId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("parent_source_id");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ImportId", "SourceId");
+
+                    b.HasIndex("TenantId", "FileVersionId");
+
+                    b.HasIndex("TenantId", "ImportId");
+
+                    b.HasIndex("TenantId", "TargetItemId")
+                        .IsUnique();
+
+                    b.ToTable("document_import_item", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Items.Item", b =>
                 {
                     b.Property<Guid>("Id")
@@ -943,6 +1403,391 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasKey("TenantId", "ItemId");
 
                     b.ToTable("item_search", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginCapabilityGrant", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_id");
+
+                    b.Property<string>("Capability")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("capability");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<Guid>("GrantedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("granted_by");
+
+                    b.HasKey("TenantId", "InstallationId", "Capability");
+
+                    b.ToTable("plugin_capability_grant", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginComponent", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Id")
+                        .HasMaxLength(257)
+                        .HasColumnType("character varying(257)")
+                        .HasColumnName("component_id");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("component_version");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<byte[]>("Ed25519Signature")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("ed25519_signature");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("object_key");
+
+                    b.Property<string>("PublisherId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("publisher_id");
+
+                    b.Property<DateTimeOffset>("RegisteredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("registered_at");
+
+                    b.Property<Guid>("RegisteredBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("registered_by");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.HasKey("TenantId", "Id", "Version");
+
+                    b.HasIndex("TenantId", "PublisherId");
+
+                    b.ToTable("plugin_component", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginEventInbox", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_id");
+
+                    b.Property<long?>("AggregateVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("aggregate_version");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<int>("CausationDepth")
+                        .HasColumnType("integer")
+                        .HasColumnName("causation_depth");
+
+                    b.Property<Guid>("CausationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("causation_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CurrentInvocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_invocation_id");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error_detail");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("TenantId", "EventId", "InstallationId");
+
+                    b.HasIndex("Status", "UpdatedAt");
+
+                    b.HasIndex("TenantId", "InstallationId");
+
+                    b.ToTable("plugin_event_inbox", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginEventReceipt", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<long?>("AggregateVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("aggregate_version");
+
+                    b.Property<int>("CausationDepth")
+                        .HasColumnType("integer")
+                        .HasColumnName("causation_depth");
+
+                    b.Property<Guid>("CausationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("causation_id");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("TenantId", "EventId");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.ToTable("plugin_event_receipt", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginInstallation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_id");
+
+                    b.Property<string>("ComponentId")
+                        .IsRequired()
+                        .HasMaxLength(257)
+                        .HasColumnType("character varying(257)")
+                        .HasColumnName("component_id");
+
+                    b.Property<string>("ComponentVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("component_version");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<DateTimeOffset>("InstalledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("installed_at");
+
+                    b.Property<Guid>("InstalledBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installed_by");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ComponentId", "ComponentVersion");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ComponentId")
+                        .IsUnique();
+
+                    b.ToTable("plugin_installation", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginInvocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invocation_id");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<int>("CausationDepth")
+                        .HasColumnType("integer")
+                        .HasColumnName("causation_depth");
+
+                    b.Property<Guid>("CausationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("causation_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<byte[]>("CompletionFingerprint")
+                        .HasColumnType("bytea")
+                        .HasColumnName("completion_fingerprint");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error_detail");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_id");
+
+                    b.Property<DateTimeOffset>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_until");
+
+                    b.Property<bool?>("Retryable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("retryable");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<bool?>("Succeeded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("succeeded");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("Status", "LeaseUntil");
+
+                    b.HasIndex("TenantId", "EventId", "InstallationId", "Attempt")
+                        .IsUnique();
+
+                    b.ToTable("plugin_invocation", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginPublisher", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Id")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("publisher_id");
+
+                    b.Property<byte[]>("Ed25519PublicKey")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("ed25519_public_key");
+
+                    b.Property<DateTimeOffset>("PinnedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("pinned_at");
+
+                    b.Property<Guid>("PinnedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pinned_by");
+
+                    b.HasKey("TenantId", "Id");
+
+                    b.ToTable("plugin_publisher", (string)null);
                 });
 
             modelBuilder.Entity("Nix.Domain.Templates.TemplateApplication", b =>
@@ -1438,6 +2283,176 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("public_form_link", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Workers.WorkerJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("job_id");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<bool>("CancellationRequested")
+                        .HasColumnType("boolean")
+                        .HasColumnName("cancellation_requested");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("error_detail");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_until");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("result");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.HasIndex("Status", "LeaseUntil", "CreatedAt");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("worker_job", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Workers.WorkerOutboxEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<long?>("AggregateVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("aggregate_version");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset>("AvailableAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("available_at");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_until");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("ProcessedAt", "AvailableAt", "LeaseUntil");
+
+                    b.HasIndex("TenantId", "ItemId", "AggregateVersion");
+
+                    b.ToTable("worker_outbox_event", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Audit.AuditEvent", b =>
                 {
                     b.HasOne("Nix.Domain.Tenancy.Tenant", null)
@@ -1508,6 +2523,49 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasOne("Nix.Domain.Content.ContentDoc", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "DocId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Files.FileBody", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithOne()
+                        .HasForeignKey("Nix.Domain.Files.FileBody", "TenantId", "ItemId")
+                        .HasPrincipalKey("Nix.Domain.Items.Item", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Files.FileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId", "CurrentVersionId")
+                        .HasPrincipalKey("TenantId", "ItemId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Files.FileUpload", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TargetItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Files.FileVersion", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1625,6 +2683,64 @@ namespace Nix.Persistence.Migrations.Generated
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImport", b =>
+                {
+                    b.HasOne("Nix.Domain.Workers.WorkerJob", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CommitJobId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Nix.Domain.Workers.WorkerJob", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PreviewJobId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RootItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Nix.Domain.Files.FileUpload", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UploadId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImportItem", b =>
+                {
+                    b.HasOne("Nix.Domain.Files.FileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "FileVersionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Nix.Domain.Importing.DocumentImport", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ImportId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TargetItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Nix.Domain.Items.Item", b =>
                 {
                     b.HasOne("Nix.Domain.Items.Item", null)
@@ -1687,6 +2803,76 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "ItemId")
                         .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginCapabilityGrant", b =>
+                {
+                    b.HasOne("Nix.Domain.Plugins.PluginInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "InstallationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginComponent", b =>
+                {
+                    b.HasOne("Nix.Domain.Plugins.PluginPublisher", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PublisherId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginEventInbox", b =>
+                {
+                    b.HasOne("Nix.Domain.Plugins.PluginEventReceipt", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Plugins.PluginInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "InstallationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginEventReceipt", b =>
+                {
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginInstallation", b =>
+                {
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Plugins.PluginComponent", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ComponentId", "ComponentVersion")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Plugins.PluginInvocation", b =>
+                {
+                    b.HasOne("Nix.Domain.Plugins.PluginEventInbox", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "EventId", "InstallationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -1805,6 +2991,15 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Workers.WorkerJob", b =>
+                {
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 #pragma warning restore 612, 618
         }

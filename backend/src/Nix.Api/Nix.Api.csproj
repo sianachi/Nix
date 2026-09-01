@@ -29,7 +29,7 @@
       type in the backend at once.
 
       Justification: the premise is false here. Nix.Tests and Nix.Integration.Tests
-      are real external consumers of these types, and CLAUDE.md requires tests
+      are real external consumers of these types, and AGENTS.md requires tests
       that query behavior rather than reach through visibility loopholes. The
       alternative - marking ~200 types internal and opening them back up with
       InternalsVisibleTo - would relocate the same public surface into a place
@@ -51,6 +51,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="RabbitMQ.Client" />
     <!-- Security floor for a transitive dependency; see Directory.Packages.props. -->
     <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">

@@ -26,12 +26,12 @@ import type { ArchiveManifest, ItemBundle } from './manifest.js';
  *
  * **`nix` is in this list and will never be in a registry.** It is produced by `writeArchive`,
  * which streams the bundles straight through without visiting a single node, and it is served by
- * the collaboration service rather than by the media service - MVP-9's E2 requires that leaving
+ * the collaboration service rather than by a converter worker - leaving with everything cannot
  * with everything cannot depend on an extension seam. So `registry.formats()` is deliberately a
  * subset of this: this list is what the product can export, and a registry holds what one host
  * converts.
  *
- * `nix` is the lossless archive; `pdf` and `docx` and `md` are the lossy render formats a media host
+ * `nix` is the lossless archive; `pdf` and `docx` and `md` are the lossy render formats a Go worker
  * converts, each owing a stated list of what it drops.
  */
 export const EXPORT_FORMATS = ['nix', 'pdf', 'docx', 'md'] as const;

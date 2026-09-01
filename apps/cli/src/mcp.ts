@@ -2,7 +2,9 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { workspaces } from '@nix/api-client';
+import { files, workspaces } from '@nix/api-client';
+import { downloadFileValue, uploadFileValue } from './commands/files.ts';
+import { runImport } from './commands/import.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
 import type { Session } from './session.ts';
 
@@ -16,14 +18,13 @@ const pageInput = {
 export interface WorkspaceMcpOptions {
   readonly profileName?: string;
   readonly sessionDeps?: SessionDeps;
-  readonly resolve?: (
-    profileName: string | undefined,
-    deps: SessionDeps,
-  ) => Promise<Session>;
+  readonly resolve?: (profileName: string | undefined, deps: SessionDeps) => Promise<Session>;
 }
 
 /** Creates the MCP server without binding a transport, so protocol tests can use an in-memory pair. */
-export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}): Promise<McpServer> {
+export async function createWorkspaceMcpServer(
+  options: WorkspaceMcpOptions = {},
+): Promise<McpServer> {
   const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
   const server = new McpServer({ name: 'nixctl', version: '0.0.0' });
   const resolver = options.resolve ?? resolveSession;
@@ -125,9 +126,9 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
     },
     ({ workspaceId, invitationId }) =>
       toolResult(async () => {
-        await (await session()).client.execute(
-          workspaces.acceptInvitation(workspaceId, invitationId),
-        );
+        await (
+          await session()
+        ).client.execute(workspaces.acceptInvitation(workspaceId, invitationId));
         return { accepted: true, invitationId };
       }),
   );
@@ -140,9 +141,9 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
     },
     ({ workspaceId, invitationId }) =>
       toolResult(async () => {
-        await (await session()).client.execute(
-          workspaces.declineInvitation(workspaceId, invitationId),
-        );
+        await (
+          await session()
+        ).client.execute(workspaces.declineInvitation(workspaceId, invitationId));
         return { declined: true, invitationId };
       }),
   );
@@ -155,9 +156,9 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
     },
     ({ workspaceId, invitationId }) =>
       toolResult(async () => {
-        await (await session()).client.execute(
-          workspaces.revokeInvitation(workspaceId, invitationId),
-        );
+        await (
+          await session()
+        ).client.execute(workspaces.revokeInvitation(workspaceId, invitationId));
         return { revoked: true, invitationId };
       }),
   );
@@ -182,7 +183,7 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
   server.registerTool(
     'change_workspace_member_role',
     {
-      description: 'Change a principal\'s direct membership role when permitted by the server.',
+      description: "Change a principal's direct membership role when permitted by the server.",
       inputSchema: { workspaceId: identifier, principalId: identifier, role: workspaceRole },
     },
     ({ workspaceId, principalId, role }) =>
@@ -196,7 +197,7 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
   server.registerTool(
     'remove_workspace_member',
     {
-      description: 'Remove a principal\'s direct membership when permitted by the server.',
+      description: "Remove a principal's direct membership when permitted by the server.",
       inputSchema: { workspaceId: identifier, principalId: identifier, confirm: z.literal(true) },
     },
     ({ workspaceId, principalId }) =>
@@ -219,14 +220,112 @@ export async function createWorkspaceMcpServer(options: WorkspaceMcpOptions = {}
       }),
   );
 
+  server.registerTool(
+    'import_document',
+    {
+      description:
+        'Import a local PDF, DOCX, UTF-8 TXT, Markdown file, or Markdown folder as editable Nix notes.',
+      inputSchema: {
+        workspaceId: identifier,
+        path: z.string().min(1),
+        parentId: identifier.optional(),
+        preview: z.boolean().default(false),
+      },
+    },
+    ({ workspaceId, path, parentId, preview }) =>
+      toolResult(async () => {
+        let result: unknown;
+        await runImport(
+          options.profileName,
+          { workspaceId, path, dryRun: preview, ...(parentId === undefined ? {} : { parentId }) },
+          { json: true, isTty: false },
+          options.sessionDeps ?? {},
+          {
+            writeResult: (value) => {
+              result = value;
+            },
+            setExitCode: false,
+          },
+        );
+        return result;
+      }),
+  );
+
+  server.registerTool(
+    'upload_file',
+    {
+      description:
+        'Upload a local file as an opaque child item. Uploaded files are not malware-scanned.',
+      inputSchema: {
+        workspaceId: identifier,
+        path: z.string().min(1),
+        parentId: identifier.optional(),
+      },
+    },
+    ({ workspaceId, path, parentId }) =>
+      toolResult(() =>
+        uploadFileValue(
+          options.profileName,
+          { workspaceId, path, ...(parentId === undefined ? {} : { parentId }) },
+          options.sessionDeps ?? {},
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'replace_file',
+    {
+      description: 'Upload a new immutable current version for an existing file item.',
+      inputSchema: { workspaceId: identifier, itemId: identifier, path: z.string().min(1) },
+    },
+    ({ workspaceId, itemId, path }) =>
+      toolResult(() =>
+        uploadFileValue(
+          options.profileName,
+          { workspaceId, path, targetItemId: itemId },
+          options.sessionDeps ?? {},
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'list_file_versions',
+    {
+      description: 'List file metadata and immutable versions for a visible file item.',
+      inputSchema: { itemId: identifier },
+    },
+    ({ itemId }) =>
+      toolResult(async () => (await session()).client.query(files.fileByItem(itemId))),
+  );
+
+  server.registerTool(
+    'download_file',
+    {
+      description: 'Download a current or historical file version to a local path.',
+      inputSchema: {
+        itemId: identifier,
+        outputPath: z.string().min(1),
+        versionId: identifier.optional(),
+      },
+    },
+    ({ itemId, outputPath, versionId }) =>
+      toolResult(() =>
+        downloadFileValue(
+          options.profileName,
+          itemId,
+          outputPath,
+          versionId,
+          options.sessionDeps ?? {},
+        ),
+      ),
+  );
+
   return server;
 }
 
 /** Runs `nixctl mcp` on stdio. Protocol messages are the only bytes written to stdout. */
 export async function runWorkspaceMcpServer(profileName: string | undefined): Promise<void> {
-  const server = await createWorkspaceMcpServer(
-    profileName === undefined ? {} : { profileName },
-  );
+  const server = await createWorkspaceMcpServer(profileName === undefined ? {} : { profileName });
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   await server.connect(new StdioServerTransport());
 }

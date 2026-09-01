@@ -1,4 +1,10 @@
 import { Button, Dialog, Text } from '@nix/ui';
+import {
+  imports as importResources,
+  isNixApiError,
+  type DocumentImport,
+  type DocumentImportPlan,
+} from '@nix/api-client';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -36,20 +42,33 @@ import { useWorkspace } from '../workspaces/workspace-context';
  * with its reason. A partial import is said to be partial, in the service's own words where it
  * gave them.
  *
- * Only the Markdown lane exists today: `.nix`, DOCX and PDF import need the server endpoint MVP-7
- * still owes, and the picker says so rather than accepting what it cannot map.
+ * PDF, DOCX and TXT use the bounded document worker before entering the same preview and write
+ * path. Their source bytes and extracted images are retained as child file items after the note.
  */
 
 type Phase =
   | { readonly name: 'pick'; readonly reading: boolean; readonly error: string | null }
-  | { readonly name: 'preview'; readonly plan: ImportPlan }
+  | { readonly name: 'preview'; readonly plan: ImportPlan; readonly losses: readonly string[] }
   | { readonly name: 'working'; readonly done: number; readonly total: number }
+  | {
+      readonly name: 'document-preview';
+      readonly operation: DocumentImport;
+      readonly plan: DocumentImportPlan;
+    }
+  | { readonly name: 'document-working'; readonly importId: string; readonly total: number }
+  | {
+      readonly name: 'document-report';
+      readonly operation: DocumentImport;
+      readonly plan: DocumentImportPlan;
+      readonly undo: UndoState;
+    }
   | {
       readonly name: 'report';
       readonly report: ImportRunReport;
       readonly undo: UndoState;
       /** Kept so a run that could not start can be retried without re-picking. */
       readonly plan: ImportPlan;
+      readonly losses: readonly string[];
     };
 
 type UndoState =
@@ -85,6 +104,7 @@ export function ImportDialog({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const folderInput = useRef<HTMLInputElement | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const activeDocumentImport = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -103,6 +123,37 @@ export function ImportDialog({
     setPhase({ name: 'pick', reading: true, error: null });
 
     try {
+      const document = files.length === 1 ? documentFormat(files[0]?.name ?? '') : null;
+      if (document !== null && files[0] !== undefined) {
+        const file = files[0];
+        abort.current?.abort();
+        const controller = new AbortController();
+        abort.current = controller;
+        const preview = await importResources.beginAndPreviewDocument(
+          client,
+          {
+            workspaceId,
+            parentId,
+            format: document,
+            title: withoutExtension(file.name),
+            fileName: file.name,
+            mediaType: documentMediaType(document, file.type),
+            byteLength: file.size,
+            idempotencyKey: `web-document:${crypto.randomUUID()}`,
+          },
+          file,
+          controller.signal,
+          (importId) => {
+            activeDocumentImport.current = importId;
+          },
+        );
+        setPhase({
+          name: 'document-preview',
+          operation: preview.operation,
+          plan: preview.plan,
+        });
+        return;
+      }
       // Screen by path before reading: a folder pick includes attachments, images and hidden
       // tool directories, and reading those just to skip them is how a big vault crashes the tab.
       const paths = files.map(pathOf);
@@ -137,17 +188,21 @@ export function ImportDialog({
         });
         return;
       }
-      setPhase({ name: 'preview', plan });
-    } catch {
+      setPhase({ name: 'preview', plan, losses: [] });
+    } catch (reason) {
       setPhase({
         name: 'pick',
         reading: false,
-        error: 'The files could not be read. Choose them again.',
+        error: isNixApiError(reason)
+          ? (reason.detail ?? 'The document could not be converted.')
+          : reason instanceof Error
+            ? reason.message
+            : 'The files could not be read. Choose them again.',
       });
     }
   }
 
-  async function run(plan: ImportPlan): Promise<void> {
+  async function run(plan: ImportPlan, losses: readonly string[] = []): Promise<void> {
     if (plan.root === null) {
       return;
     }
@@ -169,10 +224,8 @@ export function ImportDialog({
         },
       });
 
-      if (report.rootItemId !== null) {
-        onImported?.(report.rootItemId);
-      }
-      setPhase({ name: 'report', report, undo: { name: 'available' }, plan });
+      if (report.rootItemId !== null) onImported?.(report.rootItemId);
+      setPhase({ name: 'report', report, undo: { name: 'available' }, plan, losses });
     } catch (cause) {
       // The run loop is written not to throw; this is insurance against the bug that proves it
       // wrong, and it must not strand the dialog in `working` with no exit.
@@ -186,8 +239,55 @@ export function ImportDialog({
     }
   }
 
+  async function runDocument(
+    current: Extract<Phase, { name: 'document-preview' }>,
+  ): Promise<void> {
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
+    activeDocumentImport.current = current.operation.id;
+    setPhase({
+      name: 'document-working',
+      importId: current.operation.id,
+      total: current.operation.itemCount ?? current.plan.items.length,
+    });
+    try {
+      const completed = await importResources.commitAndWaitDocumentImport(
+        client,
+        current.operation.id,
+        controller.signal,
+      );
+      activeDocumentImport.current = null;
+      if (completed.rootItemId !== null) onImported?.(completed.rootItemId);
+      setPhase({ name: 'document-report', operation: completed, plan: current.plan, undo: { name: 'available' } });
+    } catch (reason) {
+      if (controller.signal.aborted) {
+        setPhase({ name: 'pick', reading: false, error: 'The document import was cancelled.' });
+        return;
+      }
+      activeDocumentImport.current = null;
+      setPhase({
+        name: 'pick',
+        reading: false,
+        error: isNixApiError(reason)
+          ? (reason.detail ?? 'The document import was refused.')
+          : reason instanceof Error
+            ? reason.message
+            : 'The document import was refused.',
+      });
+    }
+  }
+
   function stop(): void {
     abort.current?.abort();
+    const importId = activeDocumentImport.current;
+    activeDocumentImport.current = null;
+    if (importId !== null) void client.execute(importResources.cancelDocumentImport(importId));
+  }
+
+  function discardDocument(importId: string): void {
+    activeDocumentImport.current = null;
+    void client.execute(importResources.cancelDocumentImport(importId)).catch(() => undefined);
   }
 
   async function undo(current: Extract<Phase, { name: 'report' }>): Promise<void> {
@@ -204,7 +304,29 @@ export function ImportDialog({
     });
   }
 
-  const working = phase.name === 'working';
+  async function undoDocument(
+    current: Extract<Phase, { name: 'document-report' }>,
+  ): Promise<void> {
+    if (current.operation.rootItemId === null) return;
+    setPhase({ ...current, undo: { name: 'working' } });
+    const outcome = await undoImport(client, workspaceId, current.operation.rootItemId);
+    setPhase({
+      ...current,
+      undo: outcome.ok
+        ? { name: 'done' }
+        : { name: 'failed', error: outcome.error ?? 'The undo was refused.' },
+    });
+  }
+
+  const working =
+    phase.name === 'working' ||
+    phase.name === 'document-working' ||
+    (phase.name === 'pick' && phase.reading);
+
+  function closeDialog(): void {
+    if (phase.name === 'document-preview') discardDocument(phase.operation.id);
+    onClose();
+  }
 
   return (
     <Dialog
@@ -212,7 +334,7 @@ export function ImportDialog({
       title="Import"
       // While a run is in flight, every way out - Escape, the backdrop, the X - stops the run
       // rather than abandoning it; the report then says what was made and what was not.
-      onClose={working ? stop : onClose}
+      onClose={working ? stop : closeDialog}
       actions={
         working ? (
           <Button variant="secondary" onClick={stop}>
@@ -220,8 +342,8 @@ export function ImportDialog({
           </Button>
         ) : (
           <>
-            <Button variant="secondary" onClick={onClose}>
-              {phase.name === 'report' ? 'Done' : 'Cancel'}
+            <Button variant="secondary" onClick={closeDialog}>
+              {phase.name === 'report' || phase.name === 'document-report' ? 'Done' : 'Cancel'}
             </Button>
             {phase.name === 'preview' ? (
               <>
@@ -235,11 +357,31 @@ export function ImportDialog({
                 </Button>
                 <Button
                   onClick={() => {
-                    void run(phase.plan);
+                    void run(phase.plan, phase.losses);
                   }}
                 >
                   Import {String(phase.plan.totalItems)}{' '}
                   {phase.plan.totalItems === 1 ? 'item' : 'items'}
+                </Button>
+              </>
+            ) : null}
+            {phase.name === 'document-preview' ? (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    discardDocument(phase.operation.id);
+                    setPhase({ name: 'pick', reading: false, error: null });
+                  }}
+                >
+                  Choose a different file
+                </Button>
+                <Button
+                  onClick={() => {
+                    void runDocument(phase);
+                  }}
+                >
+                  Import {String(phase.operation.itemCount ?? phase.plan.items.length)} items
                 </Button>
               </>
             ) : null}
@@ -259,15 +401,14 @@ export function ImportDialog({
         {phase.name === 'pick' ? (
           <>
             <Text tone="muted" variant="body">
-              Choose an Obsidian vault or any folder of Markdown notes. Nix scans every nested
-              folder and recreates the folders containing Markdown notes under one new item.
-              Headings, lists, tables and inline formatting are kept. Simple front matter fields
-              become item properties; each appears once a property of that name is declared on the
-              item&rsquo;s schema.
+              Choose a PDF, Word document, UTF-8 text file, Nix archive, Markdown files, an Obsidian
+              vault, or folders containing Markdown notes. Documents become editable notes and
+              their original files are retained as children. Markdown folders keep their hierarchy
+              and supported formatting.
             </Text>
             <Text tone="muted" variant="note">
-              The .obsidian settings folder and non-Markdown attachments are skipped and named in
-              the preview. Archives, Word and PDF cannot be imported yet.
+              PDF import extracts existing text but does not perform OCR. The preview names content
+              that cannot be preserved before anything is created.
             </Text>
             <div className="flex flex-wrap gap-2">
               {/* Out of the tab order and the a11y tree: the visible buttons are the controls, and
@@ -275,7 +416,7 @@ export function ImportDialog({
               <input
                 ref={fileInput}
                 type="file"
-                accept=".md"
+                accept=".md,.nix,.txt,.docx,.pdf"
                 multiple
                 className="sr-only"
                 tabIndex={-1}
@@ -335,7 +476,11 @@ export function ImportDialog({
           </>
         ) : null}
 
-        {phase.name === 'preview' ? <Preview plan={phase.plan} /> : null}
+        {phase.name === 'preview' ? <Preview plan={phase.plan} losses={phase.losses} /> : null}
+
+        {phase.name === 'document-preview' ? (
+          <DocumentPreview operation={phase.operation} plan={phase.plan} />
+        ) : null}
 
         {phase.name === 'working' ? (
           <Text tone="muted">
@@ -343,9 +488,14 @@ export function ImportDialog({
           </Text>
         ) : null}
 
+        {phase.name === 'document-working' ? (
+          <Text tone="muted">Publishing {String(phase.total)} imported items atomically…</Text>
+        ) : null}
+
         {phase.name === 'report' ? (
           <Report
             report={phase.report}
+            losses={phase.losses}
             undo={phase.undo}
             onUndo={() => {
               void undo(phase);
@@ -354,9 +504,20 @@ export function ImportDialog({
               phase.report.couldNotStart === undefined
                 ? undefined
                 : () => {
-                    void run(phase.plan);
+                    void run(phase.plan, phase.losses);
                   }
             }
+          />
+        ) : null}
+
+        {phase.name === 'document-report' ? (
+          <DocumentReport
+            operation={phase.operation}
+            plan={phase.plan}
+            undo={phase.undo}
+            onUndo={() => {
+              void undoDocument(phase);
+            }}
           />
         ) : null}
       </div>
@@ -371,10 +532,16 @@ function liveText(phase: Phase): string {
       return phase.reading ? 'Reading the chosen files.' : '';
     case 'preview':
       return previewLiveText(phase.plan);
+    case 'document-preview':
+      return `Preview ready: ${String(phase.operation.itemCount ?? phase.plan.items.length)} items to import.`;
     case 'working':
       return `Importing ${String(phase.total)} items.`;
+    case 'document-working':
+      return `Publishing ${String(phase.total)} imported items.`;
     case 'report':
       return reportHeadline(phase.report);
+    case 'document-report':
+      return `${String(phase.operation.itemCount ?? phase.plan.items.length)} imported items were created.`;
   }
 }
 
@@ -428,7 +595,13 @@ function FocusOnMount({ children }: { readonly children: ReactNode }): ReactNode
   );
 }
 
-function Preview({ plan }: { readonly plan: ImportPlan }): ReactNode {
+function Preview({
+  plan,
+  losses,
+}: {
+  readonly plan: ImportPlan;
+  readonly losses: readonly string[];
+}): ReactNode {
   const root = plan.root;
   if (root === null) {
     return null;
@@ -445,6 +618,9 @@ function Preview({ plan }: { readonly plan: ImportPlan }): ReactNode {
           all, counting folders. Nothing is created until you press Import.
         </Text>
       </FocusOnMount>
+      {losses.map((loss) => (
+        <PartialNotice key={loss} pending={loss} />
+      ))}
       {groupByReason(plan.skipped).map((group) => (
         <PartialNotice
           key={`skip-${group.reason}`}
@@ -464,11 +640,13 @@ function Preview({ plan }: { readonly plan: ImportPlan }): ReactNode {
 
 function Report({
   report,
+  losses,
   undo,
   onUndo,
   onRetry,
 }: {
   readonly report: ImportRunReport;
+  readonly losses: readonly string[];
   readonly undo: UndoState;
   readonly onUndo: () => void;
   readonly onRetry?: (() => void) | undefined;
@@ -517,6 +695,9 @@ function Report({
       {report.stopReason !== undefined ? (
         <PartialNotice pending={`${withoutDot(report.stopReason)}.`} />
       ) : null}
+      {losses.map((loss) => (
+        <PartialNotice key={loss} pending={loss} />
+      ))}
       {lossy.length > 0 ? (
         <PartialNotice
           pending={`${String(lossy.length)} created ${lossy.length === 1 ? 'item' : 'items'} lost part of ${lossy.length === 1 ? 'its' : 'their'} content: ${lossy
@@ -562,12 +743,139 @@ function Report({
   );
 }
 
+function DocumentPreview({
+  operation,
+  plan,
+}: {
+  readonly operation: DocumentImport;
+  readonly plan: DocumentImportPlan;
+}): ReactNode {
+  const titles = new Map(plan.items.map((item) => [item.sourceId, item.title]));
+  const shown = plan.items.slice(0, 100);
+  const remaining = plan.items.length - shown.length;
+  const losses = operation.loss ?? plan.loss;
+  const omissions = operation.omissions ?? plan.omissions;
+
+  return (
+    <>
+      <FocusOnMount>
+        <Text variant="body">
+          {String(operation.itemCount ?? plan.items.length)} items will be published together under
+          &ldquo;{operation.title}&rdquo;. Nothing is visible until every note body and retained file is
+          ready.
+        </Text>
+      </FocusOnMount>
+      {losses.map((loss) => (
+        <PartialNotice key={`loss-${loss}`} pending={loss} />
+      ))}
+      {omissions.map((omission) => (
+        <PartialNotice key={`omission-${omission}`} pending={`Omitted: ${omission}`} />
+      ))}
+      <div>
+        <Text variant="h2" as="h2">
+          Item mapping
+        </Text>
+        <ul className="mt-2 space-y-2">
+          {shown.map((item) => (
+            <li key={item.sourceId} className="rounded-md bg-surface p-3 shadow-sm">
+              <Text as="span" variant="body">
+                {item.title} becomes a {item.itemType}
+                {item.parentSourceId === null
+                  ? ' at the chosen destination'
+                  : ` under ${titles.get(item.parentSourceId) ?? item.parentSourceId}`}
+                {item.file === undefined ? '' : ` (${item.file.mediaType}, retained as a file)`}.
+              </Text>
+            </li>
+          ))}
+        </ul>
+        {remaining > 0 ? (
+          <Text tone="muted" variant="note" className="mt-2">
+            {String(remaining)} more mapped items are included in the atomic import.
+          </Text>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function DocumentReport({
+  operation,
+  plan,
+  undo,
+  onUndo,
+}: {
+  readonly operation: DocumentImport;
+  readonly plan: DocumentImportPlan;
+  readonly undo: UndoState;
+  readonly onUndo: () => void;
+}): ReactNode {
+  const count = operation.itemCount ?? plan.items.length;
+  return (
+    <>
+      <FocusOnMount>
+        <Text variant="body">
+          {String(count)} {count === 1 ? 'item was' : 'items were'} created atomically.
+        </Text>
+      </FocusOnMount>
+      {(operation.loss ?? plan.loss).map((loss) => (
+        <PartialNotice key={`receipt-loss-${loss}`} pending={loss} />
+      ))}
+      {(operation.omissions ?? plan.omissions).map((omission) => (
+        <PartialNotice key={`receipt-omission-${omission}`} pending={`Omitted: ${omission}`} />
+      ))}
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
+          {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
+        </Button>
+        {undo.name === 'done' ? (
+          <Text tone="muted" variant="note" as="span">
+            The imported items were moved to deleted; they can be restored.
+          </Text>
+        ) : null}
+        {undo.name === 'failed' ? (
+          <div role="alert">
+            <Text tone="muted" variant="note" as="span">
+              {undo.error}
+            </Text>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 function pathOf(file: File): string {
   // Optional in fact, not just in type: only a folder pick fills it, and test doubles of File do
   // not carry it at all.
   return typeof file.webkitRelativePath === 'string' && file.webkitRelativePath.length > 0
     ? file.webkitRelativePath
     : file.name;
+}
+
+function documentFormat(name: string): 'nix' | 'docx' | 'pdf' | 'txt' | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.nix')) return 'nix';
+  if (lower.endsWith('.docx')) return 'docx';
+  if (lower.endsWith('.pdf')) return 'pdf';
+  if (lower.endsWith('.txt')) return 'txt';
+  return null;
+}
+
+function documentMediaType(
+  format: 'nix' | 'docx' | 'pdf' | 'txt',
+  browserType: string,
+): string {
+  if (format === 'pdf') return 'application/pdf';
+  if (format === 'txt') return 'text/plain';
+  if (format === 'docx') {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  return browserType || 'application/vnd.nix.archive';
+}
+
+function withoutExtension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot <= 0 ? name : name.slice(0, dot);
 }
 
 interface ReasonGroup {

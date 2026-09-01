@@ -44,7 +44,7 @@ export const TEMPLATE_ARCHIVE_LIMITS: ArchiveReadLimits = {
 };
 
 /**
- * Maximum JSON request Media may forward after parsing an archive.
+ * Maximum JSON request a trusted import worker may forward after parsing an archive.
  *
  * The zip's expanded entries may total more because the internal request adds one containing
  * object and repeats the small profile. Preview measures the actual request against this bound,
@@ -66,10 +66,11 @@ export interface ReadArchiveResult {
 /**
  * Parses the already-expanded archive object passed between trusted services.
  *
- * Media owns zip expansion and byte limits. Collab still owns its HTTP boundary, so it must not
- * turn Media's JSON back into archive types with an assertion. This entry point deliberately reuses
- * the exact manifest, bundle and cross-entry parsers used by {@link readArchive}; the two services
- * therefore cannot disagree about whether a nested schema, view, body or tree is a valid archive.
+ * The import worker owns zip expansion and byte limits. Collab still owns its HTTP boundary, so it
+ * must not turn the worker's JSON back into archive types with an assertion. This entry point
+ * deliberately reuses the exact manifest, bundle and cross-entry parsers used by
+ * {@link readArchive}; the services therefore cannot disagree about whether a nested schema, view,
+ * body or tree is a valid archive.
  */
 export function parseArchiveObject(
   value: unknown,

@@ -54,12 +54,12 @@ public sealed class GetCanvasLibraryHandler : IQueryHandler<GetCanvasLibrary, Ca
         }
 
         // Stored exactly as the client sent it and parsed back exactly as it will be read - Core
-        // never inspects a single field of a library item.
+        // does not interpret editor-specific library fields.
         var items = JsonNode.Parse(library.LibraryItemsJson) as JsonArray ?? new JsonArray();
         return new CanvasLibraryItems(items);
     }
 }
 
-/// <summary>A principal's canvas library, as the Excalidraw library items array it is.</summary>
+/// <summary>A principal's canvas library, as the native library items array it is.</summary>
 /// <param name="Items">The library items, opaque to Core.</param>
 public sealed record CanvasLibraryItems(JsonArray Items);

@@ -1,166 +1,342 @@
-import { Button, Dialog, Segmented, Text } from '@nix/ui';
+import { exports as exportResources, isNixApiError, type Export } from '@nix/api-client';
+import { Button, Dialog, Field, Segmented, Select, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { PartialNotice } from '../components/states/status-panels';
-import { requestArchive, saveArchive, type ArchiveScope } from './export-archive';
-import { EXPORT_FORMATS, formatFor, type ExportFormat } from './export-formats';
-
-/**
- * Exporting an item as a `.nix` archive.
- *
- * **The format is asked first, because it is the more consequential choice.** One of the three
- * keeps everything and two of them do not, and which is right depends on what somebody means to do
- * next - read it, edit it elsewhere, or be able to bring it back.
- *
- * **What each format cannot carry is stated before the export runs, not after.** A download
- * starting is evidence that something happened and no evidence of what is in it, so the sentence
- * under the picker changes with the format while there is still a choice to make.
- *
- * **The scope is asked rather than assumed.** "This item" and "everything inside it" are different
- * files and there is no default that is right for both - somebody exporting a note wants the note,
- * and somebody exporting a project wants the project.
- *
- * **The result is reported, not implied.** A download starting is evidence that something happened
- * and no evidence at all of what is in it, so an export that left items out says so and stays open
- * to say it. An export that left nothing out closes, because a dialog reporting complete success is
- * a dialog somebody has to dismiss to get on with their work.
- */
+import { useApiClient } from '../api/api-client-provider';
+import {
+  cancelArchive,
+  requestArchive,
+  saveArchive,
+  type ArchiveScope,
+} from './export-archive';
+import {
+  formatFor,
+  formatPreamble,
+  preferredFormat,
+  type ExportFormat,
+  type FormatDescriptor,
+} from './export-formats';
 
 const SCOPES: readonly { value: ArchiveScope; label: string }[] = [
   { value: 'item', label: 'This item' },
   { value: 'subtree', label: 'With everything inside' },
 ];
 
-const FORMATS = EXPORT_FORMATS.map((format) => ({ value: format.value, label: format.label }));
+type FormatState =
+  | { readonly phase: 'loading' }
+  | { readonly phase: 'empty' }
+  | { readonly phase: 'failed'; readonly error: string }
+  | { readonly phase: 'ready'; readonly formats: readonly FormatDescriptor[] };
 
 type Progress =
   | { readonly phase: 'idle' }
-  | { readonly phase: 'working' }
-  | { readonly phase: 'failed'; readonly error: string }
-  | { readonly phase: 'partial'; readonly itemCount: number; readonly omittedCount: number };
+  | { readonly phase: 'queued' }
+  | { readonly phase: 'running' }
+  | { readonly phase: 'cancelling' }
+  | { readonly phase: 'cancelled' }
+  | { readonly phase: 'failed'; readonly error: string };
+
+interface ActiveExport {
+  readonly controller: AbortController;
+  exportId: string | null;
+  cancelling: boolean;
+}
 
 export interface ExportDialogProps {
   readonly open: boolean;
   readonly itemId: string;
   readonly hasChildren: boolean;
-  readonly getAccessToken: () => Promise<string | null>;
   readonly onClose: () => void;
 }
 
-export function ExportDialog({
-  open,
-  itemId,
-  hasChildren,
-  getAccessToken,
-  onClose,
-}: ExportDialogProps): ReactNode {
-  // An item with nothing inside it has one honest answer, so it is not asked a question with one
-  // real option.
-  // The lossless one first: leaving with everything is the default a workspace owes, and the two
-  // lossy formats are deliberate choices somebody makes rather than lands on.
-  const [format, setFormat] = useState<ExportFormat>('nix');
+export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialogProps): ReactNode {
+  const client = useApiClient();
+  const [formatState, setFormatState] = useState<FormatState>({ phase: 'loading' });
+  const [format, setFormat] = useState<ExportFormat | null>(null);
+  const [formatAttempt, setFormatAttempt] = useState(0);
   const [scope, setScope] = useState<ArchiveScope>(hasChildren ? 'subtree' : 'item');
   const [progress, setProgress] = useState<Progress>({ phase: 'idle' });
-  const abort = useRef<AbortController | null>(null);
+  const active = useRef<ActiveExport | null>(null);
 
-  useEffect(
-    () => () => {
-      // A request outliving the dialog would resolve into a component nobody is looking at and, on
-      // success, start a download the person had already walked away from.
-      abort.current?.abort();
-    },
-    [],
-  );
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    void client
+      .query(exportResources.formats(), {
+        signal: controller.signal,
+        forceRefresh: true,
+      })
+      .then((catalog) => {
+        if (controller.signal.aborted) return;
+        if (catalog.formats.length === 0) {
+          setFormat(null);
+          setFormatState({ phase: 'empty' });
+          return;
+        }
+        setFormat((current) =>
+          current !== null && formatFor(catalog.formats, current) !== undefined
+            ? current
+            : (preferredFormat(catalog.formats)?.format ?? null),
+        );
+        setFormatState({ phase: 'ready', formats: catalog.formats });
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setFormatState({
+          phase: 'failed',
+          error: isNixApiError(reason)
+            ? (reason.detail ?? 'The export formats are unavailable.')
+            : 'The export formats are unavailable. Check your connection and try again.',
+        });
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [client, formatAttempt, open]);
+
+  useEffect(() => {
+    const activeRequest = active;
+    return () => {
+      const current = activeRequest.current;
+      current?.controller.abort();
+      if (current?.exportId !== null && current?.exportId !== undefined && !current.cancelling) {
+        void cancelArchive(client, current.exportId).catch(() => undefined);
+      }
+      activeRequest.current = null;
+    };
+  }, [client]);
+
+  const formats = formatState.phase === 'ready' ? formatState.formats : [];
+  const selectedFormat = format === null ? undefined : formatFor(formats, format);
+  const working =
+    progress.phase === 'queued' || progress.phase === 'running' || progress.phase === 'cancelling';
+
+  function updateProgress(state: Export, request: ActiveExport): void {
+    if (active.current !== request || request.controller.signal.aborted) return;
+    if (state.cancellationRequested) {
+      setProgress({ phase: 'cancelling' });
+    } else if (state.status === 'running') {
+      setProgress({ phase: 'running' });
+    } else if (state.status === 'queued') {
+      setProgress({ phase: 'queued' });
+    }
+  }
 
   async function run(): Promise<void> {
-    abort.current?.abort();
-    const controller = new AbortController();
-    abort.current = controller;
+    if (selectedFormat === undefined || working) return;
 
-    setProgress({ phase: 'working' });
+    active.current?.controller.abort();
+    const request: ActiveExport = {
+      controller: new AbortController(),
+      exportId: null,
+      cancelling: false,
+    };
+    active.current = request;
+    setProgress({ phase: 'queued' });
 
     const outcome = await requestArchive({
+      client,
       itemId,
       scope,
-      format,
-      getAccessToken,
-      signal: controller.signal,
+      format: selectedFormat.format,
+      signal: request.controller.signal,
+      onStarted: (state) => {
+        request.exportId = state.id;
+        updateProgress(state, request);
+      },
+      onProgress: (state) => {
+        updateProgress(state, request);
+      },
     });
 
-    if (controller.signal.aborted) {
-      return;
-    }
+    if (request.controller.signal.aborted || active.current !== request) return;
+    active.current = null;
 
     if (!outcome.ok) {
-      setProgress({ phase: 'failed', error: outcome.error });
+      setProgress(
+        outcome.cancelled ? { phase: 'cancelled' } : { phase: 'failed', error: outcome.error },
+      );
       return;
     }
 
     saveArchive(outcome.value);
+    setProgress({ phase: 'idle' });
+    onClose();
+  }
 
-    if (outcome.value.omittedCount === 0) {
-      setProgress({ phase: 'idle' });
-      onClose();
+  async function cancelCurrent(closeAfter = false): Promise<void> {
+    const request = active.current;
+    if (request === null) {
+      if (closeAfter) onClose();
+      return;
+    }
+    if (request.cancelling) return;
+
+    request.cancelling = true;
+    request.controller.abort(new DOMException('cancelled', 'AbortError'));
+    setProgress({ phase: 'cancelling' });
+    if (request.exportId === null) {
+      active.current = null;
+      if (closeAfter) onClose();
+      else setProgress({ phase: 'cancelled' });
       return;
     }
 
-    setProgress({
-      phase: 'partial',
-      itemCount: outcome.value.itemCount,
-      omittedCount: outcome.value.omittedCount,
-    });
+    try {
+      await cancelArchive(client, request.exportId);
+      if (active.current !== request) return;
+      active.current = null;
+      if (closeAfter) onClose();
+      else setProgress({ phase: 'cancelled' });
+    } catch (reason) {
+      if (active.current !== request) return;
+      active.current = null;
+      setProgress({
+        phase: 'failed',
+        error: isNixApiError(reason)
+          ? (reason.detail ?? 'The export could not be cancelled.')
+          : 'The export could not be cancelled. It may still finish in the background.',
+      });
+    }
   }
 
-  const working = progress.phase === 'working';
+  function requestClose(): void {
+    if (working) {
+      void cancelCurrent(true);
+      return;
+    }
+    onClose();
+  }
+
+  function retryFormats(): void {
+    setFormatState({ phase: 'loading' });
+    setFormatAttempt((current) => current + 1);
+  }
+
+  const progressLabel =
+    progress.phase === 'queued'
+      ? 'Waiting for an export worker…'
+      : progress.phase === 'running'
+        ? 'Preparing the download…'
+        : progress.phase === 'cancelling'
+          ? 'Cancelling the export…'
+          : null;
 
   return (
     <Dialog
       open={open}
       title="Export"
-      onClose={onClose}
+      onClose={requestClose}
+      closeLabel={working ? 'Cancel export' : 'Close'}
       actions={
         <>
-          <Button variant="secondary" onClick={onClose}>
-            {progress.phase === 'partial' ? 'Done' : 'Cancel'}
+          <Button
+            variant="secondary"
+            disabled={progress.phase === 'cancelling'}
+            onClick={() => {
+              if (working) void cancelCurrent();
+              else onClose();
+            }}
+          >
+            {working
+              ? progress.phase === 'cancelling'
+                ? 'Cancelling…'
+                : 'Cancel export'
+              : 'Close'}
           </Button>
           <Button
             onClick={() => {
               void run();
             }}
-            disabled={working}
+            disabled={working || selectedFormat === undefined}
           >
-            {working ? 'Preparing…' : 'Export'}
+            {working ? 'Exporting…' : 'Export'}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        <Segmented label="Format" options={FORMATS} value={format} onChange={setFormat} />
+        {formatState.phase === 'loading' ? (
+          <div role="status" aria-busy="true">
+            <Text tone="muted">Loading available export formats…</Text>
+          </div>
+        ) : null}
 
-        {/* Recomputed on every change, and read before Export is pressed rather than discovered
-            in the file afterwards. */}
-        <Text tone="muted" variant="body">
-          {formatFor(format).preamble}
-        </Text>
+        {formatState.phase === 'empty' ? (
+          <div role="status" className="flex flex-col items-start gap-2">
+            <Text tone="muted">
+              No export worker is currently advertising a format. Start the export worker, then try
+              again.
+            </Text>
+            <Button variant="secondary" onClick={retryFormats}>
+              Check again
+            </Button>
+          </div>
+        ) : null}
 
-        {hasChildren ? (
-          <Segmented label="What to export" options={SCOPES} value={scope} onChange={setScope} />
+        {formatState.phase === 'failed' ? (
+          <div role="alert" className="flex flex-col items-start gap-2">
+            <Text tone="muted">{formatState.error}</Text>
+            <Button variant="secondary" onClick={retryFormats}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+
+        {selectedFormat === undefined ? null : (
+          <fieldset disabled={working} className="flex flex-col gap-4">
+            <Field label="Format" hint={formatPreamble(selectedFormat)}>
+              {(control) => (
+                <Select
+                  {...control}
+                  value={selectedFormat.format}
+                  disabled={working}
+                  onChange={(event) => {
+                    setFormat(event.target.value);
+                    setProgress({ phase: 'idle' });
+                  }}
+                >
+                  {formats.map((candidate) => (
+                    <option key={candidate.format} value={candidate.format}>
+                      {candidate.label} (.{candidate.extension})
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+
+            {hasChildren ? (
+              <Segmented
+                label="What to export"
+                options={SCOPES}
+                value={scope}
+                onChange={(value) => {
+                  setScope(value);
+                  setProgress({ phase: 'idle' });
+                }}
+              />
+            ) : null}
+          </fieldset>
+        )}
+
+        {progressLabel === null ? null : (
+          <div role="status" aria-busy="true">
+            <Text tone="muted">{progressLabel}</Text>
+          </div>
+        )}
+
+        {progress.phase === 'cancelled' ? (
+          <div role="status">
+            <Text tone="muted">The export was cancelled. No download was started.</Text>
+          </div>
         ) : null}
 
         {progress.phase === 'failed' ? (
-          // The role goes on the wrapper because `<Text>` is deliberately presentational - it takes
-          // a variant and a tone, not arbitrary attributes, so that type decisions cannot be
-          // smuggled past it.
           <div role="alert">
             <Text tone="muted">{progress.error}</Text>
           </div>
         ) : null}
 
-        {progress.phase === 'partial' ? (
-          <PartialNotice
-            pending={`${String(progress.itemCount)} ${progress.itemCount === 1 ? 'item was' : 'items were'} exported. ${String(progress.omittedCount)} ${progress.omittedCount === 1 ? 'was' : 'were'} left out, because ${progress.omittedCount === 1 ? 'it is' : 'they are'} deleted, not yours to read, or past the size one export carries. ${formatFor(format).reportLocation}`}
-          />
-        ) : null}
       </div>
     </Dialog>
   );

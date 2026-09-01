@@ -16,7 +16,7 @@ import {
  * Everything an export needs, gathered once and shared by every format.
  *
  * **The traversal has two consumers and only the sink differs.** `.nix` pipes what this returns
- * into `writeArchive`; the bundles endpoint pipes it into NDJSON for the media service to convert.
+ * into `writeArchive`; the bundles endpoint pipes it into NDJSON for the Go export worker to convert.
  * Walking the tree twice, or letting each route assemble its own manifest, is how the two would
  * start disagreeing about what an export contains - and the manifest is the thing both an archive
  * reader and an import report are read against.
@@ -105,4 +105,17 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
 /** Whether a query-string scope is one of the two this service serves. */
 export function readScope(value: unknown): ExportScope | null {
   return value === 'item' || value === 'subtree' ? value : null;
+}
+
+/** Parses the durable job timestamp used to keep retries byte-stable where the format permits. */
+export function readExportedAt(value: unknown): Date | null {
+  if (
+    typeof value !== 'string' ||
+    value.length > 64 ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  ) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

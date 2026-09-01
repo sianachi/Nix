@@ -92,15 +92,15 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
     [MemberData(nameof(RuntimeReadableTenantScopedTables))]
     public async Task Each_tenant_scoped_table_shows_a_tenant_only_its_own_row(string table)
     {
-        // Both tenants hold exactly one row in every table, so "sees one" and "sees only its own"
-        // are the same assertion made twice - deliberately, because a policy that returned
-        // everything would satisfy neither and a policy that returned nothing would satisfy the
-        // count but not the identity.
+        // Every table is seeded for both tenants. Some tables, such as the durable outbox, grow as
+        // a consequence of seeding other rows, so isolation must not depend on an exact row count.
         var alphaRows = await ReadVisibleTenantIdsAsync(table, TestTenants.AlphaContext);
         var betaRows = await ReadVisibleTenantIdsAsync(table, TestTenants.BetaContext);
 
-        Assert.Equal([TestTenants.Alpha], alphaRows);
-        Assert.Equal([TestTenants.Beta], betaRows);
+        Assert.NotEmpty(alphaRows);
+        Assert.NotEmpty(betaRows);
+        Assert.All(alphaRows, tenantId => Assert.Equal(TestTenants.Alpha, tenantId));
+        Assert.All(betaRows, tenantId => Assert.Equal(TestTenants.Beta, tenantId));
     }
 
     [Theory]

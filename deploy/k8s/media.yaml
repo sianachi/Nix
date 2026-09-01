@@ -28,12 +28,28 @@ spec:
             # nix-connections to this pod under any name.
             - name: NIX_MEDIA_COLLAB_BASE_URL
               value: http://nix-collab:8100
+            - name: NIX_MEDIA_CORE_BASE_URL
+              value: http://nix-api:8080
             - name: NIX_MEDIA_INTERNAL_SECRET
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_MEDIA_GO_EXPORT_ENABLED
+              value: "true"
+            - name: NIX_MEDIA_GO_IMPORT_ENABLED
+              value: "true"
+            - name: NIX_MEDIA_OBJECT_STORE_ENDPOINT
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_MEDIA_OBJECT_STORE_REGION
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: region } }
+            - name: NIX_MEDIA_OBJECT_STORE_BUCKET
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            - name: NIX_MEDIA_OBJECT_STORE_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: NIX_MEDIA_OBJECT_STORE_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
             - name: NIX_MEDIA_MAX_CONCURRENT_EXPORTS
               value: "4"
             - name: NIX_MEDIA_JOB_TIMEOUT_MS
-              value: "30000"
+              value: "300000"
           livenessProbe:
             httpGet: { path: /healthz, port: 8200 }
             periodSeconds: 10
@@ -49,7 +65,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
 ---
-# Documents the intended isolation - media may reach collab and DNS, nothing else. k3s
+# Documents the intended isolation - media may reach collab, Core, HTTPS object storage and DNS. k3s
 # ships Flannel by default, which does NOT enforce NetworkPolicy. This is inert until the
 # cluster runs Calico (--flannel-backend=none) or Cilium; check before relying on it.
 apiVersion: networking.k8s.io/v1
@@ -61,4 +77,7 @@ spec:
   egress:
     - to: [{ podSelector: { matchLabels: { app: nix-collab } } }]
       ports: [{ protocol: TCP, port: 8100 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    - ports: [{ protocol: TCP, port: 443 }]
     - ports: [{ protocol: UDP, port: 53 }]   # DNS
