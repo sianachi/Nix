@@ -1,4 +1,4 @@
-import { Button, Icon, Text } from '@nix/ui';
+import { Button, Icon, Input, Select, Text } from '@nix/ui';
 import { items as coreItems } from '@nix/api-client';
 import {
   Circle,
@@ -88,7 +88,10 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
   const drawingRef = useRef<CanvasPoint[] | null>(null);
   const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
   const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
-  const [itemOptions, setItemOptions] = useState<readonly { id: string; title: string }[]>([]);
+  const [loadedItemOptions, setLoadedItemOptions] = useState<{
+    readonly workspaceId: string;
+    readonly options: readonly { id: string; title: string }[];
+  } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const client = useApiClient();
@@ -105,10 +108,13 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
     .map((element) => element.itemId)
     .filter((itemId): itemId is string => itemId !== undefined);
   const itemIdKey = itemIds.join('|');
+  const itemOptions =
+    workspaceId !== undefined && loadedItemOptions?.workspaceId === workspaceId
+      ? loadedItemOptions.options
+      : [];
 
   useEffect(() => {
     if (workspaceId === undefined) {
-      setItemOptions([]);
       return;
     }
     const controller = new AbortController();
@@ -119,9 +125,9 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
           options.push({ id: item.id, title: item.title });
           if (options.length >= 100) break;
         }
-        if (!controller.signal.aborted) setItemOptions(options);
+        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options });
       } catch {
-        if (!controller.signal.aborted) setItemOptions([]);
+        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options: [] });
       }
     })();
     return () => { controller.abort(); };
@@ -474,11 +480,11 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
         })}
         <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
         {selected?.type === 'text' || selected?.type === 'card' || selected?.type === 'image' ? (
-          <input
+          <Input
             aria-label={selected.type === 'text' ? 'Text content' : selected.type === 'card' ? 'Item identifier' : 'Image address'}
             list={selected.type === 'card' ? 'canvas-item-options' : undefined}
             placeholder={selected.type === 'image' ? 'https://…' : undefined}
-            className="h-(--control-md) min-w-32 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+            className="min-w-32 max-w-64"
             value={textDraft}
             onChange={(event) => { setTextDraft(event.target.value); }}
             onBlur={commitText}
@@ -500,9 +506,9 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
           {library.status === 'error' ? <Text as="span" variant="caption" tone="muted">Library unavailable</Text> : null}
           {library.status === 'ready' && selected !== null ? (
             <>
-              <input
+              <Input
                 aria-label="Library item name"
-                className="h-(--control-md) min-w-28 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+                className="min-w-28 max-w-36"
                 placeholder="Save as"
                 value={libraryName}
                 onChange={(event) => { setLibraryName(event.target.value); }}
@@ -513,15 +519,15 @@ export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCa
           ) : null}
           {library.status === 'ready' && nativeLibraryItems.length > 0 ? (
             <>
-              <select
+              <Select
                 aria-label="Saved canvas shapes"
-                className="h-(--control-md) max-w-36 rounded-sm bg-surface px-2 text-sm text-foreground outline-2 outline-transparent focus-visible:outline-accent"
+                className="max-w-36"
                 value={librarySelection}
                 onChange={(event) => { setLibrarySelection(event.target.value); }}
               >
                 <option value="">Insert shape</option>
                 {nativeLibraryItems.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-              </select>
+              </Select>
               <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Insert saved canvas shape" disabled={librarySelection === ''} onClick={insertLibraryItem}>Insert</Button>
             </>
           ) : null}
