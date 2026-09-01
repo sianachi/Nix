@@ -35,6 +35,7 @@ services:
       NIX_RABBITMQ_IMPORT_PASSWORD: ${NIX_RABBITMQ_IMPORT_PASSWORD:?set NIX_RABBITMQ_IMPORT_PASSWORD}
       NIX_RABBITMQ_EXPORT_PASSWORD: ${NIX_RABBITMQ_EXPORT_PASSWORD:?set NIX_RABBITMQ_EXPORT_PASSWORD}
       NIX_RABBITMQ_INDEX_PASSWORD: ${NIX_RABBITMQ_INDEX_PASSWORD:?set NIX_RABBITMQ_INDEX_PASSWORD}
+      NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}
     volumes:
       - nix-rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -363,6 +364,42 @@ services:
       default:
         aliases:
           - nix-indexer
+
+  nix-plugin-worker:
+    image: localhost/nix/plugin-worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+    environment:
+      NIX_WORKER_ROLES: plugin-events
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_WORKER_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT}
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "4"
+      NIX_PLUGIN_MAX_MODULE_BYTES: "8388608"
+      NIX_PLUGIN_MEMORY_PAGES: "1024"
+      NIX_PLUGIN_TIMEOUT_MILLISECONDS: "250"
+      NIX_PLUGIN_MAX_HOST_CALLS: "32"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-plugin-worker
 
   nix-opensearch:
     image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}

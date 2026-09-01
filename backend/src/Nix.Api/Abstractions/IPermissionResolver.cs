@@ -63,6 +63,20 @@ public interface IPermissionResolver
     public ValueTask<bool> CanWriteWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Whether the acting principal may change workspace-level trusted integrations.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns><see langword="true"/> for a workspace owner or tenant administrator.</returns>
+    /// <remarks>
+    /// Installing a plugin pins publisher trust for the tenant and grants data capabilities, so
+    /// ordinary item write permission is intentionally insufficient.
+    /// </remarks>
+    public ValueTask<bool> CanManageWorkspaceAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Every workspace the acting principal may read.
     /// </summary>
     /// <param name="cancellationToken">Cancels the lookup.</param>

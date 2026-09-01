@@ -21,6 +21,36 @@ public static class ObjectStorageKeys
     public static string ImportPlan(TenantId tenantId, DocumentImportId importId) =>
         $"imports/plans/{tenantId}/{importId}.json";
 
+    /// <summary>Builds the immutable key for one signed WebAssembly component version.</summary>
+    public static string PluginComponent(
+        TenantId tenantId,
+        string componentId,
+        string version,
+        string sha256)
+    {
+        ArgumentNullException.ThrowIfNull(componentId);
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(sha256);
+        var identity = componentId.Split('/');
+        if (identity.Length != 2
+            || identity.Any(segment => string.IsNullOrWhiteSpace(segment)
+                || segment.Length > 128
+                || segment is "." or ".."
+                || segment.Any(character => !(char.IsAsciiLetterOrDigit(character)
+                    || character is '.' or '-' or '_')))
+            || string.IsNullOrWhiteSpace(version)
+            || version.Length > 64
+            || version.Any(character => !(char.IsAsciiLetterOrDigit(character)
+                || character is '.' or '-' or '+'))
+            || sha256 is not { Length: 64 }
+            || sha256.Any(character => !char.IsAsciiHexDigit(character)))
+        {
+            throw new ArgumentException("The plugin component object identity is invalid.");
+        }
+
+        return $"plugins/components/{tenantId}/{identity[0]}/{identity[1]}/{version}/{sha256.ToUpperInvariant()}.wasm";
+    }
+
     public static Guid ExportAttempt(Guid exportId, string executionId)
     {
         if (exportId == Guid.Empty
@@ -71,6 +101,7 @@ public static class ObjectStorageKeys
         return key.StartsWith($"files/uploads/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"files/versions/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"imports/plans/{tenant}/", StringComparison.Ordinal)
+            || key.StartsWith($"plugins/components/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"exports/results/{tenant}/", StringComparison.Ordinal);
     }
 }

@@ -118,6 +118,13 @@ public static class NixTables
     public const string FileUpload = "file_upload";
     public const string DocumentImport = "document_import";
     public const string DocumentImportItem = "document_import_item";
+    public const string PluginPublisher = "plugin_publisher";
+    public const string PluginComponent = "plugin_component";
+    public const string PluginInstallation = "plugin_installation";
+    public const string PluginCapabilityGrant = "plugin_capability_grant";
+    public const string PluginEventReceipt = "plugin_event_receipt";
+    public const string PluginEventInbox = "plugin_event_inbox";
+    public const string PluginInvocation = "plugin_invocation";
 
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
@@ -160,6 +167,13 @@ public static class NixTables
         FileUpload,
         DocumentImport,
         DocumentImportItem,
+        PluginPublisher,
+        PluginComponent,
+        PluginInstallation,
+        PluginCapabilityGrant,
+        PluginEventReceipt,
+        PluginEventInbox,
+        PluginInvocation,
     ];
 
     /// <summary>
@@ -177,6 +191,12 @@ public static class NixTables
 
     /// <summary>Read, create and transition, but never erase history.</summary>
     private static ImmutableArray<string> RevocableHistory { get; } = ["INSERT", "SELECT", "UPDATE"];
+
+    /// <summary>Immutable registration data: create and read, never rewrite or erase.</summary>
+    private static ImmutableArray<string> ImmutableRegistration { get; } = ["INSERT", "SELECT"];
+
+    /// <summary>Replaceable grants: add, read and revoke, never rewrite in place.</summary>
+    private static ImmutableArray<string> ReplaceableGrant { get; } = ["DELETE", "INSERT", "SELECT"];
 
     /// <summary>
     /// The privileges the runtime role is expected to hold on each table, from the development
@@ -228,6 +248,15 @@ public static class NixTables
             [FileUpload] = FullDml,
             [DocumentImport] = FullDml,
             [DocumentImportItem] = FullDml,
+            [PluginPublisher] = ImmutableRegistration,
+            [PluginComponent] = ImmutableRegistration,
+            // Only enabled and updated_at carry column-level UPDATE. A table-level grant would
+            // let an application bug rewrite the installed component identity or version.
+            [PluginInstallation] = ImmutableRegistration,
+            [PluginCapabilityGrant] = ReplaceableGrant,
+            [PluginEventReceipt] = ReadOnly,
+            [PluginEventInbox] = ReadOnly,
+            [PluginInvocation] = ReadOnly,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 

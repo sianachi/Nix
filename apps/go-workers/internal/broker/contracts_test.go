@@ -41,6 +41,27 @@ func TestWorkspaceEnvelopeAcceptsOptionalAggregateVersion(t *testing.T) {
 	}
 }
 
+func TestWorkspaceEnvelopeBoundsPluginCausationDepth(t *testing.T) {
+	body := workspaceBody(`{}`, `,"causationId":"50000000-0000-4000-8000-000000000005","causationDepth":4`)
+	envelope, err := ParseEnvelope([]byte(body), 64*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := envelope.WorkspaceEvent()
+	if err != nil || event.CausationID == nil || event.CausationDepth != 4 {
+		t.Fatalf("workspace event = %#v, %v", event, err)
+	}
+	for _, suffix := range []string{
+		`,"causationDepth":1`,
+		`,"causationId":"50000000-0000-4000-8000-000000000005"`,
+		`,"causationId":"50000000-0000-4000-8000-000000000005","causationDepth":5`,
+	} {
+		if _, err := ParseEnvelope([]byte(workspaceBody(`{}`, suffix)), 64*1024); !errors.Is(err, ErrInvalidMessage) {
+			t.Fatalf("suffix %s accepted: %v", suffix, err)
+		}
+	}
+}
+
 func TestWorkspaceEnvelopeRejectsUnsupportedKindsAndScope(t *testing.T) {
 	for name, body := range map[string]string{
 		"unsupported":  strings.Replace(workspaceBody(`{}`, ``), "item.changed", "plugin.changed", 1),

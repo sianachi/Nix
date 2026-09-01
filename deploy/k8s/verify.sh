@@ -31,7 +31,7 @@ echo "== RabbitMQ =="
 kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmq-diagnostics -q check_running
 kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmq-diagnostics -q check_virtual_hosts
 rabbitmq_users="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_users --no-table-headers)"
-for rabbitmq_user in nix-api nix-import nix-export nix-index; do
+for rabbitmq_user in nix-api nix-import nix-export nix-index nix-plugin; do
   if ! printf '%s\n' "$rabbitmq_users" | awk -v expected="$rabbitmq_user" '$1 == expected { found = 1 } END { exit !found }'; then
     echo "RabbitMQ user $rabbitmq_user is missing." >&2
     exit 1
@@ -44,7 +44,7 @@ for retired_user in nix guest nix-worker-dev nix-admin; do
   fi
 done
 rabbitmq_permissions="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_permissions --vhost /nix --no-table-headers)"
-if printf '%s\n' "$rabbitmq_permissions" | awk '$1 ~ /^nix-(api|import|export|index)$/ && $2 == ".*" && $3 == ".*" && $4 == ".*" { found = 1 } END { exit !found }'; then
+if printf '%s\n' "$rabbitmq_permissions" | awk '$1 ~ /^nix-(api|import|export|index|plugin)$/ && $2 == ".*" && $3 == ".*" && $4 == ".*" { found = 1 } END { exit !found }'; then
   echo "A RabbitMQ service user still has full-control permissions." >&2
   exit 1
 fi
@@ -64,6 +64,7 @@ require_rabbitmq_permission nix-import '^$' '^nix\.results\.v1$' '^nix\.worker\.
 require_rabbitmq_permission nix-export '^$' \
   '^(nix\.results\.v1|nix\.capabilities\.v1)$' '^nix\.worker\.export\.v1$'
 require_rabbitmq_permission nix-index '^$' '^$' '^nix\.worker\.index\.v1$'
+require_rabbitmq_permission nix-plugin '^$' '^$' '^nix\.worker\.plugin-events\.v1$'
 rabbitmq_topic_permissions="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_topic_permissions --vhost /nix --no-table-headers)"
 require_rabbitmq_topic_permission() {
   local expected
@@ -80,7 +81,7 @@ require_rabbitmq_topic_permission nix-api nix.capabilities.v1 '^$' '^#$'
 require_rabbitmq_topic_permission nix-import nix.results.v1 '^job\.result$' '^$'
 require_rabbitmq_topic_permission nix-export nix.results.v1 '^job\.result$' '^$'
 require_rabbitmq_topic_permission nix-export nix.capabilities.v1 '^worker\.export$' '^$'
-service_topic_permission_count="$(printf '%s\n' "$rabbitmq_topic_permissions" | awk '$1 ~ /^nix-(api|import|export|index)$/ { count += 1 } END { print count + 0 }')"
+service_topic_permission_count="$(printf '%s\n' "$rabbitmq_topic_permissions" | awk '$1 ~ /^nix-(api|import|export|index|plugin)$/ { count += 1 } END { print count + 0 }')"
 if [ "$service_topic_permission_count" -ne 6 ]; then
   echo "RabbitMQ service users have unexpected topic permissions." >&2
   exit 1
@@ -96,7 +97,7 @@ kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=N
   curl -fsS http://nix-media:8200/healthz
 
 echo "== Go workers =="
-for worker in import-worker export-worker indexer; do
+for worker in import-worker export-worker indexer plugin-worker; do
   kubectl -n nix run "verify-curl-$worker" --rm -i --image=curlimages/curl --restart=Never -- \
     curl -fsS "http://nix-$worker:8301/healthz"
 done
