@@ -17,7 +17,9 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
-var Kinds = []string{"file.inspect"}
+// Kinds deliberately contains file.publish rather than file.inspect. Until bounded MIME and
+// image-header inspection is re-enabled, uploads are published as opaque attachments.
+var Kinds = []string{"file.publish"}
 
 type Payload struct {
 	UploadID string `json:"uploadId"`
@@ -45,8 +47,8 @@ func New(api *workerapi.Client, transfer *objecttransfer.Client, maxBytes int64)
 }
 
 func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, error) {
-	if job.Kind != "file.inspect" {
-		return nil, invalid("files.kind_mismatch", errors.New("job kind is not file.inspect"))
+	if job.Kind != "file.publish" {
+		return nil, invalid("files.kind_mismatch", errors.New("job kind is not file.publish"))
 	}
 	payload, err := decodePayload(job.Payload)
 	if err != nil {
@@ -128,7 +130,9 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if total != inspection.DeclaredByteLength {
 		return nil, handler.reject(ctx, inspection, "files.size_mismatch", fmt.Errorf("declared %d bytes but received %d", inspection.DeclaredByteLength, total))
 	}
-	metadata := InspectHeader(header, total)
+	// File inspection is intentionally disabled for now. Keep the transfer bounded and verify its
+	// checksum, but publish every file as an opaque, unscanned attachment.
+	metadata := Metadata{MediaType: "application/octet-stream"}
 	inspected := workerapi.InspectedFile{
 		DetectedMediaType: metadata.MediaType,
 		ByteLength:        total,
