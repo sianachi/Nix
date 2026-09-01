@@ -5,9 +5,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestClientDoesNotForwardTheInternalSecretAcrossRedirects(t *testing.T) {
+	var targetReached atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		targetReached.Store(true)
+		if request.Header.Get("X-Nix-Internal-Secret") != "" {
+			t.Fatal("the internal secret crossed an origin redirect")
+		}
+	}))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+
+	err := New(redirect.URL, "secret", "worker", time.Second).Ping(context.Background())
+	if err == nil {
+		t.Fatal("the worker API redirect was accepted")
+	}
+	if targetReached.Load() {
+		t.Fatal("the redirect target was contacted")
+	}
+}
 
 func TestClientLeasesAndAcknowledgesWithInternalCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -118,6 +142,24 @@ func TestClientTreatsClaimAndRenewConflictsAsLostWork(t *testing.T) {
 	renewed, err := client.RenewJob(context.Background(), "job", "execution", 60)
 	if err != nil || renewed {
 		t.Fatalf("renewed = %v, %v", renewed, err)
+	}
+}
+
+func TestExecutionContextAddsLeaseProofOnlyToDomainRequests(t *testing.T) {
+	const jobID = "019946d1-fbc0-7a87-b27e-d2f16408c71a"
+	const executionID = "worker:019946d1-fbc1-7d99-9ce7-1c721b406ff0"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Nix-Worker-Job-Id") != jobID || request.Header.Get("X-Nix-Worker-Execution-Id") != executionID {
+			t.Fatalf("execution headers = %q, %q", request.Header.Get("X-Nix-Worker-Job-Id"), request.Header.Get("X-Nix-Worker-Execution-Id"))
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client := New(server.URL, "secret", "worker", time.Second)
+
+	err := client.post(WithExecution(context.Background(), jobID, executionID), "/internal/worker-executions/probe", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

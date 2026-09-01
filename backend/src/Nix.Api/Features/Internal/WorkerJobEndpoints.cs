@@ -127,7 +127,7 @@ internal static class WorkerJobEndpoints
         {
             return "markdown";
         }
-        foreach (var candidate in new[] { "nix", "docx", "pdf" })
+        foreach (var candidate in new[] { "nix", "docx", "pdf", "txt" })
         {
             if (format.Equals(candidate, StringComparison.OrdinalIgnoreCase))
             {
@@ -137,7 +137,7 @@ internal static class WorkerJobEndpoints
         return string.Empty;
     }
 
-    private static readonly HashSet<string> ImportFormats = ["nix", "markdown", "docx", "pdf"];
+    private static readonly HashSet<string> ImportFormats = ["nix", "markdown", "txt", "docx", "pdf"];
     private static readonly HashSet<string> ExportFormats = ["nix", "markdown", "docx", "pdf"];
 
     private static async Task<Results<Ok<WorkerJobResponse>, NotFound>> Get(Guid jobId, [FromServices] IWorkerJobStore jobs, [FromServices] INixSessionContextAccessor session, CancellationToken cancellationToken)

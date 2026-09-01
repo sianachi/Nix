@@ -35,6 +35,7 @@ import { useAuth } from '../auth/auth-provider';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { ExportDialog } from '../export/export-dialog';
 import { ImportDialog } from '../import/import-dialog';
+import { FileViewer } from '../files/file-viewer';
 import { PaneGroup } from '../panes/pane-group';
 import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
@@ -602,6 +603,8 @@ function OpenItem({
               </Suspense>
             ) : bodyKind === 'spreadsheet' ? (
               <SheetEditor itemId={itemId} />
+            ) : bodyKind === 'file' ? (
+              <FileViewer itemId={itemId} />
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.

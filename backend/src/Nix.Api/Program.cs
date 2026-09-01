@@ -11,10 +11,13 @@ using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Charts;
 using Nix.Features.CurrentUser;
+using Nix.Features.DocumentImports;
+using Nix.Features.Files;
 using Nix.Features.Graph;
 using Nix.Features.Health;
 using Nix.Features.Internal;
 using Nix.Features.Items;
+using Nix.Features.Operations;
 using Nix.Features.Permissions;
 using Nix.Features.Properties;
 using Nix.Features.Query;
@@ -27,6 +30,7 @@ using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
 using Nix.Persistence;
+using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.RabbitMq;
 using Nix.Serialization;
 
@@ -71,12 +75,16 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BrowserAuthJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(FilesJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(OperationsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
 // controllable in tests.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PublicFormTokenService>();
+builder.Services.AddNixObjectStorage(builder.Configuration);
 
 // Singleton: it holds the one signing key, and the mint is pure computation over it. Registered
 // whether or not persistence is, because the token validator takes it as a dependency and the
@@ -416,9 +424,22 @@ app.UseWhen(
         if (persistenceConfigured)
         {
             branch.UseWhen(
-                static context => !context.Request.Path.StartsWithSegments(
-                    "/internal/worker-dispatch",
+                static context => context.Request.Path.StartsWithSegments(
+                    "/internal/worker-executions",
                     StringComparison.OrdinalIgnoreCase),
+                static executionBranch =>
+                {
+                    executionBranch.UseMiddleware<Nix.Authentication.WorkerExecutionMiddleware>();
+                    executionBranch.UseMiddleware<InternalWriteRateLimitMiddleware>();
+                });
+            branch.UseWhen(
+                static context =>
+                    !context.Request.Path.StartsWithSegments(
+                        "/internal/worker-dispatch",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !context.Request.Path.StartsWithSegments(
+                        "/internal/worker-executions",
+                        StringComparison.OrdinalIgnoreCase),
                 static tenantBranch =>
                 {
                     tenantBranch.UseMiddleware<NixUnitOfWorkMiddleware>();
@@ -435,6 +456,9 @@ if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBound
 
 app.MapWorkspaceEndpoints();
 app.MapItemEndpoints();
+app.MapFileEndpoints();
+app.MapDocumentImportEndpoints();
+app.MapOperationEndpoints();
 app.MapMeEndpoints();
 app.MapStructureEndpoints();
 app.MapPermissionEndpoints();

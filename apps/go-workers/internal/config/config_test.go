@@ -35,3 +35,23 @@ func TestLoadRejectsMalformedNumericConfiguration(t *testing.T) {
 		t.Fatal("Load() accepted malformed numeric configuration")
 	}
 }
+
+func TestLoadParsesAndValidatesObjectOrigins(t *testing.T) {
+	settings, err := Load(func(key string) string {
+		if key == "NIX_WORKER_OBJECT_ORIGINS" {
+			return "https://objects.example.test, http://localhost:7070"
+		}
+		return ""
+	})
+	if err != nil || len(settings.ObjectOrigins) != 2 {
+		t.Fatalf("Load() = %+v, %v", settings, err)
+	}
+	if _, err := Load(func(key string) string {
+		if key == "NIX_WORKER_OBJECT_ORIGINS" {
+			return "https://objects.example.test/private"
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("Load() accepted an origin with a path")
+	}
+}

@@ -131,6 +131,39 @@ public sealed class WorkerDispatchTests(NixPostgresFixture fixture) : IAsyncLife
     }
 
     [Fact]
+    public async Task Only_the_live_execution_for_an_active_actor_receives_a_tenant_scope()
+    {
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        var job = Assert.IsType<DispatchedWorkerJob>(
+            await store.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-one:alpha", 60, Cancellation));
+
+        Assert.Null(await store.AuthorizeExecutionAsync(job.Id, "worker-two:alpha", Cancellation));
+        var authorization = Assert.IsType<WorkerExecutionAuthorization>(
+            await store.AuthorizeExecutionAsync(job.Id, "worker-one:alpha", Cancellation));
+        Assert.Equal(M0SchemaSeed.Alpha.TenantId, authorization.TenantId);
+        Assert.Equal(M0SchemaSeed.Alpha.WorkspaceId, authorization.WorkspaceId);
+        Assert.Equal(M0SchemaSeed.Alpha.PrincipalId, authorization.ActorId);
+        Assert.Equal("import.nix", authorization.Kind);
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(
+                "UPDATE principal SET status = 'suspended' WHERE tenant_id = @tenant_id AND principal_id = @principal_id",
+                connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.AddWithValue("tenant_id", M0SchemaSeed.Alpha.TenantId);
+                command.Parameters.AddWithValue("principal_id", M0SchemaSeed.Alpha.PrincipalId);
+                await command.ExecuteNonQueryAsync(Cancellation);
+            }
+        }
+
+        Assert.Null(await store.AuthorizeExecutionAsync(job.Id, "worker-one:alpha", Cancellation));
+    }
+
+    [Fact]
     public async Task A_retryable_broker_result_schedules_a_new_durable_command()
     {
         await using var scope = fixture.Application.CreateUnscopedScope();
