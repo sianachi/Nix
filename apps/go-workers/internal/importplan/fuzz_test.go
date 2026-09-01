@@ -65,6 +65,12 @@ func FuzzDOCXAndNixArchivesFailClosed(fuzz *testing.F) {
 			Path: path, Format: format, Title: "Imported", FileName: filepath.Base(path),
 			MediaType: "application/octet-stream", Bytes: int64(len(body)), SHA256: hex.EncodeToString(digest[:]),
 		}, testLimits())
+		if format == "nix" {
+			_, _ = ParseTemplate(context.Background(), Source{
+				Path: path, Format: format, Title: "Imported", FileName: filepath.Base(path),
+				MediaType: "application/octet-stream", Bytes: int64(len(body)), SHA256: hex.EncodeToString(digest[:]),
+			}, testLimits())
+		}
 	})
 }
 

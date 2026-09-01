@@ -1032,6 +1032,11 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("jsonb")
                         .HasColumnName("loss");
 
+                    b.Property<string>("ManagedSource")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("managed_source");
+
                     b.Property<string>("Omissions")
                         .HasColumnType("jsonb")
                         .HasColumnName("omissions");
@@ -1059,6 +1064,12 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("preview_job_id");
 
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("purpose");
+
                     b.Property<Guid?>("RootItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("root_item_id");
@@ -1073,6 +1084,36 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasColumnName("status");
+
+                    b.Property<string>("TemplateDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("template_digest");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid?>("TemplateOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_operation_id");
+
+                    b.Property<string>("TemplatePreview")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("template_preview");
+
+                    b.Property<string>("TemplateStableKey")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("template_stable_key");
+
+                    b.Property<bool?>("TemplateUnchanged")
+                        .HasColumnType("boolean")
+                        .HasColumnName("template_unchanged");
+
+                    b.Property<string>("TemplateWrittenTargetItemIds")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("template_written_target_item_ids");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -1105,6 +1146,10 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasIndex("TenantId", "PreviewJobId");
 
                     b.HasIndex("TenantId", "RootItemId");
+
+                    b.HasIndex("TenantId", "TemplateId");
+
+                    b.HasIndex("TenantId", "TemplateOperationId");
 
                     b.HasIndex("TenantId", "UploadId");
 

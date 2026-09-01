@@ -154,6 +154,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<NixSqlExecutor>();
         services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
         services.AddSingleton<IWorkerDispatchStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerDispatchStore>());
+        services.AddScoped<IWorkerExecutionFence, Nix.Persistence.Workers.WorkerExecutionFence>();
         services.AddSingleton<Nix.Persistence.Workers.SearchIndexDispatchStore>();
         services.AddSingleton<PluginDispatchStore>();
         services.AddScoped<PluginInstallationStore>();
@@ -325,6 +326,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SweepExpiredTemplateStages, TemplateStageSweepResult>, SweepExpiredTemplateStagesHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateImport, Result<TemplateWorkspaceAuthorization>>, AuthorizeTemplateImportHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateOperationItem, Result<TemplateOperationAuthorization>>, AuthorizeTemplateOperationItemHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateOperationWrites, Result<TemplateOperationWriteAuthorization>>, AuthorizeTemplateOperationWritesHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateItem, Result<TemplateItemAuthorization>>, AuthorizeTemplateItemHandler>();
 
         return services;

@@ -100,6 +100,12 @@ export {
   templateCapabilitiesSchema,
   templateCatalogSchema,
   templateDetailSchema,
+  templateImportDigestSchema,
+  templateImportPreviewSchema,
+  templateImportProfileSchema,
+  templateImportResultSchema,
+  templateImportSchema,
+  templateImportUploadSchema,
   templateItemSchema,
   templateOriginSchema,
   templatePreflightInputSchema,
@@ -144,6 +150,11 @@ export type {
   References,
   TemplateCatalog,
   TemplateDetail,
+  TemplateImport,
+  TemplateImportPreview,
+  TemplateImportProfile,
+  TemplateImportResult,
+  TemplateImportUpload,
   TemplateItem,
   TemplatePreflight,
   TemplatePreflightInput,
@@ -224,6 +235,8 @@ export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
+export * as templateImports from './resources/template-imports.js';
+export type { BeginTemplateImportInput } from './resources/template-imports.js';
 export * as recurrence from './resources/recurrence.js';
 export * as files from './resources/files.js';
 export * as imports from './resources/imports.js';

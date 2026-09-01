@@ -478,6 +478,24 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             await service.CommitAsync(Cancellation);
         }
 
+        var replay = await _fixture.Application.BeginUnitOfWorkAsync(serviceContext, Cancellation);
+        await using (replay.ConfigureAwait(false))
+        {
+            var finalized = await replay.Resolve<TemplateStore>().FinalizeManagedBatchAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                [new ManagedTemplateFinalization(
+                    staged.OperationId,
+                    staged.TemplateId,
+                    descriptor.StableKey,
+                    descriptor.Digest,
+                    [])],
+                [descriptor.StableKey],
+                Cancellation);
+
+            Assert.True(finalized.IsSuccess, finalized.Error.Message);
+            Assert.Equal(new ManagedTemplateBatchResult(0, 1, 0), finalized.Value);
+        }
+
         var viewerContext = TestTenants.ContextFor(
             TestTenants.Alpha,
             TestTenants.AlphaWorkspace,
@@ -781,6 +799,47 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
                 application.CreatedItems[0].ItemId,
                 Cancellation);
             Assert.True(authorized.IsFailure);
+        }
+    }
+
+    [Fact]
+    public async Task Worker_body_authorization_returns_every_mapping_and_marks_required_targets()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var begun = await store.BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                "worker-body-authorization",
+                Descriptor() with { IncludeBody = true },
+                ItemsWithRootBody(),
+                Cancellation);
+            Assert.True(begun.IsSuccess, begun.Error.Message);
+            var operationId = begun.Value.OperationId!.Value;
+
+            var authorized = await store.AuthorizeOperationWritesAsync(operationId, Cancellation);
+
+            Assert.True(authorized.IsSuccess, authorized.Error.Message);
+            Assert.True(authorized.Value.CanWrite);
+            Assert.Equal(TestTenants.AlphaWorkspace, authorized.Value.WorkspaceId.Value);
+            Assert.Equal(2, authorized.Value.BodyWrites.Count);
+            var write = Assert.Single(authorized.Value.BodyWrites, value => value.BodyRequired);
+            Assert.Equal(RootSource, write.SourceId);
+            Assert.Equal(
+                begun.Value.ItemMappings.Single(value => value.SourceId == RootSource).ItemId,
+                write.TargetItemId);
+            var bodyless = Assert.Single(authorized.Value.BodyWrites, value => !value.BodyRequired);
+            Assert.Equal(ChildSource, bodyless.SourceId);
+            Assert.Equal(
+                begun.Value.ItemMappings.Single(value => value.SourceId == ChildSource).ItemId,
+                bodyless.TargetItemId);
+
+            var aborted = await store.AbortOperationAsync(operationId, Cancellation);
+            Assert.True(aborted.IsSuccess, aborted.Error.Message);
+            var refused = await store.AuthorizeOperationWritesAsync(operationId, Cancellation);
+            Assert.True(refused.IsFailure);
+            Assert.Equal("templates.not_found", refused.Error.Code);
         }
     }
 

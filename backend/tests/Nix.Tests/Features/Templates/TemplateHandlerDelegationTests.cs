@@ -264,6 +264,13 @@ public sealed class TemplateHandlerDelegationTests
             () => new AuthorizeTemplateOperationItemHandler(fake).HandleAsync(operationItem, token),
             token);
 
+        var operationWrites = new AuthorizeTemplateOperationWrites(OperationId);
+        await AssertDelegatesAsync(
+            operationWrites,
+            fake,
+            () => new AuthorizeTemplateOperationWritesHandler(fake).HandleAsync(operationWrites, token),
+            token);
+
         var item = new AuthorizeTemplateItem(TemplateId, SourceId);
         await AssertDelegatesAsync(
             item,

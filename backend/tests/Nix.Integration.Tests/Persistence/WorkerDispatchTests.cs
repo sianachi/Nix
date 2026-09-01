@@ -169,6 +169,83 @@ public sealed class WorkerDispatchTests(NixPostgresFixture fixture) : IAsyncLife
     }
 
     [Fact]
+    public async Task Cleanup_execution_survives_actor_suspension_without_broadening_other_jobs()
+    {
+        Guid cleanupJobId;
+        await using (var work = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext,
+            Cancellation))
+        {
+            var cleanup = await ObjectCleanupJobs.QueueAsync(
+                work.Resolve<IWorkerJobStore>(),
+                TenantId.From(TestTenants.Alpha),
+                PrincipalId.From(TestTenants.AlphaPrincipal),
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                "suspended-actor-cleanup",
+                Guid.Parse("30000000-0000-4000-8000-000000000002"),
+                DateTimeOffset.UtcNow.AddSeconds(-1),
+                [$"imports/staging/{TestTenants.Alpha:D}/orphan"],
+                Cancellation);
+            cleanupJobId = cleanup.Id;
+            await work.CommitAsync(Cancellation);
+        }
+
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var store = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        Assert.NotNull(await store.ClaimJobAsync(cleanupJobId, "cleanup-worker", 60, Cancellation));
+
+        await using var connection = await fixture.OpenMigratorConnectionAsync();
+        var suspend = new NpgsqlCommand(
+            "UPDATE principal SET status = 'suspended' WHERE tenant_id = @tenant_id AND principal_id = @principal_id",
+            connection);
+        await using (suspend.ConfigureAwait(false))
+        {
+            suspend.Parameters.AddWithValue("tenant_id", M0SchemaSeed.Alpha.TenantId);
+            suspend.Parameters.AddWithValue("principal_id", M0SchemaSeed.Alpha.PrincipalId);
+            await suspend.ExecuteNonQueryAsync(Cancellation);
+        }
+
+        var authorization = Assert.IsType<WorkerExecutionAuthorization>(
+            await store.AuthorizeExecutionAsync(cleanupJobId, "cleanup-worker", Cancellation));
+        Assert.Equal("object.cleanup", authorization.Kind);
+    }
+
+    [Fact]
+    public async Task A_transaction_fence_blocks_job_completion_until_the_mutation_commits()
+    {
+        await using var dispatchScope = fixture.Application.CreateUnscopedScope();
+        var dispatch = dispatchScope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
+        var job = Assert.IsType<DispatchedWorkerJob>(
+            await dispatch.ClaimJobAsync(M0SchemaSeed.Alpha.AclEntryId, "worker-one:alpha", 60, Cancellation));
+        var authorization = Assert.IsType<WorkerExecutionAuthorization>(
+            await dispatch.AuthorizeExecutionAsync(job.Id, "worker-one:alpha", Cancellation));
+
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext,
+            Cancellation);
+        Assert.True(await work.Resolve<IWorkerExecutionFence>().HoldAsync(
+            job.Id,
+            "worker-one:alpha",
+            authorization,
+            Cancellation));
+
+        var completion = dispatch.FinishJobAsync(
+            job.Id,
+            "worker-one:alpha",
+            succeeded: true,
+            retryable: false,
+            result: "{}",
+            errorCode: null,
+            errorDetail: null,
+            Cancellation).AsTask();
+        await Task.Delay(100, Cancellation);
+        Assert.False(completion.IsCompleted);
+
+        await work.CommitAsync(Cancellation);
+        Assert.True(await completion.WaitAsync(TimeSpan.FromSeconds(5), Cancellation));
+    }
+
+    [Fact]
     public async Task A_retryable_broker_result_schedules_a_new_durable_command()
     {
         await using var scope = fixture.Application.CreateUnscopedScope();

@@ -38,7 +38,9 @@ public sealed class FileStore(
                     ? ToUpload(existing)
                     : null;
         }
-        if (request.Purpose is not (FileUploadPurposes.File or FileUploadPurposes.DocumentImport))
+        if (request.Purpose is not (FileUploadPurposes.File
+            or FileUploadPurposes.DocumentImport
+            or FileUploadPurposes.TemplateImport))
         {
             throw new InvalidOperationException("The file upload purpose is invalid.");
         }
