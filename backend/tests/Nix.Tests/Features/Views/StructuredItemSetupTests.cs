@@ -177,6 +177,10 @@ public sealed class StructuredItemSetupTests
             WorkspaceId workspaceId,
             CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
+        public ValueTask<bool> CanManageWorkspaceAsync(
+            WorkspaceId workspaceId,
+            CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
         public ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(
             CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<WorkspaceId>>([Workspace]);
 

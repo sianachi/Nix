@@ -41,6 +41,8 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: export-password } }
             - name: NIX_RABBITMQ_INDEX_PASSWORD
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: index-password } }
+            - name: NIX_RABBITMQ_PLUGIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: plugin-password } }
           livenessProbe:
             exec: { command: [rabbitmq-diagnostics, -q, ping] }
             periodSeconds: 10
@@ -89,5 +91,5 @@ spec:
         - podSelector: { matchLabels: { app: nix-api } }
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-indexer] }
+              - { key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-indexer, nix-plugin-worker] }
       ports: [{ protocol: TCP, port: 5672 }]

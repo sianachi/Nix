@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds and pushes all four Nix images for a k3s deployment.
+# Builds and pushes every Nix image for a k3s deployment.
 #
 # Run from the repository root:
 #   REGISTRY=ghcr.io/you/nix PLATFORM=linux/arm64 \
@@ -19,7 +19,7 @@ cd "$(git rev-parse --show-toplevel)"
 PLATFORM="${PLATFORM:-linux/arm64}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 
-echo "Building $REGISTRY/{api,migrator,collab,media,import-worker,export-worker,indexer,web}:$TAG for $PLATFORM"
+echo "Building $REGISTRY/{api,migrator,collab,media,import-worker,export-worker,indexer,plugin-worker,web}:$TAG for $PLATFORM"
 
 docker buildx build --platform "$PLATFORM" --target api \
   -f deploy/docker/backend.Dockerfile -t "$REGISTRY/api:$TAG" --push .
@@ -33,11 +33,12 @@ docker buildx build --platform "$PLATFORM" --target collab \
 docker buildx build --platform "$PLATFORM" --target media \
   -f deploy/docker/node.Dockerfile -t "$REGISTRY/media:$TAG" --push .
 
-for worker in import-worker export-worker indexer; do
+for worker in import-worker export-worker indexer plugin-worker; do
   case "$worker" in
     import-worker) command='./cmd/nix-import-worker' ;;
     export-worker) command='./cmd/nix-export-worker' ;;
     indexer) command='./cmd/nix-indexer' ;;
+    plugin-worker) command='./cmd/nix-worker' ;;
   esac
   docker buildx build --platform "$PLATFORM" \
     --build-arg "WORKER_CMD=$command" \

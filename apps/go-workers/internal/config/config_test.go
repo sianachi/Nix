@@ -10,6 +10,29 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 {
 		t.Fatalf("invalid defaults: %+v", settings)
 	}
+	if settings.PluginMaxModuleBytes != 8<<20 || settings.PluginMemoryPages != 1024 || settings.PluginTimeout <= 0 || settings.PluginMaxHostCalls != 32 {
+		t.Fatalf("invalid plugin defaults: %+v", settings)
+	}
+}
+
+func TestLoadRejectsUnboundedPluginLimits(t *testing.T) {
+	for key, value := range map[string]string{
+		"NIX_PLUGIN_MAX_MODULE_BYTES":     "33554433",
+		"NIX_PLUGIN_MEMORY_PAGES":         "4097",
+		"NIX_PLUGIN_TIMEOUT_MILLISECONDS": "5001",
+		"NIX_PLUGIN_MAX_HOST_CALLS":       "257",
+	} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := Load(func(candidate string) string {
+				if candidate == key {
+					return value
+				}
+				return ""
+			}); err == nil {
+				t.Fatalf("Load accepted %s=%s", key, value)
+			}
+		})
+	}
 }
 
 func TestLoadRejectsNonPositiveLimits(t *testing.T) {

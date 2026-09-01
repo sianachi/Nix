@@ -12,7 +12,7 @@ import (
 )
 
 func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
-	for _, service := range []role.Service{role.Import, role.Export, role.Index} {
+	for _, service := range []role.Service{role.Import, role.Export, role.Index, role.Plugin} {
 		roles := role.Set{service: true}
 		if err := validateSettings(roles, config.Settings{}); err == nil {
 			t.Fatalf("%s accepted an empty internal credential", service)
@@ -26,6 +26,8 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 		valid := config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret", RabbitMQURL: "amqp://rabbit"}
 		if service == role.Import || service == role.Export {
 			valid.CollaborationURL = "http://collab"
+		}
+		if service == role.Import || service == role.Export || service == role.Plugin {
 			valid.ObjectOrigins = []string{"https://objects.example.test"}
 		}
 		if service == role.Index {
@@ -117,11 +119,11 @@ func TestObjectStoreProbeAcceptsPrivateRefusalButRejectsRedirectAndOutage(t *tes
 }
 
 func TestCombinedWorkerParsesConfiguredRoles(t *testing.T) {
-	roles, err := selectedRoles(role.All, "import,export,index")
+	roles, err := selectedRoles(role.All, "import,export,index,plugin-events")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !roles.Has(role.Import) || !roles.Has(role.Export) || !roles.Has(role.Index) {
+	if !roles.Has(role.Import) || !roles.Has(role.Export) || !roles.Has(role.Index) || !roles.Has(role.Plugin) {
 		t.Fatalf("configured roles were not preserved: %#v", roles)
 	}
 }

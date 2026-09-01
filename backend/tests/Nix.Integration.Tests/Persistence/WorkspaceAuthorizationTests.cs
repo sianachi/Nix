@@ -185,6 +185,25 @@ public sealed class WorkspaceAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Tenant_administration_does_not_make_absent_or_cross_tenant_workspaces_exist()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(
+            ContextFor(Administrator),
+            Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var permissions = work.Resolve<IPermissionResolver>();
+            Assert.True(await permissions.CanManageWorkspaceAsync(AlphaWorkspace, Cancellation));
+            Assert.False(await permissions.CanReadWorkspaceAsync(
+                WorkspaceId.From(Guid.NewGuid()),
+                Cancellation));
+            Assert.False(await permissions.CanReadWorkspaceAsync(
+                WorkspaceId.From(M0SchemaSeed.Beta.WorkspaceId),
+                Cancellation));
+        }
+    }
+
+    [Fact]
     public async Task A_role_this_build_does_not_recognise_cannot_be_stored()
     {
         var connection = await _fixture.OpenMigratorConnectionAsync();
