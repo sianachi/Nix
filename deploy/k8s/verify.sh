@@ -86,6 +86,11 @@ if [ "$service_topic_permission_count" -ne 6 ]; then
   exit 1
 fi
 
+echo "== OpenSearch =="
+kubectl -n nix run verify-curl-opensearch --rm -i --image=curlimages/curl --restart=Never \
+  --labels=nix.io/verify=true -- \
+  curl -fsS http://nix-opensearch:9200/_cluster/health
+
 echo "== Media =="
 kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=Never -- \
   curl -fsS http://nix-media:8200/healthz

@@ -74,6 +74,12 @@ spec:
               value: "true"
             - name: Nix__GoWorkers__ImportEnabled
               value: "true"
+            - name: Nix__Search__OpenSearchEnabled
+              value: "${NIX_SEARCH_OPENSEARCH_ENABLED}"
+            - name: Nix__Search__OpenSearchUrl
+              value: http://nix-opensearch:9200
+            - name: Nix__Search__OpenSearchIndex
+              value: nix-items
             - name: Nix__PublicForms__SigningKey
               valueFrom: { secretKeyRef: { name: nix-internal, key: public-forms-signing-key } }
             # Core sits behind Caddy and Traefik. Without this every request appears

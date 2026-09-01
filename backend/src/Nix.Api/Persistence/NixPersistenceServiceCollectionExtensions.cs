@@ -153,6 +153,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<NixSqlExecutor>();
         services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
         services.AddSingleton<IWorkerDispatchStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerDispatchStore>());
+        services.AddSingleton<Nix.Persistence.Workers.SearchIndexDispatchStore>();
         services.AddScoped<Nix.Persistence.Workers.WorkerStore>();
         services.AddScoped<IWorkerJobStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
         services.AddScoped<IWorkerOutboxStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
@@ -189,7 +190,8 @@ public static class NixPersistenceServiceCollectionExtensions
         // The two readers over the derived tables. Scoped like the stores: both borrow the unit of
         // work's connection so their statements run inside the transaction that published the RLS
         // session context.
-        services.AddScoped<IItemSearch, ItemSearch>();
+        services.AddScoped<ItemSearch>();
+        services.AddScoped<IItemSearch>(provider => provider.GetRequiredService<ItemSearch>());
         services.AddScoped<IItemLinks, ItemLinks>();
         services.AddScoped<ICanvasLibraryStore, CanvasLibraryStore>();
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();

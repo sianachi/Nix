@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata: { name: nix-opensearch, namespace: nix }
+spec:
+  selector: { app: nix-opensearch }
+  ports: [{ port: 9200, targetPort: 9200 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: nix-opensearch, namespace: nix }
+spec:
+  serviceName: nix-opensearch
+  replicas: 1
+  selector: { matchLabels: { app: nix-opensearch } }
+  template:
+    metadata:
+      labels: { app: nix-opensearch }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:3.3.0
+          ports: [{ containerPort: 9200 }]
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: bootstrap.memory_lock, value: "false" }
+            - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+            - { name: DISABLE_INSTALL_DEMO_CONFIG, value: "true" }
+            - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
+          livenessProbe:
+            httpGet: { path: /_cluster/health, port: 9200 }
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /_cluster/health, port: 9200 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { cpu: "2", memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/opensearch/data }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: opensearch-ingress, namespace: nix }
+spec:
+  podSelector: { matchLabels: { app: nix-opensearch } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: nix-api } }
+        - podSelector: { matchLabels: { app: nix-indexer } }
+        - podSelector: { matchLabels: { nix.io/verify: "true" } }
+      ports: [{ protocol: TCP, port: 9200 }]

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Files;
@@ -529,7 +528,6 @@ public sealed class DocumentImportStore(
         upload.PublishedItemId = mappings.SingleOrDefault(value => value.ObjectKey == upload.ObjectKey)?.TargetItemId
             ?? operation.RootItemId;
         upload.UpdatedAt = now;
-        await AddOutboxEventsAsync(operation, mappings, now, cancellationToken).ConfigureAwait(false);
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToRecord(operation);
     }
@@ -664,55 +662,6 @@ public sealed class DocumentImportStore(
         return database.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtextextended({$"document-import-key:{context.TenantId.Value:N}:{context.PrincipalId.Value:N}:{idempotencyKey}"}, 0))",
             cancellationToken);
-    }
-
-    private async ValueTask AddOutboxEventsAsync(
-        DocumentImport operation,
-        IReadOnlyList<DocumentImportItem> mappings,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var context = Context;
-        var ids = mappings.Select(value => value.TargetItemId).ToArray();
-        var items = await database.Items.IgnoreQueryFilters().AsNoTracking()
-            .Where(value => value.TenantId == context.TenantId && ids.Contains(value.Id))
-            .ToDictionaryAsync(value => value.Id, cancellationToken).ConfigureAwait(false);
-        var fileVersions = await database.FileVersions.AsNoTracking()
-            .Where(value => value.TenantId == context.TenantId && ids.Contains(value.ItemId))
-            .ToDictionaryAsync(value => value.ItemId, cancellationToken).ConfigureAwait(false);
-        foreach (var mapping in mappings)
-        {
-            var item = items[mapping.TargetItemId];
-            fileVersions.TryGetValue(item.Id, out var file);
-            database.WorkerOutboxEvents.Add(new WorkerOutboxEvent
-            {
-                Id = WorkerOutboxEventId.Create(),
-                TenantId = context.TenantId,
-                WorkspaceId = operation.WorkspaceId,
-                ItemId = item.Id,
-                Kind = "item.changed",
-                Payload = JsonSerializer.Serialize(new Dictionary<string, object?>
-                {
-                    ["item_id"] = item.Id.Value,
-                    ["parent_id"] = item.ParentId?.Value,
-                    ["title"] = ItemProperties.ReadTitle(item.Properties),
-                    ["body"] = string.Empty,
-                    ["property_text"] = file is null
-                        ? item.Properties ?? string.Empty
-                        : $"{file.FileName} {file.MediaType}",
-                    ["properties"] = item.Properties is null
-                        ? new Dictionary<string, object?>()
-                        : JsonSerializer.Deserialize<JsonElement>(item.Properties),
-                    ["ancestor_ids"] = Array.Empty<string>(),
-                    ["links"] = Array.Empty<string>(),
-                    ["authorization_keys"] = Array.Empty<string>(),
-                    ["lifecycle_state"] = mapping.FinalLifecycleState,
-                    ["source_version"] = "1",
-                    ["source_updated_at"] = now,
-                }),
-                AvailableAt = now,
-            });
-        }
     }
 
     private async ValueTask<bool> FitsQuotaAsync(

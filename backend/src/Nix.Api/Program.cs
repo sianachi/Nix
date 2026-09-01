@@ -33,6 +33,7 @@ using Nix.Http;
 using Nix.Persistence;
 using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.RabbitMq;
+using Nix.Persistence.Search;
 using Nix.Serialization;
 
 const string nixConnectionStringName = "Nix";
@@ -285,6 +286,7 @@ var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
     builder.Services.AddNixPersistence(nixConnectionString!);
+    builder.Services.AddNixSearch(builder.Configuration);
     builder.Services.AddNixRabbitMq(builder.Configuration);
 
     // Scoped, because it resolves issuers through the request's own connection. The signing-key
