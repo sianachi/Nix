@@ -162,7 +162,7 @@ export const nodeHandlers: NodeHandlers<PdfNode> = {
   /**
    * A task, marked in ASCII.
    *
-   * `[x]` and `[ ]` rather than a symbol from a second font, and never an emoji - CLAUDE.md bans
+   * `[x]` and `[ ]` rather than a symbol from a second font, and never an emoji - AGENTS.md bans
    * those outright, and a box glyph Nunito Sans does not carry would render as a blank anyway.
    */
   taskItem: (node, _ctx, children) => {

@@ -22,7 +22,7 @@ namespace Nix.Features.Tokens;
 /// </para>
 /// <para>
 /// <b>The token itself stops here.</b> Everything past this endpoint - Core's API, the
-/// collaboration service, the media service - sees only the minted JWT, validated the way every
+/// collaboration service and delegated worker boundary sees only the minted JWT, validated the way every
 /// other issuer's tokens are validated. That is what makes revocation a Core-side fact and keeps
 /// the services that never see a database out of the credential's blast radius.
 /// </para>
@@ -68,7 +68,7 @@ internal static class TokenExchangeEndpoints
             .WithName("GetAccessTokenSigningKeys")
             .WithSummary("The public keys exchanged sessions are signed with")
             .WithDescription(
-                "An RFC 7517 key set. The collaboration and media services list Core's issuer "
+                "An RFC 7517 key set. Collaboration lists Core's issuer "
                 + "beside the identity providers they already trust and fetch its keys here; an "
                 + "empty set means no key is configured and nothing signed by this issuer should "
                 + "validate.")

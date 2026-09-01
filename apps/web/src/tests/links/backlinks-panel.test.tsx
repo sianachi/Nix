@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useLocation } from 'react-router';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
 import { AuthProvider } from '../../auth/auth-provider';
 import { ApiClientProvider } from '../../api/api-client-provider';
 import { BacklinksPane } from '../../links/backlinks-panel';

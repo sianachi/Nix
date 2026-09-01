@@ -11,7 +11,11 @@ import { connectDocumentLocks } from './db/advisory-lock.ts';
 import { RateWindow } from './documents/limits.ts';
 import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
 import { createServer } from './http/server.ts';
+import { createImportBodyService } from './imports/bodies.ts';
+import { createCoreImportClient } from './imports/core.ts';
 import { createMetrics } from './metrics.ts';
+import { createTemplateImportBodyService } from './template-imports/bodies.ts';
+import { createCoreTemplateImportClient } from './template-imports/core.ts';
 import { createSessionAuthenticator } from './ws/session-auth.ts';
 
 /**
@@ -120,6 +124,20 @@ const app = createServer({
     releaseDraftAuthorization: (operationId) => {
       sessions.releaseDraftOperation(operationId);
     },
+  }),
+  importBodies: createImportBodyService({
+    pool,
+    core: createCoreImportClient({
+      coreBaseUrl: config.coreBaseUrl,
+      internalSecret: config.internalSecret,
+    }),
+  }),
+  templateImportBodies: createTemplateImportBodyService({
+    pool,
+    core: createCoreTemplateImportClient({
+      coreBaseUrl: config.coreBaseUrl,
+      internalSecret: config.internalSecret,
+    }),
   }),
 });
 

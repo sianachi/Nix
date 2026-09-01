@@ -100,6 +100,23 @@ public sealed partial class TemplateStore
             return Result.Failure<ManagedTemplateBatchResult>(TemplateErrors.Conflict(
                 "The managed staging set exceeds the catalog bound; expire abandoned imports before retrying."));
         }
+        var activeCatalogKeys = catalogs
+            .Where(template => template.State == TemplateState.Active)
+            .Select(template => template.StableKey)
+            .ToHashSet(StringComparer.Ordinal);
+        var exactCompletedReplay = outstanding.Count == 0
+            && activeCatalogKeys.SetEquals(requestedKeys)
+            && managedEntries.All(imported => byKey.TryGetValue(imported.StableKey, out var catalog)
+                && catalog.Id == imported.TemplateId
+                && catalog.State == TemplateState.Active
+                && string.Equals(catalog.SourceDigest, imported.Digest, StringComparison.Ordinal));
+        if (exactCompletedReplay)
+        {
+            return Result.Success(new ManagedTemplateBatchResult(
+                Activated: 0,
+                Unchanged: managedEntries.Count,
+                Retired: 0));
+        }
         if (!suppliedOperationIds.SetEquals(outstanding.Select(operation => operation.Id)))
         {
             return Result.Failure<ManagedTemplateBatchResult>(

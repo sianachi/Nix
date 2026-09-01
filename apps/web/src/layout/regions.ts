@@ -62,7 +62,7 @@
  *
  * ## Why the widths are written as pixels
  *
- * The standard is CLAUDE.md's: never hard-code a px value **the tokens carry**.
+ * The standard is AGENTS.md's: never hard-code a px value **the tokens carry**.
  * So the question at every raw number is which token would carry it, and the
  * sheet's answer is bounded - a type scale, a control-height scale and a
  * spacing base (ADR-0008). Those answer "how big is this text", "how tall is

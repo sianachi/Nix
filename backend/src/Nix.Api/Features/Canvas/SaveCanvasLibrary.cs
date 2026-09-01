@@ -9,8 +9,7 @@ namespace Nix.Features.Canvas;
 
 /// <summary>Replaces the caller's own canvas library wholesale.</summary>
 /// <param name="Items">
-/// The library's complete contents. Excalidraw's <c>onLibraryChange</c> always hands back the whole
-/// library rather than a delta, so a save is a replace, not a merge.
+/// The library's complete contents. A save is a replace, not a merge.
 /// </param>
 public sealed record SaveCanvasLibrary(JsonArray Items) : ICommand<CanvasLibraryItems>;
 

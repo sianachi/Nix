@@ -53,7 +53,8 @@ public sealed record TemplateBodyCopy(
 public sealed record TemplateBodyWrite(
     Guid SourceId,
     ItemId TargetItemId,
-    string ItemType);
+    string ItemType,
+    bool BodyRequired = true);
 
 /// <summary>Result of beginning a capture.</summary>
 public sealed record TemplateCapturePlan(
@@ -87,7 +88,7 @@ public sealed record ManagedTemplateBatchResult(int Activated, int Unchanged, in
 /// <summary>Expired provisioning envelopes removed with their cascading body rows.</summary>
 public sealed record TemplateStageSweepResult(int Removed, IReadOnlyList<ItemId> ItemIds);
 
-/// <summary>Cheap workspace admission returned before Media reads an archive.</summary>
+/// <summary>Cheap workspace admission returned before a worker reads an archive.</summary>
 public sealed record TemplateWorkspaceAuthorization(
     TenantId TenantId,
     Nix.Domain.Identity.PrincipalId PrincipalId,
@@ -123,6 +124,15 @@ public sealed record TemplateOperationAuthorization(
     string ItemType,
     bool IsSource,
     bool IsTarget,
+    bool CanWrite);
+
+/// <summary>Complete worker-fenced body-write plan for one template import stage.</summary>
+public sealed record TemplateOperationWriteAuthorization(
+    TemplateOperationId OperationId,
+    TenantId TenantId,
+    Nix.Domain.Identity.PrincipalId PrincipalId,
+    WorkspaceId WorkspaceId,
+    IReadOnlyList<TemplateBodyWrite> BodyWrites,
     bool CanWrite);
 
 /// <summary>Authorization context for one active template item body.</summary>

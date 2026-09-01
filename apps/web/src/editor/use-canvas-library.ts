@@ -7,15 +7,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 
 /**
- * A principal's own set of reusable Excalidraw shapes, from `GET`/`PUT /api/v1/me/canvas-library`.
+ * A principal's own set of reusable native canvas shapes, from `GET`/`PUT /api/v1/me/canvas-library`.
  *
- * **Per user, not per item or per workspace.** Excalidraw's own libraries feature is a personal
- * drawing tool - the shapes somebody has curated follow them into every canvas they open, the same
+ * **Per user, not per item or per workspace.** The library is a personal drawing tool - the shapes
+ * somebody has curated follow them into every canvas they open, the same
  * way a physical stencil is not left behind in one notebook. That is why this hook takes no
  * `itemId`: it asks Core for the caller's own library, the same request wherever a canvas mounts.
  *
  * **`items` is a seed, not live state.** It changes exactly once, when the mount-time read
- * resolves, and `save` deliberately does not mirror what it was handed back into it. Excalidraw
+ * resolves, and `save` deliberately does not mirror what it was handed back into it. The editor
  * owns the live library; mirroring it here gave every save a state change, and a state change
  * re-armed the editor's seeding effect, whose `updateLibrary` echoed back through
  * `onLibraryChange` into another save - a feedback loop that hammered Core with identical PUTs
@@ -28,9 +28,9 @@ export type CanvasLibraryStatus = 'loading' | 'ready' | 'error';
 
 export interface CanvasLibraryState {
   readonly status: CanvasLibraryStatus;
-  /** What Core held at mount, for seeding Excalidraw. Empty while loading or on a failed read. */
+  /** What Core held at mount. Empty while loading or on a failed read. */
   readonly items: readonly unknown[];
-  /** Replaces the library wholesale with what Excalidraw's own `onLibraryChange` reports. */
+  /** Replaces the library wholesale with the complete native library contents. */
   readonly save: (items: readonly unknown[]) => void;
 }
 
@@ -41,7 +41,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
   const [status, setStatus] = useState<CanvasLibraryStatus>('loading');
   const [items, setItems] = useState<readonly unknown[]>(NONE);
 
-  // Guards saves until the mount-time read lands: Excalidraw fires `onLibraryChange` with
+  // Guards saves until the mount-time read lands: the editor can announce its initial library with
   // whatever it booted with, and saving that before the fetch resolves would overwrite a library
   // that has not been read yet with an empty one. Stays false forever when the read fails, which
   // makes saving impossible for the mount - overwriting state we could not read is worse than
@@ -50,7 +50,7 @@ export function useCanvasLibrary(): CanvasLibraryState {
 
   // The request body Core is known to hold, or null when that is unknown (before the read, or
   // after a failed save). A save whose body matches is dropped without a request - which is what
-  // breaks the echo: `updateLibrary` re-announces the seeded library through `onLibraryChange`,
+  // breaks the echo: initial library setup can re-announce the seeded library,
   // and without this comparison that announcement was a PUT of content Core already had, forever.
   const knownRef = useRef<string | null>(null);
 

@@ -31,6 +31,11 @@ describe('nixctl mcp workspace tools', () => {
         'change_workspace_member_role',
         'remove_workspace_member',
         'leave_workspace',
+        'import_document',
+        'upload_file',
+        'replace_file',
+        'list_file_versions',
+        'download_file',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
@@ -47,11 +52,13 @@ describe('nixctl mcp workspace tools', () => {
           return Promise.reject(new Error('Expected a JSON exchange body.'));
         }
         const body = JSON.parse(init.body) as { token: string };
-        return Promise.resolve(Response.json({
-          accessToken: body.token === 'nixpat_owner' ? 'jwt-owner' : 'jwt-outsider',
-          tokenType: 'Bearer',
-          expiresInSeconds: 600,
-        }));
+        return Promise.resolve(
+          Response.json({
+            accessToken: body.token === 'nixpat_owner' ? 'jwt-owner' : 'jwt-outsider',
+            tokenType: 'Bearer',
+            expiresInSeconds: 600,
+          }),
+        );
       }
 
       const headers = new Headers(init?.headers);
@@ -60,10 +67,12 @@ describe('nixctl mcp workspace tools', () => {
       if (authorization === 'Bearer jwt-owner') {
         return Promise.resolve(Response.json({ items: [workspace()], nextCursor: null }));
       }
-      return Promise.resolve(Response.json(
-        { code: 'workspaces.not_found', detail: 'No workspace is visible.' },
-        { status: 403 },
-      ));
+      return Promise.resolve(
+        Response.json(
+          { code: 'workspaces.not_found', detail: 'No workspace is visible.' },
+          { status: 403 },
+        ),
+      );
     };
     vi.stubGlobal('fetch', fetchImpl);
 
@@ -108,13 +117,15 @@ async function connect(profileName: string, fetchImpl: FetchImpl) {
   const server = await createWorkspaceMcpServer({
     profileName,
     resolve: (requestedProfile) =>
-      Promise.resolve(openSession({
-        profile: {
-          apiUrl: API,
-          token: requestedProfile === 'owner' ? 'nixpat_owner' : 'nixpat_outsider',
-        },
-        fetchImpl,
-      })),
+      Promise.resolve(
+        openSession({
+          profile: {
+            apiUrl: API,
+            token: requestedProfile === 'owner' ? 'nixpat_owner' : 'nixpat_outsider',
+          },
+          fetchImpl,
+        }),
+      ),
   });
   const client = new Client({ name: 'nixctl-test', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -139,6 +150,7 @@ function workspace(): Record<string, unknown> {
     canRename: true,
     canManageMembers: true,
     canLeave: false,
+    canUseDailyNotes: true,
     pendingInvitationId: null,
   };
 }

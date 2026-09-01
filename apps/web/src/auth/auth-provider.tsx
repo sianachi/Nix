@@ -85,6 +85,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const signedOut = useSessionStore((state) => state.signedOut);
 
   useEffect(() => {
+    // A remounted provider must not replace a definitive in-memory state with a second restore.
+    // The application starts at `unknown`, while tests and an explicit sign-out may already have
+    // established an authenticated, anonymous, or failed state before this effect runs.
     if (useSessionStore.getState().status !== 'unknown') {
       return;
     }

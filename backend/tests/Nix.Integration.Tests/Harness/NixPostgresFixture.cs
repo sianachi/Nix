@@ -47,6 +47,7 @@ public sealed class NixPostgresFixture : IAsyncLifetime
 
     private Respawner? _respawner;
     private NpgsqlConnection? _respawnConnection;
+    private string? _respawnMigrationId;
     private NixPersistenceHost? _application;
 
     /// <summary>Gets the connection string for the runtime role, <c>nix_app</c>.</summary>
@@ -114,6 +115,7 @@ public sealed class NixPostgresFixture : IAsyncLifetime
                 // migrations that are already present.
                 TablesToIgnore = ["__EFMigrationsHistory"],
             });
+        _respawnMigrationId = await ReadMigrationIdAsync(_respawnConnection);
 
         _application = NixPersistenceHost.Create(ApplicationConnectionString);
     }
@@ -134,7 +136,30 @@ public sealed class NixPostgresFixture : IAsyncLifetime
             throw new InvalidOperationException("The fixture has not been initialised.");
         }
 
+        var migrationId = await ReadMigrationIdAsync(_respawnConnection);
+        if (!string.Equals(migrationId, _respawnMigrationId, StringComparison.Ordinal))
+        {
+            _respawner = await Respawner.CreateAsync(
+                _respawnConnection,
+                new RespawnerOptions
+                {
+                    DbAdapter = DbAdapter.Postgres,
+                    SchemasToInclude = ["public"],
+                    TablesToIgnore = ["__EFMigrationsHistory"],
+                });
+            _respawnMigrationId = migrationId;
+        }
+
         await _respawner.ResetAsync(_respawnConnection);
+    }
+
+    private static async Task<string?> ReadMigrationIdAsync(NpgsqlConnection connection)
+    {
+        var command = new NpgsqlCommand("SELECT max(\"MigrationId\") FROM \"__EFMigrationsHistory\"", connection);
+        await using (command.ConfigureAwait(false))
+        {
+            return await command.ExecuteScalarAsync() as string;
+        }
     }
 
     /// <summary>

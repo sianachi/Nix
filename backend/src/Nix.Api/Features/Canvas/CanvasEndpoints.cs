@@ -29,8 +29,8 @@ internal static class CanvasEndpoints
             .WithName("GetCanvasLibrary")
             .WithSummary("The caller's own canvas library")
             .WithDescription(
-                "Returns the caller's personal set of reusable Excalidraw shapes, the same shape "
-                + "Excalidraw itself stores locally - empty for a caller who has never saved one. "
+                "Returns the caller's personal set of reusable Nix canvas shapes - empty for a "
+                + "caller who has never saved one. "
                 + "Available to them on every canvas they open, in every workspace.")
             .Produces<CanvasLibraryResponse>(StatusCodes.Status200OK);
 
@@ -39,8 +39,8 @@ internal static class CanvasEndpoints
             .WithName("SaveCanvasLibrary")
             .WithSummary("Replace the caller's own canvas library")
             .WithDescription(
-                "Replaces the caller's library wholesale with what Excalidraw's onLibraryChange "
-                + "reports, which is always the library's complete contents rather than a delta. "
+                "Replaces the caller's native canvas library wholesale with its complete contents "
+                + "rather than a delta. "
                 + "Fails with 'canvas_library.too_large' when the library exceeds the stored bound.")
             .Produces<CanvasLibraryResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)

@@ -43,10 +43,7 @@ export {
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
-export {
-  currentPrincipalSchema,
-  type CurrentPrincipal,
-} from './current-principal.js';
+export { currentPrincipalSchema, type CurrentPrincipal } from './current-principal.js';
 export {
   backlinkSchema,
   backlinksSchema,
@@ -130,6 +127,19 @@ export {
   type TemplateSummary,
 } from './templates.js';
 export {
+  templateImportDigestSchema,
+  templateImportPreviewSchema,
+  templateImportProfileSchema,
+  templateImportResultSchema,
+  templateImportSchema,
+  templateImportUploadSchema,
+  type TemplateImport,
+  type TemplateImportPreview,
+  type TemplateImportProfile,
+  type TemplateImportResult,
+  type TemplateImportUpload,
+} from './template-imports.js';
+export {
   completeOccurrenceResultSchema,
   recurrenceFreqSchema,
   recurrenceRuleSchema,
@@ -141,6 +151,26 @@ export {
   type RecurrenceWeekday,
   type SetRecurrenceResult,
 } from './recurrence.js';
+export {
+  fileRecordSchema,
+  fileUploadSchema,
+  fileVersionSchema,
+  type FileRecord,
+  type FileUpload,
+  type FileVersion,
+} from './files.js';
+export {
+  exportDownloadCapabilitySchema,
+  exportFormatCatalogSchema,
+  exportFormatSchema,
+  exportSchema,
+  exportStatusSchema,
+  type Export,
+  type ExportDownloadCapability,
+  type ExportFormat,
+  type ExportFormatCatalog,
+  type ExportStatus,
+} from './exports.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

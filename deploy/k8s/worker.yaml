@@ -1,0 +1,217 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY, $TAG.
+apiVersion: v1
+kind: Service
+metadata: { name: nix-import-worker, namespace: nix }
+spec:
+  selector: { app: nix-import-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-import-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-import-worker } }
+  template:
+    metadata:
+      labels: { app: nix-import-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: import-worker
+          image: ${REGISTRY}/import-worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_COLLAB_URL
+              value: http://nix-collab:8100
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: import-url } }
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+            - name: NIX_WORKER_MAX_INPUT_BYTES
+              value: "104857600"
+            - name: NIX_WORKER_MAX_LINE_BYTES
+              value: "4194304"
+            - name: NIX_WORKER_MAX_RECORDS
+              value: "100000"
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 256Mi } }
+          volumeMounts: [{ name: staging, mountPath: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes: [{ name: staging, emptyDir: { sizeLimit: 256Mi } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-export-worker, namespace: nix }
+spec:
+  selector: { app: nix-export-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-export-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-export-worker } }
+  template:
+    metadata:
+      labels: { app: nix-export-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: export-worker
+          image: ${REGISTRY}/export-worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_COLLAB_URL
+              value: http://nix-collab:8100
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: export-url } }
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "2", memory: 1Gi } }
+          volumeMounts: [{ name: staging, mountPath: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes: [{ name: staging, emptyDir: { sizeLimit: 512Mi } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-indexer, namespace: nix }
+spec:
+  selector: { app: nix-indexer }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-indexer, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-indexer } }
+  template:
+    metadata:
+      labels: { app: nix-indexer }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: indexer
+          image: ${REGISTRY}/indexer:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: index-url } }
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+            - name: NIX_OPENSEARCH_URL
+              value: http://nix-opensearch:9200
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: go-workers-egress, namespace: nix }
+spec:
+  podSelector:
+    matchExpressions: [{ key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-indexer] }]
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-collab } } }]
+      ports: [{ protocol: TCP, port: 8100 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-rabbitmq } } }]
+      ports: [{ protocol: TCP, port: 5672 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-opensearch } } }]
+      ports: [{ protocol: TCP, port: 9200 }]
+    - ports: [{ protocol: TCP, port: 443 }]
+    - ports: [{ protocol: UDP, port: 53 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-plugin-worker, namespace: nix }
+spec:
+  selector: { app: nix-plugin-worker }
+  ports: [{ port: 8301, targetPort: 8301 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-plugin-worker, namespace: nix }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nix-plugin-worker } }
+  template:
+    metadata:
+      labels: { app: nix-plugin-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: plugin-worker
+          image: ${REGISTRY}/plugin-worker:${TAG}
+          ports: [{ containerPort: 8301 }]
+          env:
+            - name: NIX_WORKER_ROLES
+              value: plugin-events
+            - name: NIX_WORKER_INTERNAL_SECRET
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: NIX_WORKER_API_URL
+              value: http://nix-api:8080
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: plugin-url } }
+            - name: NIX_WORKER_MAX_CONCURRENCY
+              value: "4"
+            - name: NIX_PLUGIN_MAX_MODULE_BYTES
+              value: "8388608"
+            - name: NIX_PLUGIN_MEMORY_PAGES
+              value: "1024"
+            - name: NIX_PLUGIN_TIMEOUT_MILLISECONDS
+              value: "250"
+            - name: NIX_PLUGIN_MAX_HOST_CALLS
+              value: "32"
+          livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: plugin-worker-egress, namespace: nix }
+spec:
+  podSelector: { matchLabels: { app: nix-plugin-worker } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
+      ports: [{ protocol: TCP, port: 8080 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-rabbitmq } } }]
+      ports: [{ protocol: TCP, port: 5672 }]
+    - ports: [{ protocol: TCP, port: 443 }]
+    - ports: [{ protocol: UDP, port: 53 }]

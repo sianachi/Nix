@@ -1,5 +1,6 @@
 /** Compatibility entry point for the web test Core stub. */
 export { stubCoreApi } from './api-stub/core';
+export { STUB_TEMPLATE_IMPORT_ID } from './api-stub/core';
 export { item } from './api-stub/resources/items';
 export { STUB_WORKSPACE_ID } from './api-stub/resources/items';
 export { STUB_WORKSPACE } from './api-stub/resources/workspaces';
