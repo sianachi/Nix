@@ -59,10 +59,16 @@ const objectStorePublicOrigin = parseObjectStorePublicOrigin(
   process.env.NIX_OBJECT_STORE_PUBLIC_ORIGIN ?? 'http://localhost:7070',
 );
 const browserPolicy = contentSecurityPolicy(objectStorePublicOrigin);
+// The React plugin injects a development-only inline preamble. Production and static preview keep
+// the hash-only policy; the dev server is local tooling and must permit that preamble to run.
+const developmentBrowserPolicy = browserPolicy.replace(
+  /script-src 'self' [^;]+/u,
+  "script-src 'self' 'unsafe-inline'",
+);
 
 export default defineConfig({
   server: {
-    headers: { 'Content-Security-Policy': browserPolicy },
+    headers: { 'Content-Security-Policy': developmentBrowserPolicy },
     // The API is a different origin in development. Proxying keeps the browser same-origin, so
     // there is no CORS preflight on every request and no cookie/credential surprises - the token
     // travels in the Authorization header either way, but same-origin is the shape production has.
