@@ -22,6 +22,18 @@ func TestOnlyBoundedNonAnimatedRasterImagesArePreviewable(t *testing.T) {
 	}
 }
 
+func TestBoundedPDFsArePreviewable(t *testing.T) {
+	metadata := InspectHeader([]byte("%PDF-1.7\n"), previewBytes)
+	if metadata.MediaType != "application/pdf" || !metadata.Preview {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+
+	oversized := InspectHeader([]byte("%PDF-1.7\n"), previewBytes+1)
+	if oversized.MediaType != "application/pdf" || oversized.Preview {
+		t.Fatalf("oversized metadata = %#v", oversized)
+	}
+}
+
 func TestActiveAndVectorFormatsStayDownloadOnly(t *testing.T) {
 	cases := []struct {
 		name      string

@@ -13,12 +13,12 @@ vi.mock('../../api/api-client-provider', () => ({
 const ITEM = 'a1111111-1111-4111-8111-111111111111';
 const VERSION = 'a2222222-2222-4222-8222-222222222222';
 
-function record(previewable: boolean) {
+function record(previewable: boolean, mediaType = 'image/png') {
   const current = {
     id: VERSION,
     version: 1,
-    fileName: 'diagram.png',
-    mediaType: 'image/png',
+    fileName: mediaType === 'application/pdf' ? 'document.pdf' : 'diagram.png',
+    mediaType,
     byteLength: 7,
     sha256: '1'.repeat(64),
     previewable,
@@ -35,16 +35,16 @@ function record(previewable: boolean) {
   };
 }
 
-function fakeClient(previewable: boolean): NixClient {
+function fakeClient(previewable: boolean, mediaType = 'image/png'): NixClient {
   return {
     query: vi.fn((endpoint: { operation: string }) => {
-      if (endpoint.operation === 'files.get') return Promise.resolve(record(previewable));
+      if (endpoint.operation === 'files.get') return Promise.resolve(record(previewable, mediaType));
       if (endpoint.operation === 'files.download') {
         return Promise.resolve({
           url: 'http://localhost:9447/preview',
           expiresAt: '2026-09-01T00:10:00Z',
-          fileName: 'diagram.png',
-          mediaType: 'image/png',
+          fileName: mediaType === 'application/pdf' ? 'document.pdf' : 'diagram.png',
+          mediaType,
           byteLength: 7,
           sha256: '1'.repeat(64),
           inline: true,
@@ -96,13 +96,33 @@ describe('the file item viewer', () => {
 
     render(<FileViewer itemId={ITEM} />);
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/loading the authorized image/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/loading the authorized preview/i);
     release?.(new Response('payload', { status: 200, headers: { 'content-type': 'image/png' } }));
     expect(await screen.findByRole('img', { name: 'diagram.png' })).toHaveAttribute(
       'src',
       'blob:nix-preview',
     );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('renders an authorized PDF preview inline', async () => {
+    client = fakeClient(true, 'application/pdf');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          Promise.resolve(
+            new Response('payload', {
+              status: 200,
+              headers: { 'content-type': 'application/pdf' },
+            }),
+          ),
+      ),
+    );
+
+    render(<FileViewer itemId={ITEM} />);
+
+    expect(await screen.findByTitle('document.pdf')).toHaveAttribute('src', 'blob:nix-preview');
   });
 
   it('keeps download available when an authorized preview is refused', async () => {

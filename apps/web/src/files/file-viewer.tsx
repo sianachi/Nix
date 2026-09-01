@@ -22,6 +22,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const visibleError = error?.itemId === itemId ? error.message : null;
   const currentVersionId = visibleRecord?.current.id;
   const currentPreviewable = visibleRecord?.current.previewable ?? false;
+  const currentMediaType = visibleRecord?.current.mediaType ?? '';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -136,21 +137,27 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const file = visibleRecord.current;
   return (
     <section aria-label="File" className="flex flex-1 flex-col gap-4 overflow-y-auto p-8">
-      {currentPreview?.url === null || currentPreview?.url === undefined ? null : (
+      {currentPreview?.url === null || currentPreview?.url === undefined ? null : currentMediaType === 'application/pdf' ? (
+        <iframe
+          title={file.fileName}
+          src={currentPreview.url}
+          className="h-[70vh] w-full rounded-md"
+        />
+      ) : currentMediaType.startsWith('image/') ? (
         <img
           src={currentPreview.url}
           alt={file.fileName}
           className="max-h-screen max-w-full self-start rounded-md object-contain"
         />
-      )}
+      ) : null}
       {file.previewable && currentPreview === null ? (
         <Text variant="note" tone="muted" role="status">
-          Loading the authorized image preview…
+          Loading the authorized preview…
         </Text>
       ) : null}
       {currentPreview?.failed === true ? (
         <Text variant="note" tone="muted" role="alert">
-          The image preview is unavailable. You can still download the file.
+          The preview is unavailable. You can still download the file.
         </Text>
       ) : null}
       {visibleError === null ? null : (
