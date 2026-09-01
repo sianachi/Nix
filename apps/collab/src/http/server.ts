@@ -7,7 +7,12 @@ import type { Pool } from 'pg';
 
 import type { CoreClient } from '../core/client.ts';
 import { STREAM_MEDIA_TYPE, writeBundleStream } from '../export/ndjson.ts';
-import { prepareExport, readScope, type PreparedExport } from '../export/prepare.ts';
+import {
+  prepareExport,
+  readExportedAt,
+  readScope,
+  type PreparedExport,
+} from '../export/prepare.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { strategyFor } from '../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../documents/limits.ts';
@@ -15,6 +20,13 @@ import { RateWindow } from '../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, describeSchema, openDocument } from '../documents/service.ts';
 import { updatesAfter } from '../db/documents.ts';
 import type { CollabMetrics } from '../metrics.ts';
+import { importBodyProblem, type ImportBodyService } from '../imports/bodies.ts';
+import { CoreImportError } from '../imports/core.ts';
+import {
+  TemplateImportBodyError,
+  type TemplateImportBodyService,
+} from '../template-imports/bodies.ts';
+import { CoreTemplateImportError } from '../template-imports/core.ts';
 import { TemplateBodyError } from '../templates/bodies.ts';
 import { CoreTemplateError } from '../templates/core.ts';
 import {
@@ -68,6 +80,8 @@ export interface ServerDependencies {
   readonly newDocId?: (() => string) | undefined;
   readonly metrics?: CollabMetrics | undefined;
   readonly templates?: TemplateService | undefined;
+  readonly importBodies?: ImportBodyService | undefined;
+  readonly templateImportBodies?: TemplateImportBodyService | undefined;
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
   readonly hub?: SessionHub | undefined;
@@ -140,6 +154,90 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   });
 
   app.get('/healthz', () => ({ status: 'healthy', schema: describeSchema() }));
+
+  const importBodies = deps.importBodies;
+  if (importBodies !== undefined) {
+    app.post(
+      '/internal/imports/:importId/bodies',
+      { bodyLimit: 16 * 1024 * 1024 },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { importId } = request.params as { importId: string };
+        const jobId = stringHeader(request, 'x-nix-worker-job-id');
+        const executionId = stringHeader(request, 'x-nix-worker-execution-id');
+        if (
+          !internalCaller(request, deps) ||
+          !isUuid(importId) ||
+          jobId === null ||
+          executionId === null
+        ) {
+          return problem(reply, 404, 'import_not_found', 'No such staged import is available.');
+        }
+        try {
+          return await reply.send(
+            await importBodies.write({
+              importId,
+              jobId,
+              executionId,
+              body: request.body,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof CoreImportError) {
+            return problem(reply, error.status, error.code, error.message);
+          }
+          const refusal = importBodyProblem(error);
+          if (refusal !== null) {
+            return problem(reply, refusal.status, refusal.code, refusal.message);
+          }
+          throw error;
+        }
+      },
+    );
+  }
+
+  const templateImportBodies = deps.templateImportBodies;
+  if (templateImportBodies !== undefined) {
+    app.post(
+      '/internal/worker-executions/template-imports/:importId/bodies',
+      { bodyLimit: TEMPLATE_IMPORT_REQUEST_BYTES },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { importId } = request.params as { importId: string };
+        const jobId = stringHeader(request, 'x-nix-worker-job-id');
+        const executionId = stringHeader(request, 'x-nix-worker-execution-id');
+        if (
+          !internalCaller(request, deps) ||
+          !isUuid(importId) ||
+          jobId === null ||
+          executionId === null
+        ) {
+          return problem(
+            reply,
+            404,
+            'template.import_not_found',
+            'No such template import is available.',
+          );
+        }
+        try {
+          return await reply.send(
+            await templateImportBodies.write({
+              importId,
+              jobId,
+              executionId,
+              body: request.body,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof CoreTemplateImportError) {
+            return problem(reply, error.status, error.code, error.message);
+          }
+          if (error instanceof TemplateImportBodyError) {
+            return problem(reply, error.status, error.code, error.message);
+          }
+          throw error;
+        }
+      },
+    );
+  }
 
   if (deps.metrics !== undefined) {
     const metrics = deps.metrics;
@@ -500,7 +598,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   /**
    * The `.nix` archive: the lossless native format, served by the service that holds the bodies.
    *
-   * **Core's, not the media service's.** MVP-9's E2 requires that leaving with everything cannot
+   * **Collaboration's, not a converter's.** The lossless path must not depend on a lossy format
    * depend on an extension seam, and this process is the only one with both the document log and a
    * database credential - routing it through a converter service would copy every body over the
    * wire so a second process could re-zip it.
@@ -515,7 +613,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
         reply,
         400,
         'unsupported_format',
-        'This service produces the .nix archive. PDF and Word exports come from the media service.',
+        'This service produces the .nix archive. PDF, Word, and Markdown exports are durable Go worker jobs started through Nix.Api.',
       );
     }
 
@@ -536,7 +634,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
    *
    * **Two facts authorize this, and both are required.** The shared secret says which service is
    * calling; the forwarded bearer says on whose behalf, and it goes through the same `establish`
-   * every other route uses - so the media service holds no authority of its own and there is still
+   * every other route uses - so the Go export worker holds no authority of its own and there is still
    * one authorization code path. A wrong or missing secret answers 404 rather than 403, matching
    * Core's internal surface: a browser that stumbles onto this URL learns nothing from it.
    */
@@ -545,8 +643,8 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
       return problem(reply, 404, 'document_not_found', 'No such item.');
     }
 
-    const query = request.query as { scope?: string };
-    const prepared = await establishExport(request, reply, deps, query.scope);
+    const query = request.query as { scope?: string; exportedAt?: string };
+    const prepared = await establishExport(request, reply, deps, query.scope, query.exportedAt);
     if (prepared === null) {
       return reply;
     }
@@ -706,6 +804,11 @@ function internalCaller(request: FastifyRequest, deps: ServerDependencies): bool
   return timingSafeEqual(candidateDigest, expectedDigest);
 }
 
+function stringHeader(request: FastifyRequest, name: string): string | null {
+  const value = request.headers[name];
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
+}
+
 function requestToken(request: FastifyRequest, reply: FastifyReply): string | null {
   const token = bearer(request.headers.authorization);
   if (token === null) {
@@ -738,6 +841,7 @@ async function establishExport(
   reply: FastifyReply,
   deps: ServerDependencies,
   rawScope: string | undefined,
+  rawExportedAt?: string,
 ): Promise<PreparedExport | null> {
   const context = await establish(request, reply, deps);
   if (context === null) {
@@ -747,6 +851,18 @@ async function establishExport(
   const scope = readScope(rawScope ?? 'item');
   if (scope === null) {
     problem(reply, 400, 'invalid_scope', "'scope' must be 'item' or 'subtree'.");
+    return null;
+  }
+
+  const exportedAt =
+    rawExportedAt === undefined ? (deps.now?.() ?? new Date()) : readExportedAt(rawExportedAt);
+  if (exportedAt === null) {
+    problem(
+      reply,
+      400,
+      'invalid_exported_at',
+      "'exportedAt' must be a bounded RFC 3339 timestamp.",
+    );
     return null;
   }
 
@@ -767,7 +883,7 @@ async function establishExport(
     itemId: context.itemId,
     scope,
     includeDeleted: false,
-    exportedAt: deps.now?.() ?? new Date(),
+    exportedAt,
   });
 
   if (prepared === null) {

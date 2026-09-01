@@ -142,7 +142,7 @@ describe('the collaboration template HTTP contracts', () => {
     ).toMatchObject({ code: 'template.import_invalid' });
   });
 
-  it('refuses malformed nested archive data forwarded by Media', () => {
+  it('refuses malformed nested archive data forwarded by an import worker', () => {
     const request = validImport();
     const root = request.bundles[0];
     if (root === undefined) throw new Error('The import fixture needs a root bundle.');

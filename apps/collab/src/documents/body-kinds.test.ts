@@ -115,6 +115,27 @@ describe('body-kind dispatch', () => {
     shrinker.destroy();
   });
 
+  it('accepts the production canvas ceiling and refuses the next merged element', () => {
+    const resident = new Y.Doc();
+    const residentMap = resident.getMap('elements');
+    for (let index = 0; index < canvasStrategy.ceilings.nodes; index += 1) {
+      residentMap.set(`shape-${String(index)}`, element(`shape-${String(index)}`));
+    }
+    expect(canvasStrategy.measure(resident)).toMatchObject({ nodes: 10_000 });
+
+    const grower = new Y.Doc();
+    Y.applyUpdate(grower, Y.encodeStateAsUpdate(resident));
+    grower.getMap('elements').set('shape-over-ceiling', element('shape-over-ceiling'));
+    const growth = Y.encodeStateAsUpdate(grower, Y.encodeStateVector(resident));
+
+    expect(judgeCandidate(resident, growth, { strategy: canvasStrategy })).toMatchObject({
+      ok: false,
+      refusal: { code: 'document_too_many_nodes' },
+    });
+    resident.destroy();
+    grower.destroy();
+  });
+
   it('materialises a scene as JSON plus the words written on it', () => {
     const doc = canvasDocWith([
       element('shape'),

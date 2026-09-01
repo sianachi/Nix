@@ -23,17 +23,15 @@
 		reverse_proxy nix-collab:8100
 	}
 
-	handle_path /media/* {
-		reverse_proxy nix-media:8200
-	}
-
 	handle {
 		try_files {path} /index.html
 		file_server
 	}
 
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		# Compose requires this to be the same validated origin Core uses when signing browser
+		# capabilities. Keeping it as one CSP source prevents an object URL from broadening fetch.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 		X-Frame-Options "SAMEORIGIN"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

@@ -1,0 +1,266 @@
+package index
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"unicode"
+
+	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
+)
+
+var ErrCapacityExceeded = errors.New("index capacity exceeded")
+
+type Result struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Score int    `json:"score"`
+}
+
+type Snapshot struct {
+	Version int             `json:"version"`
+	Records []stream.Record `json:"records"`
+}
+
+type Index struct {
+	mu         sync.RWMutex
+	byToken    map[string]map[string]struct{}
+	records    map[string]stream.Record
+	maxTokens  int
+	maxRecords int
+}
+
+func New(maxTokens, maxRecords int) *Index {
+	if maxTokens <= 0 {
+		maxTokens = 20_000
+	}
+	if maxRecords <= 0 {
+		maxRecords = 100_000
+	}
+	return &Index{byToken: make(map[string]map[string]struct{}), records: make(map[string]stream.Record), maxTokens: maxTokens, maxRecords: maxRecords}
+}
+
+func (index *Index) Put(record stream.Record) error {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	if _, exists := index.records[record.ID]; !exists && len(index.records) >= index.maxRecords {
+		return ErrCapacityExceeded
+	}
+	index.removeLocked(record.ID)
+	index.records[record.ID] = record
+	seen := make(map[string]struct{})
+	for position, token := range tokenize(record) {
+		if position >= index.maxTokens {
+			break
+		}
+		if _, exists := seen[token]; exists {
+			continue
+		}
+		seen[token] = struct{}{}
+		items := index.byToken[token]
+		if items == nil {
+			items = make(map[string]struct{})
+			index.byToken[token] = items
+		}
+		items[record.ID] = struct{}{}
+	}
+	return nil
+}
+
+func (index *Index) Remove(id string) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	index.removeLocked(id)
+}
+
+func (index *Index) Replace(records []stream.Record) error {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	if len(records) > index.maxRecords {
+		return ErrCapacityExceeded
+	}
+	byToken := make(map[string]map[string]struct{})
+	stored := make(map[string]stream.Record, len(records))
+	for _, record := range records {
+		if record.ID == "" || record.Title == "" {
+			return errors.New("every indexed record must contain id and title")
+		}
+		if _, exists := stored[record.ID]; exists {
+			return errors.New("indexed records must contain unique ids")
+		}
+		stored[record.ID] = record
+		seen := make(map[string]struct{})
+		for position, token := range tokenize(record) {
+			if position >= index.maxTokens {
+				break
+			}
+			if _, exists := seen[token]; exists {
+				continue
+			}
+			seen[token] = struct{}{}
+			items := byToken[token]
+			if items == nil {
+				items = make(map[string]struct{})
+				byToken[token] = items
+			}
+			items[record.ID] = struct{}{}
+		}
+	}
+	index.records = stored
+	index.byToken = byToken
+	return nil
+}
+
+func (index *Index) Snapshot() Snapshot {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	ids := make([]string, 0, len(index.records))
+	for id := range index.records {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	records := make([]stream.Record, 0, len(ids))
+	for _, id := range ids {
+		records = append(records, index.records[id])
+	}
+	return Snapshot{Version: 1, Records: records}
+}
+
+func (index *Index) Save(path string) error {
+	if path == "" {
+		return errors.New("index snapshot path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create index snapshot directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".nix-index-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create index snapshot temporary file: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := json.NewEncoder(temporary).Encode(index.Snapshot()); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("encode index snapshot: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync index snapshot: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close index snapshot: %w", err)
+	}
+	if err := os.Rename(temporaryName, path); err != nil {
+		return fmt.Errorf("replace index snapshot: %w", err)
+	}
+	return nil
+}
+
+func (index *Index) Load(path string) error {
+	if path == "" {
+		return errors.New("index snapshot path is required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open index snapshot: %w", err)
+	}
+	var snapshot Snapshot
+	err = json.NewDecoder(io.LimitReader(file, 128*1024*1024)).Decode(&snapshot)
+	closeErr := file.Close()
+	if err != nil {
+		return fmt.Errorf("decode index snapshot: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close index snapshot: %w", closeErr)
+	}
+	if snapshot.Version != 1 {
+		return fmt.Errorf("unsupported index snapshot version %d", snapshot.Version)
+	}
+	return index.Replace(snapshot.Records)
+}
+
+func (index *Index) removeLocked(id string) {
+	if _, exists := index.records[id]; !exists {
+		return
+	}
+	delete(index.records, id)
+	for token, items := range index.byToken {
+		delete(items, id)
+		if len(items) == 0 {
+			delete(index.byToken, token)
+		}
+	}
+}
+
+func (index *Index) Search(query string, limit int) []Result {
+	if limit <= 0 {
+		return nil
+	}
+	scores := make(map[string]int)
+	for _, token := range tokenizeText(query) {
+		for id := range index.byToken[token] {
+			scores[id]++
+		}
+	}
+	results := make([]Result, 0, len(scores))
+	for id, score := range scores {
+		record := index.records[id]
+		results = append(results, Result{ID: id, Title: record.Title, Score: score})
+	}
+	sort.Slice(results, func(left, right int) bool {
+		if results[left].Score != results[right].Score {
+			return results[left].Score > results[right].Score
+		}
+		return results[left].ID < results[right].ID
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results
+}
+
+func (index *Index) Len() int {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	return len(index.records)
+}
+
+func tokenize(record stream.Record) []string {
+	return tokenizeText(record.Title + " " + record.Body + " " + propertiesText(record.Properties))
+}
+
+func propertiesText(properties map[string]any) string {
+	var builder strings.Builder
+	for key, value := range properties {
+		builder.WriteString(key)
+		builder.WriteByte(' ')
+		builder.WriteString(strings.TrimSpace(toText(value)))
+		builder.WriteByte(' ')
+	}
+	return builder.String()
+}
+
+func toText(value any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func tokenizeText(text string) []string {
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	result := make([]string, 0, len(words))
+	for _, word := range words {
+		if len([]rune(word)) >= 2 {
+			result = append(result, word)
+		}
+	}
+	return result
+}

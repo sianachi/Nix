@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Guard: the frontend's dependency direction.
 #
-# CLAUDE.md has always said "apps/* -> packages/*, never sideways or upward",
+# AGENTS.md says "apps/* -> packages/*, never sideways or upward",
 # and until this script nothing enforced it. The backend has check-layering.sh;
 # the frontend had review. Review is what let apps/web/src/app/ become a folder
 # that was a leaf and a root at once - half the application imported its

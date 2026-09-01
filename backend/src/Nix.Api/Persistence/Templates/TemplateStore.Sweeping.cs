@@ -23,9 +23,11 @@ public sealed partial class TemplateStore
         WorkspaceId workspaceId,
         TemplateOperationId? preferredOperationId,
         TemplateApplicationId? preferredApplicationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireWorkspacePermission = true)
     {
-        if (!await _permissions.CanWriteWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
+        if (requireWorkspacePermission
+            && !await _permissions.CanWriteWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<TemplateStageSweepResult>(TemplateErrors.NotFound("No such workspace is visible."));
         }
@@ -141,6 +143,11 @@ public sealed partial class TemplateStore
                     .Where(item => stagingTargets.Contains(item.Id))
                     .ExecuteDeleteAsync(cancellationToken)
                     .ConfigureAwait(false);
+                foreach (var entry in _database.ChangeTracker.Entries<Item>()
+                    .Where(entry => stagingTargets.Contains(entry.Entity.Id)))
+                {
+                    entry.State = EntityState.Detached;
+                }
             }
         }
 
@@ -176,6 +183,62 @@ public sealed partial class TemplateStore
         return Result.Success(new TemplateStageSweepResult(
             operations.Count + applications.Count,
             removedTargets));
+    }
+
+    /// <summary>
+    /// Aborts and removes the exact import stage linked to an expired durable import. This is a
+    /// trusted expiry path: it validates tenant, workspace, actor, kind, and non-terminal state,
+    /// but deliberately does not depend on the abandoned actor retaining workspace permission.
+    /// </summary>
+    public async ValueTask<bool> ReapAbandonedImportStageAsync(
+        WorkspaceId workspaceId,
+        TemplateOperationId operationId,
+        CancellationToken cancellationToken)
+    {
+        await LockTemplateStagesAsync(cancellationToken).ConfigureAwait(false);
+        var operation = await _database.TemplateOperations
+            .AsTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == operationId, cancellationToken)
+            .ConfigureAwait(false);
+        if (operation is null)
+        {
+            return true;
+        }
+        if (operation.WorkspaceId != workspaceId
+            || operation.ActorId != Context.PrincipalId
+            || operation.Kind != TemplateOperationKind.Import
+            || operation.State == TemplateOperationState.Active)
+        {
+            return false;
+        }
+
+        if (operation.State != TemplateOperationState.Aborted)
+        {
+            var now = _clock.GetUtcNow();
+            operation.State = TemplateOperationState.Aborted;
+            operation.FinalizedAt = now;
+            var template = await _database.WorkspaceTemplates
+                .AsTracking()
+                .SingleAsync(candidate => candidate.Id == operation.TemplateId, cancellationToken)
+                .ConfigureAwait(false);
+            template.PendingRootItemId = null;
+            template.LastModifiedAt = now;
+            template.LastModifiedBy = Context.PrincipalId;
+            AddAudit("template.operation_expired", template.Id.Value, workspaceId, now);
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var swept = await SweepExpiredBatchAsync(
+            workspaceId,
+            operationId,
+            null,
+            cancellationToken,
+            requireWorkspacePermission: false).ConfigureAwait(false);
+        return swept.IsSuccess
+            && !await _database.TemplateOperations
+                .AsNoTracking()
+                .AnyAsync(candidate => candidate.Id == operationId, cancellationToken)
+                .ConfigureAwait(false);
     }
 
 }

@@ -223,7 +223,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     // shell, past the header above the tree as well as beside the tree itself, and one surface for
     // that whole strip is what keeps it reading as one region rather than two stacked patches.
     // Because that surface is the one the tree already sits on, the two would have no boundary at
-    // all where they meet - CLAUDE.md's own case for `border-divider`, reached for "only where two
+    // all where they meet - AGENTS.md's own case for `border-divider`, reached for "only where two
     // regions of the same colour genuinely meet". The border runs the rail's full height rather
     // than only alongside the tree, so it stays one continuous line rather than a border that
     // starts partway down. Named, because a shell with a rail and a workspace tree has more than

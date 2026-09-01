@@ -324,6 +324,26 @@ public sealed class NixTokenValidator
                 return new ValidatedCoreToken(tenantId, principalId, accessTokenId);
             }
 
+            if (SelfIssuedTokenService.TryReadWorkerExecutionClaims(
+                result.ClaimsIdentity,
+                out tenantId,
+                out principalId,
+                out var workerJobId,
+                out var workerItemId,
+                out var workerWorkspaceId,
+                out var workerScope,
+                out var executionId))
+            {
+                return new ValidatedWorkerExecutionToken(
+                    tenantId,
+                    principalId,
+                    workerJobId,
+                    workerItemId,
+                    workerWorkspaceId,
+                    workerScope,
+                    executionId);
+            }
+
             return SelfIssuedTokenService.TryReadBrowserSessionClaims(
                 result.ClaimsIdentity,
                 out tenantId,
@@ -530,4 +550,15 @@ public sealed record ValidatedBrowserSessionToken(
     TenantId TenantId,
     PrincipalId PrincipalId,
     BrowserSessionId BrowserSessionId)
+    : ValidatedToken(TenantId);
+
+/// <summary>A Core-signed actor delegation bounded by an exact live worker lease.</summary>
+public sealed record ValidatedWorkerExecutionToken(
+    TenantId TenantId,
+    PrincipalId PrincipalId,
+    Guid JobId,
+    Guid ItemId,
+    Guid WorkspaceId,
+    string Scope,
+    string ExecutionId)
     : ValidatedToken(TenantId);

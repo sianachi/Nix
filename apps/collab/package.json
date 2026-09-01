@@ -15,6 +15,7 @@
   "dependencies": {
     "@nix/editor-schema": "workspace:*",
     "@nix/export": "workspace:*",
+    "@nix/markdown": "workspace:*",
     "@nix/sheet": "workspace:*",
     "@tiptap/pm": "^3.29.0",
     "fastify": "^5.10.0",

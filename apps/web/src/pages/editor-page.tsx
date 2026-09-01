@@ -24,8 +24,8 @@ import { useMediaQuery, useNarrowViewport } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
-// Loaded at the moment somebody opens a canvas, not before: Excalidraw and its styles are
-// the single largest thing the editor can pull in, and a workspace of notes never needs it.
+// Loaded at the moment somebody opens a canvas, not before: the editor is deliberately outside
+// the application shell's first-load path, and a workspace of notes never needs it.
 const CanvasEditor = lazy(async () => {
   const module = await import('../editor/canvas-editor');
   return { default: module.CanvasEditor };
@@ -35,6 +35,7 @@ import { useAuth } from '../auth/auth-provider';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { ExportDialog } from '../export/export-dialog';
 import { ImportDialog } from '../import/import-dialog';
+import { FileViewer } from '../files/file-viewer';
 import { PaneGroup } from '../panes/pane-group';
 import { PaneProvider, usePaneIndex } from '../panes/pane-context';
 import { focusPane, paneElementId } from '../panes/pane-params';
@@ -602,6 +603,8 @@ function OpenItem({
               </Suspense>
             ) : bodyKind === 'spreadsheet' ? (
               <SheetEditor itemId={itemId} />
+            ) : bodyKind === 'file' ? (
+              <FileViewer itemId={itemId} />
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
@@ -664,7 +667,6 @@ function OpenItem({
           // Straight from the tree node, which already carries it - the scope picker is hidden for
           // an item with nothing inside rather than offering a question with one real answer.
           hasChildren={tree.find(itemId)?.hasChildren ?? false}
-          getAccessToken={getAccessToken}
           onClose={() => {
             setExportOpen(false);
           }}

@@ -100,6 +100,12 @@ export {
   templateCapabilitiesSchema,
   templateCatalogSchema,
   templateDetailSchema,
+  templateImportDigestSchema,
+  templateImportPreviewSchema,
+  templateImportProfileSchema,
+  templateImportResultSchema,
+  templateImportSchema,
+  templateImportUploadSchema,
   templateItemSchema,
   templateOriginSchema,
   templatePreflightInputSchema,
@@ -144,6 +150,11 @@ export type {
   References,
   TemplateCatalog,
   TemplateDetail,
+  TemplateImport,
+  TemplateImportPreview,
+  TemplateImportProfile,
+  TemplateImportResult,
+  TemplateImportUpload,
   TemplateItem,
   TemplatePreflight,
   TemplatePreflightInput,
@@ -224,4 +235,55 @@ export * as itemQuery from './resources/item-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
+export * as templateImports from './resources/template-imports.js';
+export type { BeginTemplateImportInput } from './resources/template-imports.js';
 export * as recurrence from './resources/recurrence.js';
+export * as files from './resources/files.js';
+export * as imports from './resources/imports.js';
+export * as operations from './resources/operations.js';
+export * as exports from './resources/exports.js';
+export * as plugins from './resources/plugins.js';
+export type {
+  FileDownloadCapability,
+  FileRecord,
+  FileUpload,
+  FileUploadStatus,
+  FileVersion,
+} from './schemas/files.js';
+export {
+  fileDownloadCapabilitySchema,
+  fileRecordSchema,
+  fileUploadSchema,
+  fileUploadStatusSchema,
+  fileVersionSchema,
+} from './schemas/files.js';
+export type {
+  DocumentImport,
+  DocumentImportPlan,
+  DocumentImportUpload,
+} from './schemas/imports.js';
+export type { Operation } from './schemas/operations.js';
+export type {
+  Export,
+  ExportDownloadCapability,
+  ExportFormat,
+  ExportFormatCatalog,
+  ExportStatus,
+} from './schemas/exports.js';
+export type {
+  PluginCapability,
+  PluginComponentUpload,
+  PluginInstallation,
+} from './schemas/plugins.js';
+export {
+  pluginCapabilitySchema,
+  pluginComponentUploadSchema,
+  pluginInstallationSchema,
+} from './schemas/plugins.js';
+export {
+  exportDownloadCapabilitySchema,
+  exportFormatCatalogSchema,
+  exportFormatSchema,
+  exportSchema,
+  exportStatusSchema,
+} from './schemas/exports.js';

@@ -36,6 +36,8 @@ export const NixErrorKind = {
   Canceled: 'canceled',
   /** The response arrived but did not match its schema. */
   ResponseValidation: 'response_validation',
+  /** A durable asynchronous operation reached a failed or cancelled terminal state. */
+  Operation: 'operation',
 } as const;
 
 export type NixErrorKind = (typeof NixErrorKind)[keyof typeof NixErrorKind];
@@ -172,6 +174,15 @@ export class NixApiError extends Error {
       message: `The response for ${operation} did not match its schema`,
       status,
       issues,
+    });
+  }
+
+  static operation(code: string, detail: string, canceled: boolean): NixApiError {
+    return new NixApiError({
+      kind: canceled ? NixErrorKind.Canceled : NixErrorKind.Operation,
+      code,
+      message: detail,
+      detail,
     });
   }
 }

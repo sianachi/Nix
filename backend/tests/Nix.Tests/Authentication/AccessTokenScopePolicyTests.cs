@@ -36,6 +36,16 @@ public sealed class AccessTokenScopePolicyTests
         ["GetServiceStatus"] = Requirement.Read,
         ["GetLiveness"] = Requirement.Read,
         ["GetItem"] = Requirement.Read,
+        ["GetFile"] = Requirement.Read,
+        ["GetFileUpload"] = Requirement.Read,
+        ["AuthorizeFileDownload"] = Requirement.Read,
+        ["GetDocumentImport"] = Requirement.Read,
+        ["AuthorizeDocumentImportPreview"] = Requirement.Read,
+        ["GetTemplateImport"] = Requirement.Read,
+        ["ListExportFormats"] = Requirement.Read,
+        ["GetExport"] = Requirement.Read,
+        ["AuthorizeExportDownload"] = Requirement.Read,
+        ["GetOperation"] = Requirement.Read,
         ["GetBacklinks"] = Requirement.Read,
         ["GetItemPermissions"] = Requirement.Read,
         ["RunItemQuery"] = Requirement.Read,
@@ -63,6 +73,7 @@ public sealed class AccessTokenScopePolicyTests
         ["ListTemplates"] = Requirement.Read,
         ["GetTemplate"] = Requirement.Read,
         ["GetTemplateItem"] = Requirement.Read,
+        ["ListWorkspacePlugins"] = Requirement.Read,
 
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
@@ -89,6 +100,20 @@ public sealed class AccessTokenScopePolicyTests
         ["CreateWorkspace"] = Requirement.Write,
         ["RenameWorkspace"] = Requirement.Write,
         ["OpenDailyNote"] = Requirement.Write,
+        ["BeginFileUpload"] = Requirement.Write,
+        ["CompleteFileUpload"] = Requirement.Write,
+        ["CancelFileUpload"] = Requirement.Write,
+        ["BeginDocumentImport"] = Requirement.Write,
+        ["PreviewDocumentImport"] = Requirement.Write,
+        ["CommitDocumentImport"] = Requirement.Write,
+        ["CancelDocumentImport"] = Requirement.Write,
+        ["BeginTemplateImport"] = Requirement.Write,
+        ["PreviewTemplateImport"] = Requirement.Write,
+        ["CommitTemplateImport"] = Requirement.Write,
+        ["CancelTemplateImport"] = Requirement.Write,
+        ["BeginExport"] = Requirement.Write,
+        ["CancelExport"] = Requirement.Write,
+        ["CancelOperation"] = Requirement.Write,
 
         // A POST that only previews an application; classified Write because it is not a GET, which
         // over-restricts a read-only token from previewing rather than under-restricting - the
@@ -113,6 +138,10 @@ public sealed class AccessTokenScopePolicyTests
         ["RemoveWorkspaceMember"] = Requirement.Admin,
         ["LeaveWorkspace"] = Requirement.Admin,
         ["RecoverWorkspace"] = Requirement.Admin,
+        ["BeginPluginComponentUpload"] = Requirement.Admin,
+        ["RegisterWorkspacePlugin"] = Requirement.Admin,
+        ["SetWorkspacePluginEnabled"] = Requirement.Admin,
+        ["ReplaceWorkspacePluginCapabilities"] = Requirement.Admin,
 
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,

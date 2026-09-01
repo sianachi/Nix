@@ -24,6 +24,36 @@ services:
         aliases:
           - postgres
 
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    restart: unless-stopped
+    user: "100:101"
+    # This listener is plaintext by design and is reachable only on the private Compose network.
+    # Set the per-service URL overrides to amqps:// when using an external TLS broker.
+    environment:
+      NIX_RABBITMQ_API_PASSWORD: ${NIX_RABBITMQ_API_PASSWORD:?set NIX_RABBITMQ_API_PASSWORD}
+      NIX_RABBITMQ_IMPORT_PASSWORD: ${NIX_RABBITMQ_IMPORT_PASSWORD:?set NIX_RABBITMQ_IMPORT_PASSWORD}
+      NIX_RABBITMQ_EXPORT_PASSWORD: ${NIX_RABBITMQ_EXPORT_PASSWORD:?set NIX_RABBITMQ_EXPORT_PASSWORD}
+      NIX_RABBITMQ_INDEX_PASSWORD: ${NIX_RABBITMQ_INDEX_PASSWORD:?set NIX_RABBITMQ_INDEX_PASSWORD}
+      NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}
+    volumes:
+      - nix-rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/start.sh:/usr/local/bin/nix-rabbitmq-start:ro
+    command: ["/bin/sh", "/usr/local/bin/nix-rabbitmq-start"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/lib/rabbitmq/.nix-topology-ready && rabbitmq-diagnostics -q check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    mem_limit: 768m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   nix-api-init:
     image: busybox:1.37
     restart: "no"
@@ -87,15 +117,32 @@ services:
         condition: service_completed_successfully
       nix-template-presets:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      nix-opensearch:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Nix: ${NIX_CORE_DATABASE_URL:?set NIX_CORE_DATABASE_URL}
       Nix__InternalSecret: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      Nix__Collaboration__BaseUrl: http://nix-collab:8100
+      Nix__RabbitMq__Uri: ${NIX_RABBITMQ_API_URL:-amqp://nix-api:${NIX_RABBITMQ_API_PASSWORD:?set NIX_RABBITMQ_API_PASSWORD}@rabbitmq:5672/%2Fnix}
+      Nix__ObjectStorage__Endpoint: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT}
+      Nix__ObjectStorage__PublicOrigin: ${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      Nix__ObjectStorage__Region: ${NIX_OBJECT_STORE_REGION:-us-east-1}
+      Nix__ObjectStorage__Bucket: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
+      Nix__ObjectStorage__AccessKey: ${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}
+      Nix__ObjectStorage__SecretKey: ${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}
       Nix__PublicForms__SigningKey: ${NIX_PUBLIC_FORMS_SIGNING_KEY:?set NIX_PUBLIC_FORMS_SIGNING_KEY}
       Nix__ForwardedHeaders__KnownNetworks: 172.30.0.0/24
       Nix__ForwardedHeaders__ForwardLimit: "2"
       Nix__RateLimits__WritesPerMinute: "120"
       Nix__RateLimits__PublicFormSubmissionsPerMinute: "20"
+      Nix__GoWorkers__ExportEnabled: "true"
+      Nix__GoWorkers__ImportEnabled: "true"
+      Nix__Search__OpenSearchEnabled: ${NIX_SEARCH_OPENSEARCH_ENABLED:-false}
+      Nix__Search__OpenSearchUrl: http://nix-opensearch:9200
+      Nix__Search__OpenSearchIndex: nix-items
       Nix__Bff__Authority: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
       Nix__Bff__ClientId: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
       Nix__Bff__PublicOrigin: ${NIX_PUBLIC_ORIGIN:?set NIX_PUBLIC_ORIGIN}
@@ -162,32 +209,38 @@ services:
         aliases:
           - nix-collab
 
-  nix-media:
-    image: localhost/nix/media:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+  nix-import-worker:
+    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    user: "65532:65532"
     restart: unless-stopped
     depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
       nix-collab:
         condition: service_healthy
     environment:
-      NIX_MEDIA_COLLAB_BASE_URL: http://nix-collab:8100
-      NIX_MEDIA_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
-      NIX_MEDIA_MAX_CONCURRENT_EXPORTS: "4"
-      NIX_MEDIA_JOB_TIMEOUT_MS: "30000"
-      NIX_MEDIA_PORT: "8200"
+      TMPDIR: /var/lib/nix-worker/spool
+      NIX_WORKER_ROLES: import
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_WORKER_COLLAB_URL: http://nix-collab:8100
+      NIX_WORKER_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT},${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_IMPORT_URL:-amqp://nix-import:${NIX_RABBITMQ_IMPORT_PASSWORD:?set NIX_RABBITMQ_IMPORT_PASSWORD}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "1"
+      NIX_WORKER_MAX_INPUT_BYTES: "104857600"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:8200/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD", "/nix-worker", "--healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 12
-      start_period: 30s
-    mem_limit: 1g
-    cpus: 2
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=256m,uid=65532,gid=65532,mode=0700"
     cap_drop:
       - ALL
     security_opt:
@@ -195,7 +248,161 @@ services:
     networks:
       default:
         aliases:
-          - nix-media
+          - nix-import-worker
+
+  nix-export-worker:
+    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    user: "65532:65532"
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+      nix-collab:
+        condition: service_healthy
+    environment:
+      TMPDIR: /var/lib/nix-worker/spool
+      NIX_WORKER_ROLES: export
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_WORKER_COLLAB_URL: http://nix-collab:8100
+      NIX_WORKER_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT},${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_EXPORT_URL:-amqp://nix-export:${NIX_RABBITMQ_EXPORT_PASSWORD:?set NIX_RABBITMQ_EXPORT_PASSWORD}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "4"
+      NIX_WORKER_MAX_INPUT_BYTES: "104857600"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 1g
+    cpus: 2
+    read_only: true
+    tmpfs:
+      - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=512m,uid=65532,gid=65532,mode=0700"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-export-worker
+
+  nix-indexer:
+    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    user: "65532:65532"
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+      nix-opensearch:
+        condition: service_healthy
+    environment:
+      TMPDIR: /var/lib/nix-worker/spool
+      NIX_WORKER_ROLES: index
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_MAX_INPUT_BYTES: "104857600"
+      NIX_WORKER_MAX_LINE_BYTES: "4194304"
+      NIX_WORKER_MAX_RECORDS: "100000"
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_INDEX_URL:-amqp://nix-index:${NIX_RABBITMQ_INDEX_PASSWORD:?set NIX_RABBITMQ_INDEX_PASSWORD}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "4"
+      NIX_OPENSEARCH_URL: http://nix-opensearch:9200
+      NIX_OPENSEARCH_INDEX: nix-items
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+    read_only: true
+    tmpfs:
+      - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=32m,uid=65532,gid=65532,mode=0700"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-indexer
+
+  nix-plugin-worker:
+    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    user: "65532:65532"
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+    environment:
+      TMPDIR: /var/lib/nix-worker/spool
+      NIX_WORKER_ROLES: plugin-events
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_WORKER_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT},${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "4"
+      NIX_PLUGIN_MAX_MODULE_BYTES: "8388608"
+      NIX_PLUGIN_MEMORY_PAGES: "1024"
+      NIX_PLUGIN_TIMEOUT_MILLISECONDS: "250"
+      NIX_PLUGIN_MAX_HOST_CALLS: "32"
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    cpus: 1
+    read_only: true
+    tmpfs:
+      - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=64m,uid=65532,gid=65532,mode=0700"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-plugin-worker
+
+  nix-opensearch:
+    image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - nix-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    mem_limit: 1g
+    cpus: 2
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   nix-web:
     image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
@@ -205,8 +412,8 @@ services:
         condition: service_started
       nix-collab:
         condition: service_healthy
-      nix-media:
-        condition: service_healthy
+    environment:
+      NIX_OBJECT_STORE_PUBLIC_ORIGIN: ${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data
@@ -251,8 +458,11 @@ networks:
 volumes:
   nix-postgres-data:
     name: nix-postgres-data
+  nix-rabbitmq-data:
+    name: nix-rabbitmq-data
   nix-caddy-data:
-    name: nix-caddy-data
+  nix-opensearch-data:
+    name: nix-opensearch-data
   nix-caddy-config:
     name: nix-caddy-config
   nix-api-data-protection:

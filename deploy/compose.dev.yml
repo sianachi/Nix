@@ -6,8 +6,9 @@
 #   deploy/seed/seed.sh                                   # idempotent DB seed (roles, database, pgvector)
 #
 # Profiles:
-#   core   - the default developer set: app Postgres (pgvector), Versity S3
+#   core   - the default developer set: app Postgres (pgvector), RabbitMQ, Versity S3
 #            gateway, Zitadel (with its own Postgres), Aspire dashboard (OTLP).
+#   search - OpenSearch, the rebuildable index used by the Go index role.
 #   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
 #   ai     - mock LLM endpoint serving a static OpenRouter-shaped completion.
 #
@@ -23,10 +24,12 @@
 # Host ports (chosen to dodge common local conflicts; override in .env):
 #   5433  app Postgres        (5432 is usually taken by a local Postgres)
 #   7070  Versity S3 gateway  (versitygw native port; 9000 clashes with MinIO)
+#   5673  RabbitMQ AMQP       (5672 is commonly occupied)
+#   15673 RabbitMQ management
 #   8300  Zitadel             (8080 is too popular to claim)
+#   9201  OpenSearch          (9200 is commonly occupied)
 #   18888 Aspire dashboard UI
 #   18889 OTLP gRPC ingest, 18890 OTLP HTTP ingest
-#   3310  clamd               (media profile; clamd native port)
 #   8380  mock LLM            (ai profile)
 #
 # Application processes are not in this file. Core (5014), the web app (5173)
@@ -37,7 +40,7 @@
 #   5014  Nix.Api             (dotnet run --project backend/src/Nix.Api)
 #   5173  web                 (pnpm --filter @nix/web dev)
 #   8100  collaboration       (pnpm --filter @nix/collab dev)
-#   8200  media               (pnpm run dev:media)
+#   8301  unified Go worker   (scripts/dev-worker.sh)
 
 name: nix-dev
 
@@ -72,6 +75,55 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    profiles: ["core"]
+    user: "100:101"
+    environment:
+      NIX_RABBITMQ_API_PASSWORD: ${NIX_RABBITMQ_API_PASSWORD:-nix-dev-api-rabbit}
+      NIX_RABBITMQ_IMPORT_PASSWORD: ${NIX_RABBITMQ_IMPORT_PASSWORD:-nix-dev-import-rabbit}
+      NIX_RABBITMQ_EXPORT_PASSWORD: ${NIX_RABBITMQ_EXPORT_PASSWORD:-nix-dev-export-rabbit}
+      NIX_RABBITMQ_INDEX_PASSWORD: ${NIX_RABBITMQ_INDEX_PASSWORD:-nix-dev-index-rabbit}
+      NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:-nix-dev-plugin-rabbit}
+      NIX_RABBITMQ_DEV_WORKER_PASSWORD: ${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-nix-dev-combined-worker-rabbit}
+      NIX_RABBITMQ_ADMIN_PASSWORD: ${NIX_RABBITMQ_ADMIN_PASSWORD:-nix-dev-admin-rabbit}
+    ports:
+      - "127.0.0.1:${NIX_RABBITMQ_PORT:-5673}:5672"
+      - "127.0.0.1:${NIX_RABBITMQ_MANAGEMENT_PORT:-15673}:15672"
+    volumes:
+      - nix-rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/start.sh:/usr/local/bin/nix-rabbitmq-start:ro
+    command: ["/bin/sh", "/usr/local/bin/nix-rabbitmq-start"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/lib/rabbitmq/.nix-topology-ready && rabbitmq-diagnostics -q check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 18
+      start_period: 15s
+
+  opensearch:
+    image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
+    profiles: ["search"]
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "false"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ports:
+      - "127.0.0.1:${NIX_OPENSEARCH_PORT:-9201}:9200"
+    volumes:
+      - nix-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    mem_limit: 1g
 
   # S3-compatible object store: Versity gateway, posix backend over a named
   # volume. Same IBlobStore + presigned-URL contract as production S3.
@@ -195,29 +247,6 @@ services:
       - "${ASPIRE_OTLP_GRPC_PORT:-18889}:18889"
       - "${ASPIRE_OTLP_HTTP_PORT:-18890}:18890"
 
-  # --- profile: media -----------------------------------------------------
-
-  # clamd virus scanner for the media pipeline.
-  # NOTE: clamd needs roughly 1-2 GB of RAM once the signature database is
-  # loaded, and the first start downloads the full signature set (can take
-  # minutes). Keep it out of the default profile for that reason.
-  # The debian variant is used because clamav/clamav:stable (alpine-based)
-  # publishes no linux/arm64 manifest; the debian image is multi-arch.
-  clamav:
-    image: clamav/clamav-debian:stable
-    profiles: ["media"]
-    ports:
-      - "${CLAMD_PORT:-3310}:3310"
-    volumes:
-      - clamav-db:/var/lib/clamav
-    healthcheck:
-      # clamdcheck.sh ships in the official image and pings clamd.
-      test: ["CMD", "clamdcheck.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 5m
-
   # --- profile: ai --------------------------------------------------------
 
   # Minimal mock LLM endpoint: WireMock serving a static OpenRouter-shaped
@@ -234,7 +263,8 @@ services:
 
 volumes:
   nix-pg-data:
+  nix-rabbitmq-data:
+  nix-opensearch-data:
   versity-data:
   zitadel-pg-data:
   zitadel-machinekey:
-  clamav-db:

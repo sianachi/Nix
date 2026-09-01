@@ -98,6 +98,49 @@ public sealed class SelfIssuedTokenServiceTests
     }
 
     [Fact]
+    public async Task A_worker_token_carries_only_its_exact_lease_identity()
+    {
+        using var service = Service(Configuration(FreshKeyPem()));
+        var tenantId = TenantId.From(Guid.NewGuid());
+        var principalId = PrincipalId.Create();
+        var jobId = Guid.CreateVersion7();
+        var itemId = Guid.CreateVersion7();
+        var workspaceId = Guid.CreateVersion7();
+        const string executionId = "exporter:019946d1-fbc1-7d99-9ce7-1c721b406ff0";
+
+        var token = service.MintWorkerExecution(
+            principalId,
+            tenantId,
+            jobId,
+            itemId,
+            workspaceId,
+            "subtree",
+            executionId);
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var result = await handler.ValidateTokenAsync(token, service.CreateValidationParameters());
+        Assert.True(result.IsValid);
+        Assert.True(SelfIssuedTokenService.TryReadWorkerExecutionClaims(
+            result.ClaimsIdentity,
+            out var readTenant,
+            out var readPrincipal,
+            out var readJob,
+            out var readItem,
+            out var readWorkspace,
+            out var readScope,
+            out var readExecution));
+        Assert.Equal(tenantId, readTenant);
+        Assert.Equal(principalId, readPrincipal);
+        Assert.Equal(jobId, readJob);
+        Assert.Equal(itemId, readItem);
+        Assert.Equal(workspaceId, readWorkspace);
+        Assert.Equal("subtree", readScope);
+        Assert.Equal(executionId, readExecution);
+        Assert.Null(result.ClaimsIdentity.FindFirst(SelfIssuedTokenService.AccessTokenClaim));
+        Assert.Null(result.ClaimsIdentity.FindFirst(SelfIssuedTokenService.BrowserSessionClaim));
+    }
+
+    [Fact]
     public async Task A_token_signed_by_a_different_key_does_not_validate()
     {
         using var minter = Service(Configuration(FreshKeyPem()));
