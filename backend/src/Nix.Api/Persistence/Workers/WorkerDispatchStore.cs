@@ -316,7 +316,10 @@ public sealed class WorkerDispatchStore(NpgsqlDataSource dataSource) : IWorkerDi
                             reader.GetString(4),
                             reader.GetString(5),
                             reader.GetInt32(6),
-                            await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false)));
+                            await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false),
+                            await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false)
+                                ? null
+                                : reader.GetInt64(8)));
                     }
                 }
             }

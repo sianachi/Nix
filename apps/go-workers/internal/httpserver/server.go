@@ -6,17 +6,27 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/exporter"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
+	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
+	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
+
+type IndexControl interface {
+	EnqueueIndexRebuild(context.Context, workerapi.IndexRebuildRequest) (*workerapi.IndexRebuildPage, error)
+	GetIndexStatus(context.Context) (*workerapi.IndexQueueStatus, error)
+}
 
 type Dependencies struct {
 	Logger         *slog.Logger
@@ -27,6 +37,8 @@ type Dependencies struct {
 	MaxTokens      int
 	RequestTimeout time.Duration
 	Index          *index.Index
+	IndexControl   IndexControl
+	IndexHealth    func() indexer.Health
 	Ready          func() bool
 }
 
@@ -61,6 +73,7 @@ func NewForRole(service role.Service, deps Dependencies) http.Handler {
 		mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
 		mux.Handle("POST /v1/index/restore", server.requireInternal(http.HandlerFunc(server.restoreIndex)))
 		mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
+		mux.Handle("GET /v1/index/status", server.requireInternal(http.HandlerFunc(server.indexStatus)))
 		mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
 	}
 	timeout := deps.RequestTimeout
@@ -196,6 +209,10 @@ func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request
 }
 
 func (s *Server) rebuildIndex(response http.ResponseWriter, request *http.Request) {
+	if isJSONRequest(request) {
+		s.enqueueRebuildPage(response, request)
+		return
+	}
 	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
 	records := make([]stream.Record, 0)
 	if _, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
@@ -214,6 +231,56 @@ func (s *Server) rebuildIndex(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	writeJSON(response, http.StatusAccepted, map[string]any{"status": "rebuilt", "indexed": s.index.Len()})
+}
+
+func (s *Server) enqueueRebuildPage(response http.ResponseWriter, request *http.Request) {
+	if s.deps.IndexControl == nil {
+		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_control_unavailable", "detail": "Durable index rebuild is not configured."})
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 64<<10)
+	var rebuild workerapi.IndexRebuildRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&rebuild); err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild cursor is not valid JSON."})
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild request must contain one JSON object."})
+		return
+	}
+	if (rebuild.AfterTenantID == nil) != (rebuild.AfterItemID == nil) || rebuild.Limit != nil && (*rebuild.Limit < 1 || *rebuild.Limit > 1000) || rebuild.AfterTenantID != nil && !canonicalUUID(*rebuild.AfterTenantID) || rebuild.AfterItemID != nil && !canonicalUUID(*rebuild.AfterItemID) || rebuild.UpdatedSince != nil && rebuild.UpdatedSince.IsZero() {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild cursor and limit are invalid."})
+		return
+	}
+	page, err := s.deps.IndexControl.EnqueueIndexRebuild(request.Context(), rebuild)
+	if err != nil || page == nil {
+		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_rebuild_unavailable", "detail": "The durable rebuild page could not be enqueued."})
+		return
+	}
+	writeJSON(response, http.StatusAccepted, map[string]any{
+		"status": "page_enqueued", "enqueued": page.Enqueued, "nextTenantId": page.NextTenantID,
+		"nextItemId": page.NextItemID, "hasMore": page.HasMore,
+	})
+}
+
+func (s *Server) indexStatus(response http.ResponseWriter, request *http.Request) {
+	var durable *workerapi.IndexQueueStatus
+	if s.deps.IndexControl != nil {
+		var err error
+		durable, err = s.deps.IndexControl.GetIndexStatus(request.Context())
+		if err != nil {
+			writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_status_unavailable", "detail": "The durable index queue status is unavailable."})
+			return
+		}
+	}
+	var consumer any
+	if s.deps.IndexHealth != nil {
+		consumer = s.deps.IndexHealth()
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"durable": durable, "consumer": consumer})
 }
 
 func (s *Server) snapshot(response http.ResponseWriter, _ *http.Request) {
@@ -280,4 +347,24 @@ func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
 		defer cancel()
 		next.ServeHTTP(response, request.WithContext(requestContext))
 	})
+}
+
+func isJSONRequest(request *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	return err == nil && strings.EqualFold(mediaType, "application/json")
+}
+
+func canonicalUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for position, character := range value {
+		if position == 8 || position == 13 || position == 18 || position == 23 {
+			continue
+		}
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return value != "00000000-0000-0000-0000-000000000000"
 }

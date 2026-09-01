@@ -73,8 +73,16 @@ func Run(service role.Service) {
 	}
 
 	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
+	indexState := indexer.NewState()
 	var ready atomic.Bool
 	ready.Store(false)
+	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
+	var indexControl httpserver.IndexControl
+	var indexHydrator indexer.Hydrator
+	if roles.Has(role.Index) && settings.InternalAPIURL != "" {
+		indexControl = apiClient
+		indexHydrator = apiClient
+	}
 	server := httpserver.NewForRole(role.All, httpserver.Dependencies{
 		Logger:         logger,
 		InternalSecret: settings.InternalSecret,
@@ -84,7 +92,11 @@ func Run(service role.Service) {
 		MaxTokens:      settings.MaxTokens,
 		RequestTimeout: settings.RequestTimeout,
 		Index:          searchIndex,
-		Ready:          ready.Load,
+		IndexControl:   indexControl,
+		IndexHealth:    indexState.Snapshot,
+		Ready: func() bool {
+			return ready.Load() && (!roles.Has(role.Index) || indexState.Ready())
+		},
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,
@@ -98,7 +110,6 @@ func Run(service role.Service) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
 	brokerClient, err := broker.New(settings.RabbitMQURL, settings.MaxMessageBytes, logger)
 	if err != nil {
 		logger.Error("broker configuration failed", "error", err)
@@ -119,15 +130,17 @@ func Run(service role.Service) {
 		collaborationProbe = newServiceProbe(settings.CollaborationURL, settings.RequestTimeout)
 		objectProbe = newObjectStoreProbe(settings.ObjectOrigins, settings.RequestTimeout)
 	}
-	go probeReadiness(ctx, apiClient, brokerClient, searchProbe, collaborationProbe, objectProbe, &ready, settings.PollInterval, logger)
+	var apiProbe *workerapi.Client
+	if settings.InternalAPIURL != "" {
+		apiProbe = apiClient
+	}
+	go probeReadiness(ctx, apiProbe, brokerClient, searchProbe, collaborationProbe, objectProbe, &ready, settings.PollInterval, logger)
 	if roles.Has(role.Index) {
 		var searchClient *opensearch.Client
 		if settings.OpenSearchURL != "" {
 			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
 		}
-		// Workspace events move to RabbitMQ in the indexing milestone. Until then this preserves the
-		// existing derived index while import and export commands cut over first.
-		go indexer.Run(ctx, apiClient, searchIndex, searchClient, logger, settings.PollInterval)
+		go indexer.Run(ctx, brokerClient, indexHydrator, searchIndex, searchClient, indexState, logger, workerInstanceID(settings.WorkerID), settings.MaxRecords, settings.PollInterval)
 	}
 	if roles.Has(role.Import) {
 		transfer := objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...)
@@ -292,11 +305,11 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	if len(roles) == 0 {
 		return errors.New("at least one worker role is required")
 	}
-	if settings.InternalAPIURL == "" {
-		return errors.New("NIX_WORKER_API_URL is required")
-	}
 	if settings.InternalSecret == "" {
 		return errors.New("NIX_WORKER_INTERNAL_SECRET is required")
+	}
+	if settings.InternalAPIURL == "" {
+		return errors.New("NIX_WORKER_API_URL is required for every enabled role")
 	}
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
@@ -307,6 +320,14 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 		}
 		if len(settings.ObjectOrigins) == 0 {
 			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports and exports")
+		}
+	}
+	if roles.Has(role.Index) {
+		if !validServiceOrigin(settings.OpenSearchURL) {
+			return errors.New("NIX_OPENSEARCH_URL must be a valid OpenSearch origin for indexing")
+		}
+		if err := opensearch.ValidateIndexName(settings.OpenSearchIndex); err != nil {
+			return fmt.Errorf("NIX_OPENSEARCH_INDEX must be an exact safe index name: %w", err)
 		}
 	}
 	return nil
@@ -435,7 +456,10 @@ func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.C
 	probe := func() {
 		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
 		defer cancel()
-		err := api.Ping(probeContext)
+		var err error
+		if api != nil {
+			err = api.Ping(probeContext)
+		}
 		if err == nil {
 			err = rabbit.Ping(probeContext)
 		}

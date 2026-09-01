@@ -3,6 +3,7 @@ package workerapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,6 +191,139 @@ func TestClientObtainsExportSourceAndSizedDestinationUnderTheExecution(t *testin
 	}
 	if destination, err := client.GetExportDestination(ctx, jobID, 123, strings.Repeat("a", 64)); err != nil || destination.ObjectKey == "" {
 		t.Fatalf("destination = %#v, %v", destination, err)
+	}
+}
+
+func TestClientHydratesScopedIndexMetadataAndBoundedBody(t *testing.T) {
+	const tenantID = "20000000-0000-4000-8000-000000000002"
+	const itemID = "40000000-0000-4000-8000-000000000004"
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Header.Get("X-Nix-Internal-Secret") != "secret" || request.Header.Get("Authorization") != "" {
+			t.Fatal("index hydration did not use only the internal credential")
+		}
+		expected := "/internal/worker-dispatch/index/items/" + tenantID + "/" + itemID
+		if requests == 1 {
+			if request.Method != http.MethodGet || request.URL.Path != expected || request.Header.Get("Accept") != "application/json" {
+				t.Fatalf("metadata request = %s %s", request.Method, request.URL.Path)
+			}
+			response.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = response.Write([]byte(`{"tenant_id":"` + tenantID + `","workspace_id":"30000000-0000-4000-8000-000000000003","item_id":"` + itemID + `","parent_id":null,"item_type":"note","title":"Item","property_text":"status open","properties":{"status":"open"},"ancestor_ids":[],"links":[],"authorization_keys":["workspace:30000000-0000-4000-8000-000000000003"],"lifecycle_state":"active","indexable":true,"source_updated_at":"2026-09-01T12:00:00Z"}`))
+			return
+		}
+		if request.Method != http.MethodGet || request.URL.Path != expected+"/body" || request.Header.Get("Accept") != "text/plain" {
+			t.Fatalf("body request = %s %s", request.Method, request.URL.Path)
+		}
+		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = response.Write([]byte("bounded body"))
+	}))
+	defer server.Close()
+	client := New(server.URL, "secret", "indexer", time.Second)
+	metadata, err := client.GetIndexItemMetadata(context.Background(), tenantID, itemID)
+	if err != nil || metadata == nil || metadata.ItemID != itemID || metadata.ItemType != "note" || !metadata.Indexable || metadata.AuthorizationKeys[0] != "workspace:30000000-0000-4000-8000-000000000003" {
+		t.Fatalf("metadata = %#v, %v", metadata, err)
+	}
+	body, err := client.GetIndexItemBody(context.Background(), tenantID, itemID)
+	if err != nil || body == nil || *body != "bounded body" {
+		t.Fatalf("body = %#v, %v", body, err)
+	}
+}
+
+func TestIndexHydrationDistinguishesGoneAndBodylessItems(t *testing.T) {
+	responses := []int{http.StatusNotFound, http.StatusNoContent, http.StatusNotFound}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(responses[0])
+		responses = responses[1:]
+	}))
+	defer server.Close()
+	client := New(server.URL, "secret", "indexer", time.Second)
+	if metadata, err := client.GetIndexItemMetadata(context.Background(), "tenant", "item"); err != nil || metadata != nil {
+		t.Fatalf("metadata = %#v, %v", metadata, err)
+	}
+	body, err := client.GetIndexItemBody(context.Background(), "tenant", "item")
+	if err != nil || body == nil || *body != "" {
+		t.Fatalf("bodyless = %#v, %v", body, err)
+	}
+	body, err = client.GetIndexItemBody(context.Background(), "tenant", "item")
+	if err != nil || body != nil {
+		t.Fatalf("gone body = %#v, %v", body, err)
+	}
+}
+
+func TestIndexBodyRefusesOversizeWrongMediaAndInvalidUTF8(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"oversize": func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "text/plain")
+			response.Header().Set("Content-Length", fmt.Sprint(MaxIndexBodyBytes+1))
+			_, _ = response.Write(make([]byte, MaxIndexBodyBytes+1))
+		},
+		"wrong media": func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "text/html")
+			_, _ = response.Write([]byte("body"))
+		},
+		"invalid UTF-8": func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "text/plain")
+			_, _ = response.Write([]byte{0xff})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			if body, err := New(server.URL, "secret", "indexer", time.Second).GetIndexItemBody(context.Background(), "tenant", "item"); err == nil || body != nil {
+				t.Fatalf("body = %#v, error = %v", body, err)
+			}
+		})
+	}
+}
+
+func TestClientForwardsRestartableRebuildCursorAndReadsQueueStatus(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Header.Get("X-Nix-Internal-Secret") != "secret" {
+			t.Fatal("internal secret was omitted")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		if requests == 1 {
+			if request.Method != http.MethodPost || request.URL.Path != "/internal/worker-dispatch/index/rebuild" {
+				t.Fatalf("rebuild request = %s %s", request.Method, request.URL.Path)
+			}
+			var rebuild IndexRebuildRequest
+			if err := json.NewDecoder(request.Body).Decode(&rebuild); err != nil || rebuild.AfterTenantID == nil || *rebuild.AfterTenantID != "10000000-0000-4000-8000-000000000001" || rebuild.AfterItemID == nil || *rebuild.AfterItemID != "20000000-0000-4000-8000-000000000002" || rebuild.Limit == nil || *rebuild.Limit != 250 {
+				t.Fatalf("rebuild = %#v, %v", rebuild, err)
+			}
+			_, _ = response.Write([]byte(`{"enqueued":250,"nextTenantId":"30000000-0000-4000-8000-000000000003","nextItemId":"40000000-0000-4000-8000-000000000004","hasMore":true}`))
+			return
+		}
+		if request.Method != http.MethodGet || request.URL.Path != "/internal/worker-dispatch/index/status" {
+			t.Fatalf("status request = %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = response.Write([]byte(`{"pending":12,"oldestAvailableAt":"2026-09-01T12:00:00Z","highestAttempts":3,"pendingFailures":2}`))
+	}))
+	defer server.Close()
+	tenant := "10000000-0000-4000-8000-000000000001"
+	item := "20000000-0000-4000-8000-000000000002"
+	limit := 250
+	client := New(server.URL, "secret", "indexer", time.Second)
+	page, err := client.EnqueueIndexRebuild(context.Background(), IndexRebuildRequest{AfterTenantID: &tenant, AfterItemID: &item, Limit: &limit})
+	if err != nil || page.Enqueued != 250 || !page.HasMore || page.NextItemID == nil {
+		t.Fatalf("page = %#v, %v", page, err)
+	}
+	status, err := client.GetIndexStatus(context.Background())
+	if err != nil || status.Pending != 12 || status.PendingFailures != 2 || status.OldestAvailableAt == nil {
+		t.Fatalf("status = %#v, %v", status, err)
+	}
+}
+
+func TestIndexControlResponsesAreStrictAndBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"pending":1,"oldestAvailableAt":null,"highestAttempts":0,"pendingFailures":0,"unexpected":true}`))
+	}))
+	defer server.Close()
+	if _, err := New(server.URL, "secret", "indexer", time.Second).GetIndexStatus(context.Background()); err == nil {
+		t.Fatal("unknown status field was accepted")
 	}
 }
 

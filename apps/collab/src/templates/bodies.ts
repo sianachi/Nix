@@ -340,10 +340,13 @@ async function insertInitialSearch(
   for (const entry of prepared) {
     const item = parameters.push(entry.targetItemId);
     const plaintext = parameters.push(boundSearchText(entry.materialized.plaintext));
-    values.push(`($1, $${String(item)}, 1, now(), to_tsvector('english', $${String(plaintext)}))`);
+    values.push(
+      `($1, $${String(item)}, 1, now(), $${String(plaintext)}, ` +
+        `to_tsvector('english', $${String(plaintext)}))`,
+    );
   }
   await sql.query(
-    `INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_vector)
+    `INSERT INTO item_search (tenant_id, item_id, seq, updated_at, body_text, body_vector)
      VALUES ${values.join(', ')}`,
     parameters,
   );

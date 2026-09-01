@@ -1,14 +1,18 @@
 package httpserver
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
+	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
 func TestHealthzDoesNotRequireAWorkerPayload(t *testing.T) {
@@ -198,4 +202,74 @@ func TestRestoreRouteLoadsASnapshot(t *testing.T) {
 	if !strings.Contains(searchResponse.Body.String(), `"restored"`) {
 		t.Fatalf("search after restore = %q", searchResponse.Body.String())
 	}
+}
+
+func TestJSONRebuildForwardsOneRestartableDurablePage(t *testing.T) {
+	nextTenant := "20000000-0000-4000-8000-000000000002"
+	nextItem := "40000000-0000-4000-8000-000000000004"
+	control := &fakeIndexControl{page: &workerapi.IndexRebuildPage{Enqueued: 250, NextTenantID: &nextTenant, NextItemID: &nextItem, HasMore: true}}
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", MaxInputSize: 1024, MaxRecords: 10, MaxLineBytes: 256, IndexControl: control})
+	request := httptest.NewRequest(http.MethodPost, "/v1/index/rebuild", strings.NewReader(`{"afterTenantId":"10000000-0000-4000-8000-000000000001","afterItemId":"30000000-0000-4000-8000-000000000003","limit":250}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted || control.request.Limit == nil || *control.request.Limit != 250 || !strings.Contains(response.Body.String(), `"nextTenantId":"20000000-0000-4000-8000-000000000002"`) || !strings.Contains(response.Body.String(), `"hasMore":true`) {
+		t.Fatalf("request = %#v, response = %d %q", control.request, response.Code, response.Body.String())
+	}
+}
+
+func TestIndexStatusCombinesDurableQueueAndConsumerProgress(t *testing.T) {
+	oldest := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	control := &fakeIndexControl{status: &workerapi.IndexQueueStatus{Pending: 12, OldestAvailableAt: &oldest, HighestAttempts: 3, PendingFailures: 2}}
+	server := New(Dependencies{
+		Logger: slog.Default(), InternalSecret: "secret", IndexControl: control,
+		IndexHealth: func() indexer.Health {
+			return indexer.Health{Initialized: true, Consuming: true, Acknowledged: 30, Requeued: 2}
+		},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/v1/index/status", nil)
+	request.Header.Set("X-Nix-Internal-Secret", "secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"pending":12`) || !strings.Contains(response.Body.String(), `"acknowledged":30`) || !strings.Contains(response.Body.String(), `"consuming":true`) {
+		t.Fatalf("status response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestJSONRebuildRejectsUnknownFieldsAndUnboundedPages(t *testing.T) {
+	server := New(Dependencies{Logger: slog.Default(), InternalSecret: "secret", IndexControl: &fakeIndexControl{page: &workerapi.IndexRebuildPage{}}})
+	for _, body := range []string{
+		`{"limit":1001}`,
+		`{"unknown":true}`,
+		`{"afterTenantId":"10000000-0000-4000-8000-000000000001"}`,
+		`{"afterTenantId":"tenant-1","afterItemId":"30000000-0000-4000-8000-000000000003"}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/index/rebuild", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-Nix-Internal-Secret", "secret")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body %s returned %d %q", body, response.Code, response.Body.String())
+		}
+	}
+}
+
+type fakeIndexControl struct {
+	request workerapi.IndexRebuildRequest
+	page    *workerapi.IndexRebuildPage
+	status  *workerapi.IndexQueueStatus
+	err     error
+}
+
+func (control *fakeIndexControl) EnqueueIndexRebuild(_ context.Context, request workerapi.IndexRebuildRequest) (*workerapi.IndexRebuildPage, error) {
+	control.request = request
+	return control.page, control.err
+}
+
+func (control *fakeIndexControl) GetIndexStatus(context.Context) (*workerapi.IndexQueueStatus, error) {
+	return control.status, control.err
 }
