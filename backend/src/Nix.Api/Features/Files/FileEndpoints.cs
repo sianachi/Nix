@@ -517,6 +517,12 @@ internal static class FileEndpoints
         {
             return dimensionsValid;
         }
+        if (request.DetectedMediaType == "application/pdf")
+        {
+            return request.ByteLength <= MaximumPreviewBytes
+                && request.PixelWidth is null
+                && request.PixelHeight is null;
+        }
         return request.ByteLength <= MaximumPreviewBytes
             && request.PixelWidth is > 0
             && request.PixelHeight is > 0

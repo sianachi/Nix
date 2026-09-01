@@ -17,8 +17,8 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
-// Kinds deliberately contains file.publish rather than file.inspect. Until bounded MIME and
-// image-header inspection is re-enabled, uploads are published as opaque attachments.
+// Kinds uses file.publish while keeping bounded header inspection inside the publication job.
+// The job never decodes, executes, or unpacks uploaded bytes.
 var Kinds = []string{"file.publish"}
 
 type Payload struct {
@@ -130,9 +130,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if total != inspection.DeclaredByteLength {
 		return nil, handler.reject(ctx, inspection, "files.size_mismatch", fmt.Errorf("declared %d bytes but received %d", inspection.DeclaredByteLength, total))
 	}
-	// File inspection is intentionally disabled for now. Keep the transfer bounded and verify its
-	// checksum, but publish every file as an opaque, unscanned attachment.
-	metadata := Metadata{MediaType: "application/octet-stream"}
+	metadata := InspectHeader(header, total)
 	inspected := workerapi.InspectedFile{
 		DetectedMediaType: metadata.MediaType,
 		ByteLength:        total,
