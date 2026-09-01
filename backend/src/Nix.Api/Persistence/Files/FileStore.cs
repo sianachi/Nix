@@ -347,7 +347,15 @@ public sealed class FileStore(
         }
         var wanted = versionId ?? body.CurrentVersionId;
         var version = await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted, cancellationToken).ConfigureAwait(false);
-        return version is null ? null : new(version.ObjectKey, version.FileName, version.MediaType, version.ByteLength, version.Sha256, version.Previewable);
+        return version is null
+            ? null
+            : new(
+                version.ObjectKey,
+                version.FileName,
+                PreviewMediaType(version.FileName, version.MediaType, version.ByteLength) ?? version.MediaType,
+                version.ByteLength,
+                version.Sha256,
+                Previewable(version.FileName, version.MediaType, version.ByteLength, version.Previewable));
     }
 
     private NixSessionContext Context => session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
@@ -369,5 +377,43 @@ public sealed class FileStore(
     }
 
     private static FileUploadRecord ToUpload(FileUpload value) => new(value.Id.Value, value.WorkspaceId.Value, value.Purpose, value.Status, value.ObjectKey, value.ExpiresAt, value.PublishedItemId?.Value, value.FailureCode);
-    private static FileVersionRecord ToVersion(FileVersion value, bool current) => new(value.Id.Value, value.Version, value.FileName, value.MediaType, value.ByteLength, value.Sha256, value.Previewable, value.PixelWidth, value.PixelHeight, value.CreatedAt, current);
+    private static FileVersionRecord ToVersion(FileVersion value, bool current) => new(
+        value.Id.Value,
+        value.Version,
+        value.FileName,
+        PreviewMediaType(value.FileName, value.MediaType, value.ByteLength) ?? value.MediaType,
+        value.ByteLength,
+        value.Sha256,
+        Previewable(value.FileName, value.MediaType, value.ByteLength, value.Previewable),
+        value.PixelWidth,
+        value.PixelHeight,
+        value.CreatedAt,
+        current);
+
+    private static bool Previewable(string fileName, string mediaType, long byteLength, bool storedPreviewable) =>
+        storedPreviewable
+        || (string.Equals(mediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)
+            && byteLength <= 10L * 1024 * 1024
+            && PreviewMediaType(fileName, mediaType, byteLength) is not null);
+
+    private static string? PreviewMediaType(string fileName, string mediaType, long byteLength)
+    {
+        if (!string.Equals(mediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return mediaType;
+        }
+        if (byteLength > 10L * 1024 * 1024)
+        {
+            return mediaType;
+        }
+        return Path.GetExtension(fileName).ToUpperInvariant() switch
+        {
+            ".PDF" => "application/pdf",
+            ".PNG" => "image/png",
+            ".JPG" or ".JPEG" => "image/jpeg",
+            ".WEBP" => "image/webp",
+            ".AVIF" => "image/avif",
+            _ => null,
+        };
+    }
 }
