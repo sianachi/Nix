@@ -288,7 +288,7 @@ internal static class DocumentImportEndpoints
         [FromServices] IDocumentImportStore imports,
         [FromServices] IWorkerJobStore jobs,
         [FromServices] INixSessionContextAccessor session,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         var operation = await imports.GetAsync(
             DocumentImportId.From(importId),
@@ -324,7 +324,7 @@ internal static class DocumentImportEndpoints
             WorkspaceId.From(cleanup.WorkspaceId),
             "document-import",
             importId,
-            clock.GetUtcNow().AddMinutes(1),
+            signer.GetCleanupNotBefore(),
             cleanup.ObjectKeys,
             context.RequestAborted).ConfigureAwait(false);
         return TypedResults.NoContent();
@@ -618,7 +618,7 @@ internal static class DocumentImportEndpoints
         [FromServices] INixSessionContextAccessor session,
         [FromServices] IWorkerDispatchStore dispatch,
         [FromServices] IWorkerJobStore workerJobs,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         var execution = await OwnedExecution(
             importId,
@@ -649,7 +649,7 @@ internal static class DocumentImportEndpoints
                 WorkspaceId.From(result.WorkspaceId),
                 "document-import",
                 importId,
-                clock.GetUtcNow(),
+                signer.GetCleanupNotBefore(),
                 [execution.SourceObjectKey, execution.Import.PlanObjectKey],
                 context.RequestAborted).ConfigureAwait(false);
         }
@@ -666,7 +666,7 @@ internal static class DocumentImportEndpoints
         [FromServices] IWorkerJobStore jobs,
         [FromServices] INixSessionContextAccessor session,
         [FromServices] IWorkerDispatchStore dispatch,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         if (!ValidFailureCode(request.Code)
             || await OwnedExecution(
@@ -696,7 +696,7 @@ internal static class DocumentImportEndpoints
             WorkspaceId.From(cleanup.WorkspaceId),
             "document-import",
             importId,
-            clock.GetUtcNow().AddSeconds(5),
+            signer.GetCleanupNotBefore(),
             cleanup.ObjectKeys,
             context.RequestAborted).ConfigureAwait(false);
         return await ExecutionStillLive(context, dispatch).ConfigureAwait(false)

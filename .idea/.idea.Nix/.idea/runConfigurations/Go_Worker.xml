@@ -1,0 +1,22 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Go Worker" type="GoApplicationRunConfiguration" factoryName="Go Application" folderName="Nix">
+    <module name="Nix" />
+    <working_directory value="$PROJECT_DIR$/apps/go-workers" />
+    <envs>
+      <env name="NIX_WORKER_ADDRESS" value="127.0.0.1:8301" />
+      <env name="NIX_WORKER_API_URL" value="http://localhost:5014" />
+      <env name="NIX_WORKER_COLLAB_URL" value="http://localhost:8100" />
+      <env name="NIX_WORKER_ID" value="rider-worker" />
+      <env name="NIX_WORKER_INTERNAL_SECRET" value="nix-dev-internal" />
+      <env name="NIX_WORKER_OBJECT_ORIGINS" value="http://localhost:7070" />
+      <env name="NIX_WORKER_ROLES" value="import,export,index,plugin-events" />
+      <env name="NIX_RABBITMQ_URL" value="amqp://nix-worker-dev:nix-dev-combined-worker-rabbit@localhost:5673/%2Fnix" />
+      <env name="NIX_OPENSEARCH_URL" value="http://localhost:9201" />
+      <env name="NIX_OPENSEARCH_INDEX" value="nix-items" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/sianachi/Nix/apps/go-workers/cmd/nix-worker" />
+    <directory value="$PROJECT_DIR$/apps/go-workers/cmd/nix-worker" />
+    <method v="2" />
+  </configuration>
+</component>

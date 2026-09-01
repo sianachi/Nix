@@ -14,6 +14,8 @@ public sealed class RabbitResultConsumer(
     TimeProvider clock,
     ILogger<RabbitResultConsumer> logger) : BackgroundService
 {
+    private static readonly TimeSpan ResultRequeueDelay = TimeSpan.FromSeconds(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -93,6 +95,10 @@ public sealed class RabbitResultConsumer(
         catch (Exception exception)
         {
             RabbitMqLog.ResultApplyFailed(logger, exception);
+            if (!await DelayBeforeRequeueAsync(hostToken).ConfigureAwait(false))
+            {
+                return;
+            }
             await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: true, hostToken).ConfigureAwait(false);
         }
 #pragma warning restore CA1031
@@ -192,6 +198,20 @@ public sealed class RabbitResultConsumer(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Host shutdown interrupts backoff.
+        }
+    }
+
+    private async Task<bool> DelayBeforeRequeueAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ResultRequeueDelay, clock, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Channel shutdown leaves the delivery unacknowledged for broker recovery.
+            return false;
         }
     }
 }

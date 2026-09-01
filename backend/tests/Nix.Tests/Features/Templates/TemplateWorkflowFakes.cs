@@ -248,6 +248,13 @@ internal sealed class FakeTemplateAuthorizationStore : TemplateWorkflowFake, ITe
             new AuthorizeTemplateOperationItem(operationId, itemId),
             cancellationToken);
 
+    public ValueTask<Result<TemplateOperationWriteAuthorization>> AuthorizeOperationWritesAsync(
+        TemplateOperationId operationId,
+        CancellationToken cancellationToken) =>
+        Refuse<TemplateOperationWriteAuthorization>(
+            new AuthorizeTemplateOperationWrites(operationId),
+            cancellationToken);
+
     public ValueTask<Result<TemplateItemAuthorization>> AuthorizeTemplateItemAsync(
         TemplateId templateId,
         Guid sourceId,

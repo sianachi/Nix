@@ -21,7 +21,7 @@ export function formatValue(value: unknown, definition: PropertyDefinition | nul
 
   switch (definition?.type) {
     case 'checkbox':
-      // ASCII, per CLAUDE.md, and it survives a rasteriser that has no emoji font.
+      // ASCII, per AGENTS.md, and it survives a rasteriser that has no emoji font.
       return value === true ? '[x]' : '[ ]';
 
     case 'date':

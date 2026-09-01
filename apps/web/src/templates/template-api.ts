@@ -2,13 +2,26 @@ import {
   defineBinaryQuery,
   defineCommand,
   defineQuery,
+  templateImportPreviewSchema,
+  templateImportResultSchema,
+  templateImportSchema,
+  templateImportUploadSchema,
   templateItemSchema,
+  files as coreFiles,
+  operations as coreOperations,
+  templateImports as coreTemplateImports,
   templates as coreTemplates,
+  type BeginTemplateImportInput,
   type BinaryQueryEndpoint,
   type CommandEndpoint,
+  type NixClient,
   type QueryEndpoint,
   type TemplateCatalog,
   type TemplateDetail,
+  type TemplateImport,
+  type TemplateImportPreview,
+  type TemplateImportResult,
+  type TemplateImportUpload,
   type TemplateItem,
   type TemplatePreflight,
   type TemplatePreflightInput,
@@ -65,41 +78,215 @@ export const TemplateApplicationSchema = z.object({
 
 export type TemplateApplication = z.infer<typeof TemplateApplicationSchema>;
 
-export const TemplateImportPreviewSchema = z.object({
-  profile: z.object({
-    kind: z.literal('template'),
-    version: z.number().int().positive(),
-    key: z.string(),
-    name: z.string(),
-    description: z.string(),
-    includeBody: z.boolean(),
-    includeChildren: z.boolean(),
-  }),
-  digest: z.string(),
-  rootItemType: z.string(),
-  itemCount: z.number().int().positive(),
-  bodyCount: z.number().int().nonnegative(),
-  viewCount: z.number().int().nonnegative(),
-});
-
-export type TemplateImportPreview = z.infer<typeof TemplateImportPreviewSchema>;
-
-export const TemplateImportResultSchema = z.object({
-  templateId: z.string(),
-  stableKey: z.string(),
-  unchanged: z.boolean(),
-  writtenTargetItemIds: z.array(z.string()),
-});
+export {
+  templateImportPreviewSchema as TemplateImportPreviewSchema,
+  templateImportResultSchema as TemplateImportResultSchema,
+  templateImportSchema as TemplateImportSchema,
+  templateImportUploadSchema as TemplateImportUploadSchema,
+};
+export type { TemplateImport, TemplateImportPreview, TemplateImportResult, TemplateImportUpload };
 
 const templateLibraryKey = coreTemplates.templateLibraryKey;
 const templateKey = coreTemplates.templateKey;
 
+export const templateImportById = coreTemplateImports.byId;
+
+export async function beginAndPreviewTemplate(
+  client: NixClient,
+  input: BeginTemplateImportInput,
+  source: Blob,
+  signal?: AbortSignal,
+  onStarted?: (importId: string) => void,
+): Promise<TemplateImport> {
+  if (source.size !== input.byteLength) {
+    throw new RangeError('The template upload size does not match its declared byte length.');
+  }
+
+  const upload = await client.execute(coreTemplateImports.begin(input), { signal });
+  onStarted?.(upload.id);
+  let templateImport: TemplateImport | null = null;
+  try {
+    if (upload.uploadUrl !== null) {
+      await coreFiles.putUploadCapability(upload.uploadUrl, source, signal);
+      const queued = await client.execute(coreTemplateImports.preview(upload.id), { signal });
+      await coreOperations.waitForOperation(
+        client,
+        queued.id,
+        signal === undefined ? {} : { signal },
+      );
+    } else {
+      templateImport = await client.query(coreTemplateImports.byId(upload.id), {
+        signal,
+        forceRefresh: true,
+      });
+      if (
+        templateImport.status === 'preview_queued' &&
+        templateImport.previewOperationId !== null
+      ) {
+        await coreOperations.waitForOperation(
+          client,
+          templateImport.previewOperationId,
+          signal === undefined ? {} : { signal },
+        );
+        templateImport = null;
+      }
+    }
+
+    templateImport ??= await client.query(coreTemplateImports.byId(upload.id), {
+      signal,
+      forceRefresh: true,
+    });
+    if (!hasTemplatePreview(templateImport)) {
+      throw new Error(
+        templateImport.failureCode ??
+          (upload.uploadUrl === null
+            ? 'The template upload capability is no longer available. Start a new import.'
+            : 'The template preview did not become ready.'),
+      );
+    }
+    return templateImport;
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
+    const recovered = await readTemplateImport(client, upload.id, signal);
+    const resumed = await resumeTemplatePreview(client, recovered, signal).catch(
+      (recoveryError: unknown) => {
+        if (signal?.aborted === true) throw recoveryError;
+        return null;
+      },
+    );
+    if (resumed !== null && hasTemplatePreview(resumed)) return resumed;
+    throw error;
+  }
+}
+
+export async function commitAndWaitTemplate(
+  client: NixClient,
+  importId: string,
+  expectedDigest: string,
+  signal?: AbortSignal,
+): Promise<TemplateImport> {
+  let templateImport: TemplateImport | null = null;
+  try {
+    const queued = await client.execute(coreTemplateImports.commit(importId, expectedDigest), {
+      signal,
+    });
+    await coreOperations.waitForOperation(
+      client,
+      queued.id,
+      signal === undefined ? {} : { signal },
+    );
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
+    templateImport = await readTemplateImport(client, importId, signal);
+    templateImport = await resumeTemplateCommit(client, templateImport, signal).catch(
+      (recoveryError: unknown) => {
+        if (signal?.aborted === true) throw recoveryError;
+        return templateImport;
+      },
+    );
+    if (!isCompletedTemplateImport(templateImport)) throw error;
+  }
+
+  templateImport ??= await client.query(coreTemplateImports.byId(importId), {
+    signal,
+    forceRefresh: true,
+  });
+  if (!isCompletedTemplateImport(templateImport)) {
+    throw new Error(templateImport.failureCode ?? 'The template import did not publish.');
+  }
+  client.invalidate(['workspaces', templateImport.workspaceId, 'templates']);
+  return templateImport;
+}
+
+export async function cancelTemplateImport(
+  client: NixClient,
+  importId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await client.execute(
+    coreTemplateImports.cancel(importId),
+    signal === undefined ? {} : { signal },
+  );
+}
+
+async function readTemplateImport(
+  client: NixClient,
+  importId: string,
+  signal?: AbortSignal,
+): Promise<TemplateImport | null> {
+  try {
+    return await client.query(coreTemplateImports.byId(importId), {
+      signal,
+      forceRefresh: true,
+    });
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
+    return null;
+  }
+}
+
+async function resumeTemplatePreview(
+  client: NixClient,
+  templateImport: TemplateImport | null,
+  signal?: AbortSignal,
+): Promise<TemplateImport | null> {
+  if (templateImport !== null && hasTemplatePreview(templateImport)) return templateImport;
+  if (templateImport?.status !== 'preview_queued' || templateImport.previewOperationId === null) {
+    return templateImport;
+  }
+  await coreOperations.waitForOperation(
+    client,
+    templateImport.previewOperationId,
+    signal === undefined ? {} : { signal },
+  );
+  return await client.query(coreTemplateImports.byId(templateImport.id), {
+    signal,
+    forceRefresh: true,
+  });
+}
+
+async function resumeTemplateCommit(
+  client: NixClient,
+  templateImport: TemplateImport | null,
+  signal?: AbortSignal,
+): Promise<TemplateImport | null> {
+  if (templateImport !== null && isCompletedTemplateImport(templateImport)) return templateImport;
+  if (
+    templateImport === null ||
+    !['commit_queued', 'staging', 'staged'].includes(templateImport.status) ||
+    templateImport.commitOperationId === null
+  ) {
+    return templateImport;
+  }
+  await coreOperations.waitForOperation(
+    client,
+    templateImport.commitOperationId,
+    signal === undefined ? {} : { signal },
+  );
+  return await client.query(coreTemplateImports.byId(templateImport.id), {
+    signal,
+    forceRefresh: true,
+  });
+}
+
+function hasTemplatePreview(templateImport: TemplateImport | null): boolean {
+  return (
+    templateImport !== null &&
+    ['preview_ready', 'commit_queued', 'staging', 'staged', 'completed'].includes(
+      templateImport.status,
+    ) &&
+    templateImport.preview !== null
+  );
+}
+
+function isCompletedTemplateImport(templateImport: TemplateImport | null): boolean {
+  return templateImport?.status === 'completed' && templateImport.result !== null;
+}
+
 export const listTemplates = coreTemplates.listTemplates;
 export const templateById = coreTemplates.templateById;
 
-export function templateCaptureSourceSchema(
-  itemId: string,
-): QueryEndpoint<EffectiveSchema> {
+export function templateCaptureSourceSchema(itemId: string): QueryEndpoint<EffectiveSchema> {
   return defineQuery({
     operation: 'templates.capture-source.schema',
     path: `/api/v1/items/${itemId}/schema`,
@@ -269,40 +456,5 @@ export function applyStoredTemplate(
     body: input,
     schema: TemplateApplicationSchema,
     invalidates: [['items'], ['templates', input.templateId]],
-  });
-}
-
-export function previewTemplateFile(
-  workspaceId: string,
-  file: Blob,
-): CommandEndpoint<TemplateImportPreview> {
-  return defineCommand({
-    operation: 'templates.import.preview',
-    method: 'POST',
-    path: '/media/templates/preview',
-    query: { workspaceId },
-    body: file,
-    schema: TemplateImportPreviewSchema,
-  });
-}
-
-export function importTemplateFile(
-  workspaceId: string,
-  file: Blob,
-  expectedDigest: string,
-  idempotencyKey: string,
-): CommandEndpoint<z.infer<typeof TemplateImportResultSchema>> {
-  return defineCommand({
-    operation: 'templates.import.commit',
-    method: 'POST',
-    path: '/media/templates/commit',
-    query: { workspaceId, origin: 'user' },
-    body: file,
-    headers: {
-      'x-nix-template-digest': expectedDigest,
-      'x-idempotency-key': idempotencyKey,
-    },
-    schema: TemplateImportResultSchema,
-    invalidates: [templateLibraryKey(workspaceId)],
   });
 }

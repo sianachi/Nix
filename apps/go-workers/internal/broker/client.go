@@ -27,6 +27,8 @@ type Client struct {
 	url             string
 	maxMessageBytes int
 	logger          *slog.Logger
+	consumerMu      sync.RWMutex
+	activeConsumers map[string]int
 	connectionMu    sync.Mutex
 	connection      *amqp.Connection
 	publishMu       sync.Mutex
@@ -35,11 +37,18 @@ type Client struct {
 	returns         <-chan amqp.Return
 }
 
+const requeueBackoff = time.Second
+
 func New(url string, maxMessageBytes int, logger *slog.Logger) (*Client, error) {
 	if url == "" || maxMessageBytes <= 0 || maxMessageBytes > 64*1024 || logger == nil {
 		return nil, errors.New("broker configuration is invalid")
 	}
-	return &Client{url: url, maxMessageBytes: maxMessageBytes, logger: logger}, nil
+	return &Client{
+		url:             url,
+		maxMessageBytes: maxMessageBytes,
+		logger:          logger,
+		activeConsumers: make(map[string]int),
+	}, nil
 }
 
 func (client *Client) Close() error {
@@ -83,6 +92,8 @@ func (client *Client) Consume(ctx context.Context, queue, consumerName string, p
 	if err != nil {
 		return fmt.Errorf("consume %s: %w", queue, err)
 	}
+	client.consumerStarted(queue)
+	defer client.consumerStopped(queue)
 	for {
 		select {
 		case <-ctx.Done():
@@ -99,20 +110,64 @@ func (client *Client) Consume(ctx context.Context, queue, consumerName string, p
 				}
 				continue
 			}
-			switch handler(ctx, envelope) {
+			action := handler(ctx, envelope)
+			if action != Acknowledge && action != Reject {
+				action = Requeue
+			}
+			if action == Requeue && !waitBeforeRequeue(ctx, requeueBackoff) {
+				return ctx.Err()
+			}
+			switch action {
 			case Acknowledge:
 				err = delivery.Ack(false)
 			case Requeue:
 				err = delivery.Nack(false, true)
 			case Reject:
 				err = delivery.Reject(false)
-			default:
-				err = delivery.Nack(false, true)
 			}
 			if err != nil {
 				return fmt.Errorf("settle broker delivery: %w", err)
 			}
 		}
+	}
+}
+
+// ConsumerReady reports whether at least one server-accepted consumer is currently attached to
+// the queue. A successful connection or channel probe alone is not enough to make a worker ready:
+// permissions, queue topology, or basic.consume can still fail after those probes succeed.
+func (client *Client) ConsumerReady(queue string) bool {
+	client.consumerMu.RLock()
+	defer client.consumerMu.RUnlock()
+	return client.activeConsumers[queue] > 0
+}
+
+func (client *Client) consumerStarted(queue string) {
+	client.consumerMu.Lock()
+	defer client.consumerMu.Unlock()
+	client.activeConsumers[queue]++
+}
+
+func (client *Client) consumerStopped(queue string) {
+	client.consumerMu.Lock()
+	defer client.consumerMu.Unlock()
+	if client.activeConsumers[queue] <= 1 {
+		delete(client.activeConsumers, queue)
+		return
+	}
+	client.activeConsumers[queue]--
+}
+
+func waitBeforeRequeue(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

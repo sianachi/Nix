@@ -28,6 +28,12 @@ export interface BodyCopy {
   readonly itemType: string;
 }
 
+export interface WorkerExecutionFence {
+  readonly jobId: string;
+  readonly executionId: string;
+  readonly kind: 'import.commit' | 'template.commit';
+}
+
 /** Applies the exact Collab materialization and durable-update ceilings used during commit. */
 export function validateArchiveBodies(
   bundles: readonly Pick<
@@ -102,9 +108,11 @@ export async function writeArchiveBodies(
   authorization: OperationItemAuthorization,
   writes: readonly { sourceId: string; targetItemId: string; itemType: string; body: ItemBody }[],
   itemMappings: ReadonlyMap<string, string>,
+  fence?: WorkerExecutionFence,
 ): Promise<readonly string[]> {
   assertStagedWrite(authorization);
   return await withTenantScope(pool, scopeOf(authorization), async (sql) => {
+    if (fence !== undefined) await assertWorkerExecution(sql, authorization, fence);
     const fresh = writes.map((write) => ({
       targetItemId: write.targetItemId,
       itemType: write.itemType,
@@ -117,6 +125,31 @@ export async function writeArchiveBodies(
       for (const entry of fresh) entry.state.destroy();
     }
   });
+}
+
+async function assertWorkerExecution(
+  sql: ScopedQuery,
+  authorization: OperationItemAuthorization,
+  fence: WorkerExecutionFence,
+): Promise<void> {
+  const result = await sql.query<{ authorized: boolean }>(
+    `SELECT nix_fence_worker_execution(
+         $1::uuid, $2, $3, $4::uuid, $5::uuid, $6::uuid) AS authorized`,
+    [
+      fence.jobId,
+      fence.executionId,
+      fence.kind,
+      authorization.tenantId,
+      authorization.workspaceId,
+      authorization.principalId,
+    ],
+  );
+  if (result.rows.length !== 1 || result.rows[0]?.authorized !== true) {
+    throw new TemplateBodyError(
+      'template.execution_lost',
+      'The worker no longer owns this body-write execution.',
+    );
+  }
 }
 
 export class TemplateBodyError extends Error {

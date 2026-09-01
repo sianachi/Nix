@@ -1,9 +1,16 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
-import { STUB_TEMPLATES, STUB_WORKSPACE, item, stubCoreApi, type StubTemplate } from '../api-stub';
+import {
+  STUB_TEMPLATE_IMPORT_ID,
+  STUB_TEMPLATES,
+  STUB_WORKSPACE,
+  item,
+  stubCoreApi,
+  type StubTemplate,
+} from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -31,6 +38,7 @@ const USER_TEMPLATE: StubTemplate = {
   capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
   updatedAt: '2026-08-16T09:00:00.000Z',
 };
+const TEMPLATE_IMPORT_DIGEST = 'a'.repeat(64);
 
 describe('the workspace template library', () => {
   it('searches the server-backed library without showing templates in view settings', async () => {
@@ -99,7 +107,7 @@ describe('the workspace template library', () => {
   // runs its files in parallel, and the load factor on this machine is about 3.5x - which left it
   // inside the ceiling at 1,532 tests and outside it at 1,584, so goal 2.1-2.3's own tests are what
   // tipped it. Raising this one test's ceiling rather than the file's keeps every other case here
-  // held to the tighter bound; the standing note about Vitest timeouts under load is in CLAUDE.md.
+  // held to the tighter bound; the standing note about Vitest timeouts under load is in AGENTS.md.
   it('adds and configures every structured view type in the staged editor', async () => {
     const user = userEvent.setup();
     const writes = stubCoreApi({ templates: [USER_TEMPLATE] });
@@ -398,7 +406,9 @@ describe('the workspace template library', () => {
     await user.clear(name);
     await user.type(name, 'Managed planning copy');
     expect(name).toHaveValue('Managed planning copy');
-    expect(writes.templateImports).toEqual(['abc123']);
+    expect(writes.templateImports).toEqual([TEMPLATE_IMPORT_DIGEST]);
+    expect(writes.templateImportCommitIds).toEqual([STUB_TEMPLATE_IMPORT_ID]);
+    expect(writes.templateUploadBodies).toHaveLength(1);
     expect(writes.templateExports).toEqual([managed.id]);
     expect(writes.templateImportIdempotencyKeys[0]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -414,7 +424,7 @@ describe('the workspace template library', () => {
     ).toBe(false);
   });
 
-  it('retries a lost duplicate response with the exact archive, digest, and attempt identity', async () => {
+  it('recovers a lost duplicate commit response from the same durable import', async () => {
     const user = userEvent.setup();
     const managed: StubTemplate = {
       ...USER_TEMPLATE,
@@ -430,21 +440,15 @@ describe('the workspace template library', () => {
     renderAt(<App />, '/templates');
 
     await user.click(await screen.findByRole('button', { name: 'Duplicate Managed review' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This template could not be duplicated.',
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Duplicate Managed review' }));
 
     expect(await screen.findByRole('heading', { name: 'Edit Managed review' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Managed review');
     expect(writes.templateExports).toEqual([managed.id]);
-    expect(writes.templatePreviewBodies).toHaveLength(1);
-    expect(writes.templateImportBodies).toHaveLength(2);
-    expect(writes.templateImportBodies[0]).toBe(writes.templatePreviewBodies[0]);
-    expect(writes.templateImportBodies[1]).toBe(writes.templateImportBodies[0]);
-    expect(writes.templateImports).toEqual(['abc123', 'abc123']);
-    expect(writes.templateImportIdempotencyKeys[1]).toBe(writes.templateImportIdempotencyKeys[0]);
+    expect(writes.templateUploadBodies).toHaveLength(1);
+    expect(writes.templateImports).toEqual([TEMPLATE_IMPORT_DIGEST]);
+    expect(writes.templateImportIdempotencyKeys).toHaveLength(1);
+    expect(writes.templateImportCommitIds).toEqual([STUB_TEMPLATE_IMPORT_ID]);
+    expect(writes.templateImportReads).toEqual([STUB_TEMPLATE_IMPORT_ID, STUB_TEMPLATE_IMPORT_ID]);
   });
 
   it('shows the server refusal when a read-only template cannot be duplicated', async () => {
@@ -462,17 +466,34 @@ describe('the workspace template library', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Duplicate Kanban' }));
-    expect(writes.templateImportIdempotencyKeys[1]).toBe(writes.templateImportIdempotencyKeys[0]);
+    await waitFor(() => {
+      expect(writes.templateImports).toEqual([TEMPLATE_IMPORT_DIGEST, TEMPLATE_IMPORT_DIGEST]);
+    });
+    expect(writes.templateImportIdempotencyKeys).toHaveLength(1);
+    expect(writes.templateImportCommitIds).toEqual([
+      STUB_TEMPLATE_IMPORT_ID,
+      STUB_TEMPLATE_IMPORT_ID,
+    ]);
     expect(writes.templateExports).toEqual([kanban.id]);
-    expect(writes.templateImports).toEqual(['abc123', 'abc123']);
-    expect(writes.templateImportBodies[1]).toBe(writes.templateImportBodies[0]);
+    expect(writes.templateUploadBodies).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Start a separate duplicate' }));
-    expect(writes.templateImportIdempotencyKeys[2]).not.toBe(
+    await waitFor(() => {
+      expect(writes.templateImportIdempotencyKeys).toHaveLength(2);
+      expect(writes.templateImports).toHaveLength(3);
+    });
+    expect(writes.templateImportIdempotencyKeys[1]).not.toBe(
       writes.templateImportIdempotencyKeys[0],
     );
+    expect(writes.templateImportCancellations).toEqual([STUB_TEMPLATE_IMPORT_ID]);
+    expect(writes.templateImportCommitIds.slice(0, 2)).toEqual([
+      STUB_TEMPLATE_IMPORT_ID,
+      STUB_TEMPLATE_IMPORT_ID,
+    ]);
+    expect(writes.templateImportCommitIds[2]).not.toBe(STUB_TEMPLATE_IMPORT_ID);
     expect(writes.templateExports).toEqual([kanban.id, kanban.id]);
-    expect(writes.templateImportBodies[2]).not.toBe(writes.templateImportBodies[0]);
+    expect(writes.templateUploadBodies).toHaveLength(2);
+    expect(writes.templateUploadBodies[1]).not.toBe(writes.templateUploadBodies[0]);
   });
 
   it('does not offer template duplication to readers', async () => {

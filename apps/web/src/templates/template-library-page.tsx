@@ -1,3 +1,4 @@
+import { isCanceledError } from '@nix/api-client';
 import { Button, Card, Dialog, Field, Icon, Input, Tag, Text } from '@nix/ui';
 import { Copy, Download, FileUp, LayoutTemplate, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -7,16 +8,16 @@ import { useApiClient } from '../api/api-client-provider';
 import { fileNameFrom, saveArchive } from '../export/export-archive';
 import { useTemplateLibrary } from './template-library-context';
 import {
+  beginAndPreviewTemplate,
+  cancelTemplateImport,
+  commitAndWaitTemplate,
   deleteTemplate,
   exportTemplate,
-  importTemplateFile,
-  previewTemplateFile,
   type TemplateSummary,
 } from './template-api';
 import { templateFailure } from './use-templates';
 import { TemplateViewPreview } from './template-view-preview';
 import { useWorkspace } from '../workspaces/workspace-context';
-import { isCanceledError } from '@nix/api-client';
 
 function originLabel(template: TemplateSummary): string {
   if (template.origin === 'managed') return 'Managed from file';
@@ -27,6 +28,8 @@ function originLabel(template: TemplateSummary): string {
 interface DuplicateAttempt {
   readonly idempotencyKey: string;
   readonly archive: Blob | null;
+  readonly fileName: string | null;
+  readonly importId: string | null;
   readonly digest: string | null;
 }
 
@@ -48,11 +51,18 @@ export function TemplateLibraryPage(): ReactNode {
   const activeRequests = useRef(new Set<AbortController>());
   useEffect(() => {
     const pendingRequests = activeRequests.current;
+    const attempts = duplicateAttempts.current;
     return () => {
       for (const controller of pendingRequests) controller.abort();
       pendingRequests.clear();
+      for (const attempt of attempts.values()) {
+        if (attempt.importId !== null) {
+          void cancelTemplateImport(client, attempt.importId).catch(() => undefined);
+        }
+      }
+      attempts.clear();
     };
-  }, []);
+  }, [client]);
   const query = searchParams.get('q') ?? '';
   const targetItemId = searchParams.get('target');
   const parentItemId = searchParams.get('parent');
@@ -127,6 +137,8 @@ export function TemplateLibraryPage(): ReactNode {
     let attempt = duplicateAttempts.current.get(template.id) ?? {
       idempotencyKey: globalThis.crypto.randomUUID(),
       archive: null,
+      fileName: null,
+      importId: null,
       digest: null,
     };
     duplicateAttempts.current.set(template.id, attempt);
@@ -138,27 +150,49 @@ export function TemplateLibraryPage(): ReactNode {
         });
         if (controller.signal.aborted) return;
         archive = exported.blob;
-        attempt = { ...attempt, archive };
+        attempt = {
+          ...attempt,
+          archive,
+          fileName: fileNameFrom(exported.headers['content-disposition'] ?? null),
+        };
         duplicateAttempts.current.set(template.id, attempt);
       }
+      let importId = attempt.importId;
       let digest = attempt.digest;
-      if (digest === null) {
-        const preview = await client.execute(previewTemplateFile(workspaceId, archive), {
-          signal: controller.signal,
-        });
+      if (importId === null || digest === null) {
+        const imported = await beginAndPreviewTemplate(
+          client,
+          {
+            workspaceId,
+            fileName: attempt.fileName ?? 'template.nix',
+            mediaType: archive.type || 'application/octet-stream',
+            byteLength: archive.size,
+            idempotencyKey: attempt.idempotencyKey,
+          },
+          archive,
+          controller.signal,
+          (startedImportId) => {
+            attempt = { ...attempt, importId: startedImportId };
+            duplicateAttempts.current.set(template.id, attempt);
+          },
+        );
         if (controller.signal.aborted) return;
-        digest = preview.digest;
-        attempt = { ...attempt, digest };
+        if (imported.preview === null) {
+          throw new Error('The template preview did not become ready.');
+        }
+        importId = imported.id;
+        digest = imported.preview.digest;
+        attempt = { ...attempt, importId, digest };
         duplicateAttempts.current.set(template.id, attempt);
       }
 
-      const imported = await client.execute(
-        importTemplateFile(workspaceId, archive, digest, attempt.idempotencyKey),
-        { signal: controller.signal },
-      );
+      const imported = await commitAndWaitTemplate(client, importId, digest, controller.signal);
       if (controller.signal.aborted) return;
+      if (imported.result === null) {
+        throw new Error('The template import did not publish.');
+      }
       duplicateAttempts.current.delete(template.id);
-      void navigate(`/w/${workspaceId}/templates/${imported.templateId}/edit`);
+      void navigate(`/w/${workspaceId}/templates/${imported.result.templateId}/edit`);
     } catch (reason) {
       if (controller.signal.aborted || isCanceledError(reason)) return;
       setDuplicateError(templateFailure(reason, 'This template could not be duplicated.'));
@@ -167,6 +201,33 @@ export function TemplateLibraryPage(): ReactNode {
       activeRequests.current.delete(controller);
       if (!controller.signal.aborted) setDuplicating(null);
     }
+  }
+
+  async function startSeparateDuplicate(template: TemplateSummary): Promise<void> {
+    const previous = duplicateAttempts.current.get(template.id);
+    if (previous?.importId !== null && previous?.importId !== undefined) {
+      setDuplicating(template.id);
+      setDuplicateError(null);
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
+      try {
+        await cancelTemplateImport(client, previous.importId, controller.signal);
+        if (controller.signal.aborted) return;
+      } catch (reason) {
+        if (controller.signal.aborted || isCanceledError(reason)) return;
+        setDuplicateError(
+          templateFailure(reason, 'The previous duplicate could not be discarded.'),
+        );
+        setFailedDuplicate(template);
+        return;
+      } finally {
+        activeRequests.current.delete(controller);
+        if (!controller.signal.aborted) setDuplicating(null);
+      }
+    }
+
+    duplicateAttempts.current.delete(template.id);
+    await duplicate(template);
   }
 
   return (
@@ -225,8 +286,7 @@ export function TemplateLibraryPage(): ReactNode {
                 variant="secondary"
                 onClick={() => {
                   const template = failedDuplicate;
-                  duplicateAttempts.current.delete(template.id);
-                  void duplicate(template);
+                  void startSeparateDuplicate(template);
                 }}
               >
                 Start a separate duplicate

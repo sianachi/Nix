@@ -37,11 +37,13 @@ public sealed class WorkerExecutionMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         IWorkerDispatchStore dispatch,
+        IWorkerExecutionFence fence,
         ScopedNixSessionContextAccessor accessor,
         NixDbContext database)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(dispatch);
+        ArgumentNullException.ThrowIfNull(fence);
         ArgumentNullException.ThrowIfNull(accessor);
         ArgumentNullException.ThrowIfNull(database);
 
@@ -68,33 +70,81 @@ public sealed class WorkerExecutionMiddleware
             authorization.WorkspaceId is { } workspaceId ? WorkspaceId.From(workspaceId) : null,
             PrincipalId.From(authorization.ActorId)));
 
-        var transaction = await database.Database
-            .BeginTransactionAsync(context.RequestAborted)
-            .ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
+        var originalBody = context.Response.Body;
+        var bufferedBody = CreateResponseBuffer();
+        await using (bufferedBody.ConfigureAwait(false))
         {
-            await _next(context).ConfigureAwait(false);
-            if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+            context.Response.Body = bufferedBody;
+            try
             {
-                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
-                return;
-            }
-
-            // The endpoint may have taken long enough to lose its lease. Re-check before making
-            // any mutation durable, so an abandoned execution cannot publish after its successor.
-            if (await dispatch.AuthorizeExecutionAsync(jobId, executionId, context.RequestAborted)
-                    .ConfigureAwait(false) is null)
-            {
-                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
-                if (!context.Response.HasStarted)
+                var transaction = await database.Database
+                    .BeginTransactionAsync(context.RequestAborted)
+                    .ConfigureAwait(false);
+                await using (transaction.ConfigureAwait(false))
                 {
-                    await RefuseAsync(context).ConfigureAwait(false);
-                }
-                return;
-            }
+                    await _next(context).ConfigureAwait(false);
+                    if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+                    {
+                        await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                        await PublishBufferedResponseAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
+                        return;
+                    }
 
-            await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
+                    // Lock the exact durable job row through commit. A second execution cannot
+                    // replace this lease after the check but before the mutation becomes durable.
+                    if (!await fence.HoldAsync(jobId, executionId, authorization, context.RequestAborted)
+                            .ConfigureAwait(false))
+                    {
+                        await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                        context.Response.Body = originalBody;
+                        context.Response.Clear();
+                        await RefuseAsync(context).ConfigureAwait(false);
+                        return;
+                    }
+
+                    await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
+                }
+
+                await PublishBufferedResponseAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
+            }
+            finally
+            {
+                context.Response.Body = originalBody;
+            }
         }
+    }
+
+    private static FileStream CreateResponseBuffer()
+    {
+        var options = new FileStreamOptions
+        {
+            Access = FileAccess.ReadWrite,
+            BufferSize = 64 * 1024,
+            Mode = FileMode.CreateNew,
+            Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose | FileOptions.SequentialScan,
+            Share = FileShare.None,
+        };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+        return new FileStream(
+            Path.Combine(Path.GetTempPath(), $"nix-worker-response-{Guid.NewGuid():N}.tmp"),
+            options);
+    }
+
+    private static async Task PublishBufferedResponseAsync(
+        HttpContext context,
+        FileStream bufferedBody,
+        Stream originalBody)
+    {
+        context.Response.Body = originalBody;
+        bufferedBody.Position = 0;
+        if (context.Response.StatusCode is not (StatusCodes.Status204NoContent or StatusCodes.Status304NotModified))
+        {
+            context.Response.ContentLength = bufferedBody.Length;
+        }
+        await bufferedBody.CopyToAsync(originalBody, context.RequestAborted).ConfigureAwait(false);
     }
 
     private static async Task RefuseAsync(HttpContext context)

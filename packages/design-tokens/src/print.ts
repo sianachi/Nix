@@ -7,7 +7,7 @@
  * the same colour as `'1D1F20'` - Open XML takes no leading hash - does not. A guard that catches
  * one of two twins is worse than one that catches neither, because it teaches you it is covering
  * you. Declaring the palette here makes both converters exempt *by construction* and satisfies
- * CLAUDE.md's "all colours come from packages/design-tokens" literally rather than by waiver.
+ * AGENTS.md's "all colours come from packages/design-tokens" literally rather than by waiver.
  *
  * **These are the light ground's values and always will be.** A document printed on paper has one
  * ground; there is no dark-mode PDF. `print.test.ts` asserts every value below appears verbatim in
