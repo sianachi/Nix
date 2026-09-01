@@ -1,9 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
+import { ApiClientProvider } from '../../api/api-client-provider';
+import { AuthProvider } from '../../auth/auth-provider';
 import { WorkspaceSidebar } from '../../items/workspace-sidebar';
 import type { TreeItem, WorkspaceTree } from '../../items/use-workspace-tree';
+import { WorkspaceProvider } from '../../workspaces/workspace-context';
+import { STUB_WORKSPACE } from '../api-stub';
 
 /**
  * Moving an item without a pointer.
@@ -70,23 +75,52 @@ function focusRow(title: string): void {
   screen.getByRole('button', { name: title }).focus();
 }
 
+function renderSidebar(tree: WorkspaceTree, selectedId: string | null = null): void {
+  render(
+    <MemoryRouter initialEntries={[`/w/${STUB_WORKSPACE.id}`]}>
+      <AuthProvider>
+        <ApiClientProvider>
+          <Routes>
+            <Route
+              path="/w/:workspaceId"
+              element={
+                <WorkspaceProvider
+                  state={{
+                    status: 'ready',
+                    workspaces: [STUB_WORKSPACE],
+                    error: null,
+                    reload: () => undefined,
+                    workspaceCreated: () => undefined,
+                    workspaceUpdated: () => undefined,
+                    workspaceRemoved: () => undefined,
+                  }}
+                >
+                  <WorkspaceSidebar
+                    tree={tree}
+                    selectedId={selectedId}
+                    onSelect={vi.fn()}
+                    onOpenBeside={() => undefined}
+                    onOpenPinned={() => undefined}
+                    besideRefusal={null}
+                    canOpenBeside
+                    onDeleteItem={vi.fn()}
+                    treeRegionRef={{ current: null }}
+                  />
+                </WorkspaceProvider>
+              }
+            />
+          </Routes>
+        </ApiClientProvider>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('moving an item from the keyboard', () => {
   it('moves it above the sibling before it', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('Second');
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
@@ -100,19 +134,7 @@ describe('moving an item from the keyboard', () => {
   it('moves it below the sibling after it', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('First');
     await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
@@ -125,19 +147,7 @@ describe('moving an item from the keyboard', () => {
   it('puts it inside the sibling above when indented', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('Second');
     await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
@@ -152,19 +162,7 @@ describe('moving an item from the keyboard', () => {
   it('does not indent the first of its siblings, which has nothing to go inside', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('First');
     await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
@@ -175,19 +173,7 @@ describe('moving an item from the keyboard', () => {
   it('does not move the last of its siblings further down', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('Third');
     await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
@@ -198,19 +184,7 @@ describe('moving an item from the keyboard', () => {
   it('leaves an unmodified arrow key alone', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve());
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move)}
-        selectedId={null}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move));
 
     focusRow('Second');
     await user.keyboard('{ArrowUp}');
@@ -228,19 +202,7 @@ describe('moving an item to the workspace root', () => {
     const parent = { ...ROOT_A, hasChildren: true };
     const child = { ...ROOT_C, parentId: parent.id, title: 'Nested' };
 
-    render(
-      <WorkspaceSidebar
-        tree={treeOf(move, [parent, ROOT_B, child], new Set([parent.id]))}
-        selectedId={child.id}
-        onSelect={vi.fn()}
-        onOpenBeside={() => undefined}
-        onOpenPinned={() => undefined}
-        besideRefusal={null}
-        canOpenBeside
-        onDeleteItem={vi.fn()}
-        treeRegionRef={{ current: null }}
-      />,
-    );
+    renderSidebar(treeOf(move, [parent, ROOT_B, child], new Set([parent.id])), child.id);
 
     await user.click(screen.getByRole('button', { name: /move nested to the workspace root/i }));
 
