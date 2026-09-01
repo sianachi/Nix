@@ -19,7 +19,11 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 		if err := validateSettings(roles, config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret"}); err == nil {
 			t.Fatalf("%s accepted an empty broker URL", service)
 		}
-		if err := validateSettings(roles, config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret", RabbitMQURL: "amqp://rabbit"}); err != nil {
+		valid := config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret", RabbitMQURL: "amqp://rabbit"}
+		if service == role.Import {
+			valid.CollaborationURL = "http://collab"
+		}
+		if err := validateSettings(roles, valid); err != nil {
 			t.Fatalf("%s rejected valid API configuration: %v", service, err)
 		}
 	}

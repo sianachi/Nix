@@ -2,30 +2,33 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Settings struct {
-	Address         string
-	InternalSecret  string
-	MaxInputBytes   int64
-	MaxLineBytes    int
-	MaxRecords      int
-	MaxTokens       int
-	RequestTimeout  time.Duration
-	InternalAPIURL  string
-	PollInterval    time.Duration
-	WorkerID        string
-	MaxConcurrency  int
-	OpenSearchURL   string
-	OpenSearchIndex string
-	RabbitMQURL     string
-	WorkerRoles     string
-	LeaseDuration   time.Duration
-	RenewInterval   time.Duration
-	MaxMessageBytes int
+	Address          string
+	InternalSecret   string
+	MaxInputBytes    int64
+	MaxLineBytes     int
+	MaxRecords       int
+	MaxTokens        int
+	RequestTimeout   time.Duration
+	InternalAPIURL   string
+	CollaborationURL string
+	PollInterval     time.Duration
+	WorkerID         string
+	MaxConcurrency   int
+	OpenSearchURL    string
+	OpenSearchIndex  string
+	RabbitMQURL      string
+	WorkerRoles      string
+	LeaseDuration    time.Duration
+	RenewInterval    time.Duration
+	MaxMessageBytes  int
+	ObjectOrigins    []string
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -69,30 +72,53 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_MESSAGE_BYTES: %w", err)
 	}
+	objectOrigins, err := parseOrigins(getenv("NIX_WORKER_OBJECT_ORIGINS"))
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_WORKER_OBJECT_ORIGINS: %w", err)
+	}
 	settings := Settings{
-		Address:         valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
-		InternalSecret:  getenv("NIX_WORKER_INTERNAL_SECRET"),
-		MaxInputBytes:   maxInputBytes,
-		MaxLineBytes:    maxLineBytes,
-		MaxRecords:      maxRecords,
-		MaxTokens:       maxTokens,
-		RequestTimeout:  time.Duration(requestTimeoutSeconds) * time.Second,
-		InternalAPIURL:  strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
-		PollInterval:    time.Duration(pollSeconds) * time.Second,
-		WorkerID:        valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
-		MaxConcurrency:  maxConcurrency,
-		OpenSearchURL:   strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
-		OpenSearchIndex: valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
-		RabbitMQURL:     getenv("NIX_RABBITMQ_URL"),
-		WorkerRoles:     valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index"),
-		LeaseDuration:   time.Duration(leaseSeconds) * time.Second,
-		RenewInterval:   time.Duration(renewSeconds) * time.Second,
-		MaxMessageBytes: maxMessageBytes,
+		Address:          valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
+		InternalSecret:   getenv("NIX_WORKER_INTERNAL_SECRET"),
+		MaxInputBytes:    maxInputBytes,
+		MaxLineBytes:     maxLineBytes,
+		MaxRecords:       maxRecords,
+		MaxTokens:        maxTokens,
+		RequestTimeout:   time.Duration(requestTimeoutSeconds) * time.Second,
+		InternalAPIURL:   strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
+		CollaborationURL: strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
+		PollInterval:     time.Duration(pollSeconds) * time.Second,
+		WorkerID:         valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		MaxConcurrency:   maxConcurrency,
+		OpenSearchURL:    strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
+		OpenSearchIndex:  valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
+		RabbitMQURL:      getenv("NIX_RABBITMQ_URL"),
+		WorkerRoles:      valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index"),
+		LeaseDuration:    time.Duration(leaseSeconds) * time.Second,
+		RenewInterval:    time.Duration(renewSeconds) * time.Second,
+		MaxMessageBytes:  maxMessageBytes,
+		ObjectOrigins:    objectOrigins,
 	}
 	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil
+}
+
+func parseOrigins(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		parsed, err := url.Parse(trimmed)
+		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" || parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return nil, fmt.Errorf("%q is not an HTTP(S) origin", trimmed)
+		}
+		result = append(result, trimmed)
+	}
+	return result, nil
 }
 
 func valueOr(value, fallback string) string {

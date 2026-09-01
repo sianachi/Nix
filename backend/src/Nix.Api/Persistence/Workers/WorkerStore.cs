@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
@@ -18,11 +19,20 @@ public sealed class WorkerStore(NixDbContext database) : IWorkerJobStore, IWorke
         string payload,
         CancellationToken cancellationToken)
     {
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({$"worker-job-key:{tenantId.Value:N}:{actorId.Value:N}:{idempotencyKey}"}, 0))",
+            cancellationToken).ConfigureAwait(false);
         var existing = await database.WorkerJobs.AsNoTracking()
             .SingleOrDefaultAsync(job => job.TenantId == tenantId && job.ActorId == actorId && job.IdempotencyKey == idempotencyKey, cancellationToken)
             .ConfigureAwait(false);
         if (existing is not null)
         {
+            if (existing.WorkspaceId != workspaceId
+                || !string.Equals(existing.Kind, kind, StringComparison.Ordinal)
+                || !PayloadEquivalent(kind, existing.Payload, payload))
+            {
+                throw new InvalidOperationException("The worker job idempotency key is already bound to different work.");
+            }
             return ToRecord(existing);
         }
         var now = DateTimeOffset.UtcNow;
@@ -181,5 +191,35 @@ public sealed class WorkerStore(NixDbContext database) : IWorkerJobStore, IWorke
     private static WorkerJobRecord ToRecord(WorkerJob job) => new(job.Id.Value, job.Kind, job.Status, job.Payload, job.Result, job.ErrorCode, job.ErrorDetail, job.Attempts, job.CancellationRequested, job.CreatedAt, job.CompletedAt);
     private static WorkerOutboxRecord ToRecord(WorkerOutboxEvent evt) => new(evt.Id.Value, evt.Kind, evt.Payload, evt.Attempts, evt.AvailableAt);
 
-    private sealed record WorkerCommandReference(Guid JobId, string Kind);
+    private static bool PayloadEquivalent(string kind, string left, string right)
+    {
+        try
+        {
+            if (kind == ObjectCleanupJobs.Kind)
+            {
+                var existing = JsonSerializer.Deserialize(
+                    left,
+                    ObjectCleanupJsonContext.Default.ObjectCleanupJobPayload);
+                var requested = JsonSerializer.Deserialize(
+                    right,
+                    ObjectCleanupJsonContext.Default.ObjectCleanupJobPayload);
+                return existing is not null
+                    && requested is not null
+                    && existing.OwnerKind == requested.OwnerKind
+                    && existing.OwnerId == requested.OwnerId
+                    && existing.ObjectKeys.SequenceEqual(requested.ObjectKeys, StringComparer.Ordinal);
+            }
+            using var leftDocument = JsonDocument.Parse(left, new JsonDocumentOptions { MaxDepth = 16 });
+            using var rightDocument = JsonDocument.Parse(right, new JsonDocumentOptions { MaxDepth = 16 });
+            return JsonElement.DeepEquals(leftDocument.RootElement, rightDocument.RootElement);
+        }
+        catch (JsonException)
+        {
+            return string.Equals(left, right, StringComparison.Ordinal);
+        }
+    }
+
+    private sealed record WorkerCommandReference(
+        [property: JsonPropertyName("jobId")] Guid JobId,
+        [property: JsonPropertyName("kind")] string Kind);
 }

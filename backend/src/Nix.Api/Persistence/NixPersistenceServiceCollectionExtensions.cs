@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
+using Nix.Abstractions.Files;
+using Nix.Abstractions.Importing;
 using Nix.Abstractions.Templates;
 using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
@@ -38,6 +40,7 @@ using Nix.Persistence.Graph;
 using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
+using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.Properties;
 using Nix.Persistence.Query;
 using Nix.Persistence.Recurrence;
@@ -153,6 +156,12 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<Nix.Persistence.Workers.WorkerStore>();
         services.AddScoped<IWorkerJobStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
         services.AddScoped<IWorkerOutboxStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerStore>());
+        services.AddScoped<IFileStore, Nix.Persistence.Files.FileStore>();
+        services.AddScoped<IDocumentImportStore, Nix.Persistence.Importing.DocumentImportStore>();
+        services.AddSingleton<AbandonedObjectOperationStore>();
+        services.AddSingleton<AbandonedObjectReaper>();
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+            provider => provider.GetRequiredService<AbandonedObjectReaper>());
 
         // Scoped, like everything else here: a store reads the scope's tenant and shares the
         // context's transaction, so it belongs to one unit of work and one tenant.

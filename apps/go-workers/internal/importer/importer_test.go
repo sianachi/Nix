@@ -29,7 +29,44 @@ func TestDocxImportExtractsWordText(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := Parse("docx", "one", "A document", bytes.NewReader(output.Bytes()), Limits{MaxBytes: 1000, MaxItems: 10, MaxEntry: 1000})
-	if err != nil || result.Records[0].Body != "Hello world" {
+	if err != nil || result.Records[0].Body != "Hello\n\nworld" {
+		t.Fatalf("Parse() = %+v, %v", result, err)
+	}
+}
+
+func TestTextImportNormalizesUtf8AndRejectsBinary(t *testing.T) {
+	result, err := Parse("txt", "one", "Text", bytes.NewReader([]byte{0xef, 0xbb, 0xbf, 'a', '\r', '\n', 'b'}), Limits{MaxBytes: 100, MaxItems: 10, MaxEntry: 100})
+	if err != nil || result.Records[0].Body != "a\nb" {
+		t.Fatalf("Parse() = %+v, %v", result, err)
+	}
+	_, err = Parse("txt", "one", "Text", bytes.NewReader([]byte{'a', 0, 'b'}), Limits{MaxBytes: 100, MaxItems: 10, MaxEntry: 100})
+	if err == nil {
+		t.Fatal("Parse() accepted binary text")
+	}
+}
+
+func TestDocxImportRejectsEntities(t *testing.T) {
+	var output bytes.Buffer
+	archive := zip.NewWriter(&output)
+	entry, _ := archive.Create("word/document.xml")
+	_, _ = entry.Write([]byte(`<!DOCTYPE x [<!ENTITY y "bad">]><w:document><w:p>&y;</w:p></w:document>`))
+	_ = archive.Close()
+	_, err := Parse("docx", "one", "Document", bytes.NewReader(output.Bytes()), Limits{MaxBytes: 1000, MaxItems: 10, MaxEntry: 1000})
+	if err == nil {
+		t.Fatal("Parse() accepted a DOCX XML entity")
+	}
+}
+
+func TestDocxImportExtractsSupportedImages(t *testing.T) {
+	var output bytes.Buffer
+	archive := zip.NewWriter(&output)
+	document, _ := archive.Create("word/document.xml")
+	_, _ = document.Write([]byte(`<w:document><w:p><w:t>With image</w:t></w:p></w:document>`))
+	image, _ := archive.Create("word/media/image1.png")
+	_, _ = image.Write(append([]byte{137, 80, 78, 71, 13, 10, 26, 10}, make([]byte, 24)...))
+	_ = archive.Close()
+	result, err := Parse("docx", "one", "Document", bytes.NewReader(output.Bytes()), Limits{MaxBytes: 5000, MaxItems: 10, MaxEntry: 4000})
+	if err != nil || len(result.Assets) != 1 || result.Assets[0].MediaType != "image/png" {
 		t.Fatalf("Parse() = %+v, %v", result, err)
 	}
 }

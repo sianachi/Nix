@@ -282,6 +282,55 @@ internal static class M0SchemaSeed
                     VALUES ({auditEvent}, {tenant}, {workspace}, {item}, 'item.changed', 1,
                             jsonb_build_object('id', {item}, 'title', '{slug} item'), now(), 0);
                 END IF;
+
+                IF to_regclass('public.file_version') IS NOT NULL THEN
+                    INSERT INTO file_version
+                        (file_version_id, tenant_id, workspace_id, item_id, version, object_key,
+                         file_name, media_type, byte_length, sha256, pixel_width, pixel_height,
+                         previewable, created_by, created_at)
+                    VALUES ({templateSource}, {tenant}, {workspace}, {item}, 1,
+                            'files/seed/{slug}', '{slug}.bin', 'application/octet-stream', 4,
+                            repeat('{(slug == "alpha" ? "a" : "b")}', 64), NULL, NULL, false,
+                            {principal}, now());
+
+                    INSERT INTO file_body
+                        (item_id, tenant_id, workspace_id, current_version_id)
+                    VALUES ({item}, {tenant}, {workspace}, {templateSource});
+
+                    INSERT INTO file_upload
+                        (upload_id, tenant_id, workspace_id, parent_id, target_item_id, actor_id,
+                         idempotency_key, purpose, file_name, declared_media_type, declared_byte_length,
+                         object_key, status, failure_code, published_item_id, expires_at, created_at,
+                         updated_at)
+                    VALUES ({templateApplication}, {tenant}, {workspace}, NULL, {item}, {principal},
+                            '{slug}-file-upload', 'document_import', '{slug}.bin',
+                            'application/octet-stream', 4,
+                            'files/upload/{slug}', 'completed', NULL, {item}, now() + interval '1 hour',
+                            now(), now());
+
+                    IF to_regclass('public.document_import') IS NOT NULL THEN
+                        INSERT INTO document_import
+                            (import_id, tenant_id, workspace_id, actor_id, upload_id, parent_id,
+                             format, title, idempotency_key, status, preview_job_id, commit_job_id,
+                             plan_object_key, plan_sha256, plan_byte_length, source_sha256,
+                             item_count, asset_count, loss, omissions, root_item_id, failure_code,
+                             expires_at, created_at, updated_at, completed_at)
+                        VALUES ({templateOperation}, {tenant}, {workspace}, {principal},
+                                {templateApplication}, NULL, 'nix', '{slug} import',
+                                '{slug}-document-import', 'completed', NULL, NULL,
+                                'imports/plans/{slug}.json', repeat('c', 64), 4,
+                                repeat('{(slug == "alpha" ? "a" : "b")}', 64), 1, 0,
+                                '[]'::jsonb, '[]'::jsonb, {item}, NULL,
+                                now() + interval '1 hour', now(), now(), now());
+
+                        INSERT INTO document_import_item
+                            (import_id, source_id, tenant_id, parent_source_id, target_item_id,
+                             item_type, final_lifecycle_state, body_required, file_version_id,
+                             object_key, object_ready)
+                        VALUES ({templateOperation}, 'root', {tenant}, NULL, {item}, 'folder',
+                                'active', false, NULL, NULL, true);
+                    END IF;
+                END IF;
             END
             $seed$;
 

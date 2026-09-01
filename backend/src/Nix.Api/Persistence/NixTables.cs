@@ -113,6 +113,12 @@ public static class NixTables
     /// <summary>Backend-owned durable events for rebuildable derived data.</summary>
     public const string WorkerOutboxEvent = "worker_outbox_event";
 
+    public const string FileBody = "file_body";
+    public const string FileVersion = "file_version";
+    public const string FileUpload = "file_upload";
+    public const string DocumentImport = "document_import";
+    public const string DocumentImportItem = "document_import_item";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -149,6 +155,11 @@ public static class NixTables
         TemplateApplicationItem,
         WorkerJob,
         WorkerOutboxEvent,
+        FileBody,
+        FileVersion,
+        FileUpload,
+        DocumentImport,
+        DocumentImportItem,
     ];
 
     /// <summary>
@@ -212,6 +223,11 @@ public static class NixTables
             [TemplateApplicationItem] = FullDml,
             [WorkerJob] = FullDml,
             [WorkerOutboxEvent] = FullDml,
+            [FileBody] = FullDml,
+            [FileVersion] = FullDml,
+            [FileUpload] = FullDml,
+            [DocumentImport] = FullDml,
+            [DocumentImportItem] = FullDml,
             [ItemClosure] = FullDml,
             [AclEntry] = FullDml,
 
