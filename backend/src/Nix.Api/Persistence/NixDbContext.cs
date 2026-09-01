@@ -8,6 +8,7 @@ using Nix.Domain.Identity;
 using Nix.Domain.Importing;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
+using Nix.Domain.Plugins;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
@@ -181,6 +182,27 @@ public sealed class NixDbContext : DbContext
     public DbSet<DocumentImport> DocumentImports => Set<DocumentImport>();
     public DbSet<DocumentImportItem> DocumentImportItems => Set<DocumentImportItem>();
 
+    /// <summary>Gets tenant-pinned plugin publisher keys.</summary>
+    public DbSet<PluginPublisher> PluginPublishers => Set<PluginPublisher>();
+
+    /// <summary>Gets immutable signed WebAssembly component versions.</summary>
+    public DbSet<PluginComponent> PluginComponents => Set<PluginComponent>();
+
+    /// <summary>Gets workspace-scoped plugin installations.</summary>
+    public DbSet<PluginInstallation> PluginInstallations => Set<PluginInstallation>();
+
+    /// <summary>Gets explicit plugin host capability grants.</summary>
+    public DbSet<PluginCapabilityGrant> PluginCapabilityGrants => Set<PluginCapabilityGrant>();
+
+    /// <summary>Gets immutable identifier-only plugin event receipts.</summary>
+    public DbSet<PluginEventReceipt> PluginEventReceipts => Set<PluginEventReceipt>();
+
+    /// <summary>Gets durable event-and-installation deduplication state.</summary>
+    public DbSet<PluginEventInbox> PluginEventInbox => Set<PluginEventInbox>();
+
+    /// <summary>Gets lease-bounded plugin invocation attempts.</summary>
+    public DbSet<PluginInvocation> PluginInvocations => Set<PluginInvocation>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -229,6 +251,8 @@ public sealed class NixDbContext : DbContext
         configurationBuilder.Properties<WorkerOutboxEventId>().HaveConversion<NixIdConverter<WorkerOutboxEventId>>();
         configurationBuilder.Properties<FileVersionId>().HaveConversion<NixIdConverter<FileVersionId>>();
         configurationBuilder.Properties<FileUploadId>().HaveConversion<NixIdConverter<FileUploadId>>();
+        configurationBuilder.Properties<PluginInstallationId>().HaveConversion<NixIdConverter<PluginInstallationId>>();
+        configurationBuilder.Properties<PluginInvocationId>().HaveConversion<NixIdConverter<PluginInvocationId>>();
     }
 
     /// <inheritdoc />
@@ -284,6 +308,13 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new FileUploadConfiguration());
         modelBuilder.ApplyConfiguration(new DocumentImportConfiguration());
         modelBuilder.ApplyConfiguration(new DocumentImportItemConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginPublisherConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginComponentConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginInstallationConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginCapabilityGrantConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginEventReceiptConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginEventInboxConfiguration());
+        modelBuilder.ApplyConfiguration(new PluginInvocationConfiguration());
 
         // Template trees and half-hydrated regular items are implementation state, not workspace
         // content. Special template/application paths opt out explicitly; every ordinary EF item

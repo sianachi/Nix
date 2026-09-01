@@ -38,4 +38,10 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(SearchIndexRebuildPageRequest))]
 [JsonSerializable(typeof(SearchIndexRebuildPageResponse))]
 [JsonSerializable(typeof(SearchIndexOutboxStatusResponse))]
+[JsonSerializable(typeof(PluginEventPreparationRequest))]
+[JsonSerializable(typeof(PluginPreparationResponse))]
+[JsonSerializable(typeof(PluginHostCallRequest))]
+[JsonSerializable(typeof(PluginHostCallResponse))]
+[JsonSerializable(typeof(PluginCompletionRequest))]
+[JsonSerializable(typeof(PluginCompletionResponse))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;

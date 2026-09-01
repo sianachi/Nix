@@ -43,6 +43,7 @@ type Envelope struct {
 	Payload          json.RawMessage `json:"payload"`
 	CorrelationID    string          `json:"correlationId"`
 	CausationID      *string         `json:"causationId,omitempty"`
+	CausationDepth   int             `json:"causationDepth,omitempty"`
 	TraceParent      *string         `json:"traceParent,omitempty"`
 	AggregateVersion *int64          `json:"aggregateVersion,omitempty"`
 }
@@ -60,6 +61,8 @@ type WorkspaceEvent struct {
 	Payload          json.RawMessage
 	CorrelationID    string
 	AggregateVersion *int64
+	CausationID      *string
+	CausationDepth   int
 }
 
 type CommandReference struct {
@@ -127,6 +130,11 @@ func ParseEnvelope(body []byte, maxBytes int) (Envelope, error) {
 	if envelope.AggregateVersion != nil && *envelope.AggregateVersion <= 0 {
 		return Envelope{}, ErrInvalidMessage
 	}
+	if envelope.CausationDepth < 0 || envelope.CausationDepth > 4 ||
+		envelope.CausationDepth == 0 && envelope.CausationID != nil ||
+		envelope.CausationDepth > 0 && (envelope.CausationID == nil || !isCanonicalUUID(*envelope.CausationID)) {
+		return Envelope{}, ErrInvalidMessage
+	}
 	return envelope, nil
 }
 
@@ -168,6 +176,8 @@ func (envelope Envelope) WorkspaceEvent() (WorkspaceEvent, error) {
 		Payload:          append(json.RawMessage(nil), envelope.Payload...),
 		CorrelationID:    envelope.CorrelationID,
 		AggregateVersion: envelope.AggregateVersion,
+		CausationID:      envelope.CausationID,
+		CausationDepth:   envelope.CausationDepth,
 	}, nil
 }
 

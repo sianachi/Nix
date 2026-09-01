@@ -87,7 +87,10 @@ public static class AccessTokenScopePolicy
         if (value.Contains("/members", StringComparison.OrdinalIgnoreCase)
             || value.Contains("/invitations", StringComparison.OrdinalIgnoreCase)
             || value.EndsWith("/leave", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith("/recover", StringComparison.OrdinalIgnoreCase))
+            || value.EndsWith("/recover", StringComparison.OrdinalIgnoreCase)
+            // Plugin writes pin publisher trust or grant executable components access to
+            // workspace data. Listing installations remains a read through the shortcut above.
+            || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }

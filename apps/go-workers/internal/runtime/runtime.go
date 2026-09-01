@@ -32,6 +32,8 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/objectcleanup"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
+	"github.com/sianachi/Nix/apps/go-workers/internal/pluginruntime"
+	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
@@ -128,6 +130,8 @@ func Run(service role.Service) {
 	var objectProbe *objectStoreProbe
 	if roles.Has(role.Import) || roles.Has(role.Export) {
 		collaborationProbe = newServiceProbe(settings.CollaborationURL, settings.RequestTimeout)
+	}
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
 		objectProbe = newObjectStoreProbe(settings.ObjectOrigins, settings.RequestTimeout)
 	}
 	var apiProbe *workerapi.Client
@@ -207,6 +211,40 @@ func Run(service role.Service) {
 		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ExportQueue, exportjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("export job runner configuration failed", "error", runnerErr)
+			os.Exit(1)
+		}
+		go runner.Run(ctx)
+	}
+	if roles.Has(role.Plugin) {
+		pluginRuntime, runtimeErr := pluginruntime.New(pluginruntime.Limits{
+			MaxModuleBytes:       int(settings.PluginMaxModuleBytes),
+			MaxEventBytes:        settings.MaxMessageBytes,
+			MaxHostRequestBytes:  64 << 10,
+			MaxHostResponseBytes: 256 << 10,
+			MaxHostCalls:         settings.PluginMaxHostCalls,
+			MemoryLimitPages:     uint32(settings.PluginMemoryPages),
+			ExecutionTimeout:     settings.PluginTimeout,
+		})
+		if runtimeErr != nil {
+			logger.Error("plugin sandbox configuration failed", "error", runtimeErr)
+			os.Exit(1)
+		}
+		worker, workerErr := pluginworker.New(
+			apiClient,
+			objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...),
+			pluginRuntime,
+			settings.PluginMaxModuleBytes,
+			settings.LeaseDuration,
+			settings.PollInterval,
+			logger,
+		)
+		if workerErr != nil {
+			logger.Error("plugin event worker configuration failed", "error", workerErr)
+			os.Exit(1)
+		}
+		runner, runnerErr := pluginworker.NewRunner(brokerClient, worker, settings.WorkerID, settings.MaxConcurrency, settings.PollInterval, logger)
+		if runnerErr != nil {
+			logger.Error("plugin event runner configuration failed", "error", runnerErr)
 			os.Exit(1)
 		}
 		go runner.Run(ctx)
@@ -318,8 +356,10 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 		if !validServiceOrigin(settings.CollaborationURL) {
 			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports and exports")
 		}
+	}
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
 		if len(settings.ObjectOrigins) == 0 {
-			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports and exports")
+			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports, exports, and plugins")
 		}
 	}
 	if roles.Has(role.Index) {

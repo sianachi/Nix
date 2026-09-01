@@ -20,6 +20,7 @@ using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Operations;
 using Nix.Features.Permissions;
+using Nix.Features.Plugins;
 using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Recurrence;
@@ -81,6 +82,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(OperationsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ExportsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(PluginsJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -463,6 +465,7 @@ app.MapItemEndpoints();
 app.MapFileEndpoints();
 app.MapDocumentImportEndpoints();
 app.MapExportEndpoints();
+app.MapPluginEndpoints();
 app.MapOperationEndpoints();
 app.MapMeEndpoints();
 app.MapStructureEndpoints();

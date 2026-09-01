@@ -229,6 +229,7 @@ export * as files from './resources/files.js';
 export * as imports from './resources/imports.js';
 export * as operations from './resources/operations.js';
 export * as exports from './resources/exports.js';
+export * as plugins from './resources/plugins.js';
 export type {
   FileDownloadCapability,
   FileRecord,
@@ -256,6 +257,16 @@ export type {
   ExportFormatCatalog,
   ExportStatus,
 } from './schemas/exports.js';
+export type {
+  PluginCapability,
+  PluginComponentUpload,
+  PluginInstallation,
+} from './schemas/plugins.js';
+export {
+  pluginCapabilitySchema,
+  pluginComponentUploadSchema,
+  pluginInstallationSchema,
+} from './schemas/plugins.js';
 export {
   exportDownloadCapabilitySchema,
   exportFormatCatalogSchema,

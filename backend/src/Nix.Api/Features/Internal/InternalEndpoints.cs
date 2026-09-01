@@ -42,6 +42,7 @@ internal static class InternalEndpoints
         WorkerOutboxEndpoints.Map(group);
         WorkerDispatchEndpoints.Map(group);
         SearchIndexDispatchEndpoints.Map(group);
+        PluginDispatchEndpoints.Map(group);
         FileEndpoints.MapInternal(group);
         FileEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         DocumentImportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));

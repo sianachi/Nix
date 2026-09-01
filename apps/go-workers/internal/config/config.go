@@ -9,26 +9,30 @@ import (
 )
 
 type Settings struct {
-	Address          string
-	InternalSecret   string
-	MaxInputBytes    int64
-	MaxLineBytes     int
-	MaxRecords       int
-	MaxTokens        int
-	RequestTimeout   time.Duration
-	InternalAPIURL   string
-	CollaborationURL string
-	PollInterval     time.Duration
-	WorkerID         string
-	MaxConcurrency   int
-	OpenSearchURL    string
-	OpenSearchIndex  string
-	RabbitMQURL      string
-	WorkerRoles      string
-	LeaseDuration    time.Duration
-	RenewInterval    time.Duration
-	MaxMessageBytes  int
-	ObjectOrigins    []string
+	Address              string
+	InternalSecret       string
+	MaxInputBytes        int64
+	MaxLineBytes         int
+	MaxRecords           int
+	MaxTokens            int
+	RequestTimeout       time.Duration
+	InternalAPIURL       string
+	CollaborationURL     string
+	PollInterval         time.Duration
+	WorkerID             string
+	MaxConcurrency       int
+	OpenSearchURL        string
+	OpenSearchIndex      string
+	RabbitMQURL          string
+	WorkerRoles          string
+	LeaseDuration        time.Duration
+	RenewInterval        time.Duration
+	MaxMessageBytes      int
+	ObjectOrigins        []string
+	PluginMaxModuleBytes int64
+	PluginMemoryPages    int
+	PluginTimeout        time.Duration
+	PluginMaxHostCalls   int
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -76,29 +80,49 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_OBJECT_ORIGINS: %w", err)
 	}
-	settings := Settings{
-		Address:          valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
-		InternalSecret:   getenv("NIX_WORKER_INTERNAL_SECRET"),
-		MaxInputBytes:    maxInputBytes,
-		MaxLineBytes:     maxLineBytes,
-		MaxRecords:       maxRecords,
-		MaxTokens:        maxTokens,
-		RequestTimeout:   time.Duration(requestTimeoutSeconds) * time.Second,
-		InternalAPIURL:   strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
-		CollaborationURL: strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
-		PollInterval:     time.Duration(pollSeconds) * time.Second,
-		WorkerID:         valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
-		MaxConcurrency:   maxConcurrency,
-		OpenSearchURL:    strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
-		OpenSearchIndex:  valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
-		RabbitMQURL:      getenv("NIX_RABBITMQ_URL"),
-		WorkerRoles:      valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index"),
-		LeaseDuration:    time.Duration(leaseSeconds) * time.Second,
-		RenewInterval:    time.Duration(renewSeconds) * time.Second,
-		MaxMessageBytes:  maxMessageBytes,
-		ObjectOrigins:    objectOrigins,
+	pluginMaxModuleBytes, err := parseInt64(getenv("NIX_PLUGIN_MAX_MODULE_BYTES"), 8<<20)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_PLUGIN_MAX_MODULE_BYTES: %w", err)
 	}
-	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 {
+	pluginMemoryPages, err := parseInt(getenv("NIX_PLUGIN_MEMORY_PAGES"), 1024)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_PLUGIN_MEMORY_PAGES: %w", err)
+	}
+	pluginTimeoutMilliseconds, err := parseInt(getenv("NIX_PLUGIN_TIMEOUT_MILLISECONDS"), 250)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_PLUGIN_TIMEOUT_MILLISECONDS: %w", err)
+	}
+	pluginMaxHostCalls, err := parseInt(getenv("NIX_PLUGIN_MAX_HOST_CALLS"), 32)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_PLUGIN_MAX_HOST_CALLS: %w", err)
+	}
+	settings := Settings{
+		Address:              valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
+		InternalSecret:       getenv("NIX_WORKER_INTERNAL_SECRET"),
+		MaxInputBytes:        maxInputBytes,
+		MaxLineBytes:         maxLineBytes,
+		MaxRecords:           maxRecords,
+		MaxTokens:            maxTokens,
+		RequestTimeout:       time.Duration(requestTimeoutSeconds) * time.Second,
+		InternalAPIURL:       strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
+		CollaborationURL:     strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
+		PollInterval:         time.Duration(pollSeconds) * time.Second,
+		WorkerID:             valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		MaxConcurrency:       maxConcurrency,
+		OpenSearchURL:        strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
+		OpenSearchIndex:      valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
+		RabbitMQURL:          getenv("NIX_RABBITMQ_URL"),
+		WorkerRoles:          valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index,plugin-events"),
+		LeaseDuration:        time.Duration(leaseSeconds) * time.Second,
+		RenewInterval:        time.Duration(renewSeconds) * time.Second,
+		MaxMessageBytes:      maxMessageBytes,
+		ObjectOrigins:        objectOrigins,
+		PluginMaxModuleBytes: pluginMaxModuleBytes,
+		PluginMemoryPages:    pluginMemoryPages,
+		PluginTimeout:        time.Duration(pluginTimeoutMilliseconds) * time.Millisecond,
+		PluginMaxHostCalls:   pluginMaxHostCalls,
+	}
+	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 || settings.PluginMaxModuleBytes <= 0 || settings.PluginMaxModuleBytes > 32<<20 || settings.PluginMemoryPages <= 0 || settings.PluginMemoryPages > 4096 || settings.PluginTimeout <= 0 || settings.PluginTimeout > 5*time.Second || settings.PluginMaxHostCalls <= 0 || settings.PluginMaxHostCalls > 256 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil
