@@ -111,7 +111,6 @@ internal static class FileEndpoints
         IPermissionResolver permissions)
     {
         if (!ValidName(request.FileName)
-            || !ValidMediaType(request.MediaType)
             || string.IsNullOrWhiteSpace(request.IdempotencyKey)
             || request.IdempotencyKey.Length > 160
             || request.ByteLength < 0
@@ -143,13 +142,18 @@ internal static class FileEndpoints
                 return new UploadAttempt(null, NotFound(context));
             }
         }
+        // Browser MIME values are advisory. The temporary opaque publish path deliberately does
+        // not trust them; invalid or missing values are stored as a safe download-only type.
+        var declaredMediaType = ValidMediaType(request.MediaType)
+            ? request.MediaType
+            : "application/octet-stream";
         var created = await files.BeginAsync(
             new BeginFileUpload(
                 workspaceId,
                 request.ParentId is { } parentId ? ItemId.From(parentId) : null,
                 request.TargetItemId is { } targetId ? ItemId.From(targetId) : null,
                 request.FileName,
-                request.MediaType,
+                declaredMediaType,
                 request.ByteLength,
                 request.IdempotencyKey),
             context.RequestAborted).ConfigureAwait(false);
