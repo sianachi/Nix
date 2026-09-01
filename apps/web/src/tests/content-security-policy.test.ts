@@ -92,8 +92,9 @@ describe('the content security policy', () => {
     // Core owns discovery, token exchange and UserInfo. The browser reaches only its own origin,
     // so a compromised provider page cannot become an admitted script connection or frame.
     for (const directive of ['connect-src', 'frame-src']) {
-      expect(meta.get(directive)).toEqual(["'self'"]);
-      expect(caddy.get(directive)).toEqual(["'self'"]);
+      const expected = directive === 'frame-src' ? ["'self'", 'blob:'] : ["'self'"];
+      expect(meta.get(directive)).toEqual(expected);
+      expect(caddy.get(directive)).toEqual(expected);
     }
   });
 
