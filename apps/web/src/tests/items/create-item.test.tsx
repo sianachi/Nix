@@ -165,8 +165,9 @@ describe('the new-item menu', () => {
     ).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /new calendar in the workspace/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /new list in the workspace/i })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /upload files/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toBeVisible();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(14);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(15);
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
     expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
