@@ -25,6 +25,7 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(FailWorkerOutboxRequest))]
 [JsonSerializable(typeof(WorkerOutboxEventResponse))]
 [JsonSerializable(typeof(IReadOnlyList<WorkerOutboxEventResponse>))]
+[JsonSerializable(typeof(ObjectCleanupCapabilityResponse))]
 [JsonSerializable(typeof(DispatchLeaseRequest))]
 [JsonSerializable(typeof(DispatchExecutionRequest))]
 [JsonSerializable(typeof(DispatchJobCompletion))]
