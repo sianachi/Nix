@@ -180,8 +180,8 @@ internal static class FileEndpoints
             scoped.TenantId,
             scoped.PrincipalId,
             WorkspaceId.From(upload.WorkspaceId),
-            "file.inspect",
-            $"file.inspect:{upload.Id:D}",
+            "file.publish",
+            $"file.publish:{upload.Id:D}",
             payload,
             context.RequestAborted).ConfigureAwait(false);
         return TypedResults.Accepted(
@@ -413,7 +413,7 @@ internal static class FileEndpoints
             scoped.PrincipalId,
             jobId,
             context.RequestAborted).ConfigureAwait(false);
-        if (job is not { Kind: "file.inspect", Status: "running" })
+        if (job is not { Kind: "file.publish", Status: "running" })
         {
             return false;
         }
