@@ -91,7 +91,8 @@ public sealed class RabbitOutboxPublisher(
                 route.Kind,
                 payloadDocument.RootElement.Clone(),
                 route.CorrelationId,
-                TraceParent: Activity.Current?.Id);
+                TraceParent: Activity.Current?.Id,
+                AggregateVersion: outboxEvent.AggregateVersion);
             // byte[]: RabbitMQ.Client publishes ReadOnlyMemory<byte>; source generation bounds this below 64 KiB.
             var body = JsonSerializer.SerializeToUtf8Bytes(envelope, RabbitMqJsonContext.Default.RabbitMessageEnvelope);
             if (body.Length > options.MaxMessageBytes)

@@ -15,9 +15,9 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 	for _, service := range []role.Service{role.Import, role.Export, role.Index} {
 		roles := role.Set{service: true}
 		if err := validateSettings(roles, config.Settings{}); err == nil {
-			t.Fatalf("%s accepted an empty API URL", service)
+			t.Fatalf("%s accepted an empty internal credential", service)
 		}
-		if err := validateSettings(roles, config.Settings{InternalAPIURL: "http://api"}); err == nil {
+		if err := validateSettings(roles, config.Settings{InternalAPIURL: "http://api", RabbitMQURL: "amqp://rabbit"}); err == nil {
 			t.Fatalf("%s accepted an empty internal secret", service)
 		}
 		if err := validateSettings(roles, config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret"}); err == nil {
@@ -28,9 +28,40 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 			valid.CollaborationURL = "http://collab"
 			valid.ObjectOrigins = []string{"https://objects.example.test"}
 		}
+		if service == role.Index {
+			valid.OpenSearchURL = "http://opensearch"
+			valid.OpenSearchIndex = "nix-items"
+		}
 		if err := validateSettings(roles, valid); err != nil {
 			t.Fatalf("%s rejected valid API configuration: %v", service, err)
 		}
+		withoutAPI := valid
+		withoutAPI.InternalAPIURL = ""
+		if err := validateSettings(roles, withoutAPI); err == nil {
+			t.Fatalf("%s accepted a missing worker API URL", service)
+		}
+	}
+}
+
+func TestIndexWorkerRejectsMissingOrBroadOpenSearchTargets(t *testing.T) {
+	settings := config.Settings{
+		InternalAPIURL:  "http://api",
+		InternalSecret:  "secret",
+		RabbitMQURL:     "amqp://rabbit",
+		OpenSearchURL:   "http://opensearch",
+		OpenSearchIndex: "nix-items",
+	}
+	roles := role.Set{role.Index: true}
+
+	missingURL := settings
+	missingURL.OpenSearchURL = ""
+	if err := validateSettings(roles, missingURL); err == nil {
+		t.Fatal("index worker accepted a missing OpenSearch URL")
+	}
+	broadIndex := settings
+	broadIndex.OpenSearchIndex = "nix-*"
+	if err := validateSettings(roles, broadIndex); err == nil {
+		t.Fatal("index worker accepted a wildcard OpenSearch index")
 	}
 }
 

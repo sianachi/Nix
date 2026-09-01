@@ -253,44 +253,21 @@ public sealed class FileStore(
         upload.PublishedItemId = itemId;
         upload.Status = "completed";
         upload.UpdatedAt = clock.GetUtcNow();
-        var indexedParentId = upload.ParentId?.Value;
+        // A new file item is covered by the deferred item trigger. Replacement changes only the
+        // current immutable file version, so it needs one explicit projection refresh.
         if (upload.TargetItemId is not null)
         {
-            indexedParentId = await database.Items.AsNoTracking()
-                .Where(item => item.TenantId == context.TenantId && item.Id == itemId)
-                .Select(item => item.ParentId == null ? (Guid?)null : item.ParentId.Value.Value)
-                .SingleAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        database.WorkerOutboxEvents.Add(new WorkerOutboxEvent
-        {
-            Id = WorkerOutboxEventId.Create(),
-            TenantId = context.TenantId,
-            WorkspaceId = upload.WorkspaceId,
-            ItemId = itemId,
-            Kind = "item.changed",
-            Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+            database.WorkerOutboxEvents.Add(new WorkerOutboxEvent
             {
-                ["item_id"] = itemId.Value,
-                ["parent_id"] = indexedParentId,
-                ["title"] = upload.FileName,
-                ["body"] = string.Empty,
-                ["property_text"] = $"{upload.FileName} {request.DetectedMediaType}",
-                ["properties"] = new Dictionary<string, object?>
-                {
-                    ["fileName"] = upload.FileName,
-                    ["mediaType"] = request.DetectedMediaType,
-                    ["byteLength"] = request.ByteLength,
-                },
-                ["ancestor_ids"] = Array.Empty<string>(),
-                ["links"] = Array.Empty<string>(),
-                ["authorization_keys"] = Array.Empty<string>(),
-                ["lifecycle_state"] = "active",
-                ["source_version"] = nextVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["source_updated_at"] = upload.UpdatedAt,
-            }),
-            AvailableAt = upload.UpdatedAt,
-        });
+                Id = WorkerOutboxEventId.Create(),
+                TenantId = context.TenantId,
+                WorkspaceId = upload.WorkspaceId,
+                ItemId = itemId,
+                Kind = "item.changed",
+                Payload = "{}",
+                AvailableAt = upload.UpdatedAt,
+            });
+        }
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return await GetAsync(itemId, cancellationToken).ConfigureAwait(false);
     }

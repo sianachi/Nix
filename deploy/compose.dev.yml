@@ -8,6 +8,7 @@
 # Profiles:
 #   core   - the default developer set: app Postgres (pgvector), RabbitMQ, Versity S3
 #            gateway, Zitadel (with its own Postgres), Aspire dashboard (OTLP).
+#   search - OpenSearch, the rebuildable index used by the Go index role.
 #   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
 #   ai     - mock LLM endpoint serving a static OpenRouter-shaped completion.
 #
@@ -26,6 +27,7 @@
 #   5673  RabbitMQ AMQP       (5672 is commonly occupied)
 #   15673 RabbitMQ management
 #   8300  Zitadel             (8080 is too popular to claim)
+#   9201  OpenSearch          (9200 is commonly occupied)
 #   18888 Aspire dashboard UI
 #   18889 OTLP gRPC ingest, 18890 OTLP HTTP ingest
 #   8380  mock LLM            (ai profile)
@@ -100,6 +102,27 @@ services:
       timeout: 5s
       retries: 18
       start_period: 15s
+
+  opensearch:
+    image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
+    profiles: ["search"]
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "false"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ports:
+      - "127.0.0.1:${NIX_OPENSEARCH_PORT:-9201}:9200"
+    volumes:
+      - nix-opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    mem_limit: 1g
 
   # S3-compatible object store: Versity gateway, posix backend over a named
   # volume. Same IBlobStore + presigned-URL contract as production S3.
@@ -240,6 +263,7 @@ services:
 volumes:
   nix-pg-data:
   nix-rabbitmq-data:
+  nix-opensearch-data:
   versity-data:
   zitadel-pg-data:
   zitadel-machinekey:

@@ -34,4 +34,8 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(WorkerExecutionState))]
 [JsonSerializable(typeof(DispatchedOutboxEvent))]
 [JsonSerializable(typeof(IReadOnlyList<DispatchedOutboxEvent>))]
+[JsonSerializable(typeof(SearchIndexMetadataResponse))]
+[JsonSerializable(typeof(SearchIndexRebuildPageRequest))]
+[JsonSerializable(typeof(SearchIndexRebuildPageResponse))]
+[JsonSerializable(typeof(SearchIndexOutboxStatusResponse))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;

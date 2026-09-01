@@ -109,10 +109,19 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
             Assert.Equal(2, await publish.DbContext.Items.CountAsync(
                 item => stage.Items.Select(mapping => ItemId.From(mapping.TargetItemId)).Contains(item.Id),
                 Cancellation));
-            Assert.Equal(2, await publish.DbContext.WorkerOutboxEvents.CountAsync(
-                value => value.ItemId != null
-                    && stage.Items.Select(mapping => ItemId.From(mapping.TargetItemId)).Contains(value.ItemId.Value),
-                Cancellation));
+            var importedItemIds = stage.Items
+                .Select(mapping => ItemId.From(mapping.TargetItemId))
+                .ToArray();
+            var indexEvents = await publish.DbContext.WorkerOutboxEvents
+                .Where(value => value.ItemId != null && importedItemIds.Contains(value.ItemId.Value))
+                .Select(value => new { value.ItemId, value.Kind })
+                .ToListAsync(Cancellation);
+
+            Assert.Equal(2, indexEvents.Count);
+            Assert.All(indexEvents, value => Assert.Equal("item.changed", value.Kind));
+            Assert.Single(indexEvents, value => value.ItemId == ItemId.From(stage.RootItemId));
+            var sourceItemId = ItemId.From(stage.Items.Single(mapping => mapping.SourceId == "original").TargetItemId);
+            Assert.Single(indexEvents, value => value.ItemId == sourceItemId);
         }
     }
 

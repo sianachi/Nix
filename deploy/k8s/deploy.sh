@@ -23,9 +23,10 @@ source deploy/k8s/template-boot-config.sh
 : "${DOMAIN:?set DOMAIN, e.g. nix.example.com}"
 require_template_boot_config
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
-export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN
+export NIX_SEARCH_OPENSEARCH_ENABLED="${NIX_SEARCH_OPENSEARCH_ENABLED:-false}"
+export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN NIX_SEARCH_OPENSEARCH_ENABLED
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${NIX_SEARCH_OPENSEARCH_ENABLED} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -65,6 +66,10 @@ kubectl -n nix create configmap nix-rabbitmq-config \
   --dry-run=client -o yaml | kubectl apply -f -
 render deploy/k8s/rabbitmq.yaml | kubectl apply -f -
 kubectl -n nix rollout status statefulset/nix-rabbitmq --timeout=180s
+
+echo "== OpenSearch =="
+kubectl apply -f deploy/k8s/opensearch.yaml
+kubectl -n nix rollout status statefulset/nix-opensearch --timeout=300s
 
 echo "== Seed =="
 kubectl apply -f deploy/k8s/job-seed.yaml
