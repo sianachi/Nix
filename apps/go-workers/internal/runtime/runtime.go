@@ -36,6 +36,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
+	"github.com/sianachi/Nix/apps/go-workers/internal/templateimport"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
@@ -63,53 +64,15 @@ func Run(service role.Service) {
 		logger.Warn("abandoned worker temporary files could not be swept", "error", err)
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
-		response, healthErr := http.Get(healthURL(settings.Address))
-		if healthErr != nil || response.StatusCode != http.StatusOK {
-			if response != nil {
-				_ = response.Body.Close()
-			}
+		if readinessErr := checkReadiness(settings.Address, 3*time.Second); readinessErr != nil {
 			os.Exit(1)
 		}
-		_ = response.Body.Close()
 		return
 	}
 
 	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
 	indexState := indexer.NewState()
-	var ready atomic.Bool
-	ready.Store(false)
 	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
-	var indexControl httpserver.IndexControl
-	var indexHydrator indexer.Hydrator
-	if roles.Has(role.Index) && settings.InternalAPIURL != "" {
-		indexControl = apiClient
-		indexHydrator = apiClient
-	}
-	server := httpserver.NewForRole(role.All, httpserver.Dependencies{
-		Logger:         logger,
-		InternalSecret: settings.InternalSecret,
-		MaxInputSize:   settings.MaxInputBytes,
-		MaxRecords:     settings.MaxRecords,
-		MaxLineBytes:   settings.MaxLineBytes,
-		MaxTokens:      settings.MaxTokens,
-		RequestTimeout: settings.RequestTimeout,
-		Index:          searchIndex,
-		IndexControl:   indexControl,
-		IndexHealth:    indexState.Snapshot,
-		Ready: func() bool {
-			return ready.Load() && (!roles.Has(role.Index) || indexState.Ready())
-		},
-	})
-	httpServer := &http.Server{
-		Addr:              settings.Address,
-		Handler:           server,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       settings.RequestTimeout,
-		WriteTimeout:      settings.RequestTimeout,
-		IdleTimeout:       30 * time.Second,
-		MaxHeaderBytes:    16 * 1024,
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	brokerClient, err := broker.New(settings.RabbitMQURL, settings.MaxMessageBytes, logger)
@@ -122,6 +85,42 @@ func Run(service role.Service) {
 			logger.Warn("broker close failed", "error", closeErr)
 		}
 	}()
+	readiness := newReadinessState(roles, brokerClient.ConsumerReady, indexState.Ready)
+	var indexControl httpserver.IndexControl
+	var indexHydrator indexer.Hydrator
+	if roles.Has(role.Index) && settings.InternalAPIURL != "" {
+		indexControl = apiClient
+		indexHydrator = apiClient
+	}
+	serverRole := role.All
+	if len(roles) == 1 {
+		for enabled := range roles {
+			serverRole = enabled
+		}
+	}
+	server := httpserver.NewForRole(serverRole, httpserver.Dependencies{
+		Logger:         logger,
+		InternalSecret: settings.InternalSecret,
+		MaxInputSize:   settings.MaxInputBytes,
+		MaxRecords:     settings.MaxRecords,
+		MaxLineBytes:   settings.MaxLineBytes,
+		MaxTokens:      settings.MaxTokens,
+		RequestTimeout: settings.RequestTimeout,
+		Index:          searchIndex,
+		IndexControl:   indexControl,
+		IndexHealth:    indexState.Snapshot,
+		Ready:          readiness.AllReady,
+	})
+	httpServer := &http.Server{
+		Addr:              settings.Address,
+		Handler:           server,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       settings.RequestTimeout,
+		WriteTimeout:      settings.RequestTimeout,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
+	}
+
 	var searchProbe *opensearch.Client
 	if roles.Has(role.Index) && settings.OpenSearchURL != "" {
 		searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
@@ -138,7 +137,7 @@ func Run(service role.Service) {
 	if settings.InternalAPIURL != "" {
 		apiProbe = apiClient
 	}
-	go probeReadiness(ctx, apiProbe, brokerClient, searchProbe, collaborationProbe, objectProbe, &ready, settings.PollInterval, logger)
+	startReadinessProbes(ctx, apiProbe, brokerClient, searchProbe, collaborationProbe, objectProbe, readiness, settings.PollInterval, logger)
 	if roles.Has(role.Index) {
 		var searchClient *opensearch.Client
 		if settings.OpenSearchURL != "" {
@@ -154,27 +153,40 @@ func Run(service role.Service) {
 			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
 		files := fileinspect.New(apiClient, transfer, settings.MaxInputBytes)
 		cleanup := objectcleanup.New(apiClient, transfer)
+		planLimits := importplan.Limits{
+			MaxSourceBytes: settings.MaxInputBytes,
+			MaxPlanBytes:   16 << 20,
+			MaxBodyBytes:   8 << 20,
+			MaxEntryBytes:  8 << 20,
+			MaxItems:       min(settings.MaxRecords, 10_000),
+			MaxDepth:       32,
+			PDFTimeoutSecs: max(1, int(settings.RequestTimeout/time.Second)),
+		}
 		documents, documentsErr := documentimport.New(
 			apiClient,
 			transfer,
 			settings.CollaborationURL,
 			settings.InternalSecret,
-			importplan.Limits{
-				MaxSourceBytes: settings.MaxInputBytes,
-				MaxPlanBytes:   16 << 20,
-				MaxBodyBytes:   8 << 20,
-				MaxEntryBytes:  8 << 20,
-				MaxItems:       min(settings.MaxRecords, 10_000),
-				MaxDepth:       32,
-				PDFTimeoutSecs: max(1, int(settings.RequestTimeout/time.Second)),
-			},
+			planLimits,
 			settings.RequestTimeout,
 		)
 		if documentsErr != nil {
 			logger.Error("document import handler configuration failed", "error", documentsErr)
 			os.Exit(1)
 		}
-		routes := make(map[string]jobrunner.Handler, len(importjob.Kinds)+len(documentimport.Kinds)+len(fileinspect.Kinds)+len(objectcleanup.Kinds))
+		templates, templatesErr := templateimport.New(
+			apiClient,
+			transfer,
+			settings.CollaborationURL,
+			settings.InternalSecret,
+			planLimits,
+			settings.RequestTimeout,
+		)
+		if templatesErr != nil {
+			logger.Error("template import handler configuration failed", "error", templatesErr)
+			os.Exit(1)
+		}
+		routes := make(map[string]jobrunner.Handler, len(importjob.Kinds)+len(documentimport.Kinds)+len(templateimport.Kinds)+len(fileinspect.Kinds)+len(objectcleanup.Kinds))
 		for _, kind := range importjob.Kinds {
 			routes[kind] = imports
 		}
@@ -184,6 +196,9 @@ func Run(service role.Service) {
 		for _, kind := range documentimport.Kinds {
 			routes[kind] = documents
 		}
+		for _, kind := range templateimport.Kinds {
+			routes[kind] = templates
+		}
 		for _, kind := range objectcleanup.Kinds {
 			routes[kind] = cleanup
 		}
@@ -192,7 +207,7 @@ func Run(service role.Service) {
 			logger.Error("import handler routing failed", "error", routeErr)
 			os.Exit(1)
 		}
-		kinds := append(append(append(append([]string{}, importjob.Kinds...), documentimport.Kinds...), fileinspect.Kinds...), objectcleanup.Kinds...)
+		kinds := append(append(append(append(append([]string{}, importjob.Kinds...), documentimport.Kinds...), templateimport.Kinds...), fileinspect.Kinds...), objectcleanup.Kinds...)
 		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ImportQueue, kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("import job runner configuration failed", "error", runnerErr)
@@ -201,7 +216,9 @@ func Run(service role.Service) {
 		go runner.Run(ctx)
 	}
 	if roles.Has(role.Export) {
-		go advertiseExportFormats(ctx, brokerClient, workerInstanceID(settings.WorkerID), ready.Load, logger)
+		go advertiseExportFormats(ctx, brokerClient, workerInstanceID(settings.WorkerID), func() bool {
+			return readiness.RoleReady(role.Export)
+		}, logger)
 		handler := exportjob.New(
 			apiClient,
 			objecttransfer.New(settings.RequestTimeout, settings.CollaborationURL),
@@ -346,8 +363,8 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	if settings.InternalSecret == "" {
 		return errors.New("NIX_WORKER_INTERNAL_SECRET is required")
 	}
-	if settings.InternalAPIURL == "" {
-		return errors.New("NIX_WORKER_API_URL is required for every enabled role")
+	if !validServiceOrigin(settings.InternalAPIURL) {
+		return errors.New("NIX_WORKER_API_URL must be a valid Nix.Api service origin for every enabled role")
 	}
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
@@ -397,11 +414,34 @@ func workerInstanceID(workerID string) string {
 	return instance
 }
 
-func healthURL(address string) string {
+func readinessURL(address string) string {
 	if len(address) > 0 && address[0] == ':' {
-		return "http://127.0.0.1" + address + "/healthz"
+		return "http://127.0.0.1" + address + "/readyz"
 	}
-	return "http://" + address + "/healthz"
+	return "http://" + address + "/readyz"
+}
+
+func checkReadiness(address string, timeout time.Duration) error {
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	request, err := http.NewRequest(http.MethodGet, readinessURL(address), nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	closeErr := response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("worker readiness returned %s", response.Status)
+	}
+	return closeErr
 }
 
 type serviceProbe struct {
@@ -492,32 +532,110 @@ func (probe *objectStoreProbe) Ping(ctx context.Context) error {
 	return nil
 }
 
-func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.Client, search *opensearch.Client, collaboration *serviceProbe, objects *objectStoreProbe, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
-	probe := func() {
-		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
-		defer cancel()
-		var err error
-		if api != nil {
-			err = api.Ping(probeContext)
-		}
-		if err == nil {
-			err = rabbit.Ping(probeContext)
-		}
-		if err == nil && search != nil {
-			err = search.Ping(probeContext)
-		}
-		if err == nil && collaboration != nil {
-			err = collaboration.Ping(probeContext)
-		}
-		if err == nil && objects != nil {
-			err = objects.Ping(probeContext)
-		}
-		ready.Store(err == nil)
-		if err != nil {
-			logger.Warn("worker dependency readiness failed", "error", err)
+type dependencyProbe interface {
+	Ping(context.Context) error
+}
+
+type readinessState struct {
+	roles         role.Set
+	consumerReady func(string) bool
+	indexReady    func() bool
+	api           atomic.Bool
+	rabbit        atomic.Bool
+	search        atomic.Bool
+	collaboration atomic.Bool
+	objects       atomic.Bool
+}
+
+func newReadinessState(roles role.Set, consumerReady func(string) bool, indexReady func() bool) *readinessState {
+	return &readinessState{roles: roles, consumerReady: consumerReady, indexReady: indexReady}
+}
+
+func (state *readinessState) RoleReady(service role.Service) bool {
+	if state == nil || !state.roles.Has(service) || !state.api.Load() || !state.rabbit.Load() || state.consumerReady == nil || !state.consumerReady(queueForRole(service)) {
+		return false
+	}
+	switch service {
+	case role.Import, role.Export:
+		return state.collaboration.Load() && state.objects.Load()
+	case role.Index:
+		return state.search.Load() && state.indexReady != nil && state.indexReady()
+	case role.Plugin:
+		return state.objects.Load()
+	default:
+		return false
+	}
+}
+
+func (state *readinessState) AllReady() bool {
+	if state == nil || len(state.roles) == 0 {
+		return false
+	}
+	for service := range state.roles {
+		if !state.RoleReady(service) {
+			return false
 		}
 	}
-	probe()
+	return true
+}
+
+func queueForRole(service role.Service) string {
+	switch service {
+	case role.Import:
+		return broker.ImportQueue
+	case role.Export:
+		return broker.ExportQueue
+	case role.Index:
+		return broker.IndexQueue
+	case role.Plugin:
+		return broker.PluginEventsQueue
+	default:
+		return ""
+	}
+}
+
+func startReadinessProbes(
+	ctx context.Context,
+	api *workerapi.Client,
+	rabbit *broker.Client,
+	search *opensearch.Client,
+	collaboration *serviceProbe,
+	objects *objectStoreProbe,
+	state *readinessState,
+	interval time.Duration,
+	logger *slog.Logger,
+) {
+	go probeDependency(ctx, "Nix.Api", api, &state.api, interval, logger)
+	go probeDependency(ctx, "RabbitMQ", rabbit, &state.rabbit, interval, logger)
+	if state.roles.Has(role.Index) {
+		go probeDependency(ctx, "OpenSearch", search, &state.search, interval, logger)
+	}
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) {
+		go probeDependency(ctx, "Collaboration", collaboration, &state.collaboration, interval, logger)
+	}
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Plugin) {
+		go probeDependency(ctx, "object storage", objects, &state.objects, interval, logger)
+	}
+}
+
+func probeDependency(ctx context.Context, name string, probe dependencyProbe, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
+	check := func(first bool) {
+		if probe == nil {
+			ready.Store(false)
+			if first {
+				logger.Warn("worker dependency readiness failed", "dependency", name, "error", "dependency probe is not configured")
+			}
+			return
+		}
+		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
+		err := probe.Ping(probeContext)
+		cancel()
+		wasReady := ready.Swap(err == nil)
+		if err != nil && (first || wasReady) && ctx.Err() == nil {
+			logger.Warn("worker dependency readiness failed", "dependency", name, "error", err)
+		}
+	}
+	check(true)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -526,7 +644,7 @@ func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.C
 			ready.Store(false)
 			return
 		case <-ticker.C:
-			probe()
+			check(false)
 		}
 	}
 }

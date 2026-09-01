@@ -22,6 +22,11 @@ import { updatesAfter } from '../db/documents.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import { importBodyProblem, type ImportBodyService } from '../imports/bodies.ts';
 import { CoreImportError } from '../imports/core.ts';
+import {
+  TemplateImportBodyError,
+  type TemplateImportBodyService,
+} from '../template-imports/bodies.ts';
+import { CoreTemplateImportError } from '../template-imports/core.ts';
 import { TemplateBodyError } from '../templates/bodies.ts';
 import { CoreTemplateError } from '../templates/core.ts';
 import {
@@ -76,6 +81,7 @@ export interface ServerDependencies {
   readonly metrics?: CollabMetrics | undefined;
   readonly templates?: TemplateService | undefined;
   readonly importBodies?: ImportBodyService | undefined;
+  readonly templateImportBodies?: TemplateImportBodyService | undefined;
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
   readonly hub?: SessionHub | undefined;
@@ -182,6 +188,50 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
           const refusal = importBodyProblem(error);
           if (refusal !== null) {
             return problem(reply, refusal.status, refusal.code, refusal.message);
+          }
+          throw error;
+        }
+      },
+    );
+  }
+
+  const templateImportBodies = deps.templateImportBodies;
+  if (templateImportBodies !== undefined) {
+    app.post(
+      '/internal/worker-executions/template-imports/:importId/bodies',
+      { bodyLimit: TEMPLATE_IMPORT_REQUEST_BYTES },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { importId } = request.params as { importId: string };
+        const jobId = stringHeader(request, 'x-nix-worker-job-id');
+        const executionId = stringHeader(request, 'x-nix-worker-execution-id');
+        if (
+          !internalCaller(request, deps) ||
+          !isUuid(importId) ||
+          jobId === null ||
+          executionId === null
+        ) {
+          return problem(
+            reply,
+            404,
+            'template.import_not_found',
+            'No such template import is available.',
+          );
+        }
+        try {
+          return await reply.send(
+            await templateImportBodies.write({
+              importId,
+              jobId,
+              executionId,
+              body: request.body,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof CoreTemplateImportError) {
+            return problem(reply, error.status, error.code, error.message);
+          }
+          if (error instanceof TemplateImportBodyError) {
+            return problem(reply, error.status, error.code, error.message);
           }
           throw error;
         }
@@ -548,7 +598,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   /**
    * The `.nix` archive: the lossless native format, served by the service that holds the bodies.
    *
-   * **Core's, not the media service's.** MVP-9's E2 requires that leaving with everything cannot
+   * **Collaboration's, not a converter's.** The lossless path must not depend on a lossy format
    * depend on an extension seam, and this process is the only one with both the document log and a
    * database credential - routing it through a converter service would copy every body over the
    * wire so a second process could re-zip it.
@@ -563,7 +613,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
         reply,
         400,
         'unsupported_format',
-        'This service produces the .nix archive. PDF and Word exports come from the media service.',
+        'This service produces the .nix archive. PDF, Word, and Markdown exports are durable Go worker jobs started through Nix.Api.',
       );
     }
 
@@ -584,7 +634,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
    *
    * **Two facts authorize this, and both are required.** The shared secret says which service is
    * calling; the forwarded bearer says on whose behalf, and it goes through the same `establish`
-   * every other route uses - so the media service holds no authority of its own and there is still
+   * every other route uses - so the Go export worker holds no authority of its own and there is still
    * one authorization code path. A wrong or missing secret answers 404 rather than 403, matching
    * Core's internal surface: a browser that stumbles onto this URL learns nothing from it.
    */

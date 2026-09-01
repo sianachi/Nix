@@ -17,6 +17,10 @@ public interface ITemplateAuthorizationStore
         ItemId itemId,
         CancellationToken cancellationToken);
 
+    public ValueTask<Result<TemplateOperationWriteAuthorization>> AuthorizeOperationWritesAsync(
+        TemplateOperationId operationId,
+        CancellationToken cancellationToken);
+
     public ValueTask<Result<TemplateItemAuthorization>> AuthorizeTemplateItemAsync(
         TemplateId templateId,
         Guid sourceId,

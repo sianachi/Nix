@@ -592,6 +592,70 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/template-imports': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['BeginTemplateImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/template-imports/{importId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetTemplateImport'];
+    put?: never;
+    post?: never;
+    delete: operations['CancelTemplateImport'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/template-imports/{importId}/preview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['PreviewTemplateImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/template-imports/{importId}/commit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CommitTemplateImport'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/exports/formats': {
     parameters: {
       query?: never;
@@ -1310,7 +1374,7 @@ export interface paths {
     };
     /**
      * The public keys exchanged sessions are signed with
-     * @description An RFC 7517 key set. The collaboration and media services list Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.
+     * @description An RFC 7517 key set. Collaboration lists Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.
      */
     get: operations['GetAccessTokenSigningKeys'];
     put?: never;
@@ -1417,6 +1481,15 @@ export interface components {
       publicKey: string;
       signature: string;
     };
+    BeginTemplateArchiveImportRequest: {
+      /** Format: uuid */
+      workspaceId: string;
+      fileName: string;
+      mediaType: string;
+      /** Format: int64 */
+      byteLength: number | string;
+      idempotencyKey: string;
+    };
     CalendarEntryResponse: {
       /** Format: uuid */
       itemId: string;
@@ -1457,6 +1530,9 @@ export interface components {
       /** Format: int64 */
       distinctValues: number | string;
       truncated: boolean;
+    };
+    CommitTemplateImportRequest: {
+      expectedDigest: string;
     };
     CompleteOccurrenceRequest: {
       occurredOn: string;
@@ -2157,6 +2233,66 @@ export interface components {
       description: null | string;
       visibleWhen: components['schemas']['TemplateFormConditionResponse'][];
       blocks: components['schemas']['TemplateFormBlockResponse'][];
+    };
+    TemplateImportPreviewResponse: {
+      profile: components['schemas']['TemplateImportProfileResponse'];
+      digest: string;
+      rootItemType: string;
+      /** Format: int32 */
+      itemCount: number | string;
+      /** Format: int32 */
+      bodyCount: number | string;
+      /** Format: int32 */
+      viewCount: number | string;
+    };
+    TemplateImportProfileResponse: {
+      kind: string;
+      /** Format: int32 */
+      version: number | string;
+      key: string;
+      name: string;
+      description: string;
+      includeBody: boolean;
+      includeChildren: boolean;
+    };
+    TemplateImportResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      status: string;
+      /** Format: uuid */
+      previewOperationId: null | string;
+      /** Format: uuid */
+      commitOperationId: null | string;
+      preview: null | components['schemas']['TemplateImportPreviewResponse'];
+      result: null | components['schemas']['TemplateImportResultResponse'];
+      failureCode: null | string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: date-time */
+      completedAt: null | string;
+    };
+    TemplateImportResultResponse: {
+      /** Format: uuid */
+      operationId: null | string;
+      /** Format: uuid */
+      templateId: string;
+      stableKey: string;
+      digest: string;
+      unchanged: boolean;
+      writtenTargetItemIds: string[];
+    };
+    TemplateImportUploadResponse: {
+      /** Format: uuid */
+      id: string;
+      status: string;
+      /** Format: uri */
+      uploadUrl: null | string;
+      /** Format: date-time */
+      capabilityExpiresAt: null | string;
+      /** Format: date-time */
+      expiresAt: string;
     };
     TemplateInteractiveFormResponse: {
       pages: components['schemas']['TemplateFormPageResponse'][];
@@ -4185,6 +4321,219 @@ export interface operations {
       cookie?: never;
     };
     requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  BeginTemplateImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BeginTemplateArchiveImportRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateImportUploadResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetTemplateImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateImportResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CancelTemplateImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PreviewTemplateImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OperationResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CommitTemplateImport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        importId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CommitTemplateImportRequest'];
+      };
+    };
     responses: {
       /** @description Accepted */
       202: {

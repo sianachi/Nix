@@ -18,6 +18,7 @@ public static class FileUploadPurposes
 {
     public const string File = "file";
     public const string DocumentImport = "document_import";
+    public const string TemplateImport = "template_import";
 }
 
 public sealed record CompleteFileUpload(

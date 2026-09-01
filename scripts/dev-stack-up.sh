@@ -26,4 +26,4 @@ scripts/dev-migrate.sh
 deploy/seed/zitadel-configure.sh
 deploy/seed/seed.sh   # second pass: the schema exists now, seeds tenants + identity_provider
 
-echo "dev-stack-up: start Core with scripts/dev-api.sh and web with pnpm --filter @nix/web dev"
+echo "dev-stack-up: start Core (scripts/dev-api.sh), Collaboration (scripts/dev-collab.sh), the Go worker (scripts/dev-worker.sh), and web (pnpm --filter @nix/web dev)"

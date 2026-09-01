@@ -26,9 +26,7 @@ describe('the Core staged-import client', () => {
             principalId: PRINCIPAL,
             workspaceId: WORKSPACE,
             importId: IMPORT,
-            items: [
-              { sourceId: 'root', targetItemId: ITEM, itemType: 'note', bodyRequired: true },
-            ],
+            items: [{ sourceId: 'root', targetItemId: ITEM, itemType: 'note', bodyRequired: true }],
             canWrite: true,
           }),
         );
@@ -46,6 +44,8 @@ describe('the Core staged-import client', () => {
     expect(headers.get('x-nix-internal-secret')).toBe('service-secret');
     expect(headers.get('x-nix-worker-job-id')).toBe(JOB);
     expect(headers.get('x-nix-worker-execution-id')).toBe('worker:lease');
+    expect(requested?.credentials).toBe('omit');
+    expect(requested?.redirect).toBe('error');
     expect(headers.has('authorization')).toBe(false);
   });
 

@@ -17,6 +17,7 @@ var prefixes = []string{
 	"nix-file-inspection-",
 	"nix-import-stage-",
 	"nix-pdf-pages-",
+	"nix-template-import-",
 }
 
 // Create opens a private spool file in the directory shared by worker processes on this host.

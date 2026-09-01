@@ -91,6 +91,10 @@ export interface StubTemplate {
 }
 
 const TEMPLATE_WORKSPACE_ID = 'a1000000-0000-4000-8000-000000000001';
+export const STUB_TEMPLATE_IMPORT_ID = 'a9000000-0000-4000-8000-000000000001';
+const STUB_TEMPLATE_PREVIEW_OPERATION_ID = 'a9000000-0000-4000-8000-000000000002';
+const STUB_TEMPLATE_COMMIT_OPERATION_ID = 'a9000000-0000-4000-8000-000000000003';
+const STUB_TEMPLATE_IMPORT_DIGEST = 'a'.repeat(64);
 
 function seedTemplate(id: string, title: string, kind: string, fieldCount: number): StubTemplate {
   return {
@@ -282,11 +286,19 @@ export interface StubOptions {
   readonly templateCatalogGate?: Promise<void>;
   /** Makes the import commit report that its bytes no longer match the validated preview. */
   readonly templateFileChanged?: boolean;
+  /** Replays an existing durable import whose preview operation is still queued. */
+  readonly templateImportReplayPreviewQueued?: boolean;
+  /** Refuses the first preview request after the durable import and upload are accepted. */
+  readonly templateImportPreviewFailsOnce?: boolean;
+  /** Refuses the first commit request while leaving the durable preview retryable. */
+  readonly templateImportCommitFailsOnce?: boolean;
+  /** Refuses the first cancellation request while leaving the durable import unchanged. */
+  readonly templateImportCancelFailsOnce?: boolean;
   /** Makes template export refuse the archive used by the duplicate flow. */
   readonly templateDuplicateFails?: boolean;
-  /** Makes duplicate import fail after the request identity has reached Media. */
+  /** Makes duplicate import fail after Core has accepted the durable import identity. */
   readonly templateDuplicateCommitFails?: boolean;
-  /** Drops the first duplicate import response after the archive has reached Media. */
+  /** Drops the first duplicate commit response after Core has completed the durable import. */
   readonly templateDuplicateResponseLostOnce?: boolean;
   /** Makes a recovered staged-edit draft report that it has expired or been replaced. */
   readonly templateDraftUnavailable?: boolean;
@@ -367,16 +379,26 @@ export interface StubWrites {
     sourceId: string;
     body: Record<string, unknown>;
   }[];
-  /** Digest headers sent with template import commits. */
+  /** Expected digests sent with durable template import commits. */
   readonly templateImports: readonly string[];
-  /** Attempt identities sent with template import commits. */
+  /** Attempt identities sent when durable template imports begin. */
   readonly templateImportIdempotencyKeys: readonly string[];
+  /** Durable import identities and states returned for each begin request. */
+  readonly templateImportBegins: readonly {
+    importId: string;
+    status: string;
+    hasUploadCapability: boolean;
+  }[];
+  /** Durable template import identities explicitly cancelled by the client. */
+  readonly templateImportCancellations: readonly string[];
+  /** Durable template import identities committed by the client. */
+  readonly templateImportCommitIds: readonly string[];
+  /** Durable template import identities read by the client. */
+  readonly templateImportReads: readonly string[];
   /** Template IDs exported for duplication, in request order. */
   readonly templateExports: readonly string[];
-  /** Exact archive objects sent to preview. */
-  readonly templatePreviewBodies: readonly Blob[];
-  /** Exact archive objects sent to import commit. */
-  readonly templateImportBodies: readonly Blob[];
+  /** Exact archive objects uploaded through a template import capability. */
+  readonly templateUploadBodies: readonly Blob[];
   /** Every template preflight request, in the order it was sent. */
   readonly templatePreflights: readonly Record<string, unknown>[];
   /** Every template application request, in the order it was sent. */
@@ -427,6 +449,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     templatesFail = false,
     templateCatalogGate,
     templateFileChanged = false,
+    templateImportReplayPreviewQueued = false,
+    templateImportPreviewFailsOnce = false,
+    templateImportCommitFailsOnce = false,
+    templateImportCancelFailsOnce = false,
     templateDuplicateFails = false,
     templateDuplicateCommitFails = false,
     templateDuplicateResponseLostOnce = false,
@@ -485,11 +511,33 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   }[] = [];
   const templateImportWrites: string[] = [];
   const templateImportIdempotencyKeys: string[] = [];
+  const templateImportBegins: {
+    importId: string;
+    status: string;
+    hasUploadCapability: boolean;
+  }[] = [];
+  const templateImportCancellations: string[] = [];
+  const templateImportCommitIds: string[] = [];
+  const templateImportReads: string[] = [];
   const templateExportWrites: string[] = [];
-  const templatePreviewBodies: Blob[] = [];
-  const templateImportBodies: Blob[] = [];
+  const templateUploadBodies: Blob[] = [];
   const templatePreflightWrites: Record<string, unknown>[] = [];
   const templateApplicationWrites: Record<string, unknown>[] = [];
+  let durableTemplateImportSequence = 0;
+  let durableTemplateImportId = STUB_TEMPLATE_IMPORT_ID;
+  let durableTemplateIdempotencyKey: string | null = null;
+  let durableTemplateWorkspaceId = STUB_WORKSPACE_ID;
+  let durableTemplateImportStatus = 'pending_upload';
+  let durableTemplatePreview: Readonly<Record<string, unknown>> | null = null;
+  let durableTemplateResult: Readonly<Record<string, unknown>> | null = null;
+  let refuseNextTemplatePreview = templateImportPreviewFailsOnce;
+  let refuseNextTemplateCommit = templateImportCommitFailsOnce;
+  let refuseNextTemplateCancellation = templateImportCancelFailsOnce;
+
+  function nextTemplateImportId(): string {
+    durableTemplateImportSequence += 1;
+    return `a9000000-0000-4000-8000-${String(durableTemplateImportSequence).padStart(12, '0')}`;
+  }
 
   /** The four fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
@@ -516,6 +564,96 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           }
         : property,
     );
+  }
+
+  function importedTemplate(): StubTemplate {
+    const imported: StubTemplate = {
+      ...(exportedTemplate ?? {
+        id: 'a7777777-7777-4777-8777-777777777777',
+        workspaceId: TEMPLATE_WORKSPACE_ID,
+        title: 'Imported template',
+        description: 'Validated from disk.',
+        origin: 'user',
+        revision: 1,
+        includeBody: true,
+        includeChildren: true,
+        fieldCount: 0,
+        viewCount: 0,
+        childCount: 0,
+        viewKinds: [],
+        capabilities: {
+          canEdit: true,
+          canDelete: true,
+          canExport: true,
+          canApply: true,
+        },
+        updatedAt: '2026-08-16T09:00:00.000Z',
+      }),
+      id: 'a7777777-7777-4777-8777-777777777777',
+      title: exportedTemplate === null ? 'Imported template' : exportedTemplate.title,
+      origin: 'user',
+      revision: 1,
+      capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+      updatedAt: '2026-08-16T10:00:00.000Z',
+    };
+    knownTemplates = [
+      ...knownTemplates.filter((template) => template.id !== imported.id),
+      imported,
+    ];
+    exportedTemplate = null;
+    return imported;
+  }
+
+  function templateImportPreview(): Readonly<Record<string, unknown>> {
+    return {
+      profile: {
+        kind: 'template',
+        version: 1,
+        key: 'imported-template',
+        name: 'Imported template',
+        description: 'Validated from disk.',
+        includeBody: true,
+        includeChildren: true,
+      },
+      digest: STUB_TEMPLATE_IMPORT_DIGEST,
+      rootItemType: 'note',
+      itemCount: 3,
+      bodyCount: 3,
+      viewCount: 1,
+    };
+  }
+
+  function completedTemplateOperation(id: string, kind: string): Readonly<Record<string, unknown>> {
+    return {
+      id,
+      kind,
+      status: 'completed',
+      result: null,
+      errorCode: null,
+      errorDetail: null,
+      attempts: 1,
+      cancellationRequested: false,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      completedAt: '2026-09-01T10:00:01.000Z',
+    };
+  }
+
+  function durableTemplateImport(): Readonly<Record<string, unknown>> {
+    return {
+      id: durableTemplateImportId,
+      workspaceId: durableTemplateWorkspaceId,
+      status: durableTemplateImportStatus,
+      previewOperationId:
+        durableTemplatePreview === null && durableTemplateImportStatus !== 'preview_queued'
+          ? null
+          : STUB_TEMPLATE_PREVIEW_OPERATION_ID,
+      commitOperationId: durableTemplateResult === null ? null : STUB_TEMPLATE_COMMIT_OPERATION_ID,
+      preview: durableTemplatePreview,
+      result: durableTemplateResult,
+      failureCode: null,
+      expiresAt: '2026-09-01T12:00:00.000Z',
+      completedAt: durableTemplateImportStatus === 'completed' ? '2026-09-01T10:00:02.000Z' : null,
+    };
   }
 
   // What has been written back. Seeded from the options so a test can start with an item already
@@ -828,9 +966,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
       // Keeping and releasing. The stub holds the shelf in memory so a test can press a control and
       // then assert on what the next read says, which is the whole round trip the store makes.
-      const bookmarkWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/bookmark$/.exec(
-        parsedUrl.pathname,
-      );
+      const bookmarkWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/bookmark$/.exec(parsedUrl.pathname);
       if (bookmarkWrite !== null && (method === 'PUT' || method === 'DELETE')) {
         const itemId = bookmarkWrite[1] ?? '';
         if (method === 'PUT') {
@@ -1230,36 +1366,136 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         );
       }
 
-      if (url.includes('/media/templates/preview') && method === 'POST') {
-        if (requestBody instanceof Blob) templatePreviewBodies.push(requestBody);
+      if (parsedUrl.pathname === '/api/v1/template-imports' && method === 'POST') {
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          workspaceId?: string;
+          idempotencyKey?: string;
+        };
+        const requestedIdempotencyKey = body.idempotencyKey ?? '';
+        const resumesDurableImport =
+          requestedIdempotencyKey.length > 0 &&
+          requestedIdempotencyKey === durableTemplateIdempotencyKey;
+        if (!resumesDurableImport) {
+          durableTemplateImportId = nextTemplateImportId();
+          durableTemplateIdempotencyKey = requestedIdempotencyKey;
+          durableTemplateWorkspaceId = body.workspaceId ?? STUB_WORKSPACE_ID;
+          durableTemplateImportStatus = templateImportReplayPreviewQueued
+            ? 'preview_queued'
+            : 'pending_upload';
+          durableTemplatePreview = null;
+          durableTemplateResult = null;
+        }
+        templateImportIdempotencyKeys.push(requestedIdempotencyKey);
+        const canUpload = durableTemplateImportStatus === 'pending_upload';
+        templateImportBegins.push({
+          importId: durableTemplateImportId,
+          status: durableTemplateImportStatus,
+          hasUploadCapability: canUpload,
+        });
         return Promise.resolve(
           json({
-            profile: {
-              kind: 'template',
-              version: 1,
-              key: 'imported-template',
-              name: 'Imported template',
-              description: 'Validated from disk.',
-              includeBody: true,
-              includeChildren: true,
-            },
-            digest: 'abc123',
-            rootItemType: 'note',
-            itemCount: 3,
-            bodyCount: 3,
-            viewCount: 1,
+            id: durableTemplateImportId,
+            status: durableTemplateImportStatus,
+            uploadUrl: canUpload
+              ? `${globalThis.location.origin}/object-capabilities/template-imports/${durableTemplateImportId}`
+              : null,
+            capabilityExpiresAt: canUpload ? '2026-09-01T10:10:00.000Z' : null,
+            expiresAt: '2026-09-01T12:00:00.000Z',
           }),
         );
       }
 
-      if (url.includes('/media/templates/commit') && method === 'POST') {
-        const expectedDigest = requestHeaders.get('x-nix-template-digest') ?? '';
-        const idempotencyKey = requestHeaders.get('x-idempotency-key') ?? '';
+      const templateImportCapability =
+        /^\/object-capabilities\/template-imports\/([0-9a-f-]{36})$/.exec(parsedUrl.pathname);
+      if (templateImportCapability !== null && method === 'PUT') {
+        if (requestBody instanceof Blob) templateUploadBodies.push(requestBody);
+        return Promise.resolve(new Response(null, { status: 200 }));
+      }
+
+      const durableTemplateImportRoute = /^\/api\/v1\/template-imports\/([0-9a-f-]{36})$/.exec(
+        parsedUrl.pathname,
+      );
+      if (durableTemplateImportRoute !== null) {
+        durableTemplateImportId = durableTemplateImportRoute[1] ?? durableTemplateImportId;
+        if (method === 'GET') {
+          templateImportReads.push(durableTemplateImportId);
+          return Promise.resolve(json(durableTemplateImport()));
+        }
+        if (method === 'DELETE') {
+          templateImportCancellations.push(durableTemplateImportId);
+          if (refuseNextTemplateCancellation) {
+            refuseNextTemplateCancellation = false;
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  title: 'Template import unavailable',
+                  status: 503,
+                  code: 'template.cancel_unavailable',
+                  detail: 'The durable template import could not be cancelled yet.',
+                }),
+                { status: 503, headers: { 'content-type': 'application/problem+json' } },
+              ),
+            );
+          }
+          durableTemplateImportStatus = 'cancelled';
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+      }
+
+      const durableTemplatePreviewRoute =
+        /^\/api\/v1\/template-imports\/([0-9a-f-]{36})\/preview$/.exec(parsedUrl.pathname);
+      if (durableTemplatePreviewRoute !== null && method === 'POST') {
+        durableTemplateImportId = durableTemplatePreviewRoute[1] ?? durableTemplateImportId;
+        if (refuseNextTemplatePreview) {
+          refuseNextTemplatePreview = false;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Template validation unavailable',
+                status: 503,
+                code: 'template.preview_unavailable',
+                detail: 'Template validation is temporarily unavailable.',
+              }),
+              { status: 503, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
+        }
+        durableTemplatePreview = templateImportPreview();
+        durableTemplateImportStatus = 'preview_ready';
+        return Promise.resolve(
+          json(
+            completedTemplateOperation(
+              STUB_TEMPLATE_PREVIEW_OPERATION_ID,
+              'template-import.preview',
+            ),
+            202,
+          ),
+        );
+      }
+
+      const durableTemplateCommitRoute =
+        /^\/api\/v1\/template-imports\/([0-9a-f-]{36})\/commit$/.exec(parsedUrl.pathname);
+      if (durableTemplateCommitRoute !== null && method === 'POST') {
+        durableTemplateImportId = durableTemplateCommitRoute[1] ?? durableTemplateImportId;
+        templateImportCommitIds.push(durableTemplateImportId);
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          expectedDigest?: string;
+        };
+        const expectedDigest = body.expectedDigest ?? '';
         templateImportWrites.push(expectedDigest);
-        templateImportIdempotencyKeys.push(idempotencyKey);
-        if (requestBody instanceof Blob) templateImportBodies.push(requestBody);
-        if (templateDuplicateResponseLostOnce && templateImportWrites.length === 1) {
-          return Promise.reject(new TypeError('The response was lost.'));
+        if (refuseNextTemplateCommit) {
+          refuseNextTemplateCommit = false;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                title: 'Template import unavailable',
+                status: 503,
+                code: 'template.commit_unavailable',
+                detail: 'Template publication is temporarily unavailable.',
+              }),
+              { status: 503, headers: { 'content-type': 'application/problem+json' } },
+            ),
+          );
         }
         if (templateDuplicateCommitFails) {
           return Promise.resolve(
@@ -1288,49 +1524,47 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             ),
           );
         }
-        const imported: StubTemplate = {
-          ...(exportedTemplate ?? {
-            id: 'a7777777-7777-4777-8777-777777777777',
-            workspaceId: TEMPLATE_WORKSPACE_ID,
-            title: 'Imported template',
-            description: 'Validated from disk.',
-            origin: 'user',
-            revision: 1,
-            includeBody: true,
-            includeChildren: true,
-            fieldCount: 0,
-            viewCount: 0,
-            childCount: 0,
-            viewKinds: [],
-            capabilities: {
-              canEdit: true,
-              canDelete: true,
-              canExport: true,
-              canApply: true,
-            },
-            updatedAt: '2026-08-16T09:00:00.000Z',
-          }),
-          id: 'a7777777-7777-4777-8777-777777777777',
-          title: exportedTemplate === null ? 'Imported template' : exportedTemplate.title,
-          origin: 'user',
-          revision: 1,
-          capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
-          updatedAt: '2026-08-16T10:00:00.000Z',
+        const imported = importedTemplate();
+        durableTemplateImportStatus = 'completed';
+        durableTemplateResult = {
+          operationId: null,
+          templateId: imported.id,
+          stableKey: 'imported-template',
+          digest: expectedDigest,
+          unchanged: false,
+          writtenTargetItemIds: [],
         };
-        knownTemplates = [
-          ...knownTemplates.filter((template) => template.id !== imported.id),
-          imported,
-        ];
-        exportedTemplate = null;
+        if (templateDuplicateResponseLostOnce && templateImportWrites.length === 1) {
+          return Promise.reject(new TypeError('The response was lost.'));
+        }
         return Promise.resolve(
           json(
-            {
-              templateId: imported.id,
-              stableKey: 'imported-template',
-              unchanged: false,
-              writtenTargetItemIds: [],
-            },
-            201,
+            completedTemplateOperation(STUB_TEMPLATE_COMMIT_OPERATION_ID, 'template-import.commit'),
+            202,
+          ),
+        );
+      }
+
+      const templateImportOperation = /^\/api\/v1\/operations\/([0-9a-f-]{36})$/.exec(
+        parsedUrl.pathname,
+      );
+      if (templateImportOperation !== null && method === 'GET') {
+        const operationId = templateImportOperation[1] ?? '';
+        if (
+          operationId === STUB_TEMPLATE_PREVIEW_OPERATION_ID &&
+          durableTemplateImportStatus === 'preview_queued'
+        ) {
+          durableTemplatePreview = templateImportPreview();
+          durableTemplateImportStatus = 'preview_ready';
+        }
+        return Promise.resolve(
+          json(
+            completedTemplateOperation(
+              operationId,
+              operationId === STUB_TEMPLATE_COMMIT_OPERATION_ID
+                ? 'template-import.commit'
+                : 'template-import.preview',
+            ),
           ),
         );
       }
@@ -1670,9 +1904,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     templateItems: templateItemWrites,
     templateImports: templateImportWrites,
     templateImportIdempotencyKeys,
+    templateImportBegins,
+    templateImportCancellations,
+    templateImportCommitIds,
+    templateImportReads,
     templateExports: templateExportWrites,
-    templatePreviewBodies,
-    templateImportBodies,
+    templateUploadBodies,
     templatePreflights: templatePreflightWrites,
     templateApplications: templateApplicationWrites,
   };

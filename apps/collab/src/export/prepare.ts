@@ -16,7 +16,7 @@ import {
  * Everything an export needs, gathered once and shared by every format.
  *
  * **The traversal has two consumers and only the sink differs.** `.nix` pipes what this returns
- * into `writeArchive`; the bundles endpoint pipes it into NDJSON for the media service to convert.
+ * into `writeArchive`; the bundles endpoint pipes it into NDJSON for the Go export worker to convert.
  * Walking the tree twice, or letting each route assemble its own manifest, is how the two would
  * start disagreeing about what an export contains - and the manifest is the thing both an archive
  * reader and an import report are read against.

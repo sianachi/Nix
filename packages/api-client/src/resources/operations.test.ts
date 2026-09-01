@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createInMemoryTokenStore } from '../auth.js';
 import { createNixClient, type NixClient } from '../client.js';
+import { isNixApiError } from '../errors.js';
 import { server, TEST_BASE_URL, testUrl } from '../testing/server.js';
 import { waitForOperation } from './operations.js';
 
@@ -47,7 +48,9 @@ describe('waiting for a durable operation', () => {
 
     const result = await waitForOperation(client, OPERATION_ID, {
       pollIntervalMs: 10,
-      timeoutMs: 100,
+      // This is a behavioral deadline, not a timer precision assertion. Parallel workspace runs
+      // can delay the MSW round trip substantially while still completing on the second read.
+      timeoutMs: 2_000,
     });
 
     expect(result.status).toBe('completed');
@@ -61,9 +64,15 @@ describe('waiting for a durable operation', () => {
       ),
     );
 
-    await expect(
-      waitForOperation(client, OPERATION_ID, { pollIntervalMs: 10, timeoutMs: 100 }),
-    ).rejects.toThrow('The file is invalid.');
+    const failure = await waitForOperation(client, OPERATION_ID, {
+      pollIntervalMs: 10,
+      timeoutMs: 100,
+    }).catch((reason: unknown) => reason);
+
+    expect(isNixApiError(failure)).toBe(true);
+    if (!isNixApiError(failure)) throw new Error('Expected a typed operation failure.');
+    expect(failure.code).toBe('files.invalid');
+    expect(failure.detail).toBe('The file is invalid.');
   });
 
   it('stops a pending wait when its caller aborts', async () => {

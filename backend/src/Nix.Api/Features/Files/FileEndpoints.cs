@@ -57,16 +57,6 @@ internal static class FileEndpoints
         return endpoints;
     }
 
-    /// <summary>Temporary forwarding surface retained only until Media's callers cut over.</summary>
-    internal static void MapInternal(IEndpointRouteBuilder group)
-    {
-        group.MapPost("/files/uploads", BeginInternal);
-        group.MapGet("/files/uploads/{uploadId:guid}", GetUploadInternal);
-        group.MapPost("/files/uploads/{uploadId:guid}/complete", CompleteInternal);
-        group.MapDelete("/files/uploads/{uploadId:guid}", CancelInternal);
-        group.MapGet("/files/{itemId:guid}/download", AuthorizeInternalDownload);
-    }
-
     /// <summary>Lease-bound surface used by the Go file inspector.</summary>
     internal static void MapWorkerExecutions(IEndpointRouteBuilder group)
     {
@@ -111,26 +101,6 @@ internal static class FileEndpoints
             value.ExpiresAt,
             value.ItemId,
             value.FailureCode));
-    }
-
-    private static async Task<IResult> BeginInternal(
-        BeginFileUploadRequest request,
-        HttpContext context,
-        [FromServices] IFileStore files,
-        [FromServices] IItemTree tree,
-        [FromServices] IPermissionResolver permissions)
-    {
-        var upload = await BeginValidated(request, context, files, tree, permissions).ConfigureAwait(false);
-        if (upload is null)
-        {
-            return TypedResults.Problem(Conflict(
-                context,
-                "files.idempotency_conflict",
-                "The idempotency key already belongs to a different upload."));
-        }
-        return upload.Value is null
-            ? TypedResults.Problem(upload.Error!)
-            : TypedResults.Ok(ToInternalResponse(upload.Value));
     }
 
     private static async Task<UploadAttempt?> BeginValidated(
@@ -237,40 +207,12 @@ internal static class FileEndpoints
                 upload.FailureCode));
     }
 
-    private static async Task<Results<Ok<FileUploadResponse>, NotFound>> GetUploadInternal(
-        Guid uploadId,
-        [FromServices] IFileStore files,
-        CancellationToken cancellationToken)
-    {
-        var upload = await files.GetUploadAsync(FileUploadId.From(uploadId), cancellationToken).ConfigureAwait(false);
-        return upload is null ? TypedResults.NotFound() : TypedResults.Ok(ToInternalResponse(upload));
-    }
-
     private static async Task<Results<Ok<FileRecord>, ProblemHttpResult>> Get(
         Guid itemId,
         HttpContext context,
         [FromServices] IFileStore files)
     {
         var result = await files.GetAsync(ItemId.From(itemId), context.RequestAborted).ConfigureAwait(false);
-        return result is null ? TypedResults.Problem(NotFound(context)) : TypedResults.Ok(result);
-    }
-
-    private static async Task<IResult> CompleteInternal(
-        Guid uploadId,
-        CompleteFileUploadRequest request,
-        HttpContext context,
-        [FromServices] IFileStore files)
-    {
-        if (!ValidCompletion(request))
-        {
-            return TypedResults.Problem(Invalid(
-                context,
-                "files.validation_invalid",
-                "The validated file metadata is invalid."));
-        }
-        var result = await files.CompleteAsync(
-            ToCompletion(uploadId, request),
-            context.RequestAborted).ConfigureAwait(false);
         return result is null ? TypedResults.Problem(NotFound(context)) : TypedResults.Ok(result);
     }
 
@@ -311,27 +253,6 @@ internal static class FileEndpoints
             inline,
             Unscanned: true,
             NoSniff: true));
-    }
-
-    private static async Task<Results<Ok<FileDownloadResponse>, NotFound>> AuthorizeInternalDownload(
-        Guid itemId,
-        Guid? versionId,
-        [FromServices] IFileStore files,
-        CancellationToken cancellationToken)
-    {
-        var result = await files.AuthorizeDownloadAsync(
-            ItemId.From(itemId),
-            versionId is { } value ? FileVersionId.From(value) : null,
-            cancellationToken).ConfigureAwait(false);
-        return result is null
-            ? TypedResults.NotFound()
-            : TypedResults.Ok(new FileDownloadResponse(
-                result.ObjectKey,
-                result.FileName,
-                result.MediaType,
-                result.ByteLength,
-                result.Sha256,
-                result.Previewable));
     }
 
     private static async Task<IResult> GetInspection(
@@ -395,7 +316,7 @@ internal static class FileEndpoints
         [FromServices] IWorkerJobStore jobs,
         [FromServices] IWorkerDispatchStore dispatch,
         [FromServices] INixSessionContextAccessor session,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         if (!ValidCompletion(request)
             || !await ExecutionOwnsUpload(context, jobs, session, uploadId).ConfigureAwait(false))
@@ -418,7 +339,7 @@ internal static class FileEndpoints
             WorkspaceId.From(result.WorkspaceId),
             "file-upload",
             uploadId,
-            clock.GetUtcNow(),
+            signer.GetCleanupNotBefore(),
             [ObjectStorageKeys.FileUpload(scoped.TenantId, FileUploadId.From(uploadId))],
             context.RequestAborted).ConfigureAwait(false);
         return await ExecutionStillLive(context, dispatch).ConfigureAwait(false)
@@ -434,7 +355,7 @@ internal static class FileEndpoints
         [FromServices] IWorkerJobStore jobs,
         [FromServices] IWorkerDispatchStore dispatch,
         [FromServices] INixSessionContextAccessor session,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         if (!ValidFailureCode(request.Code)
             || !await ExecutionOwnsUpload(context, jobs, session, uploadId).ConfigureAwait(false))
@@ -464,7 +385,7 @@ internal static class FileEndpoints
             WorkspaceId.From(upload.WorkspaceId),
             "file-upload",
             uploadId,
-            clock.GetUtcNow().AddSeconds(5),
+            signer.GetCleanupNotBefore(),
             [
                 ObjectStorageKeys.FileUpload(scoped.TenantId, FileUploadId.From(uploadId)),
                 ObjectStorageKeys.FileVersion(scoped.TenantId, FileUploadId.From(uploadId)),
@@ -527,7 +448,7 @@ internal static class FileEndpoints
         [FromServices] IFileStore files,
         [FromServices] IWorkerJobStore jobs,
         [FromServices] INixSessionContextAccessor session,
-        [FromServices] TimeProvider clock)
+        [FromServices] S3CapabilitySigner signer)
     {
         var id = FileUploadId.From(uploadId);
         var upload = await files.GetUploadAsync(id, context.RequestAborted).ConfigureAwait(false);
@@ -546,7 +467,7 @@ internal static class FileEndpoints
             WorkspaceId.From(upload.WorkspaceId),
             "file-upload",
             uploadId,
-            clock.GetUtcNow().AddMinutes(1),
+            signer.GetCleanupNotBefore(),
             [
                 ObjectStorageKeys.FileUpload(scoped.TenantId, id),
                 ObjectStorageKeys.FileVersion(scoped.TenantId, id),
@@ -554,14 +475,6 @@ internal static class FileEndpoints
             context.RequestAborted).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
-
-    private static Task<Results<NoContent, NotFound>> CancelInternal(
-        Guid uploadId,
-        HttpContext context,
-        [FromServices] IFileStore files,
-        [FromServices] IWorkerJobStore jobs,
-        [FromServices] INixSessionContextAccessor session,
-        [FromServices] TimeProvider clock) => CancelPublic(uploadId, context, files, jobs, session, clock);
 
     private static bool ValidName(string value) =>
         !string.IsNullOrWhiteSpace(value)
@@ -624,16 +537,6 @@ internal static class FileEndpoints
             request.Previewable,
             request.PixelWidth,
             request.PixelHeight);
-
-    private static FileUploadResponse ToInternalResponse(FileUploadRecord value) =>
-        new(
-            value.Id,
-            value.WorkspaceId,
-            value.Status,
-            value.ObjectKey,
-            value.ExpiresAt,
-            value.ItemId,
-            value.FailureCode);
 
     private static Microsoft.AspNetCore.Mvc.ProblemDetails NotFound(HttpContext context) =>
         ApiProblem.Create(context, 404, "files.not_found", "File not found", "No such file is visible.");

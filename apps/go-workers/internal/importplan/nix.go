@@ -2,6 +2,7 @@ package importplan
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,93 +80,27 @@ type nixBundle struct {
 	Body              json.RawMessage    `json:"body"`
 }
 
-func parseNix(source Source, limits Limits) (Plan, error) {
-	archive, err := openArchive(source, limits)
-	if err != nil {
-		return Plan{}, fmt.Errorf("open Nix archive: %w", err)
-	}
-	defer archive.Close()
-	if len(archive.File) == 0 || archive.File[0].Name != "manifest.json" {
-		return Plan{}, errors.New("the first Nix archive entry must be manifest.json")
-	}
+type validatedNixItem struct {
+	manifest nixManifestItem
+	bundle   nixBundle
+}
 
-	manifestBody, err := readEntry(archive, "manifest.json", limits.MaxEntryBytes)
+type validatedNixArchive struct {
+	manifest nixManifest
+	items    []validatedNixItem
+}
+
+func parseNix(ctx context.Context, source Source, limits Limits) (Plan, error) {
+	parsed, err := validateNixArchive(ctx, source, limits)
 	if err != nil {
 		return Plan{}, err
 	}
-	var manifest nixManifest
-	if err := decodeStrictJSON(manifestBody, &manifest); err != nil {
-		return Plan{}, fmt.Errorf("decode Nix manifest: %w", err)
-	}
-	if err := validateNixManifest(manifest, limits); err != nil {
-		return Plan{}, err
-	}
-	if len(archive.File) != len(manifest.Items)+1 {
-		return Plan{}, errors.New("the Nix archive contains unlisted or missing entries")
-	}
 
-	bundles := make(map[string]nixBundle, len(manifest.Items))
-	seenEntries := map[string]bool{"manifest.json": true}
-	for _, entry := range archive.File[1:] {
-		if seenEntries[entry.Name] {
-			return Plan{}, fmt.Errorf("the Nix archive contains duplicate entry %q", entry.Name)
-		}
-		seenEntries[entry.Name] = true
-		id, ok := nixItemIDFromEntry(entry.Name)
-		if !ok {
-			return Plan{}, fmt.Errorf("the Nix archive entry %q is not supported", entry.Name)
-		}
-		body, readErr := readEntry(archive, entry.Name, limits.MaxEntryBytes)
-		if readErr != nil {
-			return Plan{}, readErr
-		}
-		var bundle nixBundle
-		if decodeErr := decodeStrictJSON(body, &bundle); decodeErr != nil {
-			return Plan{}, fmt.Errorf("decode Nix item %s: %w", id, decodeErr)
-		}
-		if bundle.ID != id || bundles[id].ID != "" {
-			return Plan{}, fmt.Errorf("the Nix archive contains a duplicate or mismatched item %s", id)
-		}
-		bundles[id] = bundle
-	}
-
-	items := make([]Item, 0, len(manifest.Items))
+	items := make([]Item, 0, len(parsed.items))
 	orders := make(map[string]int)
-	depths := make(map[string]int, len(manifest.Items))
-	seen := make(map[string]bool, len(manifest.Items))
-	for _, entry := range manifest.Items {
-		bundle, ok := bundles[entry.ID]
-		if !ok {
-			return Plan{}, fmt.Errorf("the Nix archive has no payload for item %s", entry.ID)
-		}
-		if seen[entry.ID] || bundle.ParentID == nil != (entry.ParentID == nil) || !sameOptionalString(bundle.ParentID, entry.ParentID) ||
-			bundle.Sequence != entry.Sequence || bundle.Type != entry.Type || bundle.Title != entry.Title {
-			return Plan{}, fmt.Errorf("the Nix payload for item %s disagrees with its manifest", entry.ID)
-		}
-		if entry.ID == manifest.Root {
-			if entry.ParentID != nil {
-				return Plan{}, errors.New("the Nix archive root has a parent")
-			}
-		} else if entry.ParentID == nil || !seen[*entry.ParentID] {
-			return Plan{}, fmt.Errorf("Nix item %s does not follow its parent", entry.ID)
-		}
-		depth := 0
-		if entry.ParentID != nil {
-			depth = depths[*entry.ParentID] + 1
-		}
-		if depth > limits.MaxDepth {
-			return Plan{}, errors.New("the Nix archive tree is too deep")
-		}
-		depths[entry.ID] = depth
-		seen[entry.ID] = true
-
-		lifecycle := bundle.LifecycleState
-		if lifecycle != "active" && lifecycle != "deleted" {
-			return Plan{}, fmt.Errorf("Nix item %s has an unsupported lifecycle state", entry.ID)
-		}
-		if err := validateNixBundle(bundle, manifest.SchemaVersion, limits); err != nil {
-			return Plan{}, fmt.Errorf("Nix item %s: %w", entry.ID, err)
-		}
+	for _, parsedItem := range parsed.items {
+		entry := parsedItem.manifest
+		bundle := parsedItem.bundle
 		parentKey := "$root"
 		if entry.ParentID != nil {
 			parentKey = *entry.ParentID
@@ -175,30 +110,130 @@ func parseNix(source Source, limits Limits) (Plan, error) {
 		planItem := Item{
 			SourceID: entry.ID, ParentSourceID: entry.ParentID, Order: order,
 			Title: bundle.Title, ItemType: bundle.Type, Properties: cloneJSON(bundle.Properties),
-			Schema: importNixSchema(entry.ID == manifest.Root, manifest.RootEffectiveSchema, bundle.Schema),
-			Views:  cloneNullableJSON(bundle.Views), FinalLifecycleState: lifecycle,
+			Schema: importNixSchema(entry.ID == parsed.manifest.Root, parsed.manifest.RootEffectiveSchema, bundle.Schema),
+			Views:  cloneNullableJSON(bundle.Views), FinalLifecycleState: bundle.LifecycleState,
 		}
 		if !isJSONNull(bundle.Body) {
 			planItem.Body = &Body{Encoding: "archive", Archive: cloneJSON(bundle.Body)}
 		}
 		items = append(items, planItem)
 	}
-	if !seen[manifest.Root] {
-		return Plan{}, errors.New("the Nix archive root is not listed")
-	}
 
-	loss := make([]string, 0, len(manifest.Loss))
-	for _, value := range manifest.Loss {
+	loss := make([]string, 0, len(parsed.manifest.Loss))
+	for _, value := range parsed.manifest.Loss {
 		loss = append(loss, value.Kind+": "+value.Detail)
 	}
-	omissions := make([]string, 0, len(manifest.Omitted))
-	for _, value := range manifest.Omitted {
+	omissions := make([]string, 0, len(parsed.manifest.Omitted))
+	for _, value := range parsed.manifest.Omitted {
 		omissions = append(omissions, value.Reason+": "+value.Detail)
 	}
 	return Plan{
 		Version: Version, Format: "nix", Title: source.Title, SourceSHA256: source.SHA256,
 		Items: items, Loss: loss, Omissions: omissions,
 	}, nil
+}
+
+func validateNixArchive(ctx context.Context, source Source, limits Limits) (validatedNixArchive, error) {
+	if err := ctx.Err(); err != nil {
+		return validatedNixArchive{}, err
+	}
+	archive, err := openArchive(source, limits)
+	if err != nil {
+		return validatedNixArchive{}, fmt.Errorf("open Nix archive: %w", err)
+	}
+	defer archive.Close()
+	if len(archive.File) == 0 || archive.File[0].Name != "manifest.json" {
+		return validatedNixArchive{}, errors.New("the first Nix archive entry must be manifest.json")
+	}
+
+	manifestBody, err := readEntry(archive, "manifest.json", limits.MaxEntryBytes)
+	if err != nil {
+		return validatedNixArchive{}, err
+	}
+	var manifest nixManifest
+	if err := decodeStrictJSON(manifestBody, &manifest); err != nil {
+		return validatedNixArchive{}, fmt.Errorf("decode Nix manifest: %w", err)
+	}
+	if err := validateNixManifest(manifest, limits); err != nil {
+		return validatedNixArchive{}, err
+	}
+	if len(archive.File) != len(manifest.Items)+1 {
+		return validatedNixArchive{}, errors.New("the Nix archive contains unlisted or missing entries")
+	}
+
+	bundles := make(map[string]nixBundle, len(manifest.Items))
+	seenEntries := map[string]bool{"manifest.json": true}
+	for _, entry := range archive.File[1:] {
+		if err := ctx.Err(); err != nil {
+			return validatedNixArchive{}, err
+		}
+		if seenEntries[entry.Name] {
+			return validatedNixArchive{}, fmt.Errorf("the Nix archive contains duplicate entry %q", entry.Name)
+		}
+		seenEntries[entry.Name] = true
+		id, ok := nixItemIDFromEntry(entry.Name)
+		if !ok {
+			return validatedNixArchive{}, fmt.Errorf("the Nix archive entry %q is not supported", entry.Name)
+		}
+		body, readErr := readEntry(archive, entry.Name, limits.MaxEntryBytes)
+		if readErr != nil {
+			return validatedNixArchive{}, readErr
+		}
+		var bundle nixBundle
+		if decodeErr := decodeStrictJSON(body, &bundle); decodeErr != nil {
+			return validatedNixArchive{}, fmt.Errorf("decode Nix item %s: %w", id, decodeErr)
+		}
+		if bundle.ID != id || bundles[id].ID != "" {
+			return validatedNixArchive{}, fmt.Errorf("the Nix archive contains a duplicate or mismatched item %s", id)
+		}
+		bundles[id] = bundle
+	}
+
+	items := make([]validatedNixItem, 0, len(manifest.Items))
+	depths := make(map[string]int, len(manifest.Items))
+	seen := make(map[string]bool, len(manifest.Items))
+	for _, entry := range manifest.Items {
+		if err := ctx.Err(); err != nil {
+			return validatedNixArchive{}, err
+		}
+		bundle, ok := bundles[entry.ID]
+		if !ok {
+			return validatedNixArchive{}, fmt.Errorf("the Nix archive has no payload for item %s", entry.ID)
+		}
+		if seen[entry.ID] || bundle.ParentID == nil != (entry.ParentID == nil) || !sameOptionalString(bundle.ParentID, entry.ParentID) ||
+			bundle.Sequence != entry.Sequence || bundle.Type != entry.Type || bundle.Title != entry.Title {
+			return validatedNixArchive{}, fmt.Errorf("the Nix payload for item %s disagrees with its manifest", entry.ID)
+		}
+		if entry.ID == manifest.Root {
+			if entry.ParentID != nil {
+				return validatedNixArchive{}, errors.New("the Nix archive root has a parent")
+			}
+		} else if entry.ParentID == nil || !seen[*entry.ParentID] {
+			return validatedNixArchive{}, fmt.Errorf("Nix item %s does not follow its parent", entry.ID)
+		}
+		depth := 0
+		if entry.ParentID != nil {
+			depth = depths[*entry.ParentID] + 1
+		}
+		if depth > limits.MaxDepth {
+			return validatedNixArchive{}, errors.New("the Nix archive tree is too deep")
+		}
+		depths[entry.ID] = depth
+		seen[entry.ID] = true
+
+		lifecycle := bundle.LifecycleState
+		if lifecycle != "active" && lifecycle != "deleted" {
+			return validatedNixArchive{}, fmt.Errorf("Nix item %s has an unsupported lifecycle state", entry.ID)
+		}
+		if err := validateNixBundle(bundle, manifest.SchemaVersion, limits); err != nil {
+			return validatedNixArchive{}, fmt.Errorf("Nix item %s: %w", entry.ID, err)
+		}
+		items = append(items, validatedNixItem{manifest: entry, bundle: bundle})
+	}
+	if !seen[manifest.Root] {
+		return validatedNixArchive{}, errors.New("the Nix archive root is not listed")
+	}
+	return validatedNixArchive{manifest: manifest, items: items}, nil
 }
 
 func validateNixManifest(manifest nixManifest, limits Limits) error {

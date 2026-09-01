@@ -1,23 +1,49 @@
-import { randomUUID, sign } from 'node:crypto';
+import { createHash, randomUUID, sign } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 const directory = required('NIX_TEMPLATE_BOOT_DIRECTORY');
 const workspaceId = required('NIX_TEMPLATE_BOOT_WORKSPACE_ID');
-const issuer = strip(required('NIX_TEMPLATE_BOOT_OIDC_ISSUER'));
+const coreBaseUrl = serviceOrigin(required('NIX_TEMPLATE_BOOT_CORE_URL'), 'NIX_TEMPLATE_BOOT_CORE_URL');
+const objectOrigins = configuredOrigins(required('NIX_TEMPLATE_BOOT_OBJECT_ORIGINS'));
+const issuer = serviceOrigin(required('NIX_TEMPLATE_BOOT_OIDC_ISSUER'), 'NIX_TEMPLATE_BOOT_OIDC_ISSUER');
 const audience = required('NIX_TEMPLATE_BOOT_OIDC_AUDIENCE');
 const scope = required('NIX_TEMPLATE_BOOT_OIDC_SCOPE');
 const serviceKeyFile = required('NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE');
-const mediaBaseUrl = strip(required('NIX_TEMPLATE_BOOT_MEDIA_URL'));
-const healthUrls = required('NIX_TEMPLATE_BOOT_HEALTH_URLS').split(',').map(strip);
+const syncRevision = required('NIX_TEMPLATE_BOOT_REVISION');
+const healthUrls = required('NIX_TEMPLATE_BOOT_HEALTH_URLS')
+  .split(',')
+  .map((entry) => strip(entry.trim()));
 const healthTimeoutMs = positiveInteger(
   process.env.NIX_TEMPLATE_BOOT_HEALTH_TIMEOUT_MS ?? '180000',
   'NIX_TEMPLATE_BOOT_HEALTH_TIMEOUT_MS',
 );
+const operationTimeoutMs = positiveInteger(
+  process.env.NIX_TEMPLATE_BOOT_OPERATION_TIMEOUT_MS ?? '600000',
+  'NIX_TEMPLATE_BOOT_OPERATION_TIMEOUT_MS',
+);
+const pollIntervalMs = positiveInteger(
+  process.env.NIX_TEMPLATE_BOOT_POLL_INTERVAL_MS ?? '500',
+  'NIX_TEMPLATE_BOOT_POLL_INTERVAL_MS',
+);
 const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
+const MAX_TEMPLATE_COUNT = 200;
+const MAX_CORE_JSON_BYTES = 4 * 1024 * 1024;
+const MAX_OIDC_JSON_BYTES = 64 * 1024;
+const REQUEST_TIMEOUT_MS = 60_000;
+const TEMPLATE_MEDIA_TYPE = 'application/x-nix-template';
 
-if (new URL(issuer).origin !== issuer) {
-  throw new Error('NIX_TEMPLATE_BOOT_OIDC_ISSUER must be an origin with no path.');
+if (!uuid(workspaceId)) {
+  throw new Error('NIX_TEMPLATE_BOOT_WORKSPACE_ID must be a UUID.');
+}
+if (healthUrls.length === 0 || healthUrls.some((url) => url.length === 0)) {
+  throw new Error('NIX_TEMPLATE_BOOT_HEALTH_URLS must name one or more health endpoints.');
+}
+if (pollIntervalMs > operationTimeoutMs) {
+  throw new Error('NIX_TEMPLATE_BOOT_POLL_INTERVAL_MS cannot exceed the operation timeout.');
+}
+if (syncRevision.length > 200 || [...syncRevision].some((character) => character.charCodeAt(0) < 0x20)) {
+  throw new Error('NIX_TEMPLATE_BOOT_REVISION must be a bounded printable release identity.');
 }
 const audienceScope = `urn:zitadel:iam:org:project:id:${audience}:aud`;
 if (!scope.split(/\s+/u).includes(audienceScope)) {
@@ -26,119 +52,226 @@ if (!scope.split(/\s+/u).includes(audienceScope)) {
 
 await waitForHealth(healthUrls, healthTimeoutMs);
 const discovery = await publicJson(`${issuer}/.well-known/openid-configuration`);
-if (typeof discovery.token_endpoint !== 'string') {
+if (!record(discovery) || typeof discovery.token_endpoint !== 'string') {
   throw new Error('OIDC discovery did not publish a token_endpoint.');
 }
+const tokenEndpoint = oidcEndpoint(discovery.token_endpoint);
 const serviceKey = parseServiceKey(await readFile(serviceKeyFile, 'utf8'));
-const tokens = tokenProvider(discovery.token_endpoint, serviceKey);
+const tokens = tokenProvider(tokenEndpoint, serviceKey);
 const names = (await readdir(directory, { withFileTypes: true }))
   .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.nix'))
   .map((entry) => entry.name)
   .sort((left, right) => left.localeCompare(right));
 
-if (names.length > 200) {
-  throw new Error('A managed template directory may contain at most 200 .nix files.');
+if (names.length > MAX_TEMPLATE_COUNT) {
+  throw new Error(`A managed template directory may contain at most ${String(MAX_TEMPLATE_COUNT)} .nix files.`);
 }
 
-const previews = [];
-const stableKeys = new Set();
-for (const name of names) {
-  const bytes = await readManagedFile(name);
-  const previewQuery = new URLSearchParams({ workspaceId });
-  const preview = await authorizedJson(`${mediaBaseUrl}/templates/preview?${previewQuery.toString()}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/zip' },
-    body: bytes,
-  });
-  if (typeof preview.digest !== 'string' || typeof preview.profile?.key !== 'string') {
-    throw new Error(`The preview response for ${name} was incomplete.`);
-  }
-  if (stableKeys.has(preview.profile.key)) {
-    throw new Error(`Managed template key ${preview.profile.key} is declared by more than one file.`);
-  }
-  stableKeys.add(preview.profile.key);
-  previews.push({ name, digest: preview.digest, stableKey: preview.profile.key });
-}
-
-const imports = [];
-const pendingOperationIds = [];
 try {
   await authorizedJson(
-    `${mediaBaseUrl}/workspaces/${workspaceId}/template-stages/expired/sweep`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
+    `${coreBaseUrl}/api/v1/workspaces/${workspaceId}/managed-template-stages/sweep`,
+    { method: 'POST' },
   );
-  for (const preview of previews) {
-    const bytes = await readManagedFile(preview.name);
-    const query = new URLSearchParams({
-      workspaceId,
-      managedSource: basename(preview.name),
-    });
-    const staged = await authorizedJson(
-      `${mediaBaseUrl}/templates/managed/stage?${query.toString()}`,
-      { method: 'POST', headers: { 'content-type': 'application/zip' }, body: bytes },
+
+  const previews = [];
+  const stableKeys = new Set();
+  for (const name of names) {
+    const bytes = await readManagedFile(name);
+    const sourceDigest = sha256(bytes);
+    const begun = parseUpload(
+      await authorizedJson(
+        `${coreBaseUrl}/api/v1/workspaces/${workspaceId}/managed-template-imports`,
+        jsonRequest('POST', {
+          fileName: name,
+          mediaType: TEMPLATE_MEDIA_TYPE,
+          byteLength: bytes.byteLength,
+          managedSource: basename(name),
+          idempotencyKey: importIdempotencyKey(name, sourceDigest),
+        }),
+      ),
+      name,
     );
-    if (typeof staged.operationId === 'string') pendingOperationIds.push(staged.operationId);
-    if (staged.digest !== preview.digest || staged.stableKey !== preview.stableKey ||
-      typeof staged.templateId !== 'string' ||
-      (staged.operationId !== null && typeof staged.operationId !== 'string') ||
-      !Array.isArray(staged.writtenTargetItemIds) ||
-      !staged.writtenTargetItemIds.every((id) => typeof id === 'string')) {
-      throw new Error(`The managed template ${preview.name} changed after directory validation.`);
+    if (begun.uploadUrl !== null) {
+      await putCapability(begun.uploadUrl, bytes);
+    } else if (begun.status === 'pending_upload') {
+      throw new Error(`Core did not provide an upload capability for ${name}.`);
     }
-    imports.push(staged);
+
+    const previewJob = parseOperation(
+      await authorizedJson(
+        `${coreBaseUrl}/api/v1/template-imports/${begun.id}/preview`,
+        { method: 'POST' },
+      ),
+      'template.preview',
+    );
+    await waitForOperation(previewJob);
+    const current = parseTemplateImport(
+      await authorizedJson(`${coreBaseUrl}/api/v1/template-imports/${begun.id}`, {
+        method: 'GET',
+      }),
+      begun.id,
+    );
+    if (current.preview === null || current.preview.digest !== sourceDigest) {
+      throw new Error(`The durable preview for ${name} did not describe its uploaded archive.`);
+    }
+    if (stableKeys.has(current.preview.stableKey)) {
+      throw new Error(
+        `Managed template key ${current.preview.stableKey} is declared by more than one file.`,
+      );
+    }
+    stableKeys.add(current.preview.stableKey);
+    previews.push({
+      name,
+      importId: begun.id,
+      digest: current.preview.digest,
+      stableKey: current.preview.stableKey,
+    });
   }
 
-  // The only activation point. Core swaps every changed root and retires every absent managed key
-  // in one transaction, after checking that this list names every staged operation exactly.
-  await authorizedJson(
-    `${mediaBaseUrl}/workspaces/${workspaceId}/templates/managed/finalize`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        imports: imports.map((staged) => ({
-          operationId: staged.operationId ?? null,
-          templateId: staged.templateId,
-          stableKey: staged.stableKey,
-          digest: staged.digest,
-          writtenTargetItemIds: staged.writtenTargetItemIds,
-        })),
-        activeStableKeys: previews.map((preview) => preview.stableKey),
+  const imports = [];
+  for (const preview of previews) {
+    const currentBytes = await readManagedFile(preview.name);
+    if (sha256(currentBytes) !== preview.digest) {
+      throw new Error(`Managed template ${preview.name} changed after its durable preview.`);
+    }
+    const commitJob = parseOperation(
+      await authorizedJson(
+        `${coreBaseUrl}/api/v1/template-imports/${preview.importId}/commit`,
+        jsonRequest('POST', { expectedDigest: preview.digest }),
+      ),
+      'template.commit',
+    );
+    await waitForOperation(commitJob);
+    const current = parseTemplateImport(
+      await authorizedJson(`${coreBaseUrl}/api/v1/template-imports/${preview.importId}`, {
+        method: 'GET',
       }),
-    },
+      preview.importId,
+    );
+    if (
+      current.result === null ||
+      (current.status !== 'staged' && current.status !== 'completed') ||
+      current.result.digest !== preview.digest ||
+      current.result.stableKey !== preview.stableKey
+    ) {
+      throw new Error(`The managed template commit for ${preview.name} was incomplete.`);
+    }
+    imports.push({ importId: preview.importId, ...current.result });
+  }
+
+  await authorizedJson(
+    `${coreBaseUrl}/api/v1/workspaces/${workspaceId}/managed-templates/finalize`,
+    jsonRequest('POST', {
+      imports: imports.map((entry) => ({
+        importId: entry.importId,
+        operationId: entry.operationId,
+        templateId: entry.templateId,
+        stableKey: entry.stableKey,
+        digest: entry.digest,
+        writtenTargetItemIds: entry.writtenTargetItemIds,
+      })),
+      activeStableKeys: previews.map((preview) => preview.stableKey),
+    }),
   );
 } catch (error) {
-  await Promise.allSettled(pendingOperationIds.map((operationId) =>
-    authorizedJson(`${mediaBaseUrl}/templates/managed/stages/${operationId}`, {
-      method: 'DELETE',
-    }).catch(() => undefined)));
+  // Durable imports are deliberately retained after an interrupted run. A retry with the same
+  // release identity resumes the exact jobs; Core's expiry reaper owns eventual cleanup when a
+  // release is abandoned.
   throw error;
+}
+
+async function waitForOperation(initial) {
+  const deadline = Date.now() + operationTimeoutMs;
+  let operation = initial;
+  for (;;) {
+    if (operation.status === 'completed') return;
+    if (operation.status === 'failed' || operation.status === 'cancelled') {
+      throw new Error(
+        operation.errorDetail ??
+          operation.errorCode ??
+          `The ${operation.kind} operation ${operation.status}.`,
+      );
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error(`The ${operation.kind} operation did not finish before its deadline.`);
+    }
+    await delay(Math.min(pollIntervalMs, remaining));
+    const requestRemaining = deadline - Date.now();
+    if (requestRemaining <= 0) {
+      throw new Error(`The ${operation.kind} operation did not finish before its deadline.`);
+    }
+    operation = parseOperation(
+      await authorizedJson(
+        `${coreBaseUrl}/api/v1/operations/${operation.id}`,
+        { method: 'GET' },
+        false,
+        Math.min(REQUEST_TIMEOUT_MS, requestRemaining),
+      ),
+      operation.kind,
+      operation.id,
+    );
+  }
+}
+
+async function putCapability(address, bytes) {
+  const url = new URL(address);
+  if (!objectOrigins.has(url.origin)) {
+    throw new Error('Core returned an object capability outside the configured storage origins.');
+  }
+  if (url.username !== '' || url.password !== '' || !['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Core returned an invalid object upload capability.');
+  }
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': TEMPLATE_MEDIA_TYPE },
+    body: bytes,
+    credentials: 'omit',
+    redirect: 'error',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`The object upload capability failed with HTTP ${String(response.status)}.`);
+  }
 }
 
 function tokenProvider(tokenEndpoint, key) {
   let current = null;
   return {
-    invalidate() { current = null; },
+    invalidate() {
+      current = null;
+    },
     async get() {
       if (current !== null && current.expiresAt - Date.now() >= 60_000) return current.value;
       const now = Math.floor(Date.now() / 1000);
       const assertion = signedJwt(
         { alg: 'RS256', kid: key.keyId, typ: 'JWT' },
-        { iss: key.userId, sub: key.userId, aud: issuer, iat: now, exp: now + 300, jti: randomUUID() },
+        {
+          iss: key.userId,
+          sub: key.userId,
+          aud: issuer,
+          iat: now,
+          exp: now + 300,
+          jti: randomUUID(),
+        },
         key.privateKey,
       );
       const response = await fetch(tokenEndpoint, {
         method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/x-www-form-urlencoded',
+        },
         body: new URLSearchParams({
           grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
           scope,
           assertion,
         }),
+        redirect: 'error',
         signal: AbortSignal.timeout(15_000),
       });
-      const answer = await response.json().catch(() => null);
-      if (!response.ok || typeof answer?.access_token !== 'string') {
+      const answer = await boundedJson(response, MAX_OIDC_JSON_BYTES);
+      if (!response.ok || !record(answer) || typeof answer.access_token !== 'string') {
         throw new Error(`OIDC JWT bearer exchange failed with HTTP ${String(response.status)}.`);
       }
       current = {
@@ -163,53 +296,194 @@ async function waitForHealth(urls, timeoutMs) {
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for ${url}.`);
       }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await delay(Math.min(1_000, Math.max(1, deadline - Date.now())));
     }
   }
 }
 
-async function authorizedJson(url, init, retried = false) {
+async function authorizedJson(url, init, retried = false, timeoutMs = REQUEST_TIMEOUT_MS) {
   const token = await tokens.get();
   const response = await fetch(url, {
     ...init,
-    headers: { ...init.headers, authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(60_000),
+    headers: { ...init.headers, authorization: `Bearer ${token}`, accept: 'application/json' },
+    redirect: 'error',
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.status === 401 && !retried) {
     tokens.invalidate();
-    return await authorizedJson(url, init, true);
+    return await authorizedJson(url, init, true, timeoutMs);
   }
-  const answer = await response.json().catch(() => null);
+  const answer = await boundedJson(response, MAX_CORE_JSON_BYTES);
   if (!response.ok) {
-    const detail = typeof answer?.detail === 'string' ? answer.detail : 'No problem detail returned.';
+    const detail =
+      record(answer) && typeof answer.detail === 'string'
+        ? answer.detail
+        : 'No problem detail returned.';
     throw new Error(`${init.method} ${url} failed with HTTP ${String(response.status)}: ${detail}`);
   }
   return answer ?? {};
 }
 
 async function publicJson(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`OIDC discovery failed with HTTP ${String(response.status)}.`);
-  return await response.json();
+  return await boundedJson(response, MAX_OIDC_JSON_BYTES);
+}
+
+async function boundedJson(response, maximumBytes) {
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null) {
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > maximumBytes) {
+      throw new Error(`JSON response exceeded the ${String(maximumBytes)} byte limit.`);
+    }
+  }
+  if (response.body === null) return null;
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maximumBytes) {
+        await reader.cancel();
+        throw new Error(`JSON response exceeded the ${String(maximumBytes)} byte limit.`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (length === 0) return null;
+
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
 }
 
 async function readManagedFile(name) {
   const path = join(directory, name);
   const metadata = await lstat(path);
-  if (!metadata.isFile() || metadata.size > MAX_TEMPLATE_BYTES) {
-    throw new Error(`Managed template ${name} is not a regular file of at most 64 MiB.`);
+  if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_TEMPLATE_BYTES) {
+    throw new Error(`Managed template ${name} is not a regular non-empty file of at most 64 MiB.`);
   }
   const bytes = await readFile(path);
-  if (bytes.byteLength > MAX_TEMPLATE_BYTES) {
-    throw new Error(`Managed template ${name} grew beyond 64 MiB while it was read.`);
+  if (bytes.byteLength <= 0 || bytes.byteLength > MAX_TEMPLATE_BYTES) {
+    throw new Error(`Managed template ${name} changed outside the 1 byte to 64 MiB limit.`);
   }
   return bytes;
 }
 
+function parseUpload(value, name) {
+  if (
+    !record(value) ||
+    !uuid(value.id) ||
+    typeof value.status !== 'string' ||
+    (value.uploadUrl !== null && typeof value.uploadUrl !== 'string')
+  ) {
+    throw new Error(`Core returned an invalid managed template import for ${name}.`);
+  }
+  return { id: value.id, status: value.status, uploadUrl: value.uploadUrl };
+}
+
+function parseOperation(value, expectedKind, expectedId = null) {
+  if (
+    !record(value) ||
+    !uuid(value.id) ||
+    (expectedId !== null && value.id !== expectedId) ||
+    value.kind !== expectedKind ||
+    !['queued', 'running', 'completed', 'failed', 'cancelled'].includes(value.status) ||
+    (value.errorCode !== null && typeof value.errorCode !== 'string') ||
+    (value.errorDetail !== null && typeof value.errorDetail !== 'string')
+  ) {
+    throw new Error(`Core returned an invalid ${expectedKind} operation status.`);
+  }
+  return {
+    id: value.id,
+    kind: expectedKind,
+    status: value.status,
+    errorCode: value.errorCode,
+    errorDetail: value.errorDetail,
+  };
+}
+
+function parseTemplateImport(value, expectedId) {
+  if (
+    !record(value) ||
+    value.id !== expectedId ||
+    value.workspaceId !== workspaceId ||
+    typeof value.status !== 'string'
+  ) {
+    throw new Error('Core returned template import status for the wrong durable import.');
+  }
+  let preview = null;
+  if (value.preview !== null) {
+    if (
+      !record(value.preview) ||
+      !record(value.preview.profile) ||
+      typeof value.preview.profile.key !== 'string' ||
+      value.preview.profile.key.length === 0 ||
+      value.preview.profile.key.length > 160 ||
+      !digest(value.preview.digest)
+    ) {
+      throw new Error('Core returned an invalid managed template preview.');
+    }
+    preview = { stableKey: value.preview.profile.key, digest: value.preview.digest };
+  }
+  let result = null;
+  if (value.result !== null) {
+    if (
+      !record(value.result) ||
+      (value.result.operationId !== null && !uuid(value.result.operationId)) ||
+      !uuid(value.result.templateId) ||
+      typeof value.result.stableKey !== 'string' ||
+      !digest(value.result.digest) ||
+      !Array.isArray(value.result.writtenTargetItemIds) ||
+      value.result.writtenTargetItemIds.length > 10_000 ||
+      !value.result.writtenTargetItemIds.every(uuid) ||
+      new Set(value.result.writtenTargetItemIds).size !== value.result.writtenTargetItemIds.length
+    ) {
+      throw new Error('Core returned an invalid managed template commit result.');
+    }
+    result = {
+      operationId: value.result.operationId,
+      templateId: value.result.templateId,
+      stableKey: value.result.stableKey,
+      digest: value.result.digest,
+      writtenTargetItemIds: value.result.writtenTargetItemIds,
+    };
+  }
+  return { status: value.status, preview, result };
+}
+
+function jsonRequest(method, value) {
+  return {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(value),
+  };
+}
+
 function parseServiceKey(json) {
   const value = JSON.parse(json);
-  if (value?.type !== 'serviceaccount' || typeof value.userId !== 'string' ||
-    typeof value.keyId !== 'string' || typeof value.key !== 'string') {
+  if (
+    !record(value) ||
+    value.type !== 'serviceaccount' ||
+    typeof value.userId !== 'string' ||
+    typeof value.keyId !== 'string' ||
+    typeof value.key !== 'string'
+  ) {
     throw new Error('The mounted OIDC service-account key JSON is invalid.');
   }
   return { userId: value.userId, keyId: value.keyId, privateKey: value.key };
@@ -225,6 +499,89 @@ function encodeJson(value) {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
+function importIdempotencyKey(name, sourceDigest) {
+  const identity = createHash('sha256')
+    .update(syncRevision)
+    .update('\0')
+    .update(workspaceId)
+    .update('\0')
+    .update(name)
+    .update('\0')
+    .update(sourceDigest)
+    .digest('hex');
+  return `managed-template-boot:${identity}`;
+}
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function digest(value) {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);
+}
+
+function uuid(value) {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
+  );
+}
+
+function configuredOrigins(value) {
+  const origins = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      const parsed = new URL(entry);
+      if (
+        parsed.username !== '' ||
+        parsed.password !== '' ||
+        !['http:', 'https:'].includes(parsed.protocol)
+      ) {
+        throw new Error('NIX_TEMPLATE_BOOT_OBJECT_ORIGINS contains an invalid storage origin.');
+      }
+      return parsed.origin;
+    });
+  if (origins.length === 0) {
+    throw new Error('NIX_TEMPLATE_BOOT_OBJECT_ORIGINS must name at least one storage origin.');
+  }
+  return new Set(origins);
+}
+
+function serviceOrigin(value, name) {
+  const stripped = strip(value);
+  const parsed = new URL(stripped);
+  if (
+    parsed.origin !== stripped ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    !['http:', 'https:'].includes(parsed.protocol)
+  ) {
+    throw new Error(`${name} must be an HTTP or HTTPS origin with no path or credentials.`);
+  }
+  return stripped;
+}
+
+function oidcEndpoint(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('OIDC token_endpoint must be an absolute URL.');
+  }
+  if (
+    parsed.origin !== issuer ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.hash !== '' ||
+    !['http:', 'https:'].includes(parsed.protocol)
+  ) {
+    throw new Error('OIDC token_endpoint must use the configured issuer origin.');
+  }
+  return parsed.toString();
+}
+
 function required(name) {
   const value = process.env[name];
   if (value === undefined || value.length === 0) throw new Error(`${name} is required.`);
@@ -232,7 +589,7 @@ function required(name) {
 }
 
 function strip(value) {
-  return value.replace(/\/+$/, '');
+  return value.replace(/\/+$/u, '');
 }
 
 function positiveInteger(value, name) {
@@ -240,4 +597,12 @@ function positiveInteger(value, name) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) throw new Error(`${name} must be a positive safe integer.`);
   return parsed;
+}
+
+function record(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

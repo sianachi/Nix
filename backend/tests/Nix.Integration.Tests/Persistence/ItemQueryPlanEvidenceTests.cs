@@ -12,7 +12,7 @@ namespace Nix.Integration.Tests.Persistence;
 
 /// <summary>
 /// The query statement's plan, measured against a realistically sized corpus rather than five
-/// seeded rows - the rule CLAUDE.md states and the one GraphSql taught the cost of skipping: a doc
+/// seeded rows - the rule AGENTS.md states and the one GraphSql taught the cost of skipping: a doc
 /// comment naming an index is a hypothesis, and the plan is the evidence.
 /// </summary>
 /// <remarks>

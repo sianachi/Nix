@@ -5,10 +5,8 @@
 #   REGISTRY=ghcr.io/you/nix PLATFORM=linux/arm64 \
 #   deploy/docker/build-and-push.sh
 #
-# PLATFORM must match the cluster node's architecture. @nix/media depends on
-# @resvg/resvg-js, a native module - an amd64 image will not run on an arm64 node
-# (a Jetson, a Raspberry Pi). Defaults to linux/arm64 since that is this project's
-# current k3s target; override for an amd64 node.
+# PLATFORM must match the cluster node's architecture. Defaults to linux/arm64
+# since that is this project's current k3s target; override for an amd64 node.
 #
 # Tags with the commit SHA, never "latest" - imagePullPolicy: IfNotPresent plus a
 # floating tag is how a cluster silently keeps running the previous build.
@@ -19,7 +17,7 @@ cd "$(git rev-parse --show-toplevel)"
 PLATFORM="${PLATFORM:-linux/arm64}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 
-echo "Building $REGISTRY/{api,migrator,collab,media,import-worker,export-worker,indexer,plugin-worker,web}:$TAG for $PLATFORM"
+echo "Building $REGISTRY/{api,migrator,collab,worker,web}:$TAG for $PLATFORM"
 
 docker buildx build --platform "$PLATFORM" --target api \
   -f deploy/docker/backend.Dockerfile -t "$REGISTRY/api:$TAG" --push .
@@ -30,20 +28,8 @@ docker buildx build --platform "$PLATFORM" --target migrator \
 docker buildx build --platform "$PLATFORM" --target collab \
   -f deploy/docker/node.Dockerfile -t "$REGISTRY/collab:$TAG" --push .
 
-docker buildx build --platform "$PLATFORM" --target media \
-  -f deploy/docker/node.Dockerfile -t "$REGISTRY/media:$TAG" --push .
-
-for worker in import-worker export-worker indexer plugin-worker; do
-  case "$worker" in
-    import-worker) command='./cmd/nix-import-worker' ;;
-    export-worker) command='./cmd/nix-export-worker' ;;
-    indexer) command='./cmd/nix-indexer' ;;
-    plugin-worker) command='./cmd/nix-worker' ;;
-  esac
-  docker buildx build --platform "$PLATFORM" \
-    --build-arg "WORKER_CMD=$command" \
-    -f deploy/docker/go-workers.Dockerfile -t "$REGISTRY/$worker:$TAG" --push .
-done
+docker buildx build --platform "$PLATFORM" \
+  -f deploy/docker/go-workers.Dockerfile -t "$REGISTRY/worker:$TAG" --push .
 
 docker buildx build --platform "$PLATFORM" --target web \
   -f deploy/docker/web.Dockerfile \

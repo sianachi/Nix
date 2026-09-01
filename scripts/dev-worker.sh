@@ -25,6 +25,9 @@ if [ -z "${NIX_RABBITMQ_URL:-}" ]; then
     index)
       NIX_RABBITMQ_URL="${NIX_RABBITMQ_INDEX_URL:-amqp://nix-index:nix-dev-index-rabbit@localhost:5673/%2Fnix}"
       ;;
+    plugin-events)
+      NIX_RABBITMQ_URL="${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:nix-dev-plugin-rabbit@localhost:5673/%2Fnix}"
+      ;;
     *)
       # The combined account exists only in the local stack and has worker permissions, not
       # topology or API permissions. Production runs one role per deployment and never creates it.
