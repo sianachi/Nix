@@ -93,12 +93,8 @@ public sealed class FileStore(
         {
             return null;
         }
-        if (upload.Status == "pending_upload")
-        {
-            upload.Status = "inspection_queued";
-            upload.UpdatedAt = clock.GetUtcNow();
-            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
+        // The temporary opaque publish path keeps the upload in pending_upload. That status is
+        // already part of the deployed schema and remains eligible for abandoned-object cleanup.
         return ToUpload(upload);
     }
 
@@ -141,7 +137,7 @@ public sealed class FileStore(
         {
             return await GetAsync(published, cancellationToken).ConfigureAwait(false);
         }
-        if (upload.Status != "inspection_queued" || upload.ExpiresAt <= clock.GetUtcNow())
+        if (upload.Status != "pending_upload" || upload.ExpiresAt <= clock.GetUtcNow())
         {
             return null;
         }
