@@ -1,3 +1,5 @@
+import { internalCoreOrigin } from '../core/internal-url.ts';
+
 export interface ImportBodyAuthorizationItem {
   readonly sourceId: string;
   readonly targetItemId: string;
@@ -39,12 +41,13 @@ export function createCoreImportClient(input: {
   readonly fetchImpl?: typeof fetch;
 }): CoreImportClient {
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  const coreBaseUrl = internalCoreOrigin(input.coreBaseUrl);
   return {
     async authorizeBodies(importId, execution) {
       let response: Response;
       try {
         response = await fetchImpl(
-          `${input.coreBaseUrl}/internal/worker-executions/imports/${encodeURIComponent(importId)}/bodies/authorization`,
+          `${coreBaseUrl}/internal/worker-executions/imports/${encodeURIComponent(importId)}/bodies/authorization`,
           {
             headers: {
               'x-nix-internal-secret': input.internalSecret,
@@ -52,6 +55,8 @@ export function createCoreImportClient(input: {
               'x-nix-worker-execution-id': execution.executionId,
             },
             signal: AbortSignal.timeout(10_000),
+            credentials: 'omit',
+            redirect: 'error',
           },
         );
       } catch {

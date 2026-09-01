@@ -2,7 +2,6 @@ packages:
   - packages/*
   - apps/web
   - apps/collab
-  - apps/media
   - apps/cli
 
 # Install scripts are denied by default (pnpm 10). Only the build toolchain's

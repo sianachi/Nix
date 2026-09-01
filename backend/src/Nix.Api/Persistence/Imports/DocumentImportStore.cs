@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Files;
@@ -32,6 +33,16 @@ public sealed class DocumentImportStore(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.Purpose is not (DocumentImportPurposes.Workspace
+                or DocumentImportPurposes.TemplateUser
+                or DocumentImportPurposes.TemplateManaged)
+            || (DocumentImportPurposes.IsTemplate(request.Purpose) && request.ParentId is not null)
+            || (request.Purpose == DocumentImportPurposes.TemplateManaged
+                ? string.IsNullOrWhiteSpace(request.ManagedSource) || request.ManagedSource.Length > 500
+                : request.ManagedSource is not null))
+        {
+            return null;
+        }
         var context = Context;
         await LockIdempotencyAsync(request.IdempotencyKey, cancellationToken).ConfigureAwait(false);
         var existing = await database.DocumentImports.AsNoTracking().SingleOrDefaultAsync(
@@ -44,6 +55,8 @@ public sealed class DocumentImportStore(
             return existing.WorkspaceId == request.WorkspaceId
                 && existing.UploadId == request.UploadId
                 && existing.ParentId == request.ParentId
+                && string.Equals(existing.Purpose, request.Purpose, StringComparison.Ordinal)
+                && string.Equals(existing.ManagedSource, request.ManagedSource, StringComparison.Ordinal)
                 && string.Equals(existing.Format, request.Format, StringComparison.Ordinal)
                 && string.Equals(existing.Title, request.Title, StringComparison.Ordinal)
                     ? ToRecord(existing)
@@ -55,8 +68,11 @@ public sealed class DocumentImportStore(
                 && candidate.ActorId == context.PrincipalId
                 && candidate.Id == request.UploadId,
             cancellationToken).ConfigureAwait(false);
+        var expectedUploadPurpose = DocumentImportPurposes.IsTemplate(request.Purpose)
+            ? FileUploadPurposes.TemplateImport
+            : FileUploadPurposes.DocumentImport;
         if (upload is null
-            || upload.Purpose != FileUploadPurposes.DocumentImport
+            || upload.Purpose != expectedUploadPurpose
             || upload.WorkspaceId != request.WorkspaceId
             || upload.ParentId != request.ParentId
             || upload.Status != "pending_upload"
@@ -65,7 +81,8 @@ public sealed class DocumentImportStore(
             return null;
         }
         if (!await permissions.CanWriteWorkspaceAsync(request.WorkspaceId, cancellationToken).ConfigureAwait(false)
-            || !await ValidParentAsync(request.WorkspaceId, request.ParentId, cancellationToken).ConfigureAwait(false))
+            || (request.Purpose == DocumentImportPurposes.Workspace
+                && !await ValidParentAsync(request.WorkspaceId, request.ParentId, cancellationToken).ConfigureAwait(false)))
         {
             return null;
         }
@@ -80,6 +97,8 @@ public sealed class DocumentImportStore(
             ActorId = context.PrincipalId,
             UploadId = request.UploadId,
             ParentId = request.ParentId,
+            Purpose = request.Purpose,
+            ManagedSource = request.ManagedSource,
             Format = request.Format,
             Title = request.Title,
             IdempotencyKey = request.IdempotencyKey,
@@ -167,6 +186,7 @@ public sealed class DocumentImportStore(
         operation.AssetCount = request.AssetCount;
         operation.Loss = request.Loss;
         operation.Omissions = request.Omissions;
+        operation.TemplatePreview = request.TemplatePreview;
         operation.Status = DocumentImportStatuses.PreviewReady;
         operation.UpdatedAt = clock.GetUtcNow();
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -178,6 +198,134 @@ public sealed class DocumentImportStore(
         WorkerJobId jobId,
         CancellationToken cancellationToken) =>
         AttachJobAsync(id, jobId, preview: false, cancellationToken);
+
+    public async ValueTask<DocumentImportRecord?> AttachTemplateStageAsync(
+        AttachTemplateImportStage request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await LockImportAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
+        var operation = await OwnedTrackingAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
+        if (operation is null
+            || !DocumentImportPurposes.IsTemplate(operation.Purpose)
+            || operation.ExpiresAt <= clock.GetUtcNow()
+            || operation.SourceSha256 != request.Digest
+            || string.IsNullOrWhiteSpace(request.StableKey)
+            || request.StableKey.Length > 160
+            || request.Unchanged != (request.OperationId is null))
+        {
+            return null;
+        }
+        if (operation.Status == DocumentImportStatuses.Staging)
+        {
+            return operation.TemplateOperationId == request.OperationId
+                && operation.TemplateId == request.TemplateId
+                && operation.TemplateStableKey == request.StableKey
+                && operation.TemplateDigest == request.Digest
+                && operation.TemplateUnchanged == request.Unchanged
+                    ? ToRecord(operation)
+                    : null;
+        }
+        if (operation.Status != DocumentImportStatuses.CommitQueued
+            || !await permissions.CanWriteWorkspaceAsync(operation.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+        operation.TemplateOperationId = request.OperationId;
+        operation.TemplateId = request.TemplateId;
+        operation.TemplateStableKey = request.StableKey;
+        operation.TemplateDigest = request.Digest;
+        operation.TemplateUnchanged = request.Unchanged;
+        operation.Status = DocumentImportStatuses.Staging;
+        operation.UpdatedAt = clock.GetUtcNow();
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return ToRecord(operation);
+    }
+
+    public async ValueTask<DocumentImportRecord?> CompleteTemplateAsync(
+        CompleteTemplateImport request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await LockImportAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
+        var operation = await OwnedTrackingAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
+        if (operation is null
+            || !DocumentImportPurposes.IsTemplate(operation.Purpose)
+            || (operation.Purpose == DocumentImportPurposes.TemplateManaged) != request.Managed
+            || operation.ExpiresAt <= clock.GetUtcNow()
+            || operation.TemplateId is null
+            || operation.TemplateStableKey is null
+            || operation.TemplateDigest is null)
+        {
+            return null;
+        }
+        var expectedStatus = request.Managed ? DocumentImportStatuses.Staged : DocumentImportStatuses.Completed;
+        var written = request.WrittenTargetItemIds.Select(value => value.Value)
+            .Distinct()
+            .Order()
+            .ToArray();
+        var serialized = JsonSerializer.Serialize(written);
+        if (operation.Status is DocumentImportStatuses.Completed or DocumentImportStatuses.Staged)
+        {
+            return operation.Status == expectedStatus
+                && string.Equals(operation.TemplateWrittenTargetItemIds, serialized, StringComparison.Ordinal)
+                    ? ToRecord(operation)
+                    : null;
+        }
+        if (operation.Status != DocumentImportStatuses.Staging)
+        {
+            return null;
+        }
+        operation.TemplateWrittenTargetItemIds = serialized;
+        operation.Status = expectedStatus;
+        operation.UpdatedAt = clock.GetUtcNow();
+        operation.CompletedAt = request.Managed ? null : operation.UpdatedAt;
+        var upload = await database.FileUploads.AsTracking().SingleOrDefaultAsync(
+            value => value.TenantId == Context.TenantId && value.Id == operation.UploadId,
+            cancellationToken).ConfigureAwait(false);
+        if (upload is not null)
+        {
+            upload.Status = "completed";
+            upload.UpdatedAt = operation.UpdatedAt;
+        }
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return ToRecord(operation);
+    }
+
+    public async ValueTask<bool> CompleteManagedBatchAsync(
+        IReadOnlyList<DocumentImportId> importIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(importIds);
+        var distinct = importIds.Distinct().ToArray();
+        if (distinct.Length != importIds.Count || distinct.Length > 200)
+        {
+            return false;
+        }
+        foreach (var id in distinct.OrderBy(value => value.Value))
+        {
+            await LockImportAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+        var operations = await database.DocumentImports.AsTracking()
+            .Where(value => distinct.Contains(value.Id))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (operations.Count != distinct.Length
+            || operations.Any(value => value.ActorId != Context.PrincipalId
+                || value.Purpose != DocumentImportPurposes.TemplateManaged
+                || value.Status is not (DocumentImportStatuses.Staged or DocumentImportStatuses.Completed)))
+        {
+            return false;
+        }
+        var now = clock.GetUtcNow();
+        foreach (var operation in operations.Where(value => value.Status == DocumentImportStatuses.Staged))
+        {
+            operation.Status = DocumentImportStatuses.Completed;
+            operation.UpdatedAt = now;
+            operation.CompletedAt = now;
+        }
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
 
     public async ValueTask<DocumentImportStageRecord?> StageAsync(
         StageDocumentImport request,
@@ -195,6 +343,7 @@ public sealed class DocumentImportStore(
         await LockImportAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
         var operation = await OwnedTrackingAsync(request.ImportId, cancellationToken).ConfigureAwait(false);
         if (operation is null
+            || operation.Purpose != DocumentImportPurposes.Workspace
             || operation.ExpiresAt <= clock.GetUtcNow()
             || operation.PlanSha256 != request.PlanSha256
             || operation.SourceSha256 != request.SourceSha256
@@ -460,7 +609,7 @@ public sealed class DocumentImportStore(
         var context = Context;
         await LockImportAsync(id, cancellationToken).ConfigureAwait(false);
         var operation = await OwnedTrackingAsync(id, cancellationToken).ConfigureAwait(false);
-        if (operation is null)
+        if (operation is null || operation.Purpose != DocumentImportPurposes.Workspace)
         {
             return null;
         }
@@ -617,7 +766,10 @@ public sealed class DocumentImportStore(
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        var cleanup = new DocumentImportCleanupRecord(operation.WorkspaceId.Value, objectKeys);
+        var cleanup = new DocumentImportCleanupRecord(
+            operation.WorkspaceId.Value,
+            objectKeys,
+            operation.TemplateOperationId?.Value);
         if (operation.Status is DocumentImportStatuses.Cancelled or DocumentImportStatuses.Failed)
         {
             return cleanup;
@@ -909,8 +1061,11 @@ public sealed class DocumentImportStore(
         value.WorkspaceId.Value,
         value.UploadId.Value,
         value.ParentId?.Value,
+        value.Purpose,
+        value.ManagedSource,
         value.Format,
         value.Title,
+        value.IdempotencyKey,
         value.Status,
         value.PreviewJobId?.Value,
         value.CommitJobId?.Value,
@@ -922,6 +1077,13 @@ public sealed class DocumentImportStore(
         value.AssetCount,
         value.Loss,
         value.Omissions,
+        value.TemplatePreview,
+        value.TemplateOperationId?.Value,
+        value.TemplateId?.Value,
+        value.TemplateStableKey,
+        value.TemplateDigest,
+        value.TemplateUnchanged,
+        value.TemplateWrittenTargetItemIds,
         value.RootItemId?.Value,
         value.FailureCode,
         value.ExpiresAt,

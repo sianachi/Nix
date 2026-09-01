@@ -12,6 +12,7 @@ namespace Nix.Persistence.ObjectStorage;
 public sealed class S3CapabilitySigner
 {
     private const int MaximumKeyLength = 1024;
+    private static readonly TimeSpan CleanupClockSkewGrace = TimeSpan.FromMinutes(1);
     private readonly ObjectStorageOptions _options;
     private readonly TimeProvider _clock;
 
@@ -27,6 +28,14 @@ public sealed class S3CapabilitySigner
 
     /// <summary>Whether an object store was configured for this host.</summary>
     public bool IsConfigured => _options.Endpoint is not null;
+
+    /// <summary>
+    /// Returns the earliest safe time to delete a staging object after an operation becomes
+    /// terminal. Waiting through the entire capability lifetime prevents an already-issued PUT
+    /// from recreating the object after cleanup; the grace covers bounded clock skew at the store.
+    /// </summary>
+    public DateTimeOffset GetCleanupNotBefore() =>
+        _clock.GetUtcNow().AddSeconds(_options.CapabilitySeconds).Add(CleanupClockSkewGrace);
 
     /// <summary>Signs an upload capability.</summary>
     public ObjectCapability Put(string key) => Sign("PUT", key);
@@ -123,9 +132,10 @@ public sealed class S3CapabilitySigner
         var day = timestamp[..8];
         var scope = $"{day}/{_options.Region}/s3/aws4_request";
         var canonicalPath = CanonicalPath(_options.Endpoint, _options.Bucket, key);
+        var publicOrigin = _options.PublicOrigin ?? _options.Endpoint;
         var headers = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
-            ["host"] = _options.Endpoint.Authority,
+            ["host"] = publicOrigin.Authority,
         };
         if (requestHeaders is not null)
         {
@@ -183,7 +193,7 @@ public sealed class S3CapabilitySigner
         var signature = HMACSHA256.HashData(signingKey, Encoding.UTF8.GetBytes(stringToSign)); // byte[]: required by the cryptographic HMAC API.
         parameters["X-Amz-Signature"] = Convert.ToHexStringLower(signature);
 
-        var baseUri = _options.Endpoint.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        var baseUri = publicOrigin.GetLeftPart(UriPartial.Authority).TrimEnd('/');
         var endpointPath = _options.Endpoint.AbsolutePath.TrimEnd('/');
         var url = $"{baseUri}{endpointPath}{canonicalPath[(endpointPath.Length == 0 ? 0 : endpointPath.Length)..]}?{CanonicalQuery(parameters)}";
         return new ObjectCapability(new Uri(url, UriKind.Absolute), now.AddSeconds(_options.CapabilitySeconds));
@@ -194,7 +204,7 @@ public sealed class S3CapabilitySigner
         var parts = new List<string>();
         foreach (var segment in endpoint.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
-            parts.Add(Encode(segment));
+            parts.Add(Encode(Uri.UnescapeDataString(segment)));
         }
         parts.Add(Encode(bucket));
         foreach (var segment in key.Split('/'))
@@ -213,6 +223,7 @@ public sealed class S3CapabilitySigner
     private static void Validate(ObjectStorageOptions options)
     {
         var any = options.Endpoint is not null
+            || options.PublicOrigin is not null
             || !string.IsNullOrWhiteSpace(options.Region)
             || !string.IsNullOrWhiteSpace(options.Bucket)
             || !string.IsNullOrWhiteSpace(options.AccessKey)
@@ -240,6 +251,24 @@ public sealed class S3CapabilitySigner
         if (options.Endpoint.Scheme == "http" && !options.Endpoint.IsLoopback)
         {
             throw new InvalidOperationException("Nix:ObjectStorage:Endpoint must use HTTPS outside loopback development.");
+        }
+        if (options.PublicOrigin is not null)
+        {
+            if (!options.PublicOrigin.IsAbsoluteUri
+                || options.PublicOrigin.OriginalString.Length > 2048
+                || options.PublicOrigin.OriginalString != options.PublicOrigin.OriginalString.Trim()
+                || options.PublicOrigin.Scheme is not ("http" or "https")
+                || !string.IsNullOrEmpty(options.PublicOrigin.UserInfo)
+                || !string.IsNullOrEmpty(options.PublicOrigin.Query)
+                || !string.IsNullOrEmpty(options.PublicOrigin.Fragment)
+                || options.PublicOrigin.AbsolutePath != "/")
+            {
+                throw new InvalidOperationException("Nix:ObjectStorage:PublicOrigin must be an absolute HTTP origin without credentials, path, query, or fragment.");
+            }
+            if (options.PublicOrigin.Scheme == "http" && !options.PublicOrigin.IsLoopback)
+            {
+                throw new InvalidOperationException("Nix:ObjectStorage:PublicOrigin must use HTTPS outside loopback development.");
+            }
         }
         if (options.Region.Length > 64
             || options.Bucket.Length is < 3 or > 63

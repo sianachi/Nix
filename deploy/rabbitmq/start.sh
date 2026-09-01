@@ -101,7 +101,7 @@ rabbitmqctl set_permissions --vhost /nix nix-api \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.commands\.v1|nix\.workspace\.v1)$' \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.api\.results\.v1|nix\.capabilities\.v1)$'
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.commands.v1 \
-  '^(import|file|object|export)\..+$' "$no_resources"
+  '^(import|template|file|object|export)\..+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.workspace.v1 \
   '^.+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.capabilities.v1 \

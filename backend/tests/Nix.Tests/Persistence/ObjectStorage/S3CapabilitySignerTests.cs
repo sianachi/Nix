@@ -23,6 +23,96 @@ public sealed class S3CapabilitySignerTests
     }
 
     [Fact]
+    public void Terminal_cleanup_waits_until_every_issued_capability_and_clock_skew_have_expired()
+    {
+        var signer = Signer();
+
+        Assert.Equal(Instant.AddMinutes(6), signer.GetCleanupNotBefore());
+    }
+
+    [Fact]
+    public void Escaped_endpoint_path_segments_are_not_double_encoded()
+    {
+        var options = Options();
+        options.Endpoint = new Uri("https://objects.test/storage/team%20one");
+        var signer = new S3CapabilitySigner(options, new FixedTimeProvider(Instant));
+
+        var capability = signer.Get("files/object").Url;
+
+        Assert.Equal("/storage/team%20one/nix-objects/files/object", capability.AbsolutePath);
+        Assert.DoesNotContain("%2520", capability.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storage%2Fteam", capability.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Capabilities_use_the_public_origin_and_keep_the_internal_endpoint_path()
+    {
+        var options = Options();
+        options.Endpoint = new Uri("https://objects.internal.test/storage/team%20one");
+        options.PublicOrigin = new Uri("https://objects.example.test:9443");
+        var signer = new S3CapabilitySigner(options, new FixedTimeProvider(Instant));
+
+        var capability = signer.Get("files/object").Url;
+
+        Assert.Equal("https", capability.Scheme);
+        Assert.Equal("objects.example.test", capability.Host);
+        Assert.Equal(9443, capability.Port);
+        Assert.Equal("/storage/team%20one/nix-objects/files/object", capability.AbsolutePath);
+
+        options.PublicOrigin = new Uri("https://objects-alternate.example.test:9443");
+        var alternate = new S3CapabilitySigner(options, new FixedTimeProvider(Instant))
+            .Get("files/object")
+            .Url;
+        Assert.NotEqual(capability.Query, alternate.Query);
+    }
+
+    [Fact]
+    public void A_loopback_http_public_origin_is_supported_for_development()
+    {
+        var options = Options();
+        options.PublicOrigin = new Uri("http://127.0.0.1:7070");
+
+        var capability = new S3CapabilitySigner(options, new FixedTimeProvider(Instant))
+            .Put("files/object");
+
+        Assert.Equal("http://127.0.0.1:7070", capability.Url.GetLeftPart(UriPartial.Authority));
+    }
+
+    public static TheoryData<Uri> UnsafePublicOrigins => new()
+    {
+        new Uri("relative", UriKind.Relative),
+        new Uri("ftp://objects.example.test"),
+        new Uri("http://objects.example.test"),
+        new Uri("https://user@objects.example.test"),
+        new Uri("https://objects.example.test/path"),
+        new Uri("https://objects.example.test?mode=public"),
+        new Uri("https://objects.example.test#public"),
+    };
+
+    [Theory]
+    [MemberData(nameof(UnsafePublicOrigins))]
+    public void Unsafe_public_origins_are_refused(Uri publicOrigin)
+    {
+        var options = Options();
+        options.PublicOrigin = publicOrigin;
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new S3CapabilitySigner(options, new FixedTimeProvider(Instant)));
+    }
+
+    [Fact]
+    public void A_public_origin_without_an_internal_endpoint_is_refused()
+    {
+        var options = new ObjectStorageOptions
+        {
+            PublicOrigin = new Uri("https://objects.example.test"),
+        };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new S3CapabilitySigner(options, new FixedTimeProvider(Instant)));
+    }
+
+    [Fact]
     public void Upload_capabilities_bind_size_and_immutable_creation_headers()
     {
         var sized = Signer().PutSized("files/upload", 42).Url;

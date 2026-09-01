@@ -33,7 +33,7 @@ func Parse(ctx context.Context, source Source, limits Limits) (Plan, error) {
 	case "docx":
 		return parseDOCX(source, limits)
 	case "nix":
-		return parseNix(source, limits)
+		return parseNix(ctx, source, limits)
 	default:
 		return Plan{}, fmt.Errorf("%w: %s", ErrUnsupportedFormat, source.Format)
 	}

@@ -15,8 +15,54 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+const fallbackCspMeta =
+  /\s*<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]+"\s+data-nix-csp-fallback\s*\/>/u;
+
+export function parseObjectStorePublicOrigin(value: string): string {
+  if (value === '' || value !== value.trim() || value.length > 2_048) {
+    throw new Error('NIX_OBJECT_STORE_PUBLIC_ORIGIN must be one bounded HTTP(S) origin.');
+  }
+
+  let origin: URL;
+  try {
+    origin = new URL(value);
+  } catch {
+    throw new Error('NIX_OBJECT_STORE_PUBLIC_ORIGIN must be an absolute HTTP(S) origin.');
+  }
+
+  const loopback =
+    origin.hostname === 'localhost' ||
+    origin.hostname === '127.0.0.1' ||
+    origin.hostname === '[::1]';
+  if (
+    (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopback)) ||
+    origin.username !== '' ||
+    origin.password !== '' ||
+    origin.pathname !== '/' ||
+    origin.search !== '' ||
+    origin.hash !== ''
+  ) {
+    throw new Error(
+      'NIX_OBJECT_STORE_PUBLIC_ORIGIN must be HTTPS outside loopback development and must not contain credentials, a path, query, or fragment.',
+    );
+  }
+
+  return origin.origin;
+}
+
+export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
+  const origin = parseObjectStorePublicOrigin(objectStorePublicOrigin);
+  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
+}
+
+const objectStorePublicOrigin = parseObjectStorePublicOrigin(
+  process.env.NIX_OBJECT_STORE_PUBLIC_ORIGIN ?? 'http://localhost:7070',
+);
+const browserPolicy = contentSecurityPolicy(objectStorePublicOrigin);
+
 export default defineConfig({
   server: {
+    headers: { 'Content-Security-Policy': browserPolicy },
     // The API is a different origin in development. Proxying keeps the browser same-origin, so
     // there is no CORS preflight on every request and no cookie/credential surprises - the token
     // travels in the Authorization header either way, but same-origin is the shape production has.
@@ -41,18 +87,28 @@ export default defineConfig({
         ws: true,
         rewrite: (path: string) => path.replace(/^\/collab/, ''),
       },
-
-      // The media service is a fourth origin, and it produces the lossy formats. No `ws`: it
-      // has no sockets, and it never will - it converts a request and answers it.
-      '/media': {
-        target: 'http://localhost:8200',
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/media/, ''),
-      },
     },
   },
 
-  plugins: [react(), tailwindcss()],
+  preview: {
+    headers: { 'Content-Security-Policy': browserPolicy },
+  },
+
+  plugins: [
+    {
+      name: 'nix-configured-content-security-policy',
+      enforce: 'pre',
+      transformIndexHtml(html) {
+        const transformed = html.replace(fallbackCspMeta, '');
+        if (transformed === html) {
+          throw new Error('The marked fallback Content-Security-Policy meta tag is missing.');
+        }
+        return transformed;
+      },
+    },
+    react(),
+    tailwindcss(),
+  ],
   test: {
     environment: 'jsdom',
     globals: false,

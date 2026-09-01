@@ -73,7 +73,9 @@ describe('staged import body materialization', () => {
     } as unknown as Pool;
     const service = createImportBodyService({
       pool,
-      core: fakeCore([{ sourceId: 'root', targetItemId: ITEM, itemType: 'note', bodyRequired: true }]),
+      core: fakeCore([
+        { sourceId: 'root', targetItemId: ITEM, itemType: 'note', bodyRequired: true },
+      ]),
     });
 
     await expect(
@@ -113,9 +115,11 @@ function fakePool(commands: string[]): Pool {
   const client = {
     query: (text: string, values?: readonly unknown[]) => {
       commands.push(text);
-      const rows = text.includes('RETURNING item_id')
-        ? ((values?.[4] ?? []) as string[]).map((item_id) => ({ item_id }))
-        : [];
+      const rows = text.includes('nix_fence_worker_execution')
+        ? [{ authorized: true }]
+        : text.includes('RETURNING item_id')
+          ? ((values?.[4] ?? []) as string[]).map((item_id) => ({ item_id }))
+          : [];
       return Promise.resolve({ rows, rowCount: rows.length });
     },
     release: () => undefined,

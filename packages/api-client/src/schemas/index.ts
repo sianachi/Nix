@@ -127,6 +127,19 @@ export {
   type TemplateSummary,
 } from './templates.js';
 export {
+  templateImportDigestSchema,
+  templateImportPreviewSchema,
+  templateImportProfileSchema,
+  templateImportResultSchema,
+  templateImportSchema,
+  templateImportUploadSchema,
+  type TemplateImport,
+  type TemplateImportPreview,
+  type TemplateImportProfile,
+  type TemplateImportResult,
+  type TemplateImportUpload,
+} from './template-imports.js';
+export {
   completeOccurrenceResultSchema,
   recurrenceFreqSchema,
   recurrenceRuleSchema,

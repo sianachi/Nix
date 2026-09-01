@@ -16,7 +16,7 @@ namespace Nix.Authentication;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why Core signs tokens at all.</b> The collaboration and media services validate bearer JWTs
+/// <b>Why Core signs tokens at all.</b> Collaboration validates bearer JWTs
 /// against a configured list of issuers and never see a database. A personal access token
 /// validated only by Core would work against Core and fail everywhere bodies and exports live. So
 /// the token itself is never sent past the exchange endpoint: it buys a ten-minute JWT signed
@@ -36,7 +36,7 @@ namespace Nix.Authentication;
 /// <para>
 /// <b>ES256, only.</b> One asymmetric algorithm, chosen rather than negotiated: the validator
 /// branch that trusts this issuer accepts exactly this algorithm, so there is no algorithm
-/// confusion to have. Asymmetric rather than an HMAC because the collaboration and media services
+/// confusion to have. Asymmetric rather than an HMAC because Collaboration
 /// must verify without being able to sign.
 /// </para>
 /// <para>

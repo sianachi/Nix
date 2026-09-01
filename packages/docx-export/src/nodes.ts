@@ -157,7 +157,7 @@ export const nodeHandlers: NodeHandlers<DocxContent> = {
   /**
    * A task, marked in ASCII.
    *
-   * `[x]` and `[ ]` rather than a symbol from a second font, and never an emoji - CLAUDE.md bans
+   * `[x]` and `[ ]` rather than a symbol from a second font, and never an emoji - AGENTS.md bans
    * those, and a box glyph the document's typeface lacks renders as a blank anyway.
    */
   taskItem: (node, _ctx, children) => {

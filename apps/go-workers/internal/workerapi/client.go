@@ -259,6 +259,114 @@ type DocumentImportResult struct {
 	RootItemID *string `json:"rootItemId"`
 }
 
+type TemplateImportProfile struct {
+	Kind            string `json:"kind"`
+	Version         int    `json:"version"`
+	Key             string `json:"key"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	IncludeBody     bool   `json:"includeBody"`
+	IncludeChildren bool   `json:"includeChildren"`
+}
+
+type TemplateImportPreview struct {
+	ImportID           string    `json:"importId"`
+	WorkspaceID        string    `json:"workspaceId"`
+	Origin             string    `json:"origin"`
+	ManagedSource      *string   `json:"managedSource"`
+	IdempotencyKey     string    `json:"idempotencyKey"`
+	FileName           string    `json:"fileName"`
+	DeclaredMediaType  string    `json:"declaredMediaType"`
+	DeclaredByteLength int64     `json:"declaredByteLength"`
+	SourceURL          string    `json:"sourceUrl"`
+	SourceDeleteURL    string    `json:"sourceDeleteUrl"`
+	PlanUploadURL      string    `json:"planUploadUrl"`
+	PlanDeleteURL      string    `json:"planDeleteUrl"`
+	CapabilityExpires  time.Time `json:"capabilityExpiresAt"`
+}
+
+type TemplateImportCommit struct {
+	ImportID           string                `json:"importId"`
+	WorkspaceID        string                `json:"workspaceId"`
+	Origin             string                `json:"origin"`
+	ManagedSource      *string               `json:"managedSource"`
+	IdempotencyKey     string                `json:"idempotencyKey"`
+	FileName           string                `json:"fileName"`
+	DeclaredMediaType  string                `json:"declaredMediaType"`
+	DeclaredByteLength int64                 `json:"declaredByteLength"`
+	SourceURL          string                `json:"sourceUrl"`
+	SourceDeleteURL    string                `json:"sourceDeleteUrl"`
+	PlanUploadURL      string                `json:"planUploadUrl"`
+	PlanDeleteURL      string                `json:"planDeleteUrl"`
+	CapabilityExpires  time.Time             `json:"capabilityExpiresAt"`
+	PlanSHA256         string                `json:"planSha256"`
+	PlanByteLength     int64                 `json:"planByteLength"`
+	SourceSHA256       string                `json:"sourceSha256"`
+	PlanURL            string                `json:"planUrl"`
+	CompletedResult    *TemplateImportResult `json:"completedResult"`
+}
+
+type CompleteTemplateImportPreview struct {
+	Profile        TemplateImportProfile `json:"profile"`
+	RootItemType   string                `json:"rootItemType"`
+	ItemCount      int                   `json:"itemCount"`
+	BodyCount      int                   `json:"bodyCount"`
+	ViewCount      int                   `json:"viewCount"`
+	SourceSHA256   string                `json:"sourceSha256"`
+	PlanSHA256     string                `json:"planSha256"`
+	PlanByteLength int64                 `json:"planByteLength"`
+}
+
+type TemplateImportStageItem struct {
+	SourceID       string          `json:"sourceId"`
+	ParentSourceID *string         `json:"parentSourceId"`
+	Sequence       string          `json:"seq"`
+	Title          string          `json:"title"`
+	ItemType       string          `json:"itemType"`
+	Properties     json.RawMessage `json:"properties"`
+	Schema         json.RawMessage `json:"schema"`
+	Views          json.RawMessage `json:"views"`
+	HasBody        bool            `json:"hasBody"`
+}
+
+type TemplateImportStageRequest struct {
+	Profile TemplateImportProfile     `json:"profile"`
+	Items   []TemplateImportStageItem `json:"items"`
+}
+
+type TemplateImportBodyWrite struct {
+	SourceID     string `json:"sourceId"`
+	TargetItemID string `json:"targetItemId"`
+	ItemType     string `json:"itemType"`
+}
+
+type TemplateImportStage struct {
+	ImportID     string                    `json:"importId"`
+	OperationID  *string                   `json:"operationId"`
+	TemplateID   string                    `json:"templateId"`
+	StableKey    string                    `json:"stableKey"`
+	Digest       string                    `json:"digest"`
+	Unchanged    bool                      `json:"unchanged"`
+	ItemMappings []TemplateImportBodyWrite `json:"itemMappings"`
+	BodyWrites   []TemplateImportBodyWrite `json:"bodyWrites"`
+}
+
+type CompleteTemplateImportRequest struct {
+	WrittenTargetItemIDs []string `json:"writtenTargetItemIds"`
+}
+
+type TemplateImportResult struct {
+	ImportID             string   `json:"importId"`
+	OperationID          *string  `json:"operationId"`
+	TemplateID           string   `json:"templateId"`
+	StableKey            string   `json:"stableKey"`
+	Digest               string   `json:"digest"`
+	Unchanged            bool     `json:"unchanged"`
+	ItemCount            int      `json:"itemCount"`
+	BodyCount            int      `json:"bodyCount"`
+	WrittenTargetItemIDs []string `json:"writtenTargetItemIds"`
+}
+
 type ExportSource struct {
 	ExportID          string    `json:"exportId"`
 	Format            string    `json:"format"`
@@ -719,6 +827,70 @@ func (client *Client) RejectDocumentImport(ctx context.Context, importID, code s
 	}
 	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/reject"
 	return client.requestJSON(ctx, http.MethodPost, path, strings.NewReader(string(body)), nil)
+}
+
+func (client *Client) GetTemplateImportPreview(ctx context.Context, importID string) (*TemplateImportPreview, error) {
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/preview"
+	var preview TemplateImportPreview
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &preview); err != nil {
+		return nil, err
+	}
+	return &preview, nil
+}
+
+func (client *Client) CompleteTemplateImportPreview(ctx context.Context, importID string, result CompleteTemplateImportPreview) error {
+	body, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/preview/complete"
+	return client.requestJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
+}
+
+func (client *Client) GetTemplateImportCommit(ctx context.Context, importID string) (*TemplateImportCommit, error) {
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/commit"
+	var commit TemplateImportCommit
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &commit); err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+func (client *Client) StageTemplateImport(ctx context.Context, importID string, stage TemplateImportStageRequest) (*TemplateImportStage, error) {
+	body, err := json.Marshal(stage)
+	if err != nil {
+		return nil, err
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/stage"
+	var result TemplateImportStage
+	if err := client.requestJSONLimit(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 16<<20); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (client *Client) CompleteTemplateImport(ctx context.Context, importID string, completion CompleteTemplateImportRequest) (*TemplateImportResult, error) {
+	body, err := json.Marshal(completion)
+	if err != nil {
+		return nil, err
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/complete"
+	var result TemplateImportResult
+	if err := client.requestJSONLimit(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 1<<20); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (client *Client) RejectTemplateImport(ctx context.Context, importID, code string) error {
+	body, err := json.Marshal(struct {
+		Code string `json:"code"`
+	}{code})
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/reject"
+	return client.requestJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
 }
 
 func (client *Client) GetExportSource(ctx context.Context, exportID string) (*ExportSource, error) {

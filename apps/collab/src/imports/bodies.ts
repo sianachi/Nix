@@ -92,6 +92,11 @@ export function createImportBodyService(input: {
           operationAuthorization,
           prepared.slice(offset, offset + 32),
           mappings,
+          {
+            jobId: request.jobId,
+            executionId: request.executionId,
+            kind: 'import.commit',
+          },
         );
       }
       return { written: prepared.length };
@@ -188,7 +193,11 @@ function record(value: unknown): value is Record<string, unknown> {
 export function importBodyProblem(error: unknown): ImportBodyError | null {
   if (error instanceof ImportBodyError) return error;
   if (error instanceof TemplateBodyError) {
-    return new ImportBodyError(422, error.code.replace(/^template\./, 'import.'), error.message);
+    return new ImportBodyError(
+      error.code === 'template.execution_lost' ? 409 : 422,
+      error.code.replace(/^template\./, 'import.'),
+      error.message,
+    );
   }
   return null;
 }

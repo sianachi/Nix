@@ -1,6 +1,7 @@
 using Nix.Domain.Files;
 using Nix.Domain.Importing;
 using Nix.Domain.Items;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Workers;
 
@@ -12,7 +13,9 @@ public sealed record BeginDocumentImport(
     FileUploadId UploadId,
     string Format,
     string Title,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string Purpose = DocumentImportPurposes.Workspace,
+    string? ManagedSource = null);
 
 public sealed record CompleteDocumentImportPreview(
     DocumentImportId ImportId,
@@ -22,7 +25,8 @@ public sealed record CompleteDocumentImportPreview(
     int ItemCount,
     int AssetCount,
     string Loss,
-    string Omissions);
+    string Omissions,
+    string? TemplatePreview = null);
 
 public sealed record ImportFilePlan(
     string SourceKind,
@@ -59,8 +63,11 @@ public sealed record DocumentImportRecord(
     Guid WorkspaceId,
     Guid UploadId,
     Guid? ParentId,
+    string Purpose,
+    string? ManagedSource,
     string Format,
     string Title,
+    string IdempotencyKey,
     string Status,
     Guid? PreviewJobId,
     Guid? CommitJobId,
@@ -72,6 +79,13 @@ public sealed record DocumentImportRecord(
     int? AssetCount,
     string? Loss,
     string? Omissions,
+    string? TemplatePreview,
+    Guid? TemplateOperationId,
+    Guid? TemplateId,
+    string? TemplateStableKey,
+    string? TemplateDigest,
+    bool? TemplateUnchanged,
+    string? TemplateWrittenTargetItemIds,
     Guid? RootItemId,
     string? FailureCode,
     DateTimeOffset ExpiresAt,
@@ -107,7 +121,21 @@ public sealed record DocumentImportObjectRecord(
 
 public sealed record DocumentImportCleanupRecord(
     Guid WorkspaceId,
-    IReadOnlyList<string> ObjectKeys);
+    IReadOnlyList<string> ObjectKeys,
+    Guid? TemplateOperationId = null);
+
+public sealed record AttachTemplateImportStage(
+    DocumentImportId ImportId,
+    TemplateOperationId? OperationId,
+    TemplateId TemplateId,
+    string StableKey,
+    string Digest,
+    bool Unchanged);
+
+public sealed record CompleteTemplateImport(
+    DocumentImportId ImportId,
+    IReadOnlyList<ItemId> WrittenTargetItemIds,
+    bool Managed);
 
 public interface IDocumentImportStore
 {
@@ -117,6 +145,9 @@ public interface IDocumentImportStore
     public ValueTask<DocumentImportRecord?> AttachPreviewJobAsync(DocumentImportId id, WorkerJobId jobId, CancellationToken cancellationToken);
     public ValueTask<DocumentImportRecord?> CompletePreviewAsync(CompleteDocumentImportPreview request, CancellationToken cancellationToken);
     public ValueTask<DocumentImportRecord?> AttachCommitJobAsync(DocumentImportId id, WorkerJobId jobId, CancellationToken cancellationToken);
+    public ValueTask<DocumentImportRecord?> AttachTemplateStageAsync(AttachTemplateImportStage request, CancellationToken cancellationToken);
+    public ValueTask<DocumentImportRecord?> CompleteTemplateAsync(CompleteTemplateImport request, CancellationToken cancellationToken);
+    public ValueTask<bool> CompleteManagedBatchAsync(IReadOnlyList<DocumentImportId> importIds, CancellationToken cancellationToken);
     public ValueTask<DocumentImportStageRecord?> StageAsync(StageDocumentImport request, CancellationToken cancellationToken);
     public ValueTask<DocumentImportObjectRecord?> AuthorizeObjectUploadAsync(DocumentImportId id, string sourceId, CancellationToken cancellationToken);
     public ValueTask<bool> MarkObjectReadyAsync(DocumentImportId id, string sourceId, long byteLength, string sha256, CancellationToken cancellationToken);

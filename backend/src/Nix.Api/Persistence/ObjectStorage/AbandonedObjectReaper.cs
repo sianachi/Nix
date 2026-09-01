@@ -9,7 +9,9 @@ using Nix.Abstractions.Workers;
 using Nix.Domain.Files;
 using Nix.Domain.Identity;
 using Nix.Domain.Importing;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Templates;
 
 namespace Nix.Persistence.ObjectStorage;
 
@@ -127,6 +129,17 @@ public sealed class AbandonedObjectReaper(
                 PrincipalId.From(candidate.ActorId),
                 commitJobId,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        if (operation.TemplateOperationId is { } templateOperationId
+            && !await provider.GetRequiredService<TemplateStore>()
+                .ReapAbandonedImportStageAsync(
+                    WorkspaceId.From(operation.WorkspaceId),
+                    TemplateOperationId.From(templateOperationId),
+                    cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return false;
         }
 
         var cleanup = await imports.FailAsync(

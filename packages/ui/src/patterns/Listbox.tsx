@@ -162,7 +162,7 @@ export function useListbox(
 
   // The handlers are given a stable identity, with the current bodies reached through a ref at
   // call time. `useCallback` here is load-bearing rather than decorative, on the first of the three
-  // grounds CLAUDE.md allows: the identity is a dependency of a subscription. The reference picker
+  // grounds AGENTS.md allows: the identity is a dependency of a subscription. The reference picker
   // binds a `keydown` listener on the editor's own element in an effect keyed on this controller,
   // and without a stable identity that listener is torn down and re-added on every keystroke.
   const latest = useRef({ select, onKeyDown });

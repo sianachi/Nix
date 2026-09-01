@@ -2441,6 +2441,271 @@
         }
       }
     },
+    "/api/v1/template-imports": {
+      "post": {
+        "tags": [
+          "Template imports"
+        ],
+        "operationId": "BeginTemplateImport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginTemplateArchiveImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateImportUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/template-imports/{importId}": {
+      "get": {
+        "tags": [
+          "Template imports"
+        ],
+        "operationId": "GetTemplateImport",
+        "parameters": [
+          {
+            "name": "importId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateImportResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Template imports"
+        ],
+        "operationId": "CancelTemplateImport",
+        "parameters": [
+          {
+            "name": "importId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/template-imports/{importId}/preview": {
+      "post": {
+        "tags": [
+          "Template imports"
+        ],
+        "operationId": "PreviewTemplateImport",
+        "parameters": [
+          {
+            "name": "importId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/template-imports/{importId}/commit": {
+      "post": {
+        "tags": [
+          "Template imports"
+        ],
+        "operationId": "CommitTemplateImport",
+        "parameters": [
+          {
+            "name": "importId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitTemplateImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/exports/formats": {
       "get": {
         "tags": [
@@ -4806,7 +5071,7 @@
           "AccessTokens"
         ],
         "summary": "The public keys exchanged sessions are signed with",
-        "description": "An RFC 7517 key set. The collaboration and media services list Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.",
+        "description": "An RFC 7517 key set. Collaboration lists Core's issuer beside the identity providers they already trust and fetch its keys here; an empty set means no key is configured and nothing signed by this issuer should validate.",
         "operationId": "GetAccessTokenSigningKeys",
         "responses": {
           "200": {
@@ -5179,6 +5444,39 @@
           }
         }
       },
+      "BeginTemplateArchiveImportRequest": {
+        "required": [
+          "workspaceId",
+          "fileName",
+          "mediaType",
+          "byteLength",
+          "idempotencyKey"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "byteLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        }
+      },
       "CalendarEntryResponse": {
         "required": [
           "itemId",
@@ -5350,6 +5648,17 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "CommitTemplateImportRequest": {
+        "required": [
+          "expectedDigest"
+        ],
+        "type": "object",
+        "properties": {
+          "expectedDigest": {
+            "type": "string"
           }
         }
       },
@@ -8273,6 +8582,248 @@
           }
         }
       },
+      "TemplateImportPreviewResponse": {
+        "required": [
+          "profile",
+          "digest",
+          "rootItemType",
+          "itemCount",
+          "bodyCount",
+          "viewCount"
+        ],
+        "type": "object",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/TemplateImportProfileResponse"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "rootItemType": {
+            "type": "string"
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bodyCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "viewCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TemplateImportProfileResponse": {
+        "required": [
+          "kind",
+          "version",
+          "key",
+          "name",
+          "description",
+          "includeBody",
+          "includeChildren"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "includeBody": {
+            "type": "boolean"
+          },
+          "includeChildren": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TemplateImportResponse": {
+        "required": [
+          "id",
+          "workspaceId",
+          "status",
+          "previewOperationId",
+          "commitOperationId",
+          "preview",
+          "result",
+          "failureCode",
+          "expiresAt",
+          "completedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "previewOperationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "commitOperationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "preview": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateImportPreviewResponse"
+              }
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TemplateImportResultResponse"
+              }
+            ]
+          },
+          "failureCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "TemplateImportResultResponse": {
+        "required": [
+          "operationId",
+          "templateId",
+          "stableKey",
+          "digest",
+          "unchanged",
+          "writtenTargetItemIds"
+        ],
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stableKey": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "writtenTargetItemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TemplateImportUploadResponse": {
+        "required": [
+          "id",
+          "status",
+          "uploadUrl",
+          "capabilityExpiresAt",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "uploadUrl": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uri"
+          },
+          "capabilityExpiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TemplateInteractiveFormResponse": {
         "required": [
           "pages",
@@ -9465,6 +10016,9 @@
     },
     {
       "name": "Imports"
+    },
+    {
+      "name": "Template imports"
     },
     {
       "name": "Exports"
