@@ -52,7 +52,7 @@ export function parseObjectStorePublicOrigin(value: string): string {
 
 export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
   const origin = parseObjectStorePublicOrigin(objectStorePublicOrigin);
-  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
+  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
 }
 
 const objectStorePublicOrigin = parseObjectStorePublicOrigin(
