@@ -17,7 +17,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
 
-func TestHandlerStreamsInspectsAndPublishesThroughTheLeaseBoundAPI(t *testing.T) {
+func TestHandlerStreamsOpaqueFilesAndPublishesThroughTheLeaseBoundAPI(t *testing.T) {
 	body := []byte{'M', 'Z', 0, 0, 1, 2, 3}
 	var published workerapi.InspectedFile
 	var immutable []byte
@@ -71,7 +71,7 @@ func TestHandlerStreamsInspectsAndPublishesThroughTheLeaseBoundAPI(t *testing.T)
 	handler := New(api, objecttransfer.New(2*time.Second), 1024)
 	ctx := workerapi.WithExecution(context.Background(), "job", "execution")
 
-	result, err := handler.Handle(ctx, workerapi.Job{ID: "job", Kind: "file.inspect", Payload: json.RawMessage(`{"uploadId":"upload"}`)})
+	result, err := handler.Handle(ctx, workerapi.Job{ID: "job", Kind: "file.publish", Payload: json.RawMessage(`{"uploadId":"upload"}`)})
 
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestSizeMismatchIsRejectedAndDeleted(t *testing.T) {
 
 	_, err := handler.Handle(
 		workerapi.WithExecution(context.Background(), "job", "execution"),
-		workerapi.Job{ID: "job", Kind: "file.inspect", Payload: json.RawMessage(`{"uploadId":"upload"}`)})
+		workerapi.Job{ID: "job", Kind: "file.publish", Payload: json.RawMessage(`{"uploadId":"upload"}`)})
 
 	var jobError *jobrunner.JobError
 	if !errors.As(err, &jobError) || jobError.Code != "files.size_mismatch" || jobError.Retryable {
