@@ -65,6 +65,33 @@ func TestClientLeasesAndAcknowledgesWithInternalCredentials(t *testing.T) {
 	}
 }
 
+func TestClientNormalizesStringEncodedJobPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/internal/worker-dispatch/jobs/lease" {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = response.Write([]byte(`[{"id":"job","kind":"import.preview.pdf","payload":"{\"importId\":\"123e4567-e89b-12d3-a456-426614174000\"}","attempts":1,"cancellationRequested":false}]`))
+	}))
+	defer server.Close()
+
+	jobs, err := New(server.URL, "secret", "importer", time.Second).LeaseJobs(context.Background(), "import.preview.pdf", 1)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("lease = %#v, %v", jobs, err)
+	}
+	if got := string(jobs[0].Payload); got != `{"importId":"123e4567-e89b-12d3-a456-426614174000"}` {
+		t.Fatalf("normalized payload = %s", got)
+	}
+}
+
+func TestClientRejectsMalformedStringEncodedPayload(t *testing.T) {
+	var job Job
+	err := json.Unmarshal([]byte(`{"id":"job","kind":"export.pdf","payload":"not-json"}`), &job)
+	if err == nil || !strings.Contains(err.Error(), "payload text is not valid JSON") {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+}
+
 func TestPingVerifiesAuthenticatedDispatchInsteadOfPublicHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/internal/worker-dispatch/jobs/lease" {
