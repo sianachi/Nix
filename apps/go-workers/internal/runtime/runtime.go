@@ -3,10 +3,15 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -30,6 +35,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
+	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
 func Run(service role.Service) {
@@ -50,6 +56,9 @@ func Run(service role.Service) {
 	if err := validateSettings(roles, settings); err != nil {
 		logger.Error("invalid service configuration", "roles", settings.WorkerRoles, "error", err)
 		os.Exit(1)
+	}
+	if err := worktemp.Sweep(time.Now().UTC(), 24*time.Hour); err != nil {
+		logger.Warn("abandoned worker temporary files could not be swept", "error", err)
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
 		response, healthErr := http.Get(healthURL(settings.Address))
@@ -104,7 +113,13 @@ func Run(service role.Service) {
 	if roles.Has(role.Index) && settings.OpenSearchURL != "" {
 		searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
 	}
-	go probeReadiness(ctx, apiClient, brokerClient, searchProbe, &ready, settings.PollInterval, logger)
+	var collaborationProbe *serviceProbe
+	var objectProbe *objectStoreProbe
+	if roles.Has(role.Import) || roles.Has(role.Export) {
+		collaborationProbe = newServiceProbe(settings.CollaborationURL, settings.RequestTimeout)
+		objectProbe = newObjectStoreProbe(settings.ObjectOrigins, settings.RequestTimeout)
+	}
+	go probeReadiness(ctx, apiClient, brokerClient, searchProbe, collaborationProbe, objectProbe, &ready, settings.PollInterval, logger)
 	if roles.Has(role.Index) {
 		var searchClient *opensearch.Client
 		if settings.OpenSearchURL != "" {
@@ -169,7 +184,13 @@ func Run(service role.Service) {
 		go runner.Run(ctx)
 	}
 	if roles.Has(role.Export) {
-		handler := exportjob.New(objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...), stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
+		go advertiseExportFormats(ctx, brokerClient, workerInstanceID(settings.WorkerID), ready.Load, logger)
+		handler := exportjob.New(
+			apiClient,
+			objecttransfer.New(settings.RequestTimeout, settings.CollaborationURL),
+			objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...),
+			settings.InternalSecret,
+			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
 		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ExportQueue, exportjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("export job runner configuration failed", "error", runnerErr)
@@ -204,6 +225,62 @@ func Run(service role.Service) {
 	logger.Info("go worker stopped", "roles", settings.WorkerRoles)
 }
 
+func advertiseExportFormats(ctx context.Context, client *broker.Client, instanceID string, isReady func() bool, logger *slog.Logger) {
+	formats := []broker.ExportFormatCapability{
+		{Format: "nix", Label: "Archive", Extension: "nix", MediaType: "application/vnd.nix.archive+zip", Lossless: true, DeclaredLoss: []string{}},
+		{Format: "markdown", Label: "Markdown", Extension: "md", MediaType: "text/markdown; charset=utf-8", DeclaredLoss: []string{"Views and interactive metadata are represented as text."}},
+		{Format: "docx", Label: "Word", Extension: "docx", MediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", DeclaredLoss: []string{"Interactive workspace behavior is flattened into a document.", "Links outside HTTP, HTTPS, email, and Nix are flattened to visible labels."}},
+		{Format: "pdf", Label: "PDF", Extension: "pdf", MediaType: "application/pdf", DeclaredLoss: []string{"Interactive workspace behavior is flattened into fixed pages.", "Link destinations are printed as labels rather than interactive PDF annotations.", "Characters outside printable ASCII are replaced by the built-in PDF font."}},
+	}
+	publish := func() {
+		if !isReady() {
+			return
+		}
+		messageID, err := client.NewMessageID()
+		if err != nil {
+			logger.Warn("export capability message identity failed", "error", err)
+			return
+		}
+		now := time.Now().UTC()
+		publishContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		err = client.PublishCapabilities(publishContext, broker.WorkerCapabilities{
+			SchemaVersion: 1,
+			MessageID:     messageID,
+			MessageType:   "worker.capabilities.v1",
+			InstanceID:    instanceID,
+			Role:          "export",
+			OccurredAt:    now,
+			ExpiresAt:     now.Add(90 * time.Second),
+			ExportFormats: formats,
+		})
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("export capability advertisement failed", "error", err)
+		}
+	}
+	readiness := time.NewTicker(100 * time.Millisecond)
+	for !isReady() {
+		select {
+		case <-ctx.Done():
+			readiness.Stop()
+			return
+		case <-readiness.C:
+		}
+	}
+	readiness.Stop()
+	publish()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			publish()
+		}
+	}
+}
+
 func selectedRoles(service role.Service, configured string) (role.Set, error) {
 	if service == role.All {
 		return role.Parse(configured)
@@ -224,10 +301,39 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
 	}
-	if roles.Has(role.Import) && settings.CollaborationURL == "" {
-		return errors.New("NIX_WORKER_COLLAB_URL is required for document imports")
+	if roles.Has(role.Import) || roles.Has(role.Export) {
+		if !validServiceOrigin(settings.CollaborationURL) {
+			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports and exports")
+		}
+		if len(settings.ObjectOrigins) == 0 {
+			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports and exports")
+		}
 	}
 	return nil
+}
+
+func validServiceOrigin(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil &&
+		parsed.Host != "" &&
+		parsed.User == nil &&
+		parsed.RawQuery == "" &&
+		parsed.Fragment == "" &&
+		(parsed.Path == "" || parsed.Path == "/") &&
+		(parsed.Scheme == "https" ||
+			parsed.Scheme == "http" && (parsed.IsAbs() && (!strings.Contains(parsed.Hostname(), ".") || parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "::1")))
+}
+
+func workerInstanceID(workerID string) string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		host = "unknown-host"
+	}
+	instance := strings.TrimSpace(workerID) + ":" + host + ":" + strconv.Itoa(os.Getpid())
+	if len(instance) > 128 {
+		return instance[:128]
+	}
+	return instance
 }
 
 func healthURL(address string) string {
@@ -237,7 +343,95 @@ func healthURL(address string) string {
 	return "http://" + address + "/healthz"
 }
 
-func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.Client, search *opensearch.Client, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
+type serviceProbe struct {
+	url    string
+	client *http.Client
+}
+
+type objectStoreProbe struct {
+	urls   []string
+	client *http.Client
+}
+
+func newObjectStoreProbe(origins []string, timeout time.Duration) *objectStoreProbe {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableCompression = true
+	urls := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		urls = append(urls, strings.TrimRight(origin, "/")+"/")
+	}
+	return &objectStoreProbe{
+		urls: urls,
+		client: &http.Client{
+			Timeout:       timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+			Transport:     transport,
+		},
+	}
+}
+
+func newServiceProbe(origin string, timeout time.Duration) *serviceProbe {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableCompression = true
+	return &serviceProbe{
+		url: strings.TrimRight(origin, "/") + "/healthz",
+		client: &http.Client{
+			Timeout:       timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+			Transport:     transport,
+		},
+	}
+}
+
+func (probe *serviceProbe) Ping(ctx context.Context) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, probe.url, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Accept", "application/json")
+	response, err := probe.client.Do(request)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	closeErr := response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("dependency health check returned %s", response.Status)
+	}
+	return closeErr
+}
+
+func (probe *objectStoreProbe) Ping(ctx context.Context) error {
+	if probe == nil || len(probe.urls) == 0 {
+		return errors.New("object storage readiness has no configured origin")
+	}
+	for _, endpoint := range probe.urls {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Accept", "application/xml, application/json")
+		request.Header.Set("Range", "bytes=0-0")
+		response, err := probe.client.Do(request)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+		closeErr := response.Body.Close()
+		// Private S3-compatible stores normally answer an anonymous root request with 401 or 403.
+		// That is a useful readiness result: workers deliberately hold no long-lived storage
+		// credential, and use a signed capability only after they lease a job.
+		if response.StatusCode < 200 || response.StatusCode >= 500 || response.StatusCode/100 == 3 {
+			return fmt.Errorf("object storage readiness returned %s", response.Status)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
+func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.Client, search *opensearch.Client, collaboration *serviceProbe, objects *objectStoreProbe, ready *atomic.Bool, interval time.Duration, logger *slog.Logger) {
 	probe := func() {
 		probeContext, cancel := context.WithTimeout(ctx, min(interval, 5*time.Second))
 		defer cancel()
@@ -247,6 +441,12 @@ func probeReadiness(ctx context.Context, api *workerapi.Client, rabbit *broker.C
 		}
 		if err == nil && search != nil {
 			err = search.Ping(probeContext)
+		}
+		if err == nil && collaboration != nil {
+			err = collaboration.Ping(probeContext)
+		}
+		if err == nil && objects != nil {
+			err = objects.Ping(probeContext)
 		}
 		ready.Store(err == nil)
 		if err != nil {

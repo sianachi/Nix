@@ -24,3 +24,22 @@ public sealed record WorkerJobRecord(
     bool CancellationRequested,
     DateTimeOffset CreatedAt,
     DateTimeOffset? CompletedAt);
+
+/// <summary>An idempotency key was already bound to a different durable job request.</summary>
+public sealed class WorkerJobIdempotencyConflictException : InvalidOperationException
+{
+    public WorkerJobIdempotencyConflictException()
+        : base("The worker job idempotency key is already bound to different work.")
+    {
+    }
+
+    public WorkerJobIdempotencyConflictException(string message)
+        : base(message)
+    {
+    }
+
+    public WorkerJobIdempotencyConflictException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}

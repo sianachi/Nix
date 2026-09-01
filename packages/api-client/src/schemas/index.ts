@@ -146,6 +146,18 @@ export {
   type FileUpload,
   type FileVersion,
 } from './files.js';
+export {
+  exportDownloadCapabilitySchema,
+  exportFormatCatalogSchema,
+  exportFormatSchema,
+  exportSchema,
+  exportStatusSchema,
+  type Export,
+  type ExportDownloadCapability,
+  type ExportFormat,
+  type ExportFormatCatalog,
+  type ExportStatus,
+} from './exports.js';
 
 /**
  * Response schema for endpoints that answer 204 No Content. The transport

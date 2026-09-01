@@ -13,7 +13,9 @@ spec:
   replicas: 2
   selector: { matchLabels: { app: nix-import-worker } }
   template:
-    metadata: { labels: { app: nix-import-worker } }
+    metadata:
+      labels: { app: nix-import-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
@@ -26,10 +28,16 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
             - name: NIX_WORKER_API_URL
               value: http://nix-api:8080
+            - name: NIX_WORKER_COLLAB_URL
+              value: http://nix-collab:8100
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: import-url } }
             - name: NIX_WORKER_MAX_CONCURRENCY
               value: "4"
             - name: NIX_WORKER_MAX_INPUT_BYTES
-              value: "67108864"
+              value: "104857600"
             - name: NIX_WORKER_MAX_LINE_BYTES
               value: "4194304"
             - name: NIX_WORKER_MAX_RECORDS
@@ -39,7 +47,7 @@ spec:
           resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 256Mi } }
           volumeMounts: [{ name: staging, mountPath: /tmp }]
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
-      volumes: [{ name: staging, emptyDir: { sizeLimit: 128Mi } }]
+      volumes: [{ name: staging, emptyDir: { sizeLimit: 256Mi } }]
 ---
 apiVersion: v1
 kind: Service
@@ -55,7 +63,9 @@ spec:
   replicas: 2
   selector: { matchLabels: { app: nix-export-worker } }
   template:
-    metadata: { labels: { app: nix-export-worker } }
+    metadata:
+      labels: { app: nix-export-worker }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
@@ -68,6 +78,12 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
             - name: NIX_WORKER_API_URL
               value: http://nix-api:8080
+            - name: NIX_WORKER_COLLAB_URL
+              value: http://nix-collab:8100
+            - name: NIX_WORKER_OBJECT_ORIGINS
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: export-url } }
             - name: NIX_WORKER_MAX_CONCURRENCY
               value: "4"
           livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
@@ -91,7 +107,9 @@ spec:
   replicas: 2
   selector: { matchLabels: { app: nix-indexer } }
   template:
-    metadata: { labels: { app: nix-indexer } }
+    metadata:
+      labels: { app: nix-indexer }
+      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
@@ -104,6 +122,8 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
             - name: NIX_WORKER_API_URL
               value: http://nix-api:8080
+            - name: NIX_RABBITMQ_URL
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: index-url } }
             - name: NIX_WORKER_MAX_CONCURRENCY
               value: "4"
             - name: NIX_OPENSEARCH_URL
@@ -123,5 +143,9 @@ spec:
   egress:
     - to: [{ podSelector: { matchLabels: { app: nix-api } } }]
       ports: [{ protocol: TCP, port: 8080 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-collab } } }]
+      ports: [{ protocol: TCP, port: 8100 }]
+    - to: [{ podSelector: { matchLabels: { app: nix-rabbitmq } } }]
+      ports: [{ protocol: TCP, port: 5672 }]
     - ports: [{ protocol: TCP, port: 443 }]
     - ports: [{ protocol: UDP, port: 53 }]

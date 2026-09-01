@@ -70,23 +70,14 @@ public sealed class RabbitResultConsumer(
             var result = JsonSerializer.Deserialize(
                 delivery.Body.Span,
                 RabbitMqJsonContext.Default.WorkerResultEnvelope);
-            if (result is null || !Valid(result))
+            if (result is null || !IsValid(result))
             {
                 RabbitMqLog.InvalidResult(logger, "message contract was invalid");
                 await channel.BasicRejectAsync(delivery.DeliveryTag, requeue: false, hostToken).ConfigureAwait(false);
                 return;
             }
 
-            var resultJson = result.Result?.GetRawText();
-            await store.FinishJobAsync(
-                result.JobId,
-                result.ExecutionId,
-                result.Succeeded,
-                result.Retryable,
-                resultJson,
-                result.ErrorCode,
-                result.ErrorDetail,
-                hostToken).ConfigureAwait(false);
+            await ApplyResultAsync(store, result, hostToken).ConfigureAwait(false);
             await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false, hostToken).ConfigureAwait(false);
         }
         catch (JsonException exception)
@@ -107,7 +98,63 @@ public sealed class RabbitResultConsumer(
 #pragma warning restore CA1031
     }
 
-    private static bool Valid(WorkerResultEnvelope result) =>
+    /// <summary>Applies one result and makes required export cleanup durable before acknowledgement.</summary>
+    public static async ValueTask<WorkerResultApplication> ApplyResultAsync(
+        IWorkerDispatchStore dispatch,
+        WorkerResultEnvelope result,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+        ArgumentNullException.ThrowIfNull(result);
+        var application = await dispatch.ApplyResultAsync(
+            result.JobId,
+            result.ExecutionId,
+            result.Succeeded,
+            result.Retryable,
+            result.Result?.GetRawText(),
+            result.ErrorCode,
+            result.ErrorDetail,
+            cancellationToken).ConfigureAwait(false);
+
+        switch (application.Outcome)
+        {
+            case WorkerResultApplicationOutcome.Completed:
+            case WorkerResultApplicationOutcome.RetryScheduled:
+            case WorkerResultApplicationOutcome.Failed:
+            case WorkerResultApplicationOutcome.Cancelled:
+            case WorkerResultApplicationOutcome.InvalidExportResult:
+            case WorkerResultApplicationOutcome.AlreadyCompleted:
+            case WorkerResultApplicationOutcome.AlreadyTerminal:
+            case WorkerResultApplicationOutcome.StaleExecution:
+            case WorkerResultApplicationOutcome.NotFound:
+                break;
+            case WorkerResultApplicationOutcome.InvalidRequest:
+            default:
+                throw new InvalidOperationException("The worker result could not be applied safely.");
+        }
+
+        if (!application.RequiresExportCleanup)
+        {
+            return application;
+        }
+        if (!result.Succeeded
+            || application.Outcome is not (WorkerResultApplicationOutcome.Completed
+                or WorkerResultApplicationOutcome.AlreadyCompleted))
+        {
+            throw new InvalidOperationException("The worker result requested cleanup in an invalid state.");
+        }
+
+        // A redelivery after completion repairs a cleanup transaction that was interrupted by an
+        // API or database outage. The Rabbit delivery is not acknowledged until this is durable.
+        if (!await dispatch.ScheduleExportCleanupAsync(result.JobId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("The completed export cleanup could not be scheduled.");
+        }
+        return application;
+    }
+
+    /// <summary>Validates the bounded, transport-level worker result contract.</summary>
+    public static bool IsValid(WorkerResultEnvelope result) =>
         result is
         {
             SchemaVersion: 1,
@@ -118,10 +165,23 @@ public sealed class RabbitResultConsumer(
         }
         && messageId != Guid.Empty
         && jobId != Guid.Empty
+        && result.OccurredAt != default
+        && !string.IsNullOrWhiteSpace(result.ExecutionId)
+        && string.Equals(result.ExecutionId, result.ExecutionId.Trim(), StringComparison.Ordinal)
+        && !result.ExecutionId.Any(char.IsControl)
+        && (result.TraceParent is null
+            || result.TraceParent is { Length: > 0 and <= 512 }
+                && !result.TraceParent.Any(char.IsControl))
         && (result.Succeeded
-            ? result.ErrorCode is null && result.ErrorDetail is null
-            : result.ErrorCode is { Length: > 0 and <= 64 }
-              && result.ErrorDetail is { Length: > 0 and <= 2000 });
+            || result.Result is null
+                && ValidErrorCode(result.ErrorCode)
+                && result.ErrorDetail is { Length: > 0 and <= 2000 }
+                && !string.IsNullOrWhiteSpace(result.ErrorDetail));
+
+    private static bool ValidErrorCode(string? value) =>
+        value is { Length: > 0 and <= 64 }
+        && value.All(character => char.IsAsciiLetterOrDigit(character)
+            || character is '_' or '-' or '.');
 
     private async Task DelayAfterFailureAsync(CancellationToken cancellationToken)
     {

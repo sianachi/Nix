@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,6 +161,35 @@ func TestExecutionContextAddsLeaseProofOnlyToDomainRequests(t *testing.T) {
 	err := client.post(WithExecution(context.Background(), jobID, executionID), "/internal/worker-executions/probe", nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClientObtainsExportSourceAndSizedDestinationUnderTheExecution(t *testing.T) {
+	const jobID = "019946d1-fbc0-7a87-b27e-d2f16408c71b"
+	const executionID = "worker:019946d1-fbc1-7d99-9ce7-1c721b406ff1"
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Header.Get("X-Nix-Worker-Job-Id") != jobID || request.Header.Get("X-Nix-Worker-Execution-Id") != executionID {
+			t.Fatal("execution proof was omitted")
+		}
+		if requests == 1 {
+			_, _ = response.Write([]byte(`{"exportId":"` + jobID + `","format":"pdf","sourceUrl":"http://collab/bundle","bearerToken":"token","delegationExpiresAt":"2026-09-01T01:00:00Z"}`))
+			return
+		}
+		if request.URL.Query().Get("byteLength") != "123" || request.URL.Query().Get("sha256") != strings.Repeat("a", 64) {
+			t.Fatalf("destination query = %s", request.URL.RawQuery)
+		}
+		_, _ = response.Write([]byte(`{"exportId":"` + jobID + `","attemptId":"33333333-3333-4333-8333-333333333333","format":"pdf","objectKey":"exports/result.pdf","uploadUrl":"http://objects/put","readUrl":"http://objects/get","deleteUrl":"http://objects/delete","capabilityExpiresAt":"2026-09-01T01:00:00Z"}`))
+	}))
+	defer server.Close()
+	client := New(server.URL, "secret", "worker", time.Second)
+	ctx := WithExecution(context.Background(), jobID, executionID)
+	if source, err := client.GetExportSource(ctx, jobID); err != nil || source.Format != "pdf" {
+		t.Fatalf("source = %#v, %v", source, err)
+	}
+	if destination, err := client.GetExportDestination(ctx, jobID, 123, strings.Repeat("a", 64)); err != nil || destination.ObjectKey == "" {
+		t.Fatalf("destination = %#v, %v", destination, err)
 	}
 }
 

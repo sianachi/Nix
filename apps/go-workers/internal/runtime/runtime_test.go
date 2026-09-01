@@ -1,7 +1,11 @@
 package runtime
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
@@ -20,12 +24,64 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 			t.Fatalf("%s accepted an empty broker URL", service)
 		}
 		valid := config.Settings{InternalAPIURL: "http://api", InternalSecret: "secret", RabbitMQURL: "amqp://rabbit"}
-		if service == role.Import {
+		if service == role.Import || service == role.Export {
 			valid.CollaborationURL = "http://collab"
+			valid.ObjectOrigins = []string{"https://objects.example.test"}
 		}
 		if err := validateSettings(roles, valid); err != nil {
 			t.Fatalf("%s rejected valid API configuration: %v", service, err)
 		}
+	}
+}
+
+func TestServiceProbeRequiresAHealthyNonRedirectingDependency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/healthz":
+			response.WriteHeader(http.StatusNoContent)
+		case "/redirect/healthz":
+			http.Redirect(response, request, "/healthz", http.StatusTemporaryRedirect)
+		default:
+			response.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer server.Close()
+
+	if err := newServiceProbe(server.URL, time.Second).Ping(context.Background()); err != nil {
+		t.Fatalf("healthy dependency was refused: %v", err)
+	}
+	if err := newServiceProbe(server.URL+"/redirect", time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("redirecting dependency was accepted")
+	}
+	if err := newServiceProbe(server.URL+"/missing", time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("unhealthy dependency was accepted")
+	}
+}
+
+func TestObjectStoreProbeAcceptsPrivateRefusalButRejectsRedirectAndOutage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/private/":
+			response.WriteHeader(http.StatusForbidden)
+		case "/redirect/":
+			http.Redirect(response, request, "/private/", http.StatusTemporaryRedirect)
+		default:
+			response.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer server.Close()
+
+	if err := newObjectStoreProbe([]string{server.URL + "/private"}, time.Second).Ping(context.Background()); err != nil {
+		t.Fatalf("reachable private object storage was refused: %v", err)
+	}
+	if err := newObjectStoreProbe([]string{server.URL + "/redirect"}, time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("redirecting object storage was accepted")
+	}
+	if err := newObjectStoreProbe([]string{server.URL + "/outage"}, time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("unavailable object storage was accepted")
+	}
+	if err := newObjectStoreProbe(nil, time.Second).Ping(context.Background()); err == nil {
+		t.Fatal("an empty object-storage origin set was accepted")
 	}
 }
 
