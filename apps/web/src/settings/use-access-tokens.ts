@@ -105,6 +105,10 @@ export function useAccessTokens(): AccessTokensState {
       try {
         const loaded = await client.query(accessTokens.listAccessTokens(), {
           signal,
+          // This hook owns a live audit table rather than a stale-data view. In particular, the
+          // read after revocation must await the invalidated row instead of first rendering the
+          // stale live token while a background revalidation happens out of sight.
+          forceRefresh: true,
         });
         setTokens(loaded.tokens);
         setStatus('ready');

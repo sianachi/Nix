@@ -86,7 +86,12 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
 
   reload: async () => {
     try {
-      const shelf = await configuredClient().query(bookmarks.listBookmarks());
+      // `reload` is an explicit synchronization point. A successful keep/remove marks the cached
+      // shelf stale, but stale-while-revalidate would otherwise hand this store the old shelf and
+      // refresh only after the optimistic state had already been overwritten.
+      const shelf = await configuredClient().query(bookmarks.listBookmarks(), {
+        forceRefresh: true,
+      });
       set({
         status: 'ready',
         items: shelf.items,

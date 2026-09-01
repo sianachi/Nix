@@ -544,6 +544,15 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             : await request.clone().blob());
       const parsedUrl = new URL(url, globalThis.location.origin);
 
+      if (parsedUrl.pathname === '/auth/token' && method === 'POST') {
+        return Promise.resolve(
+          json({
+            accessToken: 'core-session-token',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+          }),
+        );
+      }
+
       if (parsedUrl.pathname === '/api/v1/workspaces' && method === 'GET') {
         if (workspacesPartial) {
           return Promise.resolve(
@@ -763,7 +772,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       // Ordered before the /me route below, which would otherwise swallow it.
-      if (url.includes('/api/v1/me/bookmarks')) {
+      if (parsedUrl.pathname === '/api/v1/me/bookmarks') {
         return Promise.resolve(
           bookmarksFail
             ? json({ code: 'bookmarks.unavailable' }, 500)
@@ -773,7 +782,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
       // Keeping and releasing. The stub holds the shelf in memory so a test can press a control and
       // then assert on what the next read says, which is the whole round trip the store makes.
-      const bookmarkWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/bookmark$/.exec(url);
+      const bookmarkWrite = /\/api\/v1\/items\/([0-9a-f-]{36})\/bookmark$/.exec(
+        parsedUrl.pathname,
+      );
       if (bookmarkWrite !== null && (method === 'PUT' || method === 'DELETE')) {
         const itemId = bookmarkWrite[1] ?? '';
         if (method === 'PUT') {
@@ -798,7 +809,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       // which matches by `includes` and would otherwise swallow them all. Flips the row rather
       // than removing it, exactly as the endpoint does, and answers 204 regardless - it is
       // idempotent and scoped to the caller on the real server.
-      const revokeToken = /\/api\/v1\/me\/tokens\/([0-9a-f-]{36})$/.exec(url);
+      const revokeToken = /\/api\/v1\/me\/tokens\/([0-9a-f-]{36})$/.exec(parsedUrl.pathname);
       if (revokeToken !== null && method === 'DELETE') {
         heldTokens = heldTokens.map((token) =>
           token.id === revokeToken[1] && token.revokedAt === null
