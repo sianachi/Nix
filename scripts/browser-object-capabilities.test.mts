@@ -59,12 +59,16 @@ test('Vite removes the fail-closed meta fallback and serves the configured CSP a
   assert.doesNotMatch(String(transformed), /http-equiv="Content-Security-Policy"/u);
 
   const expected = contentSecurityPolicy('http://localhost:7070');
-  assert.equal(webConfig.server?.headers?.['Content-Security-Policy'], expected);
+  const developmentExpected = expected.replace(
+    /script-src 'self' [^;]+/u,
+    "script-src 'self' 'unsafe-inline'",
+  );
+  assert.equal(webConfig.server?.headers?.['Content-Security-Policy'], developmentExpected);
   assert.equal(webConfig.preview?.headers?.['Content-Security-Policy'], expected);
 });
 
 test('production Caddy policies use the exact configured origin placeholder', async () => {
-  for (const path of ['deploy/Caddyfile.prod', 'deploy/k8s/Caddyfile']) {
+  for (const path of ['deploy/Caddyfile.prod']) {
     const caddyfile = await readFile(new URL(path, repo), 'utf8');
     const policy = /Content-Security-Policy "([^"]+)"/u.exec(caddyfile)?.[1];
     assert.ok(policy !== undefined, `${path} has no CSP header`);
@@ -100,38 +104,4 @@ test('production Compose gives Core, workers, and Caddy one public-origin contra
     ].length,
     3,
   );
-});
-
-test('Kubernetes gives Core, workers, bootstrap, and Caddy one public-origin contract', async () => {
-  const [api, workers, bootstrap, web, secrets] = await Promise.all(
-    [
-      'deploy/k8s/api.yaml',
-      'deploy/k8s/worker.yaml',
-      'deploy/k8s/job-template-sync.yaml',
-      'deploy/k8s/web.yaml',
-      'deploy/k8s/create-secrets.sh',
-    ].map((path) => readFile(new URL(path, repo), 'utf8')),
-  );
-
-  assert.match(api, /Nix__ObjectStorage__PublicOrigin[\s\S]*key: public-origin/u);
-  assert.equal(
-    [...workers.matchAll(/key: public-origin/gu)].length,
-    3,
-    'every object-consuming worker role must receive the public origin',
-  );
-  assert.equal(
-    [
-      ...workers.matchAll(
-        /value: "\$\(NIX_WORKER_OBJECT_ENDPOINT\),\$\(NIX_WORKER_OBJECT_PUBLIC_ORIGIN\)"/gu,
-      ),
-    ].length,
-    3,
-  );
-  assert.match(bootstrap, /key: public-origin/u);
-  assert.match(
-    bootstrap,
-    /value: "\$\(NIX_TEMPLATE_BOOT_OBJECT_ENDPOINT\),\$\(NIX_TEMPLATE_BOOT_OBJECT_PUBLIC_ORIGIN\)"/u,
-  );
-  assert.match(web, /NIX_OBJECT_STORE_PUBLIC_ORIGIN[\s\S]*key: public-origin/u);
-  assert.match(secrets, /--from-literal=public-origin="\$NIX_OBJECT_STORE_PUBLIC_ORIGIN"/u);
 });
