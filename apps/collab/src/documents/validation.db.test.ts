@@ -87,6 +87,28 @@ describe.runIf(DB_TESTS_ENABLED)('update validation on the socket path', () => {
     await Promise.all(harnesses.splice(0).map((harness) => harness.close()));
   });
 
+  it('ignores empty handshake replies and persists the first edit for a fresh reader', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const client = open(harness.url);
+    await client.ready;
+    const empty = new Y.Doc();
+    const frame = updateFrame(Y.encodeStateAsUpdate(empty));
+    empty.destroy();
+    for (let index = 0; index <= LIMITS.updatesPerWindow; index += 1) client.sendRaw(frame);
+    typeParagraph(client.doc, 'Saved after an empty handshake.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) > 0,
+      'durable first edit',
+    );
+    expect(client.notices).toEqual([]);
+    const reader = open(harness.url);
+    await reader.ready;
+    await until(
+      () => textOf(reader.doc).includes('Saved after an empty handshake.'),
+      'reopened content',
+    );
+  });
+
   it('rejects a malformed CRDT update with a notice, and does not disconnect', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha));
     const client = open(harness.url);

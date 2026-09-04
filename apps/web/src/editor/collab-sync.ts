@@ -339,6 +339,9 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
       const verdict = classifyClose(event.code);
       onState(verdict.state);
+      if (event.code === CLOSE_REVOKED) {
+        onNotice?.({ code: 'access_revoked', detail: 'Access to this document was revoked.' });
+      }
       scheduleReconnect(verdict.delayMs ?? retryMs);
       if (verdict.delayMs === undefined) {
         retryMs = Math.min(retryMs * 2, maxRetryMs);

@@ -71,6 +71,7 @@ class FakeSocket implements ProviderSocket {
 }
 
 interface Harness {
+  readonly notices: string[];
   readonly doc: Y.Doc;
   readonly states: SyncState[];
   readonly sockets: FakeSocket[];
@@ -84,6 +85,7 @@ function harness(): Harness {
   const states: SyncState[] = [];
   const sockets: FakeSocket[] = [];
   const tokens: string[] = [];
+  const notices: string[] = [];
 
   const sync = startCollabSync({
     itemId: 'item-1',
@@ -93,6 +95,9 @@ function harness(): Harness {
       const token = `token-${String(tokens.length)}`;
       tokens.push(token);
       return Promise.resolve(token);
+    },
+    onNotice: ({ code }) => {
+      notices.push(code);
     },
     onState: (state) => {
       states.push(state);
@@ -112,6 +117,7 @@ function harness(): Harness {
     sockets,
     sync,
     tokens,
+    notices,
     latest: () => {
       const socket = sockets[sockets.length - 1];
       if (socket === undefined) {
@@ -444,6 +450,18 @@ describe('the websocket provider', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await settled();
     expect(h.sockets.length).toBe(2);
+  });
+
+  it('distinguishes access revocation from an ordinary disconnect for source editors', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    socket.drop(4403);
+    expect(h.states.at(-1)).toBe('offline');
+    expect(h.notices).toEqual(['access_revoked']);
   });
 
   it('fetches a fresh token for every reconnect attempt', async () => {
