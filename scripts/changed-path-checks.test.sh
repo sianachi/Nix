@@ -30,6 +30,15 @@ assert_contains "$contract_output" 'pnpm --filter @nix/api-client generate'
 worker_output=$("$planner" apps/go-workers/internal/runtime/runtime.go)
 assert_contains "$worker_output" 'go test -race ./...'
 
+command_output=$("$planner" --commands backend/openapi/nix-api.json)
+assert_contains "$command_output" 'NixGenerateOpenApiContract=true'
+case "$command_output" in
+  *'Changed paths:'*) echo 'command output must not include prose' >&2; exit 1 ;;
+esac
+
+workflow_output=$("$planner" scripts/validate-changed.sh)
+assert_contains "$workflow_output" 'validate-changed.test.sh'
+
 empty_output=$("$planner" --working-tree)
 assert_contains "$empty_output" 'Changed paths:'
 

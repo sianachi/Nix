@@ -253,6 +253,14 @@ dotnet test backend/tests/Nix.Tests/Nix.Tests.csproj              # unit, no Doc
 dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj  # needs Docker
 ```
 
+For an API contract change, regenerate OpenAPI explicitly, then regenerate the
+typed client:
+
+```
+dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true
+pnpm --filter @nix/api-client generate
+```
+
 Migrations: `dotnet run --project backend/src/Nix.Migrator` with
 `NIX_MIGRATOR_CONNECTION_STRING` set.
 
