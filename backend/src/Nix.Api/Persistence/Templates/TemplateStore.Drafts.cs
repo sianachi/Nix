@@ -86,6 +86,10 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateDraftPlan>(TemplateErrors.Invalid("The template has no active root."));
         }
+        if (ContainsFileItems(source))
+        {
+            return Result.Failure<TemplateDraftPlan>(TemplateErrors.FileAttachmentsUnsupported());
+        }
 
         var operationId = TemplateOperationId.Create();
         var now = _clock.GetUtcNow();

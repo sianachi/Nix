@@ -643,8 +643,15 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
       return problem(reply, 404, 'document_not_found', 'No such item.');
     }
 
-    const query = request.query as { scope?: string; exportedAt?: string };
-    const prepared = await establishExport(request, reply, deps, query.scope, query.exportedAt);
+    const query = request.query as { scope?: string; exportedAt?: string; expandEmbeds?: string };
+    const prepared = await establishExport(
+      request,
+      reply,
+      deps,
+      query.scope,
+      query.exportedAt,
+      query.expandEmbeds === 'true',
+    );
     if (prepared === null) {
       return reply;
     }
@@ -842,6 +849,7 @@ async function establishExport(
   deps: ServerDependencies,
   rawScope: string | undefined,
   rawExportedAt?: string,
+  expandEmbeds = false,
 ): Promise<PreparedExport | null> {
   const context = await establish(request, reply, deps);
   if (context === null) {
@@ -883,6 +891,7 @@ async function establishExport(
     itemId: context.itemId,
     scope,
     includeDeleted: false,
+    expandEmbeds,
     exportedAt,
   });
 

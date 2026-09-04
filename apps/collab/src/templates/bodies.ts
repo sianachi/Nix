@@ -470,7 +470,7 @@ function remapBody(body: ItemBody, mappings: ReadonlyMap<string, string>): ItemB
   return { ...body, sheet: remapItemReferences(body.sheet, mappings, true) };
 }
 
-/** Remaps declared Nix item references and leaves arbitrary UUID-valued user data untouched. */
+/** Remaps declared Nix item/file references and leaves arbitrary UUID-valued user data untouched. */
 export function remapItemReferences(
   value: unknown,
   mappings: ReadonlyMap<string, string>,
@@ -485,7 +485,11 @@ export function remapItemReferences(
   for (const [key, child] of Object.entries(value)) {
     mapped[key] = remapItemReferences(child, mappings, stubUnknown);
   }
-  if (value.type === 'reference' && isRecord(value.attrs) && value.attrs.kind === 'item') {
+  if (
+    (value.type === 'itemBlock' || value.type === 'reference') &&
+    isRecord(value.attrs) &&
+    (value.type === 'itemBlock' || value.attrs.kind === 'item')
+  ) {
     const target = value.attrs.targetId;
     if (typeof target === 'string') {
       const replacement = mappings.get(target);
@@ -505,7 +509,105 @@ export function remapItemReferences(
       };
     }
   }
+
+  remapCanvasMarker(value, mapped, mappings, stubUnknown);
+  remapTransitionalCanvasReference(value, mapped, mappings, stubUnknown);
   return mapped;
+}
+
+/**
+ * Rewrites the explicit marker carried by a Nix-aware Excalidraw element.
+ *
+ * `fileId` is otherwise an opaque Excalidraw identifier and may look like a UUID by accident, so
+ * it is rewritten only when the adjacent marker declares that it is a durable Nix file item.
+ */
+function remapCanvasMarker(
+  value: Record<string, unknown>,
+  mapped: Record<string, unknown>,
+  mappings: ReadonlyMap<string, string>,
+  stubUnknown: boolean,
+): void {
+  if (!isRecord(value.customData) || !isRecord(value.customData.nix)) return;
+  const marker = value.customData.nix;
+  if ((marker.kind !== 'item' && marker.kind !== 'file') || typeof marker.itemId !== 'string') {
+    return;
+  }
+
+  const replacement = mappings.get(marker.itemId);
+  if (replacement === undefined && !stubUnknown) return;
+
+  const customData = record(mapped.customData);
+  mapped.customData = {
+    ...customData,
+    nix: {
+      ...record(customData.nix),
+      itemId: replacement ?? null,
+    },
+  };
+
+  if (marker.kind === 'item' && isNixItemLink(value.link)) {
+    mapped.link = replacement === undefined ? null : nixItemLink(replacement);
+  }
+  if (marker.kind === 'item' && value.type === 'card' && typeof value.itemId === 'string') {
+    mapped.itemId = replacement ?? '';
+  }
+
+  if (marker.kind === 'file' && value.type === 'image') {
+    mapped.fileId = replacement ?? null;
+    if (replacement === undefined) mapped.status = 'error';
+    if (typeof value.imageItemId === 'string') {
+      if (replacement === undefined) delete mapped.imageItemId;
+      else mapped.imageItemId = replacement;
+    }
+  }
+}
+
+/** Keeps documents written by the temporary native canvas portable while they migrate. */
+function remapTransitionalCanvasReference(
+  value: Record<string, unknown>,
+  mapped: Record<string, unknown>,
+  mappings: ReadonlyMap<string, string>,
+  stubUnknown: boolean,
+): void {
+  if (
+    value.type === 'card' &&
+    typeof value.itemId === 'string' &&
+    !hasCanonicalCanvasMarker(value, 'item')
+  ) {
+    const replacement = mappings.get(value.itemId);
+    if (replacement !== undefined) mapped.itemId = replacement;
+    else if (stubUnknown) mapped.itemId = '';
+    if (isNixItemLink(value.link)) {
+      if (replacement !== undefined) mapped.link = nixItemLink(replacement);
+      else if (stubUnknown) mapped.link = null;
+    }
+  }
+
+  if (
+    value.type === 'image' &&
+    typeof value.imageItemId === 'string' &&
+    !hasCanonicalCanvasMarker(value, 'file')
+  ) {
+    const replacement = mappings.get(value.imageItemId);
+    if (replacement !== undefined) mapped.imageItemId = replacement;
+    else if (stubUnknown) delete mapped.imageItemId;
+  }
+}
+
+function hasCanonicalCanvasMarker(value: Record<string, unknown>, kind: 'item' | 'file'): boolean {
+  return (
+    isRecord(value.customData) &&
+    isRecord(value.customData.nix) &&
+    value.customData.nix.kind === kind
+  );
+}
+
+function isNixItemLink(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('nix://item/');
+}
+
+function nixItemLink(itemId: string): string {
+  return `nix://item/${encodeURIComponent(itemId)}`;
 }
 
 function scopeOf(authorization: OperationItemAuthorization): TenantScope {

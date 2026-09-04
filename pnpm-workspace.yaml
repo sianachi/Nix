@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/web
+  - apps/desktop
   - apps/collab
   - apps/cli
 
@@ -11,3 +12,4 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - '@parcel/watcher'
+  - electron

@@ -255,7 +255,7 @@ describe('the schema version', () => {
     // document carries a pin that has to be raised past it by a job at deploy (ADR-0024).
     // If this assertion fails, the question is whether that was done - not whether to
     // update the number.
-    expect(SCHEMA_VERSION).toBe(2);
+    expect(SCHEMA_VERSION).toBe(4);
   });
 
   it('still opens a document written before the bump, unchanged', () => {
@@ -277,13 +277,13 @@ describe('the schema version', () => {
     expect(requiredSchemaVersion(parsed.document)).toBe(1);
   });
 
-  it('needs version 2 for a document using what version 2 added', () => {
+  it('needs version 4 for a document using the complete block set', () => {
     const parsed = parseDocument(FIXTURE_DOCUMENT);
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
 
-    expect(requiredSchemaVersion(parsed.document)).toBe(2);
+    expect(requiredSchemaVersion(parsed.document)).toBe(4);
   });
 });
 
@@ -463,3 +463,27 @@ describe('the version-1 document', () => {
 function addedAtVersion2(name: string): boolean {
   return NODE_MIN_VERSION[name] !== undefined || MARK_MIN_VERSION[name] !== undefined;
 }
+
+describe('explicit page boundaries', () => {
+  it('accepts top-level page breaks but refuses boundaries inside tables and lists', () => {
+    expect(
+      parseDocument({
+        type: 'doc',
+        content: [{ type: 'paragraph' }, { type: 'pageBreak' }, { type: 'paragraph' }],
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseDocument({
+        type: 'doc',
+        content: [
+          {
+            type: 'bulletList',
+            content: [
+              { type: 'listItem', content: [{ type: 'paragraph' }, { type: 'pageBreak' }] },
+            ],
+          },
+        ],
+      }).ok,
+    ).toBe(false);
+  });
+});

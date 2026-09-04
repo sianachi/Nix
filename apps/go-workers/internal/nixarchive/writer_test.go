@@ -3,6 +3,7 @@ package nixarchive
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -54,5 +55,88 @@ func TestWriteStreamPreservesUnknownSourceFieldsForLosslessArchives(t *testing.T
 		if entry.Name == "items/"+root+".json" && !bytes.Contains(content, []byte(`"futureBundle":{"kept":true}`)) {
 			t.Fatal("unknown bundle field was discarded")
 		}
+	}
+}
+
+func TestWriteRefusesFileItemBeforeWritingArchiveBytes(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	manifest := Manifest{
+		Format: Format, FormatVersion: FormatVersion, Root: root,
+		Items: []ManifestItem{{ID: root, Title: "Diagram", Seq: "1", Type: "file"}},
+	}
+	var output bytes.Buffer
+	err := Write(&output, manifest, []Bundle{{ID: root, Type: "file", Title: "Diagram"}}, 1<<20)
+	if !errors.Is(err, ErrFileBytesUnsupported) {
+		t.Fatalf("Write() error = %v, want ErrFileBytesUnsupported", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("file-item refusal wrote %d archive bytes", output.Len())
+	}
+}
+
+func TestWriteRefusesBodiesWithDurableFileReferencesBeforeClosingArchive(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	fileID := "223e4567-e89b-12d3-a456-426614174000"
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "note fileItemId",
+			body: `{"schemaVersion":3,"prosemirror":{"type":"doc","content":[{"type":"image","attrs":{"src":"","fileItemId":"` + fileID + `"}}]}}`,
+		},
+		{
+			name: "legacy note nix-file source",
+			body: `{"schemaVersion":2,"prosemirror":{"type":"doc","content":[{"type":"image","attrs":{"src":"nix-file:` + fileID + `"}}]}}`,
+		},
+		{
+			name: "canonical canvas marker",
+			body: `{"schemaVersion":3,"canvas":{"elements":{"image":{"type":"image","customData":{"nix":{"kind":"file","itemId":"` + fileID + `"}}}}}}`,
+		},
+		{
+			name: "transitional canvas image item",
+			body: `{"schemaVersion":2,"canvas":{"elements":{"image":{"type":"image","imageItemId":"` + fileID + `"}}}}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := Manifest{
+				Format: Format, FormatVersion: FormatVersion, Root: root,
+				Items: []ManifestItem{{ID: root, Title: "Root", Seq: "1", Type: "note"}},
+			}
+			var output bytes.Buffer
+			err := Write(
+				&output,
+				manifest,
+				[]Bundle{{ID: root, Type: "note", Title: "Root", Body: []byte(test.body)}},
+				1<<20,
+			)
+			if !errors.Is(err, ErrFileBytesUnsupported) {
+				t.Fatalf("Write() error = %v, want ErrFileBytesUnsupported", err)
+			}
+			if _, openErr := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len())); openErr == nil {
+				t.Fatal("refusal completed a readable archive")
+			}
+		})
+	}
+}
+
+func TestWriteAllowsRemoteNoteImageWithoutNixOwnedBytes(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	manifest := Manifest{
+		Format: Format, FormatVersion: FormatVersion, Root: root,
+		Items: []ManifestItem{{ID: root, Title: "Root", Seq: "1", Type: "note"}},
+	}
+	bundle := Bundle{
+		ID: root, Type: "note", Title: "Root",
+		Body: []byte(`{"schemaVersion":3,"prosemirror":{"type":"doc","content":[{"type":"image","attrs":{"src":"https://example.test/image.png"}}]}}`),
+	}
+	var output bytes.Buffer
+	if err := Write(&output, manifest, []Bundle{bundle}, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len())); err != nil {
+		t.Fatalf("remote image archive did not close: %v", err)
 	}
 }

@@ -11,7 +11,9 @@ export KUBECTL_LOG="$test_root/kubectl.log"
 export RENDERED_PRESET_JOB="$test_root/template-presets.yaml"
 export RENDERED_RABBITMQ="$test_root/rabbitmq.yaml"
 export RENDERED_API="$test_root/api.yaml"
+export RENDERED_MEDIA="$test_root/media.yaml"
 export RENDERED_WORKERS="$test_root/workers.yaml"
+export RENDERED_WEB="$test_root/web.yaml"
 
 cat > "$fake_bin/git" <<EOF
 #!/usr/bin/env bash
@@ -31,7 +33,17 @@ if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *"metadata.resourceVe
   exit 0
 fi
 
+if [[ " $* " == *" get secret nix-object-store "* && " $* " == *"metadata.resourceVersion"* ]]; then
+  printf '67890'
+  exit 0
+fi
+
 if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *" jsonpath="* ]]; then
+  printf 'dGVzdA=='
+  exit 0
+fi
+
+if [[ " $* " == *" get secret nix-object-store "* && " $* " == *" jsonpath="* ]]; then
   printf 'dGVzdA=='
   exit 0
 fi
@@ -51,8 +63,14 @@ if [[ " $* " == *" apply -f - "* ]]; then
   if [[ "$payload" == *"name: nix-api-data-protection"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_API"
   fi
+  if [[ "$payload" == *"name: nix-media"* && "$payload" == *"containerPort: 8200"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_MEDIA"
+  fi
   if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* && "$payload" == *"name: nix-plugin-worker"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WORKERS"
+  fi
+  if [[ "$payload" == *"name: nix-web"* && "$payload" == *"containerPort: 8090"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_WEB"
   fi
   exit 0
 fi
@@ -150,11 +168,19 @@ grep -Fq 'key: export-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: index-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: plugin-password' "$RENDERED_RABBITMQ"
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_API"
+test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_API")" -eq 1
 grep -Fq 'key: api-url' "$RENDERED_API"
+grep -Fq 'name: Nix__ObjectStorage__PublicOrigin' "$RENDERED_API"
+grep -Fq 'key: public-origin' "$RENDERED_API"
+test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_MEDIA")" -eq 1
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
+test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WORKERS")" -eq 3
 grep -Fq 'key: import-url' "$RENDERED_WORKERS"
 grep -Fq 'key: export-url' "$RENDERED_WORKERS"
 grep -Fq 'key: index-url' "$RENDERED_WORKERS"
 grep -Fq 'key: plugin-url' "$RENDERED_WORKERS"
+grep -Fq 'name: NIX_OBJECT_STORE_PUBLIC_ORIGIN' "$RENDERED_WEB"
+grep -Fq 'key: public-origin' "$RENDERED_WEB"
+test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WEB")" -eq 1
 
 echo "deployment render-order self-test passed"

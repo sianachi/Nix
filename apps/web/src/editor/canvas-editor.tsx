@@ -7,10 +7,10 @@ import { useAuth } from '../auth/auth-provider';
 import { useSessionStore } from '../auth/session-store';
 import { createCanvasBinding, type CanvasElement } from './canvas-binding';
 import { startCollabSync, type CollabSync, type SyncState } from './collab-sync';
+import { sceneFingerprint } from './nix-canvas-model';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
 import { NixCanvas } from './nix-canvas';
-import type { NixCanvasElement } from './nix-canvas-model';
 
 /**
  * The Nix canvas body over the same Yjs document, provider, and append-only log as a note.
@@ -24,7 +24,12 @@ export interface CanvasEditorProps {
   readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
 }
 
-export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps): ReactNode {
+/** A document identity change must replace the Y.Doc, not reconnect a new item to the old scene. */
+export function CanvasEditor(props: CanvasEditorProps): ReactNode {
+  return <CanvasEditorSession key={props.documentPath ?? props.itemId} {...props} />;
+}
+
+function CanvasEditorSession({ itemId, documentPath, onSync }: CanvasEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
   const navigate = useNavigate();
@@ -86,11 +91,29 @@ export function CanvasEditor({ itemId, documentPath, onSync }: CanvasEditorProps
 
       <div className="min-h-0 flex-1" aria-label="Canvas body">
         <NixCanvas
-          elements={elements as NixCanvasElement[]}
+          elements={elements}
           workspaceId={workspaceId}
+          parentItemId={itemId}
+          awareness={awareness}
+          readOnly={syncState === 'readonly'}
+          allowFileUploads={documentPath === undefined}
           onChange={(nextElements) => {
-            setElements([...nextElements]);
-            bindingRef.current?.applyLocal(nextElements);
+            const binding = bindingRef.current;
+            if (binding === null) {
+              setElements((current) =>
+                sceneFingerprint(current) === sceneFingerprint(nextElements)
+                  ? current
+                  : [...nextElements],
+              );
+              return;
+            }
+            binding.applyLocal(nextElements);
+            // The map may already hold a newer remote version. Render the accepted merged scene,
+            // never an optimistic local array that the binding just rejected.
+            const snapshot = binding.snapshot();
+            setElements((current) =>
+              sceneFingerprint(current) === sceneFingerprint(snapshot) ? current : snapshot,
+            );
           }}
           onOpenItem={(targetItemId) => {
             if (workspaceId !== undefined) {

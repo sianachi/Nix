@@ -255,6 +255,17 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
     codeBlock: (node) =>
       `\`\`\`${readString(node.attrs, 'language') ?? ''}\n${rawText(node)}\n\`\`\``,
     horizontalRule: () => '---',
+    pageBreak: () => {
+      loss.note('page-break-flattened', 'Explicit page boundaries are not preserved in Markdown.');
+      return '---';
+    },
+    itemBlock: (node) => {
+      loss.note(
+        'item-block-linked',
+        'Linked sections are exported as source links; live content is not included.',
+      );
+      return `[Linked item](nix://item/${readString(node.attrs, 'targetId') ?? ''})`;
+    },
     callout: (node, _ctx, children) =>
       quote(`[!${calloutTone(node)}]\n\n${children().join('\n\n')}`),
     image: (node) =>

@@ -113,6 +113,10 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid("The template has no active root."));
         }
+        if (ContainsFileItems(source))
+        {
+            return Result.Failure<TemplateApplicationPlan>(TemplateErrors.FileAttachmentsUnsupported());
+        }
         // Applying a captured template: its source came from a workspace, so it is tolerated the
         // same way it was at capture - a template that saved must be applyable.
         if (_validator.ValidateTemplateTree(source, tolerateViewDrift: true) is { } templateConflict)

@@ -69,6 +69,9 @@ func spoolPDFPages(output io.Writer, next RecordSource, limits stream.Limits, re
 		return nil
 	}
 	add := func(line string) error {
+		if line == "\f" {
+			return flush()
+		}
 		for _, wrapped := range wrapPDFLine(line) {
 			if len(lines) == pdfLinesPerPage {
 				if err := flush(); err != nil {
@@ -129,6 +132,12 @@ func eachMarkdownPlainLine(markdown string, consume func(string) error) error {
 		}
 		if inCode {
 			if err := consume(sanitizeText(line)); err != nil {
+				return err
+			}
+			continue
+		}
+		if trimmed == "<!-- nix-page-break -->" {
+			if err := consume("\f"); err != nil {
 				return err
 			}
 			continue
