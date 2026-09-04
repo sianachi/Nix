@@ -1,3 +1,4 @@
+import { onItemChildrenChanged } from '../lib/item-children-changed';
 import { isCanceledError, isNixApiError, items as coreItems, type Item } from '@nix/api-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -293,6 +294,14 @@ export function useWorkspaceTree(): WorkspaceTree {
       }
     },
     [absorb, fetchChildren],
+  );
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (detail.workspaceId === workspaceId) void expand(detail.parentId);
+      }),
+    [expand, workspaceId],
   );
 
   const toggle = useCallback(
