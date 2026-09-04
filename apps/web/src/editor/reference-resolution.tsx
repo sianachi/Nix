@@ -47,6 +47,7 @@ export type ReferenceState =
 const BATCH_LIMIT = 200;
 
 interface ReferenceResolver {
+  readonly refresh: (targetId: string, clear?: boolean) => void;
   readonly stateOf: (targetId: string) => ReferenceState;
   readonly request: (targetId: string) => void;
 }
@@ -149,6 +150,7 @@ export function ReferenceResolutionProvider({
     try {
       const parsed = await client.query(references.resolveReferences(ids), {
         signal: controller.signal,
+        forceRefresh: true,
       });
       if (!live.current) {
         return;
@@ -223,14 +225,29 @@ export function ReferenceResolutionProvider({
     [scheduleFlush],
   );
 
+  const refresh = useCallback(
+    (targetId: string, clear = true): void => {
+      asked.current.delete(targetId);
+      if (clear)
+        setAnswers((previous) => {
+          const next = new Map(previous);
+          next.delete(targetId);
+          return next;
+        });
+      request(targetId);
+    },
+    [request],
+  );
+
   const resolver = useMemo<ReferenceResolver>(
     // The identity is a dependency of the context consumers' effects: an unstable one would make
     // every reference on the page re-request itself on every render of this provider.
     () => ({
       stateOf: (targetId) => answers.get(targetId) ?? { status: 'loading' },
       request,
+      refresh,
     }),
-    [answers, request],
+    [answers, request, refresh],
   );
 
   return (
@@ -261,4 +278,11 @@ export function useReference(targetId: string | null): ReferenceState {
   }
 
   return resolver.stateOf(targetId);
+}
+
+const ignoreRefresh = (): void => {
+  /* Standalone previews have no resolver. */
+};
+export function useRefreshReference(): (targetId: string, clear?: boolean) => void {
+  return useContext(ReferenceResolutionContext)?.refresh ?? ignoreRefresh;
 }

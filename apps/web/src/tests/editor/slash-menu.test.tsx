@@ -186,7 +186,12 @@ function Harness(): ReactNode {
 
   return (
     <>
-      <SlashMenu editor={editor} onInsertImage={insertImage} />
+      <SlashMenu
+        editor={editor}
+        onInsertImage={insertImage}
+        onInsertItem={() => undefined}
+        onPageBreak={() => undefined}
+      />
       <EditorContent editor={editor} />
     </>
   );
