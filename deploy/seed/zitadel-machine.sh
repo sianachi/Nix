@@ -35,7 +35,8 @@ template_boot_key_action() {
 # Persists intent before the remote POST. If the response is lost, recovery can identify the old
 # installed key as the only protected key and remove every untracked remote orphan before retrying.
 begin_machine_key_creation_intent() {
-  local journal_file="$1" user_id="$2" old_key_id="$3" journal_tmp="${journal_file}.tmp"
+  local journal_file="$1" user_id="$2" old_key_id="$3" journal_tmp
+  journal_tmp="${journal_file}.tmp"
   if [ -f "$journal_file" ]; then
     echo "zitadel-configure: a service-account key rotation is already in progress" >&2
     return 2
@@ -56,7 +57,8 @@ begin_machine_key_creation_intent() {
 # Atomically attaches the POST response to its pre-existing intent. The journal intentionally
 # carries the replacement credential so recovery can install it before touching the old key.
 record_machine_key_creation() {
-  local journal_file="$1" credential_file="$2" journal_tmp="${journal_file}.tmp"
+  local journal_file="$1" credential_file="$2" journal_tmp
+  journal_tmp="${journal_file}.tmp"
   local phase user_id old_key_id new_key_id credential_user
   phase="$(jq -r '.phase // empty' "$journal_file" 2>/dev/null || true)"
   user_id="$(jq -r '.userId // empty' "$journal_file" 2>/dev/null || true)"
@@ -113,7 +115,8 @@ EOF
 }
 
 set_machine_key_rotation_phase() {
-  local journal_file="$1" phase="$2" journal_tmp="${journal_file}.tmp"
+  local journal_file="$1" phase="$2" journal_tmp
+  journal_tmp="${journal_file}.tmp"
   rm -f "$journal_tmp"
   if ! jq --arg phase "$phase" '.phase = $phase' "$journal_file" > "$journal_tmp"; then
     rm -f "$journal_tmp"

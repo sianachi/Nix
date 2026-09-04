@@ -406,6 +406,7 @@ describe('markdownToDocument', () => {
       expect(allText(result.doc)).toContain('and a local image');
       expect(allText(result.doc)).toContain('Wiki Link');
       expect(linkHrefs(result.doc)).toContain('./img.png');
+      expect(result.localImageTargets).toEqual(['./img.png']);
       expect(result.scan).toEqual({
         unresolvedWikiLinks: 1,
         unresolvedObsidianEmbeds: 0,

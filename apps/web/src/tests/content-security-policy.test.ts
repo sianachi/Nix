@@ -6,11 +6,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// The application's content security policy is written twice - as a meta tag in index.html, so it
-// holds on the Vite dev server and any static preview, and as a header in deploy/Caddyfile, so it
-// holds in front of the built bundle. Two copies of one policy drift, and CSP drift is silent
-// until a user hits the feature it broke: a blocked inline style attribute is an invisible layout
-// collapse, a blocked issuer origin is a sign-in that fails at the first click.
+// The application's baseline content security policy is written twice - as a meta tag in
+// index.html, so it holds on the Vite dev server and any static preview, and as a header in
+// deploy/Caddyfile, so it holds in front of the built bundle. Production Compose and Kubernetes
+// carry deliberate connection/frame differences, but every deployed variant still has to admit
+// the image sources the browser uses. CSP drift is silent until somebody hits the feature it broke:
+// a blocked inline style attribute is an invisible layout collapse, a blocked authorized blob is a
+// file preview that never appears.
 //
 // So this pins both. Every relaxation asserted below is one a reviewer found the strict policy had
 // broken, and each is named so removing it fails here with the feature it would break, rather than
@@ -21,6 +23,8 @@ const repoRoot = join(appDir, '..', '..');
 
 const indexHtml = readFileSync(join(appDir, 'index.html'), 'utf8');
 const caddyfile = readFileSync(join(repoRoot, 'deploy', 'Caddyfile'), 'utf8');
+const productionCaddyfile = readFileSync(join(repoRoot, 'deploy', 'Caddyfile.prod'), 'utf8');
+const kubernetesCaddyfile = readFileSync(join(repoRoot, 'deploy', 'k8s', 'Caddyfile'), 'utf8');
 
 /** The first capture of a match, or a failure naming what was being looked for. */
 function captured(pattern: RegExp, text: string, what: string): string {
@@ -68,6 +72,8 @@ function directives(policy: string): ReadonlyMap<string, readonly string[]> {
 
 const meta = directives(metaPolicy(indexHtml));
 const caddy = directives(caddyPolicy(caddyfile));
+const productionCaddy = directives(caddyPolicy(productionCaddyfile));
+const kubernetesCaddy = directives(caddyPolicy(kubernetesCaddyfile));
 
 describe('the content security policy', () => {
   it('allows inline styles, because runtime geometry travels in style attributes', () => {
@@ -79,22 +85,28 @@ describe('the content security policy', () => {
     expect(caddy.get('style-src')).toContain("'unsafe-inline'");
   });
 
-  it('allows http and https images, because covers are arbitrary third-party addresses', () => {
-    // The server's PropertyValidator accepts both schemes, and so does the image property input.
-    // A policy that accepts only https makes the picker report a correct address as broken.
-    for (const scheme of ['http:', 'https:']) {
-      expect(meta.get('img-src')).toContain(scheme);
-      expect(caddy.get('img-src')).toContain(scheme);
+  it('allows remote and authorized blob images', () => {
+    // The server's PropertyValidator accepts both HTTP schemes, and the file viewer creates a blob
+    // URL after it fetches an authorized preview. Blocking any of these makes the corresponding
+    // UI path report a correct image address or preview as broken.
+    for (const policy of [meta, caddy, productionCaddy, kubernetesCaddy]) {
+      for (const scheme of ['http:', 'https:', 'blob:']) {
+        expect(policy.get('img-src')).toContain(scheme);
+      }
     }
   });
 
   it('keeps provider communication out of the browser', () => {
     // Core owns discovery, token exchange and UserInfo. The browser reaches only its own origin,
     // so a compromised provider page cannot become an admitted script connection or frame.
-    for (const directive of ['connect-src', 'frame-src']) {
-      const expected = directive === 'frame-src' ? ["'self'", 'blob:'] : ["'self'"];
-      expect(meta.get(directive)).toEqual(expected);
-      expect(caddy.get(directive)).toEqual(expected);
+    expect(meta.get('connect-src')).toEqual(["'self'"]);
+    expect(meta.get('frame-src')).toEqual(["'self'", 'blob:']);
+    expect(caddy.get('frame-src')).toEqual(["'self'", 'blob:']);
+  });
+
+  it('admits exactly the configured object-store origin in deployed browser policies', () => {
+    for (const policy of [caddy, productionCaddy, kubernetesCaddy]) {
+      expect(policy.get('connect-src')).toEqual(["'self'", '{$NIX_OBJECT_STORE_PUBLIC_ORIGIN}']);
     }
   });
 
@@ -113,9 +125,9 @@ describe('the content security policy', () => {
     expect(meta.has('frame-ancestors')).toBe(false);
   });
 
-  it('is the same policy in the document and in front of the deployed bundle', () => {
+  it('keeps the same baseline policy in the document and standalone server', () => {
     const shared = (policy: ReadonlyMap<string, readonly string[]>) =>
-      [...policy].filter(([name]) => name !== 'frame-ancestors');
+      [...policy].filter(([name]) => name !== 'frame-ancestors' && name !== 'connect-src');
 
     expect(shared(caddy)).toEqual(shared(meta));
   });

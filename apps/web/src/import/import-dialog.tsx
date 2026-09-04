@@ -28,10 +28,9 @@ import { useWorkspace } from '../workspaces/workspace-context';
  * which links cannot be resolved - and the person should read them while there is still nothing to
  * regret. This is 7.5's order: preview, report, undo.
  *
- * **Only the chosen files worth reading are read.** A folder pick delivers everything the folder
- * holds, so the selection is screened by path first (`screenPaths`) and attachments, images and a
- * tool's hidden directories are turned away before a byte of them is loaded - a large vault must
- * not cost its own size in memory to be previewed.
+ * **Only Markdown is read for the preview.** A folder pick delivers everything it holds, so the
+ * selection is screened by path first (`screenPaths`); attachments stay opaque browser files until
+ * upload and hidden tool directories are turned away before a byte is loaded.
  *
  * **A run in progress can always be stopped.** The trailing button becomes "Stop import" and the
  * dialog's close control stops rather than closes; what was created stays, the rest is reported
@@ -154,8 +153,8 @@ export function ImportDialog({
         });
         return;
       }
-      // Screen by path before reading: a folder pick includes attachments, images and hidden
-      // tool directories, and reading those just to skip them is how a big vault crashes the tab.
+      // Screen by path before reading. Attachments stay as browser files until upload; only
+      // Markdown is read for planning, so a large vault does not cost its attachment bytes twice.
       const paths = files.map(pathOf);
       const screened = screenPaths(paths);
       const wanted = files.filter((_, index) => screened.wanted[index] === true);
@@ -170,10 +169,16 @@ export function ImportDialog({
       }
 
       // The parser subpath, not the package root, so the lazy chunk carries only the inbound
-      // direction. Loaded in parallel with the file reads.
+      // direction. Loaded in parallel with Markdown file reads.
       const [{ markdownToDocument }, sources] = await Promise.all([
         import('@nix/markdown/from-markdown'),
-        Promise.all(wanted.map(async (file) => ({ path: pathOf(file), text: await file.text() }))),
+        Promise.all(
+          wanted.map(async (file) =>
+            file.name.toLowerCase().endsWith('.md')
+              ? { path: pathOf(file), text: await file.text() }
+              : { path: pathOf(file), file },
+          ),
+        ),
       ]);
 
       const plan = planImport(sources, markdownToDocument, undefined, screened.skipped);
@@ -402,9 +407,9 @@ export function ImportDialog({
           <>
             <Text tone="muted" variant="body">
               Choose a PDF, Word document, UTF-8 text file, Nix archive, Markdown files, an Obsidian
-              vault, or folders containing Markdown notes. Documents become editable notes and
-              their original files are retained as children. Markdown folders keep their hierarchy
-              and supported formatting.
+              vault, or folders containing Markdown notes and attachments. Documents become
+              editable notes and their original files are retained as children. Markdown folders
+              keep their hierarchy, supported formatting, and non-hidden attachments.
             </Text>
             <Text tone="muted" variant="note">
               PDF import extracts existing text but does not perform OCR. The preview names content
@@ -416,7 +421,6 @@ export function ImportDialog({
               <input
                 ref={fileInput}
                 type="file"
-                accept=".md,.nix,.txt,.docx,.pdf"
                 multiple
                 className="sr-only"
                 tabIndex={-1}
@@ -606,14 +610,15 @@ function Preview({
   if (root === null) {
     return null;
   }
-  const notes = plan.totalItems - containers(root);
+  const contentItems = plan.totalItems - containers(root);
   const sources = planSources(root);
 
   return (
     <>
       <FocusOnMount>
         <Text variant="body">
-          {String(notes)} {notes === 1 ? 'note' : 'notes'} from the chosen files will be created
+          {String(contentItems)} {contentItems === 1 ? 'file or note' : 'files and notes'} from
+          the chosen files will be created
           under a new item called &ldquo;{root.title}&rdquo; - {String(plan.totalItems)} items in
           all, counting folders. Nothing is created until you press Import.
         </Text>

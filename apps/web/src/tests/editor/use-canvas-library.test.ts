@@ -58,7 +58,9 @@ describe('the caller’s own canvas library', () => {
     const [input, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit | undefined];
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     expect(url).toContain('/api/v1/me/canvas-library');
-    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined),
+    );
     expect(headers.get('authorization')).toBe('Bearer token');
   });
 
@@ -99,7 +101,7 @@ describe('the caller’s own canvas library', () => {
     const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     expect(path).toContain('/api/v1/me/canvas-library');
     const request = input instanceof Request ? input : undefined;
-    expect((init?.method ?? request?.method)).toBe('PUT');
+    expect(init?.method ?? request?.method).toBe('PUT');
     const body =
       typeof init?.body === 'string'
         ? init.body
@@ -107,6 +109,48 @@ describe('the caller’s own canvas library', () => {
           ? undefined
           : await request.clone().text();
     expect(JSON.parse(body ?? '{}')).toEqual({ items: [{ id: 'shape-2' }] });
+  });
+
+  it('serializes rapid whole-library saves so the newest state reaches Core last', async () => {
+    let finishFirstSave: ((response: Response) => void) | undefined;
+    const firstSave = new Promise<Response>((resolve) => {
+      finishFirstSave = resolve;
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [] }), { status: 200 }))
+      .mockImplementationOnce(() => firstSave)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [{ id: 'newest' }] }), { status: 200 }),
+      );
+
+    const { result } = renderHook(() => useCanvasLibrary(), { wrapper: Wrapper });
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
+
+    act(() => {
+      result.current.save([{ id: 'older' }]);
+      result.current.save([{ id: 'newest' }]);
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    if (finishFirstSave === undefined) throw new Error('Expected the first save to be pending.');
+    finishFirstSave(new Response(JSON.stringify({ items: [{ id: 'older' }] }), { status: 200 }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    const [input, init] = fetchMock.mock.calls[2] as [RequestInfo | URL, RequestInit | undefined];
+    const request = input instanceof Request ? input : undefined;
+    const body =
+      typeof init?.body === 'string'
+        ? init.body
+        : request === undefined
+          ? undefined
+          : await request.clone().text();
+    expect(JSON.parse(body ?? '{}')).toEqual({ items: [{ id: 'newest' }] });
   });
 
   it('drops a save identical to what Core already holds instead of echoing it back', async () => {

@@ -10,6 +10,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -118,7 +119,7 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 	child := "22222222-2222-4222-8222-222222222222"
 	workspace := "33333333-3333-4333-8333-333333333333"
 	manifest := map[string]any{
-		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 2,
+		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 3,
 		"exportedAt": "2026-09-01T12:00:00Z", "root": root, "rootEffectiveSchema": map[string]any{
 			"properties": []any{}, "declared": []any{}, "inherit": true,
 		}, "includesDeleted": true,
@@ -136,7 +137,7 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 			"createdAt": "2026-09-01T12:00:00Z", "updatedAt": "2026-09-01T12:00:00Z",
 			"properties": map[string]any{"title": title}, "schema": nil, "views": nil,
 			"viewRows": []any{}, "viewRowsTruncated": false,
-			"body": map[string]any{"schemaVersion": 2, "prosemirror": map[string]any{"type": "doc", "content": []any{map[string]any{"type": "paragraph"}}}},
+			"body": map[string]any{"schemaVersion": 3, "prosemirror": map[string]any{"type": "doc", "content": []any{map[string]any{"type": "paragraph"}}}},
 		}
 	}
 	manifestBytes, _ := json.Marshal(manifest)
@@ -161,6 +162,27 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 	}
 	if !strings.Contains(string(plan.Items[0].Schema), `"inherit":false`) {
 		t.Fatalf("root schema = %s", plan.Items[0].Schema)
+	}
+}
+
+func TestNixManifestAcceptsCurrentSchemaAndRejectsUnsupportedVersions(t *testing.T) {
+	manifest := nixManifest{
+		Format: nixArchiveFormat, FormatVersion: nixArchiveVersion, SchemaVersion: nixSchemaMaximum,
+		ExportedAt: "2026-09-01T12:00:00Z", Root: "11111111-1111-4111-8111-111111111111",
+		Items:   []nixManifestItem{{ID: "11111111-1111-4111-8111-111111111111", Sequence: "1", Title: "Root", Type: "note"}},
+		Omitted: []nixOmission{}, Loss: []nixLoss{},
+	}
+	if err := validateNixManifest(manifest, testLimits()); err != nil {
+		t.Fatalf("current schema version was rejected: %v", err)
+	}
+
+	for _, version := range []int{0, nixSchemaMaximum + 1} {
+		t.Run("version-"+strconv.Itoa(version), func(t *testing.T) {
+			manifest.SchemaVersion = version
+			if err := validateNixManifest(manifest, testLimits()); err == nil || !strings.Contains(err.Error(), "editor schema") {
+				t.Fatalf("schema version %d error = %v", version, err)
+			}
+		})
 	}
 }
 

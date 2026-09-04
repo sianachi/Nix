@@ -48,6 +48,134 @@ describe('template body reference remapping', () => {
       ),
     ).toMatchObject({ attrs: { targetId: null, label: 'Outside note' } });
   });
+
+  it('rewrites canonical Excalidraw markers and transitional native canvas references', () => {
+    const sourceItem = '11111111-1111-4111-8111-111111111111';
+    const targetItem = '22222222-2222-4222-8222-222222222222';
+    const sourceFile = '33333333-3333-4333-8333-333333333333';
+    const targetFile = '44444444-4444-4444-8444-444444444444';
+
+    const remapped = remapItemReferences(
+      {
+        elements: {
+          item: {
+            type: 'rectangle',
+            link: `nix://item/${sourceItem}`,
+            customData: { nix: { kind: 'item', itemId: sourceItem, label: 'Brief' } },
+          },
+          file: {
+            type: 'image',
+            fileId: sourceFile,
+            status: 'saved',
+            customData: { nix: { kind: 'file', itemId: sourceFile, label: 'Diagram' } },
+          },
+          transitionalCard: {
+            type: 'card',
+            itemId: sourceItem,
+            link: `nix://item/${sourceItem}`,
+          },
+          transitionalImage: { type: 'image', imageItemId: sourceFile },
+          mixedCard: {
+            type: 'card',
+            itemId: sourceFile,
+            link: `nix://item/${sourceFile}`,
+            customData: { nix: { kind: 'item', itemId: sourceItem } },
+          },
+          mixedImage: {
+            type: 'image',
+            fileId: sourceItem,
+            imageItemId: sourceItem,
+            customData: { nix: { kind: 'file', itemId: sourceFile } },
+          },
+          opaqueExcalidrawFile: { type: 'image', fileId: sourceFile },
+          arbitrary: { arbitraryId: sourceItem },
+        },
+      },
+      new Map([
+        [sourceItem, targetItem],
+        [sourceFile, targetFile],
+      ]),
+    );
+
+    expect(remapped).toMatchObject({
+      elements: {
+        item: {
+          link: `nix://item/${targetItem}`,
+          customData: { nix: { itemId: targetItem, label: 'Brief' } },
+        },
+        file: {
+          fileId: targetFile,
+          status: 'saved',
+          customData: { nix: { itemId: targetFile, label: 'Diagram' } },
+        },
+        transitionalCard: { itemId: targetItem, link: `nix://item/${targetItem}` },
+        transitionalImage: { imageItemId: targetFile },
+        // A canonical marker also wins over stale native fields while a scene is migrating.
+        mixedCard: {
+          itemId: targetItem,
+          link: `nix://item/${targetItem}`,
+          customData: { nix: { itemId: targetItem } },
+        },
+        mixedImage: {
+          fileId: targetFile,
+          imageItemId: targetFile,
+          customData: { nix: { itemId: targetFile } },
+        },
+        // An unmarked Excalidraw file id is opaque, even when it happens to match a Nix UUID.
+        opaqueExcalidrawFile: { fileId: sourceFile },
+        arbitrary: { arbitraryId: sourceItem },
+      },
+    });
+  });
+
+  it('stubs canvas references outside the copied tree without leaving a source file id', () => {
+    const outsideItem = '11111111-1111-4111-8111-111111111111';
+    const outsideFile = '33333333-3333-4333-8333-333333333333';
+
+    expect(
+      remapItemReferences(
+        {
+          elements: {
+            item: {
+              type: 'rectangle',
+              link: `nix://item/${outsideItem}`,
+              customData: { nix: { kind: 'item', itemId: outsideItem, label: 'Outside note' } },
+            },
+            file: {
+              type: 'image',
+              fileId: outsideFile,
+              status: 'saved',
+              customData: { nix: { kind: 'file', itemId: outsideFile, label: 'Outside image' } },
+            },
+            transitionalCard: {
+              type: 'card',
+              itemId: outsideItem,
+              link: `nix://item/${outsideItem}`,
+            },
+            transitionalImage: { type: 'image', imageItemId: outsideFile },
+          },
+        },
+        new Map(),
+        true,
+      ),
+    ).toEqual({
+      elements: {
+        item: {
+          type: 'rectangle',
+          link: null,
+          customData: { nix: { kind: 'item', itemId: null, label: 'Outside note' } },
+        },
+        file: {
+          type: 'image',
+          fileId: null,
+          status: 'error',
+          customData: { nix: { kind: 'file', itemId: null, label: 'Outside image' } },
+        },
+        transitionalCard: { type: 'card', itemId: '', link: null },
+        transitionalImage: { type: 'image' },
+      },
+    });
+  });
 });
 
 describe('template body materialization', () => {

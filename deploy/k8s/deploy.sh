@@ -26,7 +26,7 @@ export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
 export NIX_SEARCH_OPENSEARCH_ENABLED="${NIX_SEARCH_OPENSEARCH_ENABLED:-false}"
 export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN NIX_SEARCH_OPENSEARCH_ENABLED
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${NIX_SEARCH_OPENSEARCH_ENABLED} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${NIX_SEARCH_OPENSEARCH_ENABLED} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -40,10 +40,21 @@ if ! kubectl -n nix get secret nix-rabbitmq >/dev/null 2>&1; then
   echo "secret nix-rabbitmq not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
+if ! kubectl -n nix get secret nix-object-store >/dev/null 2>&1; then
+  echo "secret nix-object-store not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
+  exit 1
+fi
 for rabbitmq_key in api-password import-password export-password index-password plugin-password api-url import-url export-url index-url plugin-url; do
   rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
   if [ -z "$rabbitmq_value" ]; then
     echo "secret nix-rabbitmq is missing $rabbitmq_key - run deploy/k8s/create-secrets.sh --rabbitmq-only" >&2
+    exit 1
+  fi
+done
+for object_store_key in endpoint public-origin region bucket access-key secret-key; do
+  object_store_value="$(kubectl -n nix get secret nix-object-store -o "jsonpath={.data['$object_store_key']}")"
+  if [ -z "$object_store_value" ]; then
+    echo "secret nix-object-store is missing $object_store_key - run deploy/k8s/create-secrets.sh --object-store-only" >&2
     exit 1
   fi
 done
@@ -52,7 +63,12 @@ if [ -z "$RABBITMQ_SECRET_VERSION" ]; then
   echo "secret nix-rabbitmq has no resource version" >&2
   exit 1
 fi
-export RABBITMQ_SECRET_VERSION
+OBJECT_STORE_SECRET_VERSION="$(kubectl -n nix get secret nix-object-store -o jsonpath='{.metadata.resourceVersion}')"
+if [ -z "$OBJECT_STORE_SECRET_VERSION" ]; then
+  echo "secret nix-object-store has no resource version" >&2
+  exit 1
+fi
+export RABBITMQ_SECRET_VERSION OBJECT_STORE_SECRET_VERSION
 
 echo "== Postgres =="
 kubectl apply -f deploy/k8s/postgres.yaml
