@@ -5,11 +5,25 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/changed-path-checks.sh [--working-tree | --base <ref> | <path>...]
+Usage: scripts/changed-path-checks.sh [--commands] [--working-tree | --base <ref> | <path>...]
 
 Without arguments, compares HEAD to the working tree. Pass paths explicitly when
 planning a change before editing. --base compares <ref>...HEAD.
 EOF
+}
+
+format=human
+if [ "${1:-}" = '--commands' ]; then
+  format=commands
+  shift
+fi
+
+emit() {
+  if [ "$format" = commands ]; then
+    printf '%s\n' "$1"
+  else
+    printf '  %s\n' "$1"
+  fi
 }
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
@@ -60,6 +74,7 @@ has_shared_frontend_config=false
 has_frontend_guard=false
 has_backend_guard=false
 has_sensitive_backend=false
+has_workflow_script=false
 frontend_packages=()
 
 add_frontend_package() {
@@ -99,74 +114,86 @@ for path in "${paths[@]}"; do
     scripts/check-byte-array-markers.sh|scripts/check-no-controllers.sh|scripts/check-layering.sh|scripts/check-root-is-unambiguous.sh)
       has_backend_guard=true; has_backend=true
       ;;
+    scripts/changed-path-checks.sh|scripts/changed-path-checks.test.sh|scripts/validate-changed.sh|scripts/validate-changed.test.sh|scripts/new-goal-worktree.sh)
+      has_workflow_script=true
+      ;;
     backend/*Authentication*|backend/*Authorization*|backend/*Permission*|backend/*Migration*|backend/*Persistence*|backend/*/Sql/*|backend/*/Domain/Identity/*)
       has_sensitive_backend=true
       ;;
   esac
 done
 
-echo 'Changed paths:'
-printf '  - %s\n' "${paths[@]}"
-echo
-echo 'Selected local checks:'
+if [ "$format" = human ]; then
+  echo 'Changed paths:'
+  printf '  - %s\n' "${paths[@]}"
+  echo
+  echo 'Selected local checks:'
+fi
 
 if [ "$has_frontend" = true ]; then
   if [ "$has_shared_frontend_config" = true ]; then
-    echo '  pnpm lint'
-    echo '  pnpm typecheck'
-    echo '  pnpm test'
+    emit 'pnpm lint'
+    emit 'pnpm typecheck'
+    emit 'pnpm test'
   else
     for package_name in "${frontend_packages[@]:-}"; do
       [ -n "$package_name" ] || continue
-      echo "  pnpm --filter $package_name lint"
-      echo "  pnpm --filter $package_name typecheck"
-      echo "  pnpm --filter $package_name test"
+      emit "pnpm --filter $package_name lint"
+      emit "pnpm --filter $package_name typecheck"
+      emit "pnpm --filter $package_name test"
     done
   fi
   if [ "$has_frontend_sources" = true ] || [ "$has_shared_frontend_config" = true ]; then
-    echo '  ./scripts/check-raw-design-values.test.sh && ./scripts/check-raw-design-values.sh'
-    echo '  ./scripts/check-spacing-roles.test.sh && ./scripts/check-spacing-roles.sh'
-    echo '  ./scripts/check-text-primitive.test.sh && ./scripts/check-text-primitive.sh'
-    echo '  ./scripts/check-frontend-layering.test.sh && ./scripts/check-frontend-layering.sh'
+    emit './scripts/check-raw-design-values.test.sh && ./scripts/check-raw-design-values.sh'
+    emit './scripts/check-spacing-roles.test.sh && ./scripts/check-spacing-roles.sh'
+    emit './scripts/check-text-primitive.test.sh && ./scripts/check-text-primitive.sh'
+    emit './scripts/check-frontend-layering.test.sh && ./scripts/check-frontend-layering.sh'
   fi
 fi
 
 if [ "$has_desktop" = true ]; then
-  echo '  pnpm --filter @nix/desktop test'
-  echo '  pnpm --filter @nix/desktop build'
+  emit 'pnpm --filter @nix/desktop test'
+  emit 'pnpm --filter @nix/desktop build'
 fi
 
 if [ "$has_backend" = true ]; then
-  echo '  dotnet format Nix.slnx --verify-no-changes'
-  echo '  dotnet build Nix.slnx --configuration Release'
-  echo '  ./scripts/check-byte-array-markers.sh'
-  echo '  ./scripts/check-no-controllers.sh'
-  echo '  ./scripts/check-layering.sh'
-  echo '  ./scripts/check-root-is-unambiguous.sh'
-  echo '  dotnet test backend/tests/Nix.Tests/Nix.Tests.csproj'
+  emit 'dotnet format Nix.slnx --verify-no-changes'
+  emit 'dotnet build Nix.slnx --configuration Release'
+  emit './scripts/check-byte-array-markers.sh'
+  emit './scripts/check-no-controllers.sh'
+  emit './scripts/check-layering.sh'
+  emit './scripts/check-root-is-unambiguous.sh'
+  emit 'dotnet test backend/tests/Nix.Tests/Nix.Tests.csproj'
 fi
 
 if [ "$has_openapi" = true ]; then
-  echo '  pnpm --filter @nix/api-client generate'
-  echo '  git diff --exit-code -- backend/openapi packages/api-client/src/generated'
+  emit 'dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true'
+  emit 'pnpm --filter @nix/api-client generate'
+  emit 'git diff --exit-code -- backend/openapi packages/api-client/src/generated'
 fi
 
 if [ "$has_sensitive_backend" = true ]; then
-  echo '  dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj'
-  echo '  Required review: security; add backend-data review for persistence, SQL, or migrations.'
+  emit 'dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj'
+  [ "$format" = commands ] || echo '  Required review: security; add backend-data review for persistence, SQL, or migrations.'
 fi
 
 if [ "$has_workers" = true ]; then
-  echo '  (cd apps/go-workers && test -z "$(gofmt -l .)")'
-  echo '  (cd apps/go-workers && go vet ./... && go test ./... && go test -race ./... && go build ./cmd/nix-worker)'
+  emit '(cd apps/go-workers && test -z "$(gofmt -l .)")'
+  emit '(cd apps/go-workers && go vet ./... && go test ./... && go test -race ./... && go build ./cmd/nix-worker)'
 fi
 
-if [ "$has_frontend_guard" = true ]; then
+if [ "$format" = human ] && [ "$has_frontend_guard" = true ]; then
   echo '  Note: guard edits require their fixture self-test before the guard (included above).'
 fi
-if [ "$has_backend_guard" = true ]; then
+if [ "$format" = human ] && [ "$has_backend_guard" = true ]; then
   echo '  Note: backend guard edits trigger backend CI; inspect its workflow before changing scope.'
 fi
+if [ "$has_workflow_script" = true ]; then
+  emit 'bash -n scripts/changed-path-checks.sh scripts/changed-path-checks.test.sh scripts/validate-changed.sh scripts/validate-changed.test.sh scripts/new-goal-worktree.sh'
+  emit './scripts/changed-path-checks.test.sh && ./scripts/validate-changed.test.sh'
+fi
 
-echo
-echo 'Review the applicable guide(s) in docs/agent-guides before declaring this complete.'
+if [ "$format" = human ]; then
+  echo
+  echo 'Review the applicable guide(s) in docs/agent-guides before declaring this complete.'
+fi
