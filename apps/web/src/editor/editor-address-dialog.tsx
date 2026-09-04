@@ -1,9 +1,10 @@
 import { isAllowedLinkAddress } from '@nix/editor-schema';
-import { Button, Dialog, Field, Input } from '@nix/ui';
-import { useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import { Button, Dialog, Field, Input, Text } from '@nix/ui';
+import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { z } from 'zod';
 
 import { imageAddressSchema } from '../lib/image-address';
+import { isImageFile } from '../lib/file-kind';
 
 /** Which editor command is waiting for an address. */
 export type EditorAddressKind = 'image' | 'link';
@@ -18,6 +19,8 @@ export interface EditorAddressDialogProps {
   readonly kind: EditorAddressKind;
   readonly onCancel: () => void;
   readonly onSubmit: (value: EditorAddressValue) => void;
+  readonly onExistingImage?: (() => void) | undefined;
+  readonly onUploadImage?: ((file: File, description: string) => Promise<void>) | undefined;
 }
 
 const linkAddressSchema = z
@@ -33,30 +36,59 @@ const linkAddressSchema = z
  * The editor's honest address boundary.
  *
  * A modal keeps the selection in the document while making room for a labelled address field,
- * validation, and alternative text when the address is for an image. It deliberately does not
- * show a file picker: this build has no media model, so accepting a local file here would promise
- * an upload that cannot complete.
+ * validation, and alternative text when the address is for an image. It shows a file picker only
+ * when the caller can persist local media. URL insertion remains available for images that already
+ * live elsewhere, while the local path uses the same durable file model as a dropped attachment.
  */
 export function EditorAddressDialog({
   kind,
   onCancel,
   onSubmit,
+  onUploadImage,
+  onExistingImage,
 }: EditorAddressDialogProps): ReactNode {
   const addressRef = useRef<HTMLInputElement>(null);
   const [address, setAddress] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
+  const [method, setMethod] = useState<'upload' | 'url'>(
+    onUploadImage === undefined ? 'url' : 'upload',
+  );
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (file === null || !isImageFile(file) || file.size > 10 * 1024 * 1024) return;
+    const url = URL.createObjectURL(file);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) setPreview(url);
+    });
+    return () => {
+      active = false;
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
   const image = kind === 'image';
+  const canUploadImage = image && onUploadImage !== undefined;
   const title = image ? 'Insert image' : 'Add link';
   const addressLabel = image ? 'Image address' : 'Link address';
   const addressHint = image
-    ? 'Paste a complete http or https address.'
+    ? canUploadImage
+      ? 'Paste a complete http or https address, or choose a local image below.'
+      : 'Paste a complete http or https address.'
     : 'Paste or type where this link should go.';
   const submitLabel = image ? 'Insert image' : 'Add link';
 
   function submit(event: SyntheticEvent<HTMLFormElement>): void {
     event.preventDefault();
+    if (uploading) return;
+    if (canUploadImage && method === 'upload') {
+      void uploadImage();
+      return;
+    }
 
     const parsed = (image ? imageAddressSchema : linkAddressSchema).safeParse(address);
     if (!parsed.success) {
@@ -68,32 +100,88 @@ export function EditorAddressDialog({
     onSubmit({ address: parsed.data, description: image ? description.trim() : '' });
   }
 
+  async function uploadImage(): Promise<void> {
+    if (uploading) return;
+    const file = uploadRef.current?.files?.[0];
+    if (file === undefined) {
+      setError('Choose an image to upload.');
+      return;
+    }
+    if (!isImageFile(file)) {
+      setError('Choose a PNG, JPEG, WebP or AVIF image no larger than 10 MiB.');
+      return;
+    }
+    if (onUploadImage === undefined) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await onUploadImage(file, description.trim());
+      onCancel();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be uploaded.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <Dialog
       open
       title={title}
       onClose={onCancel}
       closeLabel={`Cancel ${image ? 'image insertion' : 'link creation'}`}
-      initialFocus={addressRef}
+      initialFocus={canUploadImage && method === 'upload' ? uploadRef : addressRef}
     >
       <form noValidate onSubmit={submit} className="flex flex-col gap-4">
-        <Field label={addressLabel} required hint={addressHint} error={error}>
-          {(control) => (
-            <Input
-              {...control}
-              ref={addressRef}
-              type="url"
-              inputMode="url"
-              autoComplete="url"
-              required
-              value={address}
-              onChange={(event) => {
-                setAddress(event.target.value);
-                setError(null);
+        {canUploadImage ? (
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Image source">
+            <Button
+              type="button"
+              variant="secondary"
+              aria-pressed={method === 'upload'}
+              onClick={() => {
+                setMethod('upload');
               }}
-            />
-          )}
-        </Field>
+            >
+              Upload
+            </Button>
+            {onExistingImage !== undefined ? (
+              <Button type="button" variant="secondary" onClick={onExistingImage}>
+                Existing attachment
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              aria-pressed={method === 'url'}
+              onClick={() => {
+                setMethod('url');
+              }}
+            >
+              Image URL
+            </Button>
+          </div>
+        ) : null}
+        {!canUploadImage || method === 'url' ? (
+          <Field label={addressLabel} required={!canUploadImage} hint={addressHint} error={error}>
+            {(control) => (
+              <Input
+                {...control}
+                ref={addressRef}
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                required={!canUploadImage}
+                disabled={uploading}
+                value={address}
+                onChange={(event) => {
+                  setAddress(event.target.value);
+                  setError(null);
+                }}
+              />
+            )}
+          </Field>
+        ) : null}
 
         {image ? (
           <Field
@@ -104,6 +192,7 @@ export function EditorAddressDialog({
               <Input
                 {...control}
                 value={description}
+                disabled={uploading}
                 onChange={(event) => {
                   setDescription(event.target.value);
                 }}
@@ -112,11 +201,48 @@ export function EditorAddressDialog({
           </Field>
         ) : null}
 
+        {canUploadImage && method === 'upload' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              ref={uploadRef}
+              type="file"
+              accept="image/*"
+              disabled={uploading}
+              aria-label="Choose image to upload"
+              onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null);
+                setPreview(null);
+                setError(null);
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={uploading}
+              onClick={() => {
+                void uploadImage();
+              }}
+            >
+              {uploading ? 'Uploading image…' : 'Upload image'}
+            </Button>
+          </div>
+        ) : null}
+
+        {canUploadImage && method === 'upload' && preview !== null ? (
+          <img src={preview} alt={description} className="max-h-48 max-w-full object-contain" />
+        ) : null}
+        {error !== null && canUploadImage && method === 'upload' ? (
+          <Text variant="note" role="alert">
+            {error}
+          </Text>
+        ) : null}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit">{submitLabel}</Button>
+          <Button type="submit" disabled={uploading}>
+            {submitLabel}
+          </Button>
         </div>
       </form>
     </Dialog>
