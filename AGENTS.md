@@ -9,8 +9,10 @@ material and live in `docs/agent-guides/`.
 - Product direction is in `README.md`; accepted architecture is in `docs/adr/`.
   Reconcile a task with the tree and recent commits. Observed shipped behaviour
   wins; stop and surface an architectural surprise that needs an ADR.
-- Preserve unrelated changes in a dirty worktree. Make one focused task at a
-  time and use a focused worktree/branch when appropriate.
+- Before editing, create an isolated worktree with
+  `scripts/new-goal-worktree.sh <feature-slug> [base-ref]` when the current tree
+  has unrelated changes or the task needs more than one commit. Make one focused
+  task at a time; preserve unrelated changes in a shared tree.
 - Do not assert unobserved results. Run the checks selected by
   `scripts/changed-path-checks.sh` and report anything that cannot run.
 - Query or stress a running Nix instance through `nixctl` or MCP. If neither can
@@ -45,8 +47,8 @@ the cases that require broader proof. It does not replace CI or judgment.
 - Browser auth is Core's BFF flow. Files use capability URLs, never Core bytes.
 - Durable data is authoritative; closure, snapshots, search, links and
   embeddings are rebuildable derived state.
-- OpenAPI is a contract seam: build-generated `backend/openapi/nix-api.json` and
-  generated API-client code are never hand-edited.
+- OpenAPI is a contract seam: explicitly generated `backend/openapi/nix-api.json`
+  and generated API-client code are never hand-edited.
 
 The previous complete policy is retained at
 `docs/agent-guides/legacy-full-standards.md` during this transition. Prefer the

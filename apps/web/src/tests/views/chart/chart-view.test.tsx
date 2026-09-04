@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { NixApiError } from '@nix/api-client';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { ChartView } from '../../../views/chart/chart-view';
@@ -14,8 +15,10 @@ import { aView } from '../../view-fixture';
  * lengths.
  */
 
-vi.mock('../../../auth/auth-provider', () => ({
-  useAuth: () => ({ getAccessToken: () => Promise.resolve('jwt') }),
+const query = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../api/api-client-provider', () => ({
+  useApiClient: () => ({ query }),
 }));
 
 function chartOf(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -38,15 +41,15 @@ function chartOf(over: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 function answer(body: unknown, ok = true, status = 200): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() =>
-      Promise.resolve({
-        ok,
-        status,
-        json: () => Promise.resolve(body),
-      } as Response),
-    ),
+  if (ok) {
+    query.mockResolvedValue(body);
+    return;
+  }
+
+  query.mockRejectedValue(
+    status === 404
+      ? NixApiError.fromStatus(status)
+      : NixApiError.fromProblemDetails(status, body as { code: string }),
   );
 }
 
@@ -61,11 +64,12 @@ function renderChart(): void {
 }
 
 beforeEach(() => {
+  query.mockReset();
   answer(chartOf());
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('the chart view', () => {
