@@ -65,7 +65,7 @@ export interface PdfNode {
   readonly fontSize?: number;
   readonly margin?: readonly [number, number, number, number];
   readonly preserveLeadingSpaces?: boolean;
-  readonly pageBreak?: 'before';
+  readonly pageBreak?: 'before' | 'after';
 
   /** Set on the block a table of contents would point at. Present so headings can carry an id. */
   readonly id?: string;
