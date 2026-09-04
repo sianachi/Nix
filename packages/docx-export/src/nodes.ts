@@ -7,7 +7,7 @@ import {
   type ProseNode,
   type VisitContext,
 } from '@nix/export';
-import { ExternalHyperlink, ShadingType, TextRun, type ParagraphChild } from 'docx';
+import { ExternalHyperlink, PageBreak, ShadingType, TextRun, type ParagraphChild } from 'docx';
 
 import { decorate, paragraph, type BlockSpec, type CellSpec } from './blocks.js';
 
@@ -52,7 +52,7 @@ export const nodeHandlers: NodeHandlers<DocxContent> = {
 
   text: (node, ctx) => ({ inlines: [textRun(node, ctx)] }),
 
-  hardBreak: () => ({ inlines: [new TextRun({ break: 1 })] }),
+  hardBreak: () => ({ inlines: [new PageBreak()] }),
 
   heading: (node, _ctx, children) => ({
     blocks: [
@@ -93,6 +93,17 @@ export const nodeHandlers: NodeHandlers<DocxContent> = {
       ),
   }),
 
+  pageBreak: () => ({ blocks: [paragraph([new PageBreak()])] }),
+  itemBlock: (node, ctx) => {
+    ctx.loss.note('reference-flattened', 'A linked section is represented by its source link.');
+    return {
+      blocks: [
+        paragraph([
+          new TextRun(`Linked item: nix://item/${readString(node.attrs, 'targetId') ?? ''}`),
+        ]),
+      ],
+    };
+  },
   horizontalRule: () => ({
     blocks: [paragraph([], { bottomRule: PRINT_PALETTE.divider, spacingAfter: 160 })],
   }),
