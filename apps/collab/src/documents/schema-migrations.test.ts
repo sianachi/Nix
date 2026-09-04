@@ -245,7 +245,7 @@ describe('the note strategy measurement', () => {
     expect(measured?.schemaVersion).toBe(1);
   });
 
-  it('reports version 2 for a document using what version 2 added', () => {
+  it('reports the current version for the complete fixture', () => {
     const state = new Y.Doc();
     prosemirrorJSONToYXmlFragment(nixSchema, FIXTURE_DOCUMENT, state.getXmlFragment('default'));
 

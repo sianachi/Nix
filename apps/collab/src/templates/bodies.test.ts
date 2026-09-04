@@ -187,3 +187,14 @@ describe('template body materialization', () => {
     ).toHaveLength(1);
   });
 });
+
+it('remaps embedded notes and subpages during native archive import', () => {
+  const source = '11111111-1111-4111-8111-111111111111';
+  const target = '22222222-2222-4222-8222-222222222222';
+  expect(
+    remapItemReferences(
+      { type: 'itemBlock', attrs: { targetId: source, presentation: 'embed' } },
+      new Map([[source, target]]),
+    ),
+  ).toEqual({ type: 'itemBlock', attrs: { targetId: target, presentation: 'embed' } });
+});
