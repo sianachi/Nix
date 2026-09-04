@@ -220,6 +220,10 @@ public sealed partial class TemplateStore
         }
 
         var items = await ActiveTreeAsync(template, cancellationToken).ConfigureAwait(false);
+        if (ContainsFileItems(items))
+        {
+            return Result.Failure<TemplateExportSnapshot>(TemplateErrors.FileAttachmentsUnsupported());
+        }
         var byItem = items.ToDictionary(item => item.Id, item => item.TemplateSourceId!.Value);
         var bodies = await BodyItemIdsAsync(items.Select(item => item.Id), cancellationToken).ConfigureAwait(false);
         return Result.Success(new TemplateExportSnapshot(

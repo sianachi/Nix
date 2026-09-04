@@ -480,10 +480,11 @@ describe('the import dialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('not yours to delete');
   });
 
-  it('says when nothing importable was chosen instead of showing an empty preview', async () => {
+  it('previews a selected attachment instead of dropping it', async () => {
     open();
     await pick(new File(['x'], 'photo.jpg', { type: 'image/jpeg' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Nothing importable was chosen/);
+    expect(await screen.findByRole('button', { name: 'Import 2 items' })).toBeInTheDocument();
+    expect(screen.getByText(/file or note from the chosen files will be created/)).toBeInTheDocument();
   });
 });

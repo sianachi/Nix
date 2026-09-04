@@ -22,7 +22,7 @@ import { nixExtensions } from './extensions.js';
  * blocks, token-named colour and the comment mark - all at once, because each bump costs a
  * corpus-wide pin rewrite and a lockout window for tabs left open across a deploy.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
 
 /**
  * The ProseMirror schema, derived from the extension list.

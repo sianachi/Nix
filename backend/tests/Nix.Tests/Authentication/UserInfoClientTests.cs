@@ -164,6 +164,46 @@ public sealed class UserInfoClientTests
         Assert.False(called);
     }
 
+    [Fact]
+    public async Task Same_origin_loopback_http_is_allowed_for_local_development()
+    {
+        using var handler = new ResponseHandler(_ => Json("{\"sub\":\"subject-1\"}"));
+        using var client = new HttpClient(handler);
+        var reader = new UserInfoClient(client);
+
+        var profile = await reader.ReadAsync(
+            new Uri("http://localhost:8300/oidc/v1/userinfo"),
+            "http://localhost:8300",
+            "access-token",
+            "subject-1",
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(profile.DisplayName);
+    }
+
+    [Fact]
+    public async Task Non_loopback_http_is_refused_even_when_the_origin_matches()
+    {
+        var called = false;
+        using var handler = new ResponseHandler(_ =>
+        {
+            called = true;
+            return Json("{\"sub\":\"subject-1\"}");
+        });
+        using var client = new HttpClient(handler);
+        var reader = new UserInfoClient(client);
+
+        var exception = await Assert.ThrowsAsync<UserInfoUnavailableException>(() => reader.ReadAsync(
+            new Uri("http://issuer.example.test/userinfo"),
+            "http://issuer.example.test",
+            "access-token",
+            "subject-1",
+            TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(ProvisioningFailureCategory.Endpoint, exception.Category);
+        Assert.False(called);
+    }
+
     [Theory]
     [InlineData("https://other.example.test/userinfo", "https://issuer.example.test")]
     [InlineData("https://user:password@issuer.example.test/userinfo", "https://issuer.example.test")]

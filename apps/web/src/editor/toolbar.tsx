@@ -1,3 +1,5 @@
+import { Button } from '@nix/ui';
+import type { ItemInsertKind } from './item-insert-dialog';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
@@ -28,7 +30,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 /**
  * The formatting toolbar.
@@ -76,6 +78,8 @@ export interface ToolbarProps {
 
   /** Opens the editor-owned image form without making this toolbar own modal state. */
   readonly onInsertImage: () => void;
+  readonly onInsertItem?: (kind: ItemInsertKind) => void;
+  readonly onPageBreak?: () => void;
 
   /** Opens the editor-owned link form for the current selection. */
   readonly onInsertLink: () => void;
@@ -94,10 +98,13 @@ export interface ToolbarProps {
 export function EditorToolbar({
   editor,
   onInsertImage,
+  onInsertItem,
+  onPageBreak,
   onInsertLink,
   onUndo,
   onRedo,
 }: ToolbarProps): ReactNode {
+  const [insertOpen, setInsertOpen] = useState(false);
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
   // and React's strict mode does that on every mount in development. `destroy()` sets the
@@ -369,6 +376,73 @@ export function EditorToolbar({
       <Group controls={marks} />
       <Separator />
       <Group controls={inserts} />
+      {onInsertItem !== undefined ? (
+        <div className="relative">
+          <Button
+            variant="ghost"
+            aria-expanded={insertOpen}
+            onClick={() => {
+              setInsertOpen(!insertOpen);
+            }}
+          >
+            Insert
+          </Button>
+          {insertOpen ? (
+            <div
+              role="group"
+              aria-label="Insert content"
+              className="absolute left-0 z-20 flex w-48 flex-col gap-1 rounded-md border border-divider bg-background p-2 shadow-md"
+            >
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setInsertOpen(false);
+                  onInsertImage();
+                }}
+              >
+                Image
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setInsertOpen(false);
+                  onInsertItem('attachment');
+                }}
+              >
+                Attachment
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setInsertOpen(false);
+                  onInsertItem('embed');
+                }}
+              >
+                Embed note
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setInsertOpen(false);
+                  onInsertItem('subpage');
+                }}
+              >
+                New subpage
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setInsertOpen(false);
+                  onPageBreak?.();
+                }}
+                disabled={editor.state.selection.$from.depth > 1}
+              >
+                Page break
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <Separator />
       <Group controls={history} label="History" />
 

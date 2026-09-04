@@ -312,14 +312,33 @@ function TemplateBody({
           </Text>
         }
       >
-        <TemplateCanvasEditor itemId={item.sourceId} documentPath={documentPath} onSync={onSync} />
+        <TemplateCanvasEditor
+          key={documentPath}
+          itemId={item.sourceId}
+          documentPath={documentPath}
+          onSync={onSync}
+        />
       </Suspense>
     );
   }
   if (item.itemType === 'spreadsheet') {
-    return <SheetEditor itemId={item.sourceId} documentPath={documentPath} onSync={onSync} />;
+    return (
+      <SheetEditor
+        key={documentPath}
+        itemId={item.sourceId}
+        documentPath={documentPath}
+        onSync={onSync}
+      />
+    );
   }
-  return <NoteEditor itemId={item.sourceId} documentPath={documentPath} onSync={onSync} />;
+  return (
+    <NoteEditor
+      key={documentPath}
+      itemId={item.sourceId}
+      documentPath={documentPath}
+      onSync={onSync}
+    />
+  );
 }
 
 function TemplateFieldsEditor({

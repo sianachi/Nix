@@ -88,6 +88,13 @@ public sealed partial class TemplateStore
                 TemplateErrors.Invalid($"A template may contain at most {MaximumTemplateItems:N0} items."));
         }
 
+        if (ContainsFileItems(source)
+            || (!includeChildren
+                && await HasFileItemsInTreeAsync(sourceItemId, cancellationToken).ConfigureAwait(false)))
+        {
+            return Result.Failure<TemplateCapturePlan>(TemplateErrors.FileAttachmentsUnsupported());
+        }
+
         if (_validator.Depth(source, sourceItemId) > MaximumTemplateDepth)
         {
             return Result.Failure<TemplateCapturePlan>(
@@ -245,6 +252,11 @@ public sealed partial class TemplateStore
         if (_validator.ValidateImport(descriptor, items) is { } refusal)
         {
             return Result.Failure<TemplateImportPlan>(TemplateErrors.Invalid(refusal));
+        }
+
+        if (items.Any(item => string.Equals(item.ItemType, "file", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Result.Failure<TemplateImportPlan>(TemplateErrors.FileAttachmentsUnsupported());
         }
 
         if (descriptor.Origin == TemplateOrigin.Managed

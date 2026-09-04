@@ -33,6 +33,9 @@ func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool,
 	if output == nil || next == nil || maxBytes <= 0 {
 		return fmt.Errorf("archive writer configuration is invalid")
 	}
+	if err := validateManifestFilePortability(manifest); err != nil {
+		return err
+	}
 	limited := &limitedWriter{writer: output, remaining: maxBytes}
 	archive := zip.NewWriter(limited)
 	manifestBytes, err := encoded(manifest.Raw, manifest)
@@ -55,6 +58,9 @@ func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool,
 		}
 		if bundle.ID != item.ID || bundle.ID != manifest.Items[index].ID {
 			return fmt.Errorf("archive bundle order does not match manifest")
+		}
+		if err := validateBundleFilePortability(bundle); err != nil {
+			return err
 		}
 		payload, err := encoded(bundle.Raw, bundle)
 		if err != nil {

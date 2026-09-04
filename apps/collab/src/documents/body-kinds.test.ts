@@ -52,17 +52,23 @@ describe('body-kind dispatch', () => {
     doc.destroy();
   });
 
-  it('refuses an element missing its reconciliation contract', () => {
+  it('refuses an element with a missing or non-integral reconciliation contract', () => {
     // Without id, version and versionNonce, two whole-element writes cannot order
     // deterministically - the merge would produce a scene some client cannot reconcile.
     const missingVersion = canvasDocWith([{ id: 'a', type: 'rectangle', versionNonce: 1 }]);
     const idMismatch = canvasDocWith([element('a')]);
     idMismatch.getMap('elements').set('b', element('not-b'));
+    const fractionalVersion = canvasDocWith([element('fractional', { version: 1.5 })]);
+    const negativeNonce = canvasDocWith([element('negative', { versionNonce: -1 })]);
 
     expect(canvasStrategy.measure(missingVersion)).toBeNull();
     expect(canvasStrategy.measure(idMismatch)).toBeNull();
+    expect(canvasStrategy.measure(fractionalVersion)).toBeNull();
+    expect(canvasStrategy.measure(negativeNonce)).toBeNull();
     missingVersion.destroy();
     idMismatch.destroy();
+    fractionalVersion.destroy();
+    negativeNonce.destroy();
   });
 
   it('judges a canvas update by the canvas rules, not the prose ones', () => {
@@ -150,6 +156,48 @@ describe('body-kind dispatch', () => {
     });
     // Geometry has nothing to say to a search index; the text elements are the document.
     expect(materialized.plaintext).toBe('The plan\nShip it');
+    doc.destroy();
+  });
+
+  it('extracts canonical Excalidraw item markers and transitional cards as canvas links', () => {
+    const source = '10000000-0000-4000-8000-000000000001';
+    const firstTarget = '20000000-0000-4000-8000-000000000001';
+    const secondTarget = '30000000-0000-4000-8000-000000000001';
+    const doc = canvasDocWith([
+      element('canonical', {
+        customData: { nix: { kind: 'item', itemId: firstTarget, label: 'First' } },
+      }),
+      element('transitional', { type: 'card', itemId: firstTarget }),
+      // The canonical representation wins while an element temporarily carries both formats.
+      element('mixed', {
+        type: 'card',
+        itemId: firstTarget,
+        customData: { nix: { kind: 'item', itemId: secondTarget } },
+      }),
+      element('file', {
+        type: 'image',
+        fileId: firstTarget,
+        customData: { nix: { kind: 'file', itemId: firstTarget } },
+      }),
+      element('transitional-file', { type: 'image', imageItemId: secondTarget }),
+      element('deleted', {
+        isDeleted: true,
+        customData: { nix: { kind: 'item', itemId: firstTarget } },
+      }),
+      element('self', { customData: { nix: { kind: 'item', itemId: source } } }),
+      element('malformed', { customData: { nix: { kind: 'item', itemId: 'not-a-uuid' } } }),
+      element('arbitrary', { customData: { itemId: firstTarget } }),
+    ]);
+
+    const materialized = canvasStrategy.materialize(doc);
+    if (canvasStrategy.extractLinks === undefined) {
+      throw new Error('The canvas strategy did not expose links.');
+    }
+
+    expect([...canvasStrategy.extractLinks(materialized.json, source)]).toEqual([
+      [firstTarget, 3],
+      [secondTarget, 2],
+    ]);
     doc.destroy();
   });
 

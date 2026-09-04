@@ -51,6 +51,7 @@ export interface PrepareRequest {
   readonly itemId: string;
   readonly scope: ExportScope;
   readonly includeDeleted: boolean;
+  readonly expandEmbeds?: boolean | undefined;
 
   /** Injected, so an export of unchanged content is byte-identical to the last one. */
   readonly exportedAt: Date;
@@ -97,6 +98,15 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
         tenantId: request.tenant.tenantId,
         items: tree.items,
         metadata,
+        resolveEmbeddedItem:
+          request.expandEmbeds === true
+            ? async (id) => {
+                // Keep the signed worker delegation boundary. Outside-scope dependencies need a
+                // dedicated capability before they can be fetched, even if the user can read them.
+                if (!tree.items.some((item) => item.id === id)) return null;
+                return request.core.getItem(request.token, id);
+              }
+            : undefined,
       }),
     ),
   };

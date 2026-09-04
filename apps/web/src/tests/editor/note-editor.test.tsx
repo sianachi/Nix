@@ -1,12 +1,16 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { ApiClientProvider } from '../../api/api-client-provider';
+import type * as apiClient from '@nix/api-client';
 import type * as collabSync from '../../editor/collab-sync';
+import type * as apiClientProvider from '../../api/api-client-provider';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { NoteEditor } from '../../editor/note-editor';
+import type * as reactRouter from 'react-router';
 
 /**
  * The provider is replaced, and the document it is handed is kept.
@@ -23,6 +27,21 @@ const MODIFIER: KeyboardEventInit =
   typeof NAVIGATOR_PLATFORM === 'string' && /Mac|iP(hone|[oa]d)/.test(NAVIGATOR_PLATFORM)
     ? { metaKey: true }
     : { ctrlKey: true };
+
+const fileHarness = vi.hoisted(() => ({
+  beginUpload: vi.fn((input: unknown) => ({ operation: 'files.upload.begin', body: input })),
+  uploadAndCompleteFile: vi.fn(),
+  deleteItem: vi.fn((workspaceId: string, itemId: string) => ({
+    operation: 'items.delete',
+    workspaceId,
+    itemId,
+  })),
+  fetchFileContent: vi.fn(() => Promise.reject(new Error('Preview unavailable in this test'))),
+  client: {
+    execute: vi.fn(() => Promise.resolve({ id: 'upload-id' })),
+    query: vi.fn(() => Promise.resolve({ references: [] })),
+  },
+}));
 
 function pluginKey(value: unknown): string | null {
   if (typeof value !== 'object' || value === null || !('key' in value)) {
@@ -54,9 +73,42 @@ vi.mock('../../editor/collab-sync', async () => {
 // selection through `coordsAtPos`, a browser-layout API jsdom cannot implement.
 vi.mock('../../editor/bubble-menu', () => ({ BubbleMenu: () => null }));
 
+// Reference navigation has its own suite and requires a Router. This file inspects the reference
+// node in Yjs, so rendering its routing control would add no coverage here.
+vi.mock('../../routing/selected-item', () => ({ useSelectedItem: () => ({ select: vi.fn() }) }));
+
+vi.mock('../../editor/reference-view', () => ({ ReferenceView: () => null }));
+
 vi.mock('../../auth/auth-provider', () => ({
   useAuth: () => ({ getAccessToken: () => Promise.resolve('token') }),
 }));
+
+vi.mock('@nix/api-client', async () => {
+  const actual = await vi.importActual<typeof apiClient>('@nix/api-client');
+  return {
+    ...actual,
+    files: {
+      ...actual.files,
+      beginUpload: fileHarness.beginUpload,
+      uploadAndCompleteFile: fileHarness.uploadAndCompleteFile,
+      fetchFileContent: fileHarness.fetchFileContent,
+    },
+    items: { ...actual.items, deleteItem: fileHarness.deleteItem },
+  };
+});
+
+vi.mock('../../api/api-client-provider', async () => {
+  const actual = await vi.importActual<typeof apiClientProvider>('../../api/api-client-provider');
+  return { ...actual, useApiClient: () => fileHarness.client };
+});
+
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof reactRouter>('react-router');
+  return {
+    ...actual,
+    useParams: () => ({ workspaceId: '00000000-0000-4000-8000-000000000002' }),
+  };
+});
 
 /**
  * The one thing about this editor that cannot be inspected by looking at it: whether what somebody
@@ -77,6 +129,10 @@ vi.mock('../../auth/auth-provider', () => ({
 
 beforeEach(() => {
   captured = null;
+  fileHarness.beginUpload.mockClear();
+  fileHarness.uploadAndCompleteFile.mockReset();
+  fileHarness.deleteItem.mockClear();
+  fileHarness.client.execute.mockClear();
   useKeyboardModeStore.setState({ mode: 'standard', persistence: 'stored' });
 });
 
@@ -98,6 +154,11 @@ async function open(): Promise<Y.Doc> {
   }
   return doc;
 }
+
+vi.stubGlobal(
+  'URL',
+  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test-image'), revokeObjectURL: vi.fn() }),
+);
 
 describe('a note nobody has typed into yet', () => {
   it('puts a change made through the interface into the shared document', async () => {
@@ -163,6 +224,7 @@ describe('a note nobody has typed into yet', () => {
     // harness until the first local transaction; production notes open with a schema-valid block.
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.click(screen.getByRole('button', { name: 'Image URL' }));
     await user.type(
       screen.getByRole('textbox', { name: 'Image address' }),
       'https://images.example.test/roadmap.png',
@@ -186,6 +248,123 @@ describe('a note nobody has typed into yet', () => {
     });
   });
 
+  it('uploads a selected image into the shared note and leaves a paragraph to continue writing', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const fileItemId = '00000000-0000-4000-8000-000000000099';
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+    fileHarness.uploadAndCompleteFile.mockResolvedValue({
+      itemId: fileItemId,
+      current: { previewable: true },
+    });
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.upload(screen.getByLabelText('Choose image to upload'), file);
+    await user.type(screen.getByRole('textbox', { name: 'Description' }), 'A diagram');
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    await waitFor(() => {
+      const blocks = doc.getXmlFragment('default').toArray();
+      const image = blocks.find(
+        (block) => block instanceof Y.XmlElement && block.nodeName === 'image',
+      );
+      expect(image).toBeInstanceOf(Y.XmlElement);
+      if (!(image instanceof Y.XmlElement)) throw new Error('The image was not inserted.');
+      expect(image.getAttribute('fileItemId')).toBe(fileItemId);
+      expect(image.getAttribute('alt')).toBe('A diagram');
+      expect(
+        blocks.some((block) => block instanceof Y.XmlElement && block.nodeName === 'paragraph'),
+      ).toBe(true);
+    });
+    expect(fileHarness.beginUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: '00000000-0000-4000-8000-000000000002',
+        parentId: '00000000-0000-4000-8000-000000000001',
+        fileName: 'diagram.png',
+      }),
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('Note body')).toHaveFocus());
+  });
+
+  it('inserts an attachment when an uploaded image cannot be previewed', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const fileItemId = '00000000-0000-4000-8000-000000000099';
+    fileHarness.uploadAndCompleteFile.mockResolvedValue({
+      itemId: fileItemId,
+      current: { previewable: false },
+    });
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.upload(
+      screen.getByLabelText('Choose image to upload'),
+      new File(['opaque'], 'image.png', { type: 'image/png' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain(fileItemId);
+    });
+    expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('itemblock');
+    expect(fileHarness.deleteItem).not.toHaveBeenCalled();
+  });
+
+  it('discards a completed upload when the editor unmounts before image insertion', async () => {
+    const user = userEvent.setup();
+    await open();
+    const fileItemId = '00000000-0000-4000-8000-000000000099';
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+    let resolveUpload: ((value: unknown) => void) | undefined;
+    fileHarness.uploadAndCompleteFile.mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.upload(screen.getByLabelText('Choose image to upload'), file);
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+    cleanup();
+
+    if (resolveUpload === undefined) throw new Error('The upload did not start.');
+    resolveUpload({ itemId: fileItemId, current: { previewable: true } });
+
+    await waitFor(() => {
+      expect(fileHarness.deleteItem).toHaveBeenCalledWith(
+        '00000000-0000-4000-8000-000000000002',
+        fileItemId,
+      );
+    });
+  });
+
+  it('inserts a file reference when inspection refuses a dropped image preview', async () => {
+    const user = userEvent.setup();
+    const doc = await open();
+    const fileItemId = '00000000-0000-4000-8000-000000000099';
+    fileHarness.uploadAndCompleteFile.mockResolvedValue({
+      itemId: fileItemId,
+      current: { previewable: false },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    fireEvent.drop(screen.getByLabelText('Note body'), {
+      clientX: 0,
+      clientY: 0,
+      dataTransfer: {
+        files: [new File(['not really a png'], 'diagram.png', { type: 'image/png' })],
+        types: ['Files'],
+      },
+    });
+
+    await waitFor(() => {
+      expect(fileHarness.uploadAndCompleteFile).toHaveBeenCalledOnce();
+      const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());
+      expect(shared).toContain(fileItemId);
+      expect(shared).toContain('itemblock');
+      expect(shared).not.toContain('fileItemId');
+    });
+  });
+
   it('commits a submitted image before the deferred focus frame can be interrupted', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -196,6 +375,7 @@ describe('a note nobody has typed into yet', () => {
 
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.click(screen.getByRole('button', { name: 'Image URL' }));
     await user.type(
       screen.getByRole('textbox', { name: 'Image address' }),
       'https://images.example.test/committed-before-focus.png',
@@ -217,6 +397,7 @@ describe('a note nobody has typed into yet', () => {
     const before = JSON.stringify(doc.getXmlFragment('default').toJSON());
 
     await user.click(imageButton);
+    await user.click(screen.getByRole('button', { name: 'Image URL' }));
     await user.type(
       screen.getByRole('textbox', { name: 'Image address' }),
       'https://images.example.test/unused.png',
@@ -793,5 +974,101 @@ describe('a toggle in the real editor', () => {
     // any class: a toggle heading that is only a type step is a hierarchy no screen reader
     // can hear.
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Plan');
+  });
+});
+
+describe('note composition actions', () => {
+  it('uploads clipboard images without requiring an address', async () => {
+    const doc = await open();
+    const fileItemId = '00000000-0000-4000-8000-000000000077';
+    fileHarness.uploadAndCompleteFile.mockResolvedValue({
+      itemId: fileItemId,
+      current: { previewable: true },
+    });
+    fireEvent.paste(screen.getByLabelText('Note body'), {
+      clipboardData: {
+        getData: () => '',
+        files: [new File(['image'], 'clipboard.png', { type: 'image/png' })],
+      },
+    });
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain(fileItemId);
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it('inserts a page boundary from the menu into the shared document and undoes it', async () => {
+    const doc = await open();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
+    await user.click(screen.getByRole('button', { name: 'Page break' }));
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('pagebreak');
+    });
+    expect(screen.getByRole('button', { name: 'Remove page break' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('pagebreak');
+    });
+  });
+});
+
+it('closes the picker after inserting a section before a heading and leaves a paragraph', async () => {
+  const doc = await open();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+  const id = '00000000-0000-4000-8000-000000000077';
+  fileHarness.client.query.mockResolvedValueOnce(
+    Object.assign(
+      { references: [] },
+      {
+        query: 'Source',
+        truncated: false,
+        results: [
+          {
+            id,
+            title: 'Source note',
+            type: 'note',
+            workspaceId: '00000000-0000-4000-8000-000000000002',
+          },
+        ],
+      },
+    ),
+  );
+  await user.click(screen.getByRole('button', { name: 'Insert' }));
+  await user.click(screen.getByRole('button', { name: 'Embed note' }));
+  await user.type(screen.getByRole('textbox', { name: 'Search this workspace' }), 'Source');
+  await user.click(await screen.findByRole('button', { name: 'Source note' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  const content = doc.getXmlFragment('default').toArray();
+  const index = content.findIndex(
+    (node) => node instanceof Y.XmlElement && node.nodeName === 'itemBlock',
+  );
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(content[index + 1]).toBeInstanceOf(Y.XmlElement);
+  expect((content[index + 1] as Y.XmlElement).nodeName).toBe('paragraph');
+});
+
+it('keeps collaboration updates connected after StrictMode remounts effects', async () => {
+  const view = render(
+    <StrictMode>
+      <ApiClientProvider>
+        <NoteEditor itemId="00000000-0000-4000-8000-000000000001" />
+      </ApiClientProvider>
+    </StrictMode>,
+  );
+  await waitFor(() => {
+    expect(captured).not.toBeNull();
+  });
+  const doc = captured;
+  if (doc === null) throw new Error('No shared document');
+  expect(doc.isDestroyed).toBe(false);
+  const update = vi.fn();
+  doc.on('update', update);
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Heading 1' }));
+  expect(update).toHaveBeenCalled();
+  view.unmount();
+  await waitFor(() => {
+    expect(doc.isDestroyed).toBe(true);
   });
 });

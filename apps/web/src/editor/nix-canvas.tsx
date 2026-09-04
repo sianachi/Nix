@@ -1,640 +1,1494 @@
-import { Button, Icon, Input, Select, Text } from '@nix/ui';
-import { items as coreItems } from '@nix/api-client';
+import { files as fileResources, items as coreItems, type NixClient } from '@nix/api-client';
 import {
-  Circle,
-  Minus,
-  MousePointer2,
-  Pencil,
-  Download,
-  ImageDown,
-  Image as ImageIcon,
-  Redo2,
-  Square,
-  Type,
-  Undo2,
-  ZoomIn,
-  ZoomOut,
-  Upload,
-} from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from 'react';
+  CaptureUpdateAction,
+  Excalidraw,
+  convertToExcalidrawElements,
+  getDataURL,
+  loadFromBlob,
+  newElementWith,
+  reconcileElements,
+  restoreElements,
+  viewportCoordsToSceneCoords,
+} from '@excalidraw/excalidraw';
+import type { FileId, OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
+import type {
+  AppState,
+  BinaryFileData,
+  BinaryFiles,
+  Collaborator,
+  ExcalidrawImperativeAPI,
+  ExcalidrawProps,
+  LibraryItems,
+  SocketId,
+} from '@excalidraw/excalidraw/types';
+import { Button, Dialog, Field, Icon, Select, Text } from '@nix/ui';
+import { Plus, Upload } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type DragEvent as ReactDragEvent,
+  type ReactNode,
+} from 'react';
+import type { Awareness } from 'y-protocols/awareness';
 
 import { useApiClient } from '../api/api-client-provider';
-import { isFetchableImageAddress } from '../lib/image-address';
-import { parseCanvas, serializeCanvas, serializeCanvasSvg } from './nix-canvas-serialization';
-import { useCanvasLibrary } from './use-canvas-library';
-import { createNativeLibraryItem, instantiateLibraryItem, parseNativeLibraryItems } from './nix-canvas-library';
-
+import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
+import type { Ground } from '../theme/theme-store';
+import { supersedes, type CanvasElement } from './canvas-binding';
 import {
-  CANVAS_HEIGHT,
-  CANVAS_ELEMENT_CEILING,
-  CANVAS_WIDTH,
-  createElement,
-  boundedPoints,
-  clampViewport,
-  renderableElements,
-  type CanvasPoint,
-  type NixCanvasElement,
-  type NixCanvasElementType,
-  type CanvasFill,
-  updateElement,
+  canvasFileItemIds,
+  externalCanvasFiles,
+  itemIdFromNixLink,
+  nixFileItemIdFromElement,
+  nixItemIdFromElement,
+  nixItemLink,
+  prepareCanvasElements,
+  sceneFingerprint,
+  withNixFileMetadata,
 } from './nix-canvas-model';
+import { prepareCanvasLibraryItems } from './nix-canvas-library';
+import { useCanvasLibrary } from './use-canvas-library';
+
+// The editor owns the drawing chrome and its stylesheet. CanvasEditor is lazy at both page seams,
+// so none of this enters the note-only route.
+import '@excalidraw/excalidraw/index.css';
 
 export interface NixCanvasProps {
-  readonly elements: readonly NixCanvasElement[];
-  readonly onChange: (elements: readonly NixCanvasElement[]) => void;
+  readonly elements: readonly CanvasElement[];
+  readonly onChange: (elements: readonly CanvasElement[]) => void;
   readonly workspaceId?: string | undefined;
+  readonly parentItemId?: string | undefined;
   readonly onOpenItem?: ((itemId: string) => void) | undefined;
+  readonly awareness?: Awareness | undefined;
+  readonly readOnly?: boolean | undefined;
+  /** Template drafts do not yet have a durable parent to own uploaded file items. */
+  readonly allowFileUploads?: boolean | undefined;
 }
 
-type Tool = 'select' | NixCanvasElementType;
-interface DragState {
-  readonly ids: readonly string[];
-  readonly start: CanvasPoint;
-  readonly origins: ReadonlyMap<string, NixCanvasElement>;
-  readonly before: readonly NixCanvasElement[];
-  readonly resize: boolean;
+interface ItemOption {
+  readonly id: string;
+  readonly title: string;
 }
 
-interface PanState {
-  readonly start: CanvasPoint;
-  readonly origin: CanvasPoint;
-}
+const EMPTY_LIBRARY: LibraryItems = [];
+const COLLABORATOR_COLOR_TOKENS = [
+  { background: '--color-accent-100', stroke: '--color-accent-700' },
+  { background: '--color-accent-2-100', stroke: '--color-accent-2-700' },
+  { background: '--color-neutral-100', stroke: '--color-neutral-800' },
+  { background: '--color-accent-200', stroke: '--color-accent-800' },
+  { background: '--color-accent-2-200', stroke: '--color-accent-2-800' },
+] as const;
+const CANVAS_IMAGE_LOAD_NOTICE = 'One or more canvas images could not be loaded.';
+const CANVAS_IMAGE_INGRESS_NOTICE =
+  'Use Import for image-bearing Excalidraw scenes so Nix can store their images.';
+type CanvasClipboardData = Parameters<NonNullable<ExcalidrawProps['onPaste']>>[0];
+type ImportedCanvasScene = Awaited<ReturnType<typeof loadFromBlob>>;
 
-const TOOL_LABELS: Record<Tool, string> = {
-  select: 'Select',
-  rectangle: 'Rectangle',
-  ellipse: 'Ellipse',
-  line: 'Line',
-  arrow: 'Arrow',
-  text: 'Text',
-  freehand: 'Freehand',
-  card: 'Item card',
-  image: 'Image',
-};
-
-export function NixCanvas({ elements, onChange, workspaceId, onOpenItem }: NixCanvasProps): ReactNode {
-  const [tool, setTool] = useState<Tool>('select');
-  const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
-  const [zoom, setZoom] = useState(1);
-  const [viewportOrigin, setViewportOrigin] = useState<CanvasPoint>({ x: 0, y: 0 });
-  const [past, setPast] = useState<readonly NixCanvasElement[][]>([]);
-  const [future, setFuture] = useState<readonly NixCanvasElement[][]>([]);
-  const [textDraft, setTextDraft] = useState('');
-  const [libraryName, setLibraryName] = useState('');
-  const [librarySelection, setLibrarySelection] = useState('');
-  const dragRef = useRef<DragState | null>(null);
-  const panRef = useRef<PanState | null>(null);
-  const spacePressedRef = useRef(false);
-  const drawingRef = useRef<CanvasPoint[] | null>(null);
-  const [drawingPoints, setDrawingPoints] = useState<readonly CanvasPoint[]>([]);
-  const [itemCards, setItemCards] = useState<Readonly<Record<string, { title: string; summary: string }>>>({});
-  const [loadedItemOptions, setLoadedItemOptions] = useState<{
-    readonly workspaceId: string;
-    readonly options: readonly { id: string; title: string }[];
-  } | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const importRef = useRef<HTMLInputElement>(null);
+/**
+ * Excalidraw is the complete interaction engine. Nix supplies only durable scene transport,
+ * capability-backed files, personal library persistence, item navigation and collaborator state.
+ */
+export function NixCanvas({
+  elements,
+  onChange,
+  workspaceId,
+  parentItemId,
+  onOpenItem,
+  awareness,
+  readOnly = false,
+  allowFileUploads = true,
+}: NixCanvasProps): ReactNode {
   const client = useApiClient();
   const library = useCanvasLibrary();
-  const nativeLibraryItems = parseNativeLibraryItems(library.items);
+  const ground = useCanvasGround();
+  const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [itemOptions, setItemOptions] = useState<readonly ItemOption[]>([]);
+  const [itemOptionsStatus, setItemOptionsStatus] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const onChangeRef = useRef(onChange);
+  const lastPublishedFingerprintRef = useRef('');
+  const suppressFingerprintRef = useRef<string | null>(null);
+  const pendingRemoteElementsRef = useRef<readonly OrderedExcalidrawElement[] | null>(null);
+  const savedFileIdsRef = useRef(new Set<FileId>());
+  const pendingUploadedFileIdsRef = useRef(new Set<FileId>());
+  const retiringFileIdsRef = useRef(new Set<FileId>());
+  const sceneImportInFlightRef = useRef(false);
+  const librarySeededRef = useRef(false);
+  const mountedRef = useRef(true);
+  const activeOperationsRef = useRef(new Set<AbortController>());
 
-  const visible = elements.filter((element) => !element.isDeleted);
-  const viewport = clampViewport({ x: viewportOrigin.x, y: viewportOrigin.y, width: CANVAS_WIDTH / zoom, height: CANVAS_HEIGHT / zoom });
-  const rendered = renderableElements(elements, viewport);
-  const selectedId = selectedIds[0] ?? null;
-  const selected = visible.find((element) => element.id === selectedId) ?? null;
-  const itemIds = visible
-    .filter((element) => element.type === 'card' && element.itemId !== '')
-    .map((element) => element.itemId)
-    .filter((itemId): itemId is string => itemId !== undefined);
-  const itemIdKey = itemIds.join('|');
-  const itemOptions =
-    workspaceId !== undefined && loadedItemOptions?.workspaceId === workspaceId
-      ? loadedItemOptions.options
-      : [];
+  const retirePendingUploads = useCallback(
+    async (fileIds: readonly FileId[]): Promise<void> => {
+      if (workspaceId === undefined) return;
+      const claimed = fileIds.filter((fileId) => {
+        if (
+          !pendingUploadedFileIdsRef.current.has(fileId) ||
+          retiringFileIdsRef.current.has(fileId)
+        ) {
+          return false;
+        }
+        pendingUploadedFileIdsRef.current.delete(fileId);
+        savedFileIdsRef.current.delete(fileId);
+        retiringFileIdsRef.current.add(fileId);
+        return true;
+      });
+      if (claimed.length === 0) return;
+      try {
+        const failed = await retireUploadedFileItems(client, workspaceId, claimed);
+        for (const fileId of failed) pendingUploadedFileIdsRef.current.add(fileId as FileId);
+      } finally {
+        for (const fileId of claimed) retiringFileIdsRef.current.delete(fileId);
+      }
+    },
+    [client, workspaceId],
+  );
 
   useEffect(() => {
-    if (workspaceId === undefined) {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const preparedElements = useMemo(
+    () => restoreElements(prepareCanvasElements(elements), null, { repairBindings: true }),
+    [elements],
+  );
+  const lastSafeElementsRef = useRef<readonly OrderedExcalidrawElement[]>(preparedElements);
+  const durableFileIds = useMemo(() => canvasFileItemIds(preparedElements), [preparedElements]);
+  const durableFileKey = durableFileIds.join('|');
+  const externalFiles = useMemo(() => externalCanvasFiles(preparedElements), [preparedElements]);
+  const externalFileKey = externalFiles.map((file) => `${file.id}:${file.dataURL}`).join('|');
+  const initialFiles = useMemo(() => filesById(externalFiles), [externalFiles]);
+  const lastSafeFilesRef = useRef<BinaryFiles>(initialFiles);
+  const [initialData] = useState<{
+    readonly elements: readonly OrderedExcalidrawElement[];
+    readonly files: BinaryFiles;
+    readonly libraryItems: LibraryItems;
+    readonly scrollToContent: boolean;
+  }>(() => ({
+    elements: preparedElements,
+    files: initialFiles,
+    libraryItems: EMPTY_LIBRARY,
+    scrollToContent: preparedElements.length > 0,
+  }));
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const activeOperations = activeOperationsRef.current;
+    return () => {
+      mountedRef.current = false;
+      for (const controller of activeOperations) controller.abort();
+      activeOperations.clear();
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      void retirePendingUploads([...pendingUploadedFileIdsRef.current]);
+    },
+    [retirePendingUploads],
+  );
+
+  useEffect(() => {
+    if (!readOnly) return;
+    for (const controller of activeOperationsRef.current) controller.abort();
+    void retirePendingUploads([...pendingUploadedFileIdsRef.current]);
+  }, [readOnly, retirePendingUploads]);
+
+  // initialData is mount-only. Every later Yjs snapshot is reconciled imperatively, preserving
+  // an element currently being manipulated locally and excluding remote work from local undo.
+  useEffect(() => {
+    if (api === null) return;
+    const current = api.getSceneElementsIncludingDeleted();
+    const incomingFingerprint = sceneFingerprint(preparedElements);
+    if (sceneFingerprint(current) === incomingFingerprint) {
+      pendingRemoteElementsRef.current = null;
+      lastSafeElementsRef.current = preparedElements;
       return;
     }
+
+    const reconciled = reconcileElements(
+      current,
+      preparedElements as unknown as Parameters<typeof reconcileElements>[1],
+      api.getAppState(),
+    );
+    const reconciledFingerprint = sceneFingerprint(reconciled);
+    const durableWinners = durableSceneWinners(reconciled, preparedElements);
+    const durableFingerprint = sceneFingerprint(durableWinners);
+    pendingRemoteElementsRef.current =
+      reconciledFingerprint === durableFingerprint ? null : durableWinners;
+    lastSafeElementsRef.current = durableWinners;
+    suppressFingerprintRef.current = reconciledFingerprint;
+    api.updateScene({
+      elements: reconciled,
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+
+    // Excalidraw also retains an older local element while it is actively manipulated. Only
+    // publish actual version/nonce winners; otherwise the Yjs map would correctly reject the
+    // stale value while the editor remained stuck displaying it.
+    if (durableFingerprint !== incomingFingerprint) {
+      lastPublishedFingerprintRef.current = durableFingerprint;
+      onChangeRef.current(durableWinners);
+    }
+  }, [api, preparedElements]);
+
+  // Old URL-backed images are supported only as a recovery path. Their address lives in legacy
+  // customData; it is never copied into a newly authored scene record.
+  useEffect(() => {
+    if (api === null || externalFiles.length === 0) return;
+    api.addFiles(externalFiles);
+    lastSafeFilesRef.current = mergeCanvasFiles(lastSafeFilesRef.current, externalFiles);
+  }, [api, externalFileKey, externalFiles]);
+
+  // A personal library arrives independently of the scene. Seed once: updateLibrary announces
+  // its result through onLibraryChange, and repeatedly seeding that echo creates a PUT loop.
+  useEffect(() => {
+    if (api === null || library.status !== 'ready' || librarySeededRef.current) return;
+    librarySeededRef.current = true;
+    void api.updateLibrary({
+      libraryItems: prepareCanvasLibraryItems(library.items),
+      merge: false,
+    });
+  }, [api, library.items, library.status]);
+
+  // Rehydrate every durable image ID through a fresh preview capability. Only the resulting
+  // in-memory data URL reaches Excalidraw; the shared element continues to contain the file item ID.
+  useEffect(() => {
+    if (api === null || durableFileKey === '') return;
+    const currentFileIds = durableFileKey.split('|') as FileId[];
+    const controller = new AbortController();
+    const present = api.getFiles();
+    const missing = currentFileIds.filter((fileId) => present[fileId] === undefined);
+
+    for (const fileId of currentFileIds) {
+      if (present[fileId] !== undefined) savedFileIdsRef.current.add(fileId);
+    }
+    if (missing.length === 0) {
+      publishSavedImageStatuses(
+        api,
+        savedFileIdsRef.current,
+        onChangeRef,
+        lastPublishedFingerprintRef,
+        suppressFingerprintRef,
+      );
+      return () => {
+        controller.abort();
+      };
+    }
+
+    void Promise.allSettled(
+      missing.map(async (fileId): Promise<BinaryFileData> => {
+        const { blob, capability } = await fileResources.fetchFileContent(
+          client,
+          fileId,
+          undefined,
+          true,
+          controller.signal,
+        );
+        const mimeType = canvasImageMimeType(capability.mediaType);
+        if (mimeType === null) {
+          throw new Error('The referenced file is not a supported canvas image.');
+        }
+        return {
+          id: fileId,
+          dataURL: await getDataURL(blob),
+          mimeType,
+          created: Date.now(),
+          lastRetrieved: Date.now(),
+        };
+      }),
+    ).then((results) => {
+      if (controller.signal.aborted) return;
+      const loaded = results.flatMap((result) =>
+        result.status === 'fulfilled' ? [result.value] : [],
+      );
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (loaded.length > 0) {
+        api.addFiles(loaded);
+        lastSafeFilesRef.current = mergeCanvasFiles(lastSafeFilesRef.current, loaded);
+      }
+      for (const file of loaded) savedFileIdsRef.current.add(file.id);
+      publishSavedImageStatuses(
+        api,
+        savedFileIdsRef.current,
+        onChangeRef,
+        lastPublishedFingerprintRef,
+        suppressFingerprintRef,
+      );
+      if (failures.length === 0) {
+        setFileNotice((current) => (current === CANVAS_IMAGE_LOAD_NOTICE ? null : current));
+        return;
+      }
+      for (const failure of failures) {
+        console.warn('A canvas image could not be loaded.', failure.reason);
+      }
+      setFileNotice(CANVAS_IMAGE_LOAD_NOTICE);
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [api, client, durableFileKey]);
+
+  useEffect(() => {
+    if (!itemDialogOpen || workspaceId === undefined) return;
     const controller = new AbortController();
     void (async () => {
-      const options: { id: string; title: string }[] = [];
+      const options: ItemOption[] = [];
       try {
-        for await (const item of client.paginate(coreItems.listItems(workspaceId, { pageSize: 100 }), { signal: controller.signal })) {
+        for await (const item of client.paginate(
+          coreItems.listItems(workspaceId, { pageSize: 100 }),
+          { signal: controller.signal },
+        )) {
           options.push({ id: item.id, title: item.title });
           if (options.length >= 100) break;
         }
-        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options });
-      } catch {
-        if (!controller.signal.aborted) setLoadedItemOptions({ workspaceId, options: [] });
+        if (controller.signal.aborted) return;
+        setItemOptions(options);
+        setSelectedItemId((current) => (current !== '' ? current : (options[0]?.id ?? '')));
+        setItemOptionsStatus('ready');
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        console.warn('Canvas item choices could not be loaded.', cause);
+        setItemOptions([]);
+        setItemOptionsStatus('error');
       }
     })();
-    return () => { controller.abort(); };
-  }, [client, workspaceId]);
+    return () => {
+      controller.abort();
+    };
+  }, [client, itemDialogOpen, workspaceId]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let live = true;
-    const ids = itemIdKey === '' ? [] : itemIdKey.split('|');
-    void Promise.all(ids.map(async (itemId) => {
-      try {
-        const item = await client.query(coreItems.itemById(itemId), { signal: controller.signal });
-        return [itemId, { title: item.title, summary: propertySummary(item.computed ?? item.properties) }] as const;
-      } catch {
-        return [itemId, { title: 'Item unavailable', summary: '' }] as const;
+  const uploadCanvasFile = useCallback(
+    async (file: File, operationSignal?: AbortSignal): Promise<FileId> => {
+      if (!isImageFile(file)) {
+        const message = 'Canvas images must be PNG, JPEG, WebP, or AVIF files.';
+        if (mountedRef.current) setFileNotice(message);
+        throw new Error(message);
       }
-    })).then((entries) => {
-      if (live) setItemCards(Object.fromEntries(entries));
-    });
-    return () => { live = false; controller.abort(); };
-  }, [client, itemIdKey]);
-
-  const commit = useCallback(
-    (next: readonly NixCanvasElement[]): void => {
-      setPast((current) => [...current, [...elements]]);
-      setFuture([]);
-      onChange(next);
+      if (
+        readOnly ||
+        !allowFileUploads ||
+        workspaceId === undefined ||
+        parentItemId === undefined
+      ) {
+        const message = 'Images cannot be uploaded in this canvas.';
+        if (mountedRef.current) setFileNotice(message);
+        throw new Error(message);
+      }
+      const ownedController = operationSignal === undefined ? new AbortController() : null;
+      const signal = operationSignal ?? ownedController?.signal;
+      if (ownedController !== null) activeOperationsRef.current.add(ownedController);
+      throwIfAborted(signal);
+      if (mountedRef.current) {
+        setUploading(true);
+        setFileNotice(null);
+      }
+      try {
+        const uploaded = await uploadFileItem(client, workspaceId, parentItemId, file, signal);
+        const fileId = uploaded as FileId;
+        savedFileIdsRef.current.add(fileId);
+        pendingUploadedFileIdsRef.current.add(fileId);
+        return fileId;
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : 'The canvas image upload failed.';
+        if (mountedRef.current && !isAbortError(cause)) setFileNotice(message);
+        throw cause;
+      } finally {
+        if (ownedController !== null) activeOperationsRef.current.delete(ownedController);
+        if (mountedRef.current) setUploading(false);
+      }
     },
-    [elements, onChange],
+    [allowFileUploads, client, parentItemId, readOnly, workspaceId],
   );
 
-  const undo = useCallback((): void => {
-    const previous = past.at(-1);
-    if (previous === undefined) return;
-    setPast((current) => current.slice(0, -1));
-    setFuture((current) => [[...elements], ...current]);
-    onChange(previous);
-  }, [elements, onChange, past]);
-
-  const redo = useCallback((): void => {
-    const next = future[0];
-    if (next === undefined) return;
-    setFuture((current) => current.slice(1));
-    setPast((current) => [...current, [...elements]]);
-    onChange(next);
-  }, [elements, future, onChange]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.code === 'Space') {
-        spacePressedRef.current = true;
-        if (event.target === document.body) event.preventDefault();
-        return;
-      }
-      const target = event.target;
+  const handlePaste = useCallback(
+    async (data: CanvasClipboardData): Promise<boolean> => {
+      if (api === null || data.elements === undefined) return true;
+      const referenced = new Set(
+        data.elements.flatMap((element) =>
+          !element.isDeleted && element.type === 'image' && element.fileId !== null
+            ? [element.fileId]
+            : [],
+        ),
+      );
+      if (referenced.size === 0) return true;
       if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
+        readOnly ||
+        !allowFileUploads ||
+        workspaceId === undefined ||
+        parentItemId === undefined
       ) {
-        return;
+        if (mountedRef.current) {
+          setFileNotice('This canvas can paste shapes and text, but not images.');
+        }
+        return false;
       }
-      if (selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-        event.preventDefault();
-        const distance = event.shiftKey ? 10 : 1;
-        const delta = {
-          ArrowUp: { x: 0, y: -distance },
-          ArrowDown: { x: 0, y: distance },
-          ArrowLeft: { x: -distance, y: 0 },
-          ArrowRight: { x: distance, y: 0 },
-        }[event.key];
-        if (delta === undefined) return;
-        commit(
-          elements.map((element) =>
-            selectedIds.includes(element.id)
-              ? updateElement(element, { x: element.x + delta.x, y: element.y + delta.y })
-              : element,
+
+      const controller = new AbortController();
+      activeOperationsRef.current.add(controller);
+      const replacements = new Map<FileId, FileId>();
+      const remappedFiles: BinaryFileData[] = [];
+      const uploadedFileIds: FileId[] = [];
+      const currentDurableFileIds = new Set(
+        canvasFileItemIds(api.getSceneElementsIncludingDeleted()),
+      );
+      try {
+        for (const sourceId of referenced) {
+          throwIfAborted(controller.signal);
+          const sourceFile = data.files?.[sourceId];
+          if (sourceFile === undefined) {
+            const canReuseCurrentFile =
+              currentDurableFileIds.has(sourceId) &&
+              data.elements.some(
+                (element) =>
+                  element.type === 'image' &&
+                  element.fileId === sourceId &&
+                  nixFileItemIdFromElement(element) === sourceId,
+              );
+            if (canReuseCurrentFile) continue;
+            throw new Error('The pasted canvas image does not include reloadable image data.');
+          }
+          if (canvasImageMimeType(sourceFile.mimeType) === null) {
+            throw new Error('The pasted canvas contains an image format Nix cannot reload.');
+          }
+          const blob = canvasDataUrlToBlob(sourceFile.dataURL, sourceFile.mimeType);
+          const localFile = new File(
+            [blob],
+            `pasted-canvas-image-${sourceId}.${fileExtension(sourceFile.mimeType)}`,
+            { type: sourceFile.mimeType },
+          );
+          const nextId = await uploadCanvasFile(localFile, controller.signal);
+          uploadedFileIds.push(nextId);
+          replacements.set(sourceId, nextId);
+          remappedFiles.push({ ...sourceFile, id: nextId, lastRetrieved: Date.now() });
+        }
+
+        throwIfAborted(controller.signal);
+        data.elements = data.elements.map((element) => {
+          if (element.type !== 'image' || element.fileId === null) return element;
+          const replacement = replacements.get(element.fileId);
+          return replacement === undefined
+            ? element
+            : newElementWith(element, {
+                fileId: replacement,
+                status: 'saved',
+                customData: withNixFileMetadata(element, replacement),
+              });
+        });
+        data.files = filesById(remappedFiles);
+        return true;
+      } catch (cause) {
+        await retirePendingUploads(uploadedFileIds);
+        if (mountedRef.current && !isAbortError(cause)) {
+          const message =
+            cause instanceof Error ? cause.message : 'The canvas image could not be pasted.';
+          console.warn('A canvas image could not be pasted.', cause);
+          setFileNotice(message);
+        }
+        return false;
+      } finally {
+        activeOperationsRef.current.delete(controller);
+      }
+    },
+    [
+      allowFileUploads,
+      api,
+      parentItemId,
+      readOnly,
+      retirePendingUploads,
+      uploadCanvasFile,
+      workspaceId,
+    ],
+  );
+
+  const publish = useCallback(
+    (nextElements: readonly OrderedExcalidrawElement[]): void => {
+      if (api === null) return;
+      onChangeRef.current(nextElements);
+      const fingerprint = sceneFingerprint(nextElements);
+      suppressFingerprintRef.current = fingerprint;
+      lastPublishedFingerprintRef.current = fingerprint;
+      lastSafeElementsRef.current = nextElements;
+      api.updateScene({ elements: nextElements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+    },
+    [api],
+  );
+
+  const insertNixItem = useCallback((): void => {
+    if (api === null || selectedItemId === '' || readOnly) return;
+    const option = itemOptions.find((candidate) => candidate.id === selectedItemId);
+    if (option === undefined) return;
+    const appState = api.getAppState();
+    const zoom = appState.zoom.value;
+    const width = 260;
+    const height = 120;
+    const x = appState.width / (2 * zoom) - appState.scrollX - width / 2;
+    const y = appState.height / (2 * zoom) - appState.scrollY - height / 2;
+    const inserted = convertToExcalidrawElements(
+      [
+        {
+          type: 'rectangle',
+          x,
+          y,
+          width,
+          height,
+          strokeColor: appState.currentItemStrokeColor,
+          backgroundColor: appState.currentItemBackgroundColor,
+          fillStyle: appState.currentItemFillStyle,
+          strokeWidth: appState.currentItemStrokeWidth,
+          strokeStyle: appState.currentItemStrokeStyle,
+          roughness: appState.currentItemRoughness,
+          opacity: appState.currentItemOpacity,
+          roundness: { type: 3 },
+          link: nixItemLink(option.id),
+          customData: { nix: { kind: 'item', itemId: option.id } },
+          label: { text: option.title || 'Untitled item' },
+        },
+      ],
+      { regenerateIds: true },
+    );
+    const next = [...api.getSceneElementsIncludingDeleted(), ...inserted];
+    publish(next);
+    api.scrollToContent(inserted, { fitToContent: true, animate: true });
+    setItemDialogOpen(false);
+  }, [api, itemOptions, publish, readOnly, selectedItemId]);
+
+  const insertDroppedImage = useCallback(
+    async (file: File, clientPoint: { readonly clientX: number; readonly clientY: number }) => {
+      if (api === null || readOnly) return;
+      const controller = new AbortController();
+      activeOperationsRef.current.add(controller);
+      let uploadedFileId: FileId | null = null;
+      let sceneOwnsUploadedFile = false;
+      try {
+        const mimeType = canvasImageMimeType(mediaTypeForFile(file));
+        if (mimeType === null || !isImageFile(file)) {
+          throw new Error('Canvas images must be PNG, JPEG, WebP, or AVIF files.');
+        }
+        const [dataURL, dimensions] = await Promise.all([
+          getDataURL(file),
+          canvasImageDimensions(file),
+        ]);
+        throwIfAborted(controller.signal);
+        uploadedFileId = await uploadCanvasFile(file, controller.signal);
+        const binaryFile: BinaryFileData = {
+          id: uploadedFileId,
+          dataURL,
+          mimeType,
+          created: Date.now(),
+          lastRetrieved: Date.now(),
+        };
+        const appState = api.getAppState();
+        const point = viewportCoordsToSceneCoords(clientPoint, appState);
+        const [imageElement] = convertToExcalidrawElements(
+          [
+            {
+              type: 'image',
+              x: point.x - dimensions.width / 2,
+              y: point.y - dimensions.height / 2,
+              width: dimensions.width,
+              height: dimensions.height,
+              fileId: uploadedFileId,
+              status: 'saved',
+              scale: [1, 1],
+              crop: null,
+              customData: { nix: { kind: 'file', itemId: uploadedFileId } },
+            },
+          ],
+          { regenerateIds: true },
+        );
+        if (imageElement === undefined) {
+          throw new Error('The dropped image could not be placed on the canvas.');
+        }
+        throwIfAborted(controller.signal);
+        const nextElements = [...api.getSceneElementsIncludingDeleted(), imageElement];
+        api.addFiles([binaryFile]);
+        lastSafeFilesRef.current = mergeCanvasFiles(lastSafeFilesRef.current, [binaryFile]);
+        onChangeRef.current(nextElements);
+        sceneOwnsUploadedFile = true;
+        pendingUploadedFileIdsRef.current.delete(uploadedFileId);
+        const fingerprint = sceneFingerprint(nextElements);
+        suppressFingerprintRef.current = fingerprint;
+        lastPublishedFingerprintRef.current = fingerprint;
+        lastSafeElementsRef.current = nextElements;
+        api.updateScene({
+          elements: nextElements,
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        });
+        api.scrollToContent([imageElement], { fitToContent: true, animate: true });
+      } catch (cause) {
+        if (!sceneOwnsUploadedFile && uploadedFileId !== null) {
+          await retirePendingUploads([uploadedFileId]);
+        }
+        if (mountedRef.current && !isAbortError(cause)) {
+          const message =
+            cause instanceof Error ? cause.message : 'The canvas image could not be inserted.';
+          console.warn('A dropped canvas image could not be inserted.', cause);
+          setFileNotice(message);
+        }
+      } finally {
+        activeOperationsRef.current.delete(controller);
+      }
+    },
+    [api, readOnly, retirePendingUploads, uploadCanvasFile],
+  );
+
+  const importScene = useCallback(
+    async (file: File, loadedScene?: ImportedCanvasScene): Promise<void> => {
+      if (api === null || readOnly || sceneImportInFlightRef.current) return;
+      sceneImportInFlightRef.current = true;
+      const controller = new AbortController();
+      activeOperationsRef.current.add(controller);
+      const uploadedFileIds: FileId[] = [];
+      let sceneOwnsUploadedFiles = false;
+      if (mountedRef.current) {
+        setImporting(true);
+        setFileNotice(null);
+      }
+      try {
+        const imported = loadedScene ?? (await loadFromBlob(file, api.getAppState(), null));
+        throwIfAborted(controller.signal);
+        const referenced = new Set(
+          imported.elements.flatMap((element) =>
+            !element.isDeleted && element.type === 'image' && element.fileId !== null
+              ? [element.fileId]
+              : [],
           ),
         );
+        if (
+          referenced.size > 0 &&
+          (!allowFileUploads || workspaceId === undefined || parentItemId === undefined)
+        ) {
+          throw new Error('This scene contains images, but this canvas cannot own uploaded files.');
+        }
+        const replacements = new Map<FileId, FileId>();
+        const remappedFiles: BinaryFileData[] = [];
+        const currentDurableFileIds = new Set(
+          canvasFileItemIds(api.getSceneElementsIncludingDeleted()),
+        );
+
+        for (const importedFile of Object.values(imported.files)) {
+          if (!referenced.has(importedFile.id)) continue;
+          throwIfAborted(controller.signal);
+          if (canvasImageMimeType(importedFile.mimeType) === null) {
+            throw new Error('The imported scene contains an image format Nix cannot reload.');
+          }
+          const blob = canvasDataUrlToBlob(importedFile.dataURL, importedFile.mimeType);
+          const localFile = new File(
+            [blob],
+            `imported-canvas-image-${importedFile.id}.${fileExtension(importedFile.mimeType)}`,
+            { type: importedFile.mimeType },
+          );
+          const nextId = await uploadCanvasFile(localFile, controller.signal);
+          uploadedFileIds.push(nextId);
+          replacements.set(importedFile.id, nextId);
+          remappedFiles.push({ ...importedFile, id: nextId, lastRetrieved: Date.now() });
+        }
+
+        const unresolvedImage = imported.elements.find(
+          (element) =>
+            !element.isDeleted &&
+            element.type === 'image' &&
+            element.fileId !== null &&
+            !replacements.has(element.fileId) &&
+            !(
+              currentDurableFileIds.has(element.fileId) &&
+              nixFileItemIdFromElement(element) === element.fileId
+            ),
+        );
+        if (unresolvedImage !== undefined) {
+          throw new Error('The imported scene contains an image without its image data.');
+        }
+
+        const importedElements = imported.elements.map((element) => {
+          if (element.type !== 'image' || element.fileId === null) return element;
+          const replacement = replacements.get(element.fileId);
+          return replacement === undefined
+            ? element
+            : newElementWith(element, {
+                fileId: replacement,
+                status: 'saved',
+                customData: withNixFileMetadata(element, replacement),
+              });
+        });
+        const nextElements = replaceImportedScene(
+          api.getSceneElementsIncludingDeleted(),
+          importedElements,
+        );
+        throwIfAborted(controller.signal);
+        if (remappedFiles.length > 0) {
+          api.addFiles(remappedFiles);
+          lastSafeFilesRef.current = mergeCanvasFiles(lastSafeFilesRef.current, remappedFiles);
+        }
+        const fingerprint = sceneFingerprint(nextElements);
+        suppressFingerprintRef.current = fingerprint;
+        lastPublishedFingerprintRef.current = fingerprint;
+        onChangeRef.current(nextElements);
+        // The synchronous document callback now owns these files. A later imperative rendering
+        // failure must not delete children already referenced by the shared scene.
+        sceneOwnsUploadedFiles = true;
+        lastSafeElementsRef.current = nextElements;
+        for (const fileId of uploadedFileIds) pendingUploadedFileIdsRef.current.delete(fileId);
+        api.updateScene({
+          elements: nextElements,
+          appState: { ...imported.appState, theme: ground },
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        });
+        api.scrollToContent(
+          importedElements.filter((element) => !element.isDeleted),
+          { fitToContent: true, animate: true },
+        );
+      } catch (cause) {
+        if (!sceneOwnsUploadedFiles) await retirePendingUploads(uploadedFileIds);
+        if (mountedRef.current && !isAbortError(cause)) {
+          const message =
+            cause instanceof Error ? cause.message : 'The canvas file could not be imported.';
+          console.warn('A canvas scene could not be imported.', cause);
+          setFileNotice(message);
+        }
+      } finally {
+        sceneImportInFlightRef.current = false;
+        activeOperationsRef.current.delete(controller);
+        if (mountedRef.current) setImporting(false);
+      }
+    },
+    [
+      allowFileUploads,
+      api,
+      ground,
+      parentItemId,
+      readOnly,
+      retirePendingUploads,
+      uploadCanvasFile,
+      workspaceId,
+    ],
+  );
+
+  const handleFileDrop = useCallback(
+    async (
+      file: File,
+      clientPoint: { readonly clientX: number; readonly clientY: number },
+    ): Promise<void> => {
+      if (api === null || readOnly || sceneImportInFlightRef.current) return;
+      const name = file.name.toLowerCase();
+      const sceneFile =
+        name.endsWith('.excalidraw') ||
+        name.endsWith('.json') ||
+        name.endsWith('.svg') ||
+        file.type === 'application/json' ||
+        file.type === 'image/svg+xml';
+      if (sceneFile) {
+        await importScene(file);
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
+      if (isImageFile(file) && (file.type === 'image/png' || name.endsWith('.png'))) {
+        try {
+          const loaded = await loadFromBlob(file, api.getAppState(), null);
+          await importScene(file, loaded);
+          return;
+        } catch (cause) {
+          if (!isEncodingError(cause)) {
+            const message =
+              cause instanceof Error ? cause.message : 'The dropped canvas file could not be read.';
+            console.warn('A dropped canvas file could not be read.', cause);
+            if (mountedRef.current) setFileNotice(message);
+            return;
+          }
+        }
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
-        event.preventDefault();
-        redo();
-      }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length > 0) {
-        event.preventDefault();
-        const next = elements.map((element) =>
-          selectedIds.includes(element.id) ? updateElement(element, { isDeleted: true }) : element,
-        );
-        commit(next);
-        setSelectedIds([]);
-      }
-    };
-    const onKeyUp = (event: KeyboardEvent): void => {
-      if (event.code === 'Space') spacePressedRef.current = false;
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  }, [commit, elements, redo, selectedIds, undo]);
+      await insertDroppedImage(file, clientPoint);
+    },
+    [api, importScene, insertDroppedImage, readOnly],
+  );
 
-  function pointFromEvent(event: PointerEvent<SVGSVGElement>): CanvasPoint {
-    const svg = svgRef.current;
-    if (svg === null) return { x: 0, y: 0 };
-    const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
-    const transformed = point.matrixTransform(svg.getScreenCTM()?.inverse());
-    return { x: transformed.x, y: transformed.y };
-  }
+  const collaboratorSnapshot = useAwarenessSnapshot(awareness);
+  const collaborators = useMemo(
+    () => collaboratorsFromSnapshot(collaboratorSnapshot),
+    [collaboratorSnapshot],
+  );
+  useEffect(() => {
+    if (api === null) return;
+    api.updateScene({ collaborators, captureUpdate: CaptureUpdateAction.NEVER });
+  }, [api, collaborators]);
 
-  function addAt(point: CanvasPoint): void {
-    if (tool === 'freehand') {
-      drawingRef.current = [point];
-      setDrawingPoints([point]);
-      return;
-    }
-    if (tool === 'select') {
-      setSelectedIds([]);
-      return;
-    }
-    const next = [...elements, createElement(tool, point, `z${String(elements.length).padStart(5, '0')}`)];
-    commit(next);
-    const added = next.at(-1);
-    setSelectedIds(added === undefined ? [] : [added.id]);
-    setTextDraft(added?.type === 'image' ? added.imageUrl ?? '' : added?.text ?? '');
-    setTool('select');
-  }
-
-  function startPan(event: PointerEvent<SVGSVGElement>): void {
-    panRef.current = { start: { x: event.clientX, y: event.clientY }, origin: { x: viewport.x, y: viewport.y } };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function movePan(event: PointerEvent<SVGSVGElement>): void {
-    const pan = panRef.current;
-    if (pan === null) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const scaleX = bounds.width === 0 ? 1 : viewport.width / bounds.width;
-    const scaleY = bounds.height === 0 ? 1 : viewport.height / bounds.height;
-    const next = clampViewport({
-      ...viewport,
-      x: pan.origin.x - (event.clientX - pan.start.x) * scaleX,
-      y: pan.origin.y - (event.clientY - pan.start.y) * scaleY,
-    });
-    setViewportOrigin({ x: next.x, y: next.y });
-  }
-
-  function finishPan(): void {
-    panRef.current = null;
-  }
-
-  function isPanGesture(event: PointerEvent<SVGSVGElement>): boolean {
-    return event.button === 1 || spacePressedRef.current;
-  }
-
-  function commitText(): void {
-    if (selected?.type !== 'text' && selected?.type !== 'card' && selected?.type !== 'image') return;
-    if (selected.type === 'text' && selected.text === textDraft) return;
-    if (selected.type === 'card' && selected.itemId === textDraft) return;
-    if (selected.type === 'image' && selected.imageUrl === textDraft) return;
-    if (selected.type === 'image' && textDraft !== '' && !isFetchableImageAddress(textDraft)) return;
-    commit(elements.map((element) => {
-      if (element.id !== selected.id) return element;
-      if (selected.type === 'text') return updateElement(element, { text: textDraft });
-      if (selected.type === 'card') return updateElement(element, { itemId: textDraft });
-      return updateElement(element, { imageUrl: textDraft });
-    }));
-  }
-
-  function updateSelected(changes: Partial<Pick<NixCanvasElement, 'fill' | 'stroke' | 'opacity'>>): void {
-    if (selected === null) return;
-    commit(elements.map((element) => (element.id === selected.id ? updateElement(element, changes) : element)));
-  }
-
-  function saveSelectedToLibrary(): void {
-    if (selected === null || library.status !== 'ready') return;
-    const item = createNativeLibraryItem(libraryName, [selected]);
-    library.save([...library.items, item]);
-    setLibraryName('');
-  }
-
-  function insertLibraryItem(): void {
-    const item = nativeLibraryItems.find((candidate) => candidate.name === librarySelection);
-    if (item === undefined) return;
-    const instances = instantiateLibraryItem(item, { x: viewport.x + viewport.width / 2 - 120, y: viewport.y + viewport.height / 2 - 60 });
-    if (instances.length === 0) return;
-    commit([...elements, ...instances]);
-    setSelectedIds(instances.map((instance) => instance.id));
-  }
-
-  function exportScene(): void {
-    download('nix-canvas.json', serializeCanvas(elements), 'application/json');
-  }
-
-  function exportSvg(): void {
-    download('nix-canvas.svg', serializeCanvasSvg(elements), 'image/svg+xml');
-  }
-
-  async function exportPng(): Promise<void> {
-    const svgBlob = new Blob([serializeCanvasSvg(elements)], { type: 'image/svg+xml' });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    try {
-      const image = new Image();
-      const loaded = new Promise<void>((resolve, reject) => {
-        image.onload = () => { resolve(); };
-        image.onerror = () => { reject(new Error('Canvas SVG could not be rendered')); };
-      });
-      image.src = svgUrl;
-      await loaded;
-      const canvas = document.createElement('canvas');
-      canvas.width = CANVAS_WIDTH * 2;
-      canvas.height = CANVAS_HEIGHT * 2;
-      const context = canvas.getContext('2d');
-      if (context === null) throw new Error('Canvas export is unavailable');
-      context.scale(2, 2);
-      context.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      const png = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob === null) reject(new Error('Canvas PNG could not be created'));
-          else resolve(blob);
-        }, 'image/png');
-      });
-      downloadBlob('nix-canvas.png', png);
-    } catch {
-      // Export failures leave the durable document untouched.
-    } finally {
-      URL.revokeObjectURL(svgUrl);
-    }
-  }
-
-  function download(filename: string, content: string, type: string): void {
-    downloadBlob(filename, new Blob([content], { type }));
-  }
-
-  function downloadBlob(filename: string, blob: Blob): void {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importScene(event: ChangeEvent<HTMLInputElement>): void {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file === undefined) return;
-    void file.text().then((serialized) => {
-      try {
-        commit(parseCanvas(serialized).elements);
-        setSelectedIds([]);
-      } catch {
-        // Invalid files are ignored; the durable document remains untouched.
-      }
-    });
-  }
-
-  function startDrag(event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize = false): void {
-    event.stopPropagation();
-    const point = pointFromEvent(event as unknown as PointerEvent<SVGSVGElement>);
-    const nextSelection = event.shiftKey && !selectedIds.includes(element.id)
-      ? [...selectedIds, element.id]
-      : [element.id];
-    setSelectedIds(nextSelection);
-    setTextDraft(element.type === 'image' ? element.imageUrl ?? '' : element.text ?? '');
-    const origins = new Map(
-      elements.filter((candidate) => nextSelection.includes(candidate.id)).map((candidate) => [candidate.id, candidate]),
-    );
-    dragRef.current = { ids: nextSelection, start: point, origins, before: [...elements], resize };
-    (event.currentTarget).setPointerCapture(event.pointerId);
-  }
-
-  function moveDrag(event: PointerEvent<SVGSVGElement>): void {
-    const drag = dragRef.current;
-    if (drag === null) return;
-    const point = pointFromEvent(event);
-    const dx = point.x - drag.start.x;
-    const dy = point.y - drag.start.y;
-    const next = elements.map((element) => {
-      if (!drag.ids.includes(element.id)) return element;
-      const origin = drag.origins.get(element.id) ?? element;
-      if (drag.resize && element.id === drag.ids[0]) {
-        return updateElement(element, {
-          width: Math.max(40, origin.width + dx),
-          height: Math.max(30, origin.height + dy),
-        });
-      }
-      return updateElement(element, { x: origin.x + dx, y: origin.y + dy });
-    });
-    onChange(next);
-  }
-
-  function finishDrag(): void {
-    const drag = dragRef.current;
-    if (drag !== null && elements.some((element) => drag.ids.includes(element.id) && element !== drag.origins.get(element.id))) {
-      setPast((current) => [...current, [...drag.before]]);
-      setFuture([]);
-    }
-    dragRef.current = null;
-  }
-
-  function finishDrawing(): void {
-    const points = drawingRef.current;
-    if (points === null) return;
-    drawingRef.current = null;
-    setDrawingPoints([]);
-    if (points.length < 2) return;
-    const left = Math.min(...points.map((point) => point.x));
-    const top = Math.min(...points.map((point) => point.y));
-    const right = Math.max(...points.map((point) => point.x));
-    const bottom = Math.max(...points.map((point) => point.y));
-    const bounded = boundedPoints(points);
-    const base = createElement('freehand', { x: left, y: top }, `z${String(elements.length).padStart(5, '0')}`);
-    const drawn = updateElement(base, {
-      width: Math.max(1, right - left),
-      height: Math.max(1, bottom - top),
-    });
-    commit([...elements, { ...drawn, points: bounded }]);
-    setSelectedIds([drawn.id]);
-    setTool('select');
-  }
+  const imageToolsEnabled =
+    !readOnly &&
+    !importing &&
+    allowFileUploads &&
+    workspaceId !== undefined &&
+    parentItemId !== undefined;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-divider px-4 py-2" role="toolbar" aria-label="Canvas tools">
-        {(Object.keys(TOOL_LABELS) as Tool[]).map((candidate) => {
-          const glyph = candidate === 'select' ? MousePointer2 : candidate === 'rectangle' ? Square : candidate === 'ellipse' ? Circle : candidate === 'text' ? Type : candidate === 'freehand' ? Pencil : candidate === 'image' ? ImageIcon : Minus;
-          return (
-            <Button
-              key={candidate}
-              variant="icon"
-              aria-label={TOOL_LABELS[candidate]}
-              aria-pressed={tool === candidate}
-              className={tool === candidate ? 'bg-accent/15 text-accent-text' : ''}
-              onClick={() => { setTool(candidate); }}
-            >
-              <Icon icon={glyph} size="sm" />
-            </Button>
-          );
-        })}
-        <span className="mx-2 h-5 w-px bg-divider" aria-hidden="true" />
-        {selected?.type === 'text' || selected?.type === 'card' || selected?.type === 'image' ? (
-          <Input
-            aria-label={selected.type === 'text' ? 'Text content' : selected.type === 'card' ? 'Item identifier' : 'Image address'}
-            list={selected.type === 'card' ? 'canvas-item-options' : undefined}
-            placeholder={selected.type === 'image' ? 'https://…' : undefined}
-            className="min-w-32 max-w-64"
-            value={textDraft}
-            onChange={(event) => { setTextDraft(event.target.value); }}
-            onBlur={commitText}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitText();
+    <div
+      className="relative h-full min-h-0 w-full overflow-hidden bg-background"
+      role="region"
+      aria-label="Canvas workspace"
+      onDragOverCapture={(event: ReactDragEvent<HTMLDivElement>) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDropCapture={(event: ReactDragEvent<HTMLDivElement>) => {
+        const file = event.dataTransfer.files[0];
+        if (file === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void handleFileDrop(file, { clientX: event.clientX, clientY: event.clientY });
+      }}
+    >
+      <input
+        ref={importInputRef}
+        className="sr-only"
+        type="file"
+        tabIndex={-1}
+        accept=".excalidraw,.json,.png,.svg,application/json,image/png,image/svg+xml"
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file !== undefined) void importScene(file);
+        }}
+      />
+      <div className="absolute inset-0">
+        <Excalidraw
+          initialData={initialData}
+          excalidrawAPI={setApi}
+          theme={ground}
+          viewModeEnabled={readOnly || importing}
+          isCollaborating={awareness !== undefined}
+          handleKeyboardGlobally={false}
+          aiEnabled={false}
+          validateEmbeddable={false}
+          onPaste={handlePaste}
+          {...(imageToolsEnabled ? { generateIdForFile: uploadCanvasFile } : {})}
+          UIOptions={{
+            canvasActions: {
+              loadScene: false,
+              saveToActiveFile: false,
+              changeViewBackgroundColor: false,
+              toggleTheme: false,
+              clearCanvas: !readOnly && !importing,
+              export: { saveFileToDisk: true },
+              saveAsImage: true,
+            },
+            tools: { image: imageToolsEnabled },
+          }}
+          renderTopRightUI={(isMobile) =>
+            readOnly ? null : (
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="secondary"
+                  className="shrink-0 whitespace-nowrap"
+                  aria-label={
+                    allowFileUploads
+                      ? 'Import an Excalidraw scene'
+                      : 'Import an Excalidraw scene without images'
+                  }
+                  title={
+                    allowFileUploads
+                      ? undefined
+                      : 'This canvas can import shapes and text, but not images.'
+                  }
+                  disabled={importing || uploading}
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  <Icon icon={Upload} size="sm" />
+                  {isMobile ? null : allowFileUploads ? 'Import' : 'Import shapes'}
+                </Button>
+                {workspaceId === undefined ? null : (
+                  <Button
+                    variant="secondary"
+                    className="shrink-0 whitespace-nowrap"
+                    aria-label="Add a Nix item to the canvas"
+                    onClick={() => {
+                      setItemOptionsStatus('loading');
+                      setItemDialogOpen(true);
+                    }}
+                  >
+                    <Icon icon={Plus} size="sm" />
+                    {isMobile ? null : 'Nix item'}
+                  </Button>
+                )}
+              </div>
+            )
+          }
+          onChange={(nextElements, appState, files) => {
+            awareness?.setLocalStateField('canvas', {
+              ...localCanvasAwareness(awareness),
+              selectedElementIds: appState.selectedElementIds,
+            });
+
+            let localElements = nextElements;
+            const pendingRemote = pendingRemoteElementsRef.current;
+            if (pendingRemote !== null && !isActivelyEditingCanvas(appState)) {
+              const settled = reconcileElements(
+                nextElements,
+                pendingRemote as unknown as Parameters<typeof reconcileElements>[1],
+                appState,
+              );
+              localElements = durableSceneWinners(settled, pendingRemote);
+              pendingRemoteElementsRef.current = null;
+
+              const pendingFingerprint = sceneFingerprint(pendingRemote);
+              const settledFingerprint = sceneFingerprint(localElements);
+              if (settledFingerprint === pendingFingerprint) {
+                suppressFingerprintRef.current = settledFingerprint;
+                lastPublishedFingerprintRef.current = settledFingerprint;
+                lastSafeElementsRef.current = localElements;
+                if (sceneFingerprint(nextElements) !== settledFingerprint && api !== null) {
+                  api.updateScene({
+                    elements: localElements,
+                    captureUpdate: CaptureUpdateAction.NEVER,
+                  });
+                }
+                return;
               }
-            }}
-          />
-        ) : null}
-        {selected?.type === 'card' ? (
-          <datalist id="canvas-item-options">
-            {itemOptions.map((option) => <option key={option.id} value={option.id} label={option.title} />)}
-          </datalist>
-        ) : null}
-        <span className="ml-2 flex items-center gap-1" aria-label="Canvas library">
-          {library.status === 'loading' ? <Text as="span" variant="caption" tone="muted">Library loading</Text> : null}
-          {library.status === 'error' ? <Text as="span" variant="caption" tone="muted">Library unavailable</Text> : null}
-          {library.status === 'ready' && selected !== null ? (
-            <>
-              <Input
-                aria-label="Library item name"
-                className="min-w-28 max-w-36"
-                placeholder="Save as"
-                value={libraryName}
-                onChange={(event) => { setLibraryName(event.target.value); }}
-                onKeyDown={(event) => { if (event.key === 'Enter') saveSelectedToLibrary(); }}
-              />
-              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Save selected to library" onClick={saveSelectedToLibrary}>Save shape</Button>
-            </>
-          ) : null}
-          {library.status === 'ready' && nativeLibraryItems.length > 0 ? (
-            <>
-              <Select
-                aria-label="Saved canvas shapes"
-                className="max-w-36"
-                value={librarySelection}
-                onChange={(event) => { setLibrarySelection(event.target.value); }}
-              >
-                <option value="">Insert shape</option>
-                {nativeLibraryItems.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-              </Select>
-              <Button variant="ghost" className="px-2 py-1 text-xs" aria-label="Insert saved canvas shape" disabled={librarySelection === ''} onClick={insertLibraryItem}>Insert</Button>
-            </>
-          ) : null}
-        </span>
-        {selected !== null && selected.type !== 'line' && selected.type !== 'arrow' && selected.type !== 'text' ? (
-          <span className="ml-2 flex items-center gap-1" aria-label="Fill">
-            {(['accent', 'surface', 'none'] as CanvasFill[]).map((fill) => (
-              <Button key={fill} variant="ghost" className="px-2 py-1 text-xs" aria-label={`Fill ${fill}`} aria-pressed={(selected.fill ?? 'accent') === fill} onClick={() => { updateSelected({ fill }); }}>
-                {fill === 'none' ? 'None' : fill === 'accent' ? 'Accent' : 'Surface'}
-              </Button>
-            ))}
-          </span>
-        ) : null}
-        <Button variant="icon" aria-label="Undo" disabled={past.length === 0} onClick={undo}><Icon icon={Undo2} size="sm" /></Button>
-        <Button variant="icon" aria-label="Redo" disabled={future.length === 0} onClick={redo}><Icon icon={Redo2} size="sm" /></Button>
-        <Button variant="icon" aria-label="Export canvas" onClick={exportScene}><Icon icon={Download} size="sm" /></Button>
-        <Button variant="icon" aria-label="Export canvas as SVG" onClick={exportSvg}><Icon icon={Download} size="sm" /></Button>
-        <Button variant="icon" aria-label="Export canvas as PNG" onClick={() => { void exportPng(); }}><Icon icon={ImageDown} size="sm" /></Button>
-        <Button variant="icon" aria-label="Import canvas" onClick={() => { importRef.current?.click(); }}><Icon icon={Upload} size="sm" /></Button>
-        <input ref={importRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import canvas file" onChange={importScene} />
-        <span className="ml-auto flex items-center gap-1">
-          <Button variant="icon" aria-label="Zoom out" onClick={() => { setZoom((value) => Math.max(0.5, value - 0.1)); }}><Icon icon={ZoomOut} size="sm" /></Button>
-          <Text as="span" variant="caption" tone="muted" className="min-w-12 text-center">{Math.round(zoom * 100)}%</Text>
-          <Button variant="icon" aria-label="Zoom in" onClick={() => { setZoom((value) => Math.min(2, value + 0.1)); }}><Icon icon={ZoomIn} size="sm" /></Button>
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto bg-surface p-6">
-        <svg
-          ref={svgRef}
-          className="mx-auto block max-w-full origin-top-left cursor-grab bg-background shadow-sm"
-          style={{ width: `${String(CANVAS_WIDTH)}px`, height: `${String(CANVAS_HEIGHT)}px` }} // design-token-exempt: the SVG viewport dimensions are runtime zoom geometry, not UI styling.
-          viewBox={`${String(viewport.x)} ${String(viewport.y)} ${String(viewport.width)} ${String(viewport.height)}`}
-          role="application"
-          aria-label="Canvas workspace"
-          onPointerDown={(event) => {
-            if (isPanGesture(event)) {
-              event.preventDefault();
-              startPan(event);
+
+              if (sceneFingerprint(nextElements) !== settledFingerprint && api !== null) {
+                api.updateScene({
+                  elements: localElements,
+                  captureUpdate: CaptureUpdateAction.NEVER,
+                });
+              }
+            }
+
+            if (
+              hasUnownedCanvasImages(
+                localElements,
+                lastSafeElementsRef.current,
+                pendingUploadedFileIdsRef.current,
+                files,
+                lastSafeFilesRef.current,
+              )
+            ) {
+              const safeElements = lastSafeElementsRef.current;
+              const safeFingerprint = sceneFingerprint(safeElements);
+              suppressFingerprintRef.current = safeFingerprint;
+              lastPublishedFingerprintRef.current = safeFingerprint;
+              if (api !== null) {
+                api.updateScene({
+                  elements: safeElements,
+                  captureUpdate: CaptureUpdateAction.NEVER,
+                });
+                api.addFiles(Object.values(lastSafeFilesRef.current));
+              }
+              setFileNotice(CANVAS_IMAGE_INGRESS_NOTICE);
               return;
             }
-            addAt(pointFromEvent(event));
-          }}
-          onPointerMove={(event) => {
-            if (panRef.current !== null) {
-              movePan(event);
-            } else if (drawingRef.current !== null) {
-              drawingRef.current = [...drawingRef.current, pointFromEvent(event)];
-              setDrawingPoints(drawingRef.current);
-            } else {
-              moveDrag(event);
+
+            const saved = markSavedImages(localElements, pendingUploadedFileIdsRef.current);
+            const nextFingerprint = sceneFingerprint(saved.elements);
+            if (saved.changed && api !== null) {
+              suppressFingerprintRef.current = nextFingerprint;
+              lastPublishedFingerprintRef.current = nextFingerprint;
+              lastSafeElementsRef.current = saved.elements;
+              lastSafeFilesRef.current = mergeCanvasFiles(
+                lastSafeFilesRef.current,
+                Object.values(files),
+              );
+              consumePendingImageIds(saved.elements, pendingUploadedFileIdsRef.current);
+              api.updateScene({
+                elements: saved.elements,
+                captureUpdate: CaptureUpdateAction.NEVER,
+              });
+              setFileNotice((current) =>
+                current === CANVAS_IMAGE_INGRESS_NOTICE ? null : current,
+              );
+              onChangeRef.current(saved.elements);
+              return;
             }
+            if (suppressFingerprintRef.current === nextFingerprint) {
+              suppressFingerprintRef.current = null;
+              return;
+            }
+            if (lastPublishedFingerprintRef.current === nextFingerprint) return;
+            lastPublishedFingerprintRef.current = nextFingerprint;
+            lastSafeElementsRef.current = saved.elements;
+            lastSafeFilesRef.current = mergeCanvasFiles(
+              lastSafeFilesRef.current,
+              Object.values(files),
+            );
+            consumePendingImageIds(saved.elements, pendingUploadedFileIdsRef.current);
+            setFileNotice((current) => (current === CANVAS_IMAGE_INGRESS_NOTICE ? null : current));
+            onChangeRef.current(saved.elements);
           }}
-          onPointerUp={() => { finishPan(); finishDrawing(); finishDrag(); }}
-          onPointerCancel={() => { finishPan(); finishDrawing(); finishDrag(); }}
+          onPointerUpdate={({ pointer, button }) => {
+            awareness?.setLocalStateField('canvas', {
+              ...localCanvasAwareness(awareness),
+              pointer,
+              button,
+            });
+          }}
+          onLibraryChange={(nextItems) => {
+            library.save(nextItems);
+          }}
+          onLinkOpen={(element, event) => {
+            const itemId = nixItemIdFromElement(element) ?? itemIdFromNixLink(element.link);
+            if (itemId === null || onOpenItem === undefined) return;
+            event.preventDefault();
+            onOpenItem(itemId);
+          }}
+        />
+      </div>
+
+      {fileNotice === null && !uploading && !importing ? null : (
+        <div
+          className="pointer-events-none absolute bottom-12 left-1/2 z-20 -translate-x-1/2 rounded-md border border-divider bg-background px-3 py-2 shadow-sm"
+          role="status"
+          aria-live="polite"
         >
-          <defs>
-            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--color-foreground)" />
-            </marker>
-            <pattern id="canvas-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-              <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--color-divider)" strokeWidth="0.6" opacity="0.5" />
-            </pattern>
-          </defs>
-          <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#canvas-grid)" pointerEvents="none" />
-          {drawingPoints.length > 1 ? <path d={pathFor(drawingPoints)} fill="none" stroke="var(--color-accent)" strokeWidth="2" pointerEvents="none" /> : null}
-          {rendered.map((element) => <CanvasShape key={element.id} element={element} selected={element.id === selectedId} onPointerDown={startDrag} onOpenItem={onOpenItem} itemLabel={element.itemId === undefined ? '' : itemCards[element.itemId]?.title ?? 'Loading item…'} itemSummary={element.itemId === undefined ? '' : itemCards[element.itemId]?.summary ?? ''} />)}
-          {selected === null ? null : <ResizeHandle element={selected} onPointerDown={startDrag} />}
-        </svg>
-      </div>
-      <div className="flex shrink-0 items-center justify-between px-4 py-1.5">
-        <Text as="span" variant="caption" tone={visible.length > CANVAS_ELEMENT_CEILING ? 'accent' : 'muted'}>{selected === null ? `${String(visible.length)} objects${visible.length > CANVAS_ELEMENT_CEILING ? `; showing ${String(CANVAS_ELEMENT_CEILING)}` : ''}` : `${TOOL_LABELS[selected.type]} selected`}</Text>
-        <Text as="span" variant="caption" tone="muted">Drag to move. Select a tool, then click the canvas.</Text>
-      </div>
+          <Text variant="caption">
+            {fileNotice ?? (importing ? 'Importing canvas…' : 'Uploading image…')}
+          </Text>
+        </div>
+      )}
+
+      {readOnly ? <span className="sr-only">Canvas is read only.</span> : null}
+
+      <Dialog
+        open={itemDialogOpen}
+        title="Add a Nix item"
+        onClose={() => {
+          setItemDialogOpen(false);
+        }}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setItemDialogOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={selectedItemId === '' || itemOptionsStatus !== 'ready'}
+              onClick={insertNixItem}
+            >
+              Add item
+            </Button>
+          </>
+        }
+      >
+        {itemOptionsStatus === 'error' ? (
+          <Text role="alert">The workspace items could not be loaded.</Text>
+        ) : (
+          <Field label="Item">
+            {(control) => (
+              <Select
+                {...control}
+                disabled={itemOptionsStatus !== 'ready' || itemOptions.length === 0}
+                value={selectedItemId}
+                onChange={(event) => {
+                  setSelectedItemId(event.target.value);
+                }}
+              >
+                {itemOptions.length === 0 ? (
+                  <option value="">
+                    {itemOptionsStatus === 'loading' ? 'Loading items…' : 'No items available'}
+                  </option>
+                ) : (
+                  itemOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.title || 'Untitled item'}
+                    </option>
+                  ))
+                )}
+              </Select>
+            )}
+          </Field>
+        )}
+      </Dialog>
     </div>
   );
 }
 
-function CanvasShape({ element, selected, onPointerDown, onOpenItem, itemLabel, itemSummary }: { readonly element: NixCanvasElement; readonly selected: boolean; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement) => void; readonly onOpenItem?: ((itemId: string) => void) | undefined; readonly itemLabel: string; readonly itemSummary: string }): ReactNode {
-  const stroke = selected ? 'var(--color-accent)' : element.stroke === 'accent' ? 'var(--color-accent)' : element.stroke === 'muted' ? 'var(--color-muted)' : 'var(--color-foreground)';
-  const fill = element.fill === 'surface' ? 'var(--color-surface)' : element.fill === 'none' ? 'none' : 'var(--color-accent-100)';
-  const common = { stroke, strokeWidth: selected ? 2.5 : 1.5, onPointerDown: (event: PointerEvent<SVGGraphicsElement>) => { onPointerDown(event, element); } };
-  if (element.type === 'ellipse') return <ellipse cx={element.x + element.width / 2} cy={element.y + element.height / 2} rx={element.width / 2} ry={element.height / 2} fill={fill} opacity={element.opacity ?? 1} {...common} />;
-  if (element.type === 'line' || element.type === 'arrow') return <line x1={element.x} y1={element.y} x2={element.x + element.width} y2={element.y + element.height} fill="none" {...common} markerEnd={element.type === 'arrow' ? 'url(#arrow)' : undefined} />;
-  if (element.type === 'freehand') return <path d={pathFor(element.points ?? [])} fill="none" {...common} opacity={element.opacity ?? 1} />;
-  if (element.type === 'card') return <g onPointerDown={(event) => { onPointerDown(event, element); }} onDoubleClick={() => { if (element.itemId !== undefined && element.itemId !== '') onOpenItem?.(element.itemId); }}><rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 12} fill={fill} opacity={element.opacity ?? 1} {...common} /><text x={element.x + 16} y={element.y + 30} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="18" pointerEvents="none">{itemLabel}</text><text x={element.x + 16} y={element.y + 55} fill="var(--color-muted)" fontFamily="var(--font-body)" fontSize="12" pointerEvents="none">{itemSummary || 'Nix item'}</text></g>;
-  if (element.type === 'image') {
-    if (element.imageUrl === undefined || element.imageUrl === '') return <rect x={element.x} y={element.y} width={element.width} height={element.height} fill="none" {...common} />;
-    return <image href={element.imageUrl} x={element.x} y={element.y} width={element.width} height={element.height} preserveAspectRatio="xMidYMid meet" role="img" aria-label={element.alt ?? 'Canvas image'} {...common} />;
+async function uploadFileItem(
+  client: NixClient,
+  workspaceId: string,
+  parentItemId: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<string> {
+  const upload = await client.execute(
+    fileResources.beginUpload({
+      workspaceId,
+      parentId: parentItemId,
+      fileName: file.name || 'canvas-image',
+      mediaType: mediaTypeForFile(file),
+      byteLength: file.size,
+      idempotencyKey: `web-canvas-image:${crypto.randomUUID()}`,
+    }),
+    signal === undefined ? undefined : { signal },
+  );
+  const record = await fileResources.uploadAndCompleteFile(client, upload, file, signal);
+  if (signal?.aborted || !record.current.previewable) {
+    await retireUploadedFileItems(client, workspaceId, [record.itemId]);
   }
-  if (element.type === 'text') return <text x={element.x} y={element.y + 28} fill="var(--color-foreground)" fontFamily="var(--font-body)" fontSize="24" {...common}>{element.text ?? 'Text'}</text>;
-  return <rect x={element.x} y={element.y} width={element.width} height={element.height} rx={element.cornerRadius ?? 0} fill={fill} opacity={element.opacity ?? 1} {...common} />;
+  throwIfAborted(signal);
+  if (!record.current.previewable) {
+    throw new Error('Nix could not verify this file as a durable, previewable image.');
+  }
+  return record.itemId;
 }
 
-function pathFor(points: readonly CanvasPoint[]): string {
-  const first = points[0];
-  if (first === undefined) return '';
-  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${String(point.x)} ${String(point.y)}`).join(' ');
+async function retireUploadedFileItems(
+  client: NixClient,
+  workspaceId: string,
+  itemIds: readonly string[],
+): Promise<readonly string[]> {
+  let remaining = [...new Set(itemIds)];
+  for (let attempt = 0; attempt < 3 && remaining.length > 0; attempt += 1) {
+    if (attempt > 0) await waitForRetirementRetry(attempt * 25);
+    const outcomes = await Promise.allSettled(
+      remaining.map((itemId) => client.execute(coreItems.deleteItem(workspaceId, itemId))),
+    );
+    remaining = remaining.filter((_, index) => outcomes[index]?.status === 'rejected');
+  }
+  if (remaining.length > 0) {
+    console.warn(
+      'A canvas upload created during a failed operation could not be retired.',
+      remaining,
+    );
+  }
+  return remaining;
 }
 
-function propertySummary(properties: Readonly<Record<string, unknown>> | null): string {
-  const entry = Object.entries(properties ?? {})[0];
-  if (entry === undefined) return '';
-  const [key, value] = entry;
-  const rendered = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : JSON.stringify(value);
-  return `${key}: ${rendered}`.slice(0, 34);
+async function waitForRetirementRetry(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
-function ResizeHandle({ element, onPointerDown }: { readonly element: NixCanvasElement; readonly onPointerDown: (event: PointerEvent<SVGGraphicsElement>, element: NixCanvasElement, resize?: boolean) => void }): ReactNode {
-  return <rect x={element.x + element.width - 7} y={element.y + element.height - 7} width="14" height="14" fill="var(--color-accent-fill)" stroke="var(--color-background)" strokeWidth="2" cursor="nwse-resize" aria-label="Resize selected object" onPointerDown={(event) => { onPointerDown(event, element, true); }} />;
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The canvas operation was aborted.', 'AbortError');
+}
+
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof Error && cause.name === 'AbortError';
+}
+
+function isEncodingError(cause: unknown): boolean {
+  return cause instanceof Error && cause.name === 'EncodingError';
+}
+
+async function canvasImageDimensions(
+  file: File,
+): Promise<{ readonly width: number; readonly height: number }> {
+  const readBitmap: unknown = globalThis.createImageBitmap;
+  if (typeof readBitmap !== 'function') return { width: 320, height: 240 };
+  try {
+    const bitmap = (await readBitmap.call(globalThis, file)) as ImageBitmap;
+    const scale = Math.min(1, 640 / bitmap.width, 480 / bitmap.height);
+    const dimensions = {
+      width: Math.max(1, Math.round(bitmap.width * scale)),
+      height: Math.max(1, Math.round(bitmap.height * scale)),
+    };
+    bitmap.close();
+    return dimensions;
+  } catch {
+    return { width: 320, height: 240 };
+  }
+}
+
+function hasUnownedCanvasImages(
+  elements: readonly OrderedExcalidrawElement[],
+  lastSafeElements: readonly OrderedExcalidrawElement[],
+  pendingFileIds: ReadonlySet<FileId>,
+  currentFiles: BinaryFiles,
+  lastSafeFiles: BinaryFiles,
+): boolean {
+  const allowed = new Set<FileId>(pendingFileIds);
+  for (const fileId of canvasFileItemIds(lastSafeElements)) allowed.add(fileId);
+  for (const file of externalCanvasFiles(lastSafeElements)) allowed.add(file.id);
+  return elements.some((element) => {
+    if (element.isDeleted || element.type !== 'image' || element.fileId === null) {
+      return false;
+    }
+    if (!allowed.has(element.fileId)) return true;
+    if (pendingFileIds.has(element.fileId)) return false;
+    const currentFile = currentFiles[element.fileId];
+    if (currentFile === undefined) return false;
+    const lastSafeFile = lastSafeFiles[element.fileId];
+    return currentFile.dataURL !== lastSafeFile?.dataURL;
+  });
+}
+
+/**
+ * Import is a scene replacement, while the durable Y.Map is append-only by element ID. Retire
+ * elements absent from the imported scene and lift colliding imported versions over the stored
+ * ones so the binding cannot resurrect the scene that was deliberately replaced.
+ */
+function replaceImportedScene(
+  current: readonly OrderedExcalidrawElement[],
+  imported: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement[] {
+  const currentById = new Map(current.map((element) => [element.id, element]));
+  const importedIds = new Set(imported.map((element) => element.id));
+  const retired = current.flatMap((element) => {
+    if (importedIds.has(element.id)) return [];
+    return [element.isDeleted ? element : newElementWith(element, { isDeleted: true })];
+  });
+  const replacements = imported.map((element) => {
+    const existing = currentById.get(element.id);
+    if (existing === undefined || element.version > existing.version) return element;
+    const bumped = newElementWith(element, {}, true);
+    return { ...bumped, version: existing.version + 1 };
+  });
+  return [...retired, ...replacements];
+}
+
+function markSavedImages(
+  elements: readonly OrderedExcalidrawElement[],
+  savedFileIds: ReadonlySet<FileId>,
+): { readonly elements: readonly OrderedExcalidrawElement[]; readonly changed: boolean } {
+  let changed = false;
+  const next = elements.map((element) => {
+    if (element.type !== 'image' || element.fileId === null || !savedFileIds.has(element.fileId)) {
+      return element;
+    }
+    const markedFileId = nixFileItemIdFromElement(element);
+    if (element.status === 'saved' && markedFileId === element.fileId) return element;
+    changed = true;
+    return newElementWith(element, {
+      status: 'saved',
+      customData: withNixFileMetadata(element, element.fileId),
+    });
+  });
+  return { elements: next, changed };
+}
+
+function publishSavedImageStatuses(
+  api: ExcalidrawImperativeAPI,
+  savedFileIds: ReadonlySet<FileId>,
+  onChangeRef: { readonly current: (elements: readonly CanvasElement[]) => void },
+  lastPublishedFingerprintRef: { current: string },
+  suppressFingerprintRef: { current: string | null },
+): void {
+  const saved = markSavedImages(api.getSceneElementsIncludingDeleted(), savedFileIds);
+  if (!saved.changed) return;
+  const fingerprint = sceneFingerprint(saved.elements);
+  suppressFingerprintRef.current = fingerprint;
+  lastPublishedFingerprintRef.current = fingerprint;
+  api.updateScene({ elements: saved.elements, captureUpdate: CaptureUpdateAction.NEVER });
+  onChangeRef.current(saved.elements);
+}
+
+function filesById(files: readonly BinaryFileData[]): BinaryFiles {
+  return Object.fromEntries(files.map((file) => [file.id, file]));
+}
+
+function mergeCanvasFiles(current: BinaryFiles, additions: readonly BinaryFileData[]): BinaryFiles {
+  return additions.length === 0 ? current : { ...current, ...filesById(additions) };
+}
+
+function consumePendingImageIds(
+  elements: readonly OrderedExcalidrawElement[],
+  pendingFileIds: Set<FileId>,
+): void {
+  for (const element of elements) {
+    if (element.type === 'image' && element.fileId !== null) {
+      pendingFileIds.delete(element.fileId);
+    }
+  }
+}
+
+/**
+ * Removes the temporary local exceptions that Excalidraw's reconciler makes for an element being
+ * edited. The shared map uses the same version/nonce rule, so this is the scene that can actually
+ * be committed once the gesture ends.
+ */
+function durableSceneWinners(
+  reconciled: readonly OrderedExcalidrawElement[],
+  incoming: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement[] {
+  const localById = new Map(reconciled.map((element) => [element.id, element]));
+  const incomingIds = new Set(incoming.map((element) => element.id));
+  const winners = incoming.map((remote) => {
+    const local = localById.get(remote.id);
+    return local !== undefined && supersedes(local, remote) ? local : remote;
+  });
+  for (const local of reconciled) {
+    if (!incomingIds.has(local.id)) winners.push(local);
+  }
+  // The reconciler repairs fractional ordering. Keeping the incoming array order would make
+  // updateScene repair it back on every echo, producing an unbounded render/publish loop.
+  return winners.sort((left, right) => {
+    const a = left.index;
+    const b = right.index;
+    return a < b ? -1 : a > b ? 1 : left.id.localeCompare(right.id);
+  });
+}
+
+function isActivelyEditingCanvas(
+  appState: Pick<AppState, 'editingTextElement' | 'newElement' | 'resizingElement'>,
+): boolean {
+  return (
+    appState.editingTextElement !== null ||
+    appState.newElement !== null ||
+    appState.resizingElement !== null
+  );
+}
+
+function fileExtension(mimeType: BinaryFileData['mimeType']): string {
+  if (mimeType === 'image/svg+xml') return 'svg';
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'image/avif') return 'avif';
+  return 'png';
+}
+
+function canvasImageMimeType(value: string): BinaryFileData['mimeType'] | null {
+  const supported = new Set<string>(['image/png', 'image/jpeg', 'image/webp', 'image/avif']);
+  return supported.has(value) ? (value as BinaryFileData['mimeType']) : null;
+}
+
+/** Decode embedded Excalidraw image bytes without a fetch that production CSP would block. */
+function canvasDataUrlToBlob(
+  dataUrl: BinaryFileData['dataURL'],
+  mimeType: BinaryFileData['mimeType'],
+): Blob {
+  const match = /^data:[^,]*?(;base64)?,(.*)$/su.exec(dataUrl);
+  if (match === null) throw new Error('The imported canvas contains invalid image data.');
+  const payload = match[2] ?? '';
+  if (match[1] === ';base64') {
+    const decoded = globalThis.atob(payload.replace(/\s/gu, ''));
+    const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+    return new Blob([bytes], { type: mimeType });
+  }
+  return new Blob([new TextEncoder().encode(decodeURIComponent(payload))], { type: mimeType });
+}
+
+function localCanvasAwareness(awareness: Awareness | undefined): Record<string, unknown> {
+  if (awareness === undefined) return {};
+  const localState: unknown = awareness.getLocalState();
+  const canvas = isRecord(localState) ? localState.canvas : undefined;
+  return isRecord(canvas) ? canvas : {};
+}
+
+function useAwarenessSnapshot(awareness: Awareness | undefined): string {
+  return useSyncExternalStore(
+    useCallback(
+      (onStoreChange) => {
+        if (awareness === undefined) return () => undefined;
+        awareness.on('change', onStoreChange);
+        return () => {
+          awareness.off('change', onStoreChange);
+        };
+      },
+      [awareness],
+    ),
+    () => JSON.stringify(readCollaborators(awareness)),
+    () => '[]',
+  );
+}
+
+function readCollaborators(awareness: Awareness | undefined): readonly [string, Collaborator][] {
+  if (awareness === undefined) return [];
+  const peers: [string, Collaborator][] = [];
+  for (const [clientId, state] of awareness.getStates()) {
+    if (clientId === awareness.clientID || !isRecord(state)) continue;
+    const user = isRecord(state.user) ? state.user : {};
+    const canvas = isRecord(state.canvas) ? state.canvas : {};
+    const pointer: Collaborator['pointer'] =
+      isRecord(canvas.pointer) &&
+      typeof canvas.pointer.x === 'number' &&
+      typeof canvas.pointer.y === 'number' &&
+      (canvas.pointer.tool === 'pointer' || canvas.pointer.tool === 'laser')
+        ? {
+            x: canvas.pointer.x,
+            y: canvas.pointer.y,
+            tool: canvas.pointer.tool,
+          }
+        : undefined;
+    const color = collaboratorColor(clientId);
+    peers.push([
+      String(clientId),
+      {
+        id: String(clientId),
+        socketId: String(clientId) as SocketId,
+        username: typeof user.name === 'string' ? user.name : 'Someone',
+        color,
+        ...(pointer === undefined ? {} : { pointer }),
+        ...(canvas.button === 'down' || canvas.button === 'up' ? { button: canvas.button } : {}),
+        ...(isRecord(canvas.selectedElementIds)
+          ? { selectedElementIds: booleanRecord(canvas.selectedElementIds) }
+          : {}),
+      },
+    ]);
+  }
+  return peers.sort(([left], [right]) => left.localeCompare(right));
+}
+
+function collaboratorColor(clientId: number): NonNullable<Collaborator['color']> {
+  const tokens =
+    COLLABORATOR_COLOR_TOKENS[Math.abs(clientId) % COLLABORATOR_COLOR_TOKENS.length] ??
+    COLLABORATOR_COLOR_TOKENS[0];
+  const readStyles: unknown = globalThis.getComputedStyle;
+  if (typeof readStyles !== 'function') {
+    return { background: 'Canvas', stroke: 'CanvasText' };
+  }
+  const styles = readStyles.call(globalThis, document.documentElement) as CSSStyleDeclaration;
+  return {
+    background: styles.getPropertyValue(tokens.background).trim() || 'Canvas',
+    stroke: styles.getPropertyValue(tokens.stroke).trim() || 'CanvasText',
+  };
+}
+
+function collaboratorsFromSnapshot(snapshot: string): Map<SocketId, Collaborator> {
+  const entries = JSON.parse(snapshot) as readonly [string, Collaborator][];
+  return new Map(entries.map(([id, collaborator]) => [id as SocketId, collaborator]));
+}
+
+function booleanRecord(value: Record<string, unknown>): Record<string, true> {
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, true] => entry[1] === true),
+  );
+}
+
+function useCanvasGround(): Ground {
+  return useSyncExternalStore(subscribeToGround, readGround, () => 'light');
+}
+
+function subscribeToGround(onStoreChange: () => void): () => void {
+  const root = document.documentElement;
+  const observer = new MutationObserver(onStoreChange);
+  observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  const media = themeMediaQuery();
+  media?.addEventListener('change', onStoreChange);
+  return () => {
+    observer.disconnect();
+    media?.removeEventListener('change', onStoreChange);
+  };
+}
+
+function readGround(): Ground {
+  const explicit = document.documentElement.getAttribute('data-theme');
+  if (explicit === 'dark' || explicit === 'light') return explicit;
+  return themeMediaQuery()?.matches === true ? 'dark' : 'light';
+}
+
+function themeMediaQuery(): MediaQueryList | null {
+  const query: unknown = globalThis.matchMedia;
+  return typeof query === 'function'
+    ? (query.call(globalThis, '(prefers-color-scheme: dark)') as MediaQueryList)
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

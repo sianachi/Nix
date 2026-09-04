@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -18,7 +18,37 @@ function ImageDialog(props: {
   );
 }
 
+vi.stubGlobal(
+  'URL',
+  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test-image'), revokeObjectURL: vi.fn() }),
+);
+
 describe('the image insertion form', () => {
+  it('uploads the selected file when the main Insert image action is submitted', async () => {
+    const user = userEvent.setup();
+    const onUploadImage = vi.fn().mockResolvedValue(undefined);
+    const onSubmit = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <EditorAddressDialog
+        kind="image"
+        onCancel={onCancel}
+        onSubmit={onSubmit}
+        onUploadImage={onUploadImage}
+      />,
+    );
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Choose image to upload'), file);
+    await user.type(screen.getByRole('textbox', { name: 'Description' }), '  A diagram  ');
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+
+    await waitFor(() => {
+      expect(onUploadImage).toHaveBeenCalledWith(file, 'A diagram');
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
   it('starts in the address field and explains both fields', () => {
     render(<ImageDialog />);
 
@@ -28,6 +58,43 @@ describe('the image insertion form', () => {
     expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAccessibleDescription(
       /leave this blank only when the image is decorative/i,
     );
+  });
+
+  it('keeps a failed upload open for retry and prevents duplicate submissions while uploading', async () => {
+    const user = userEvent.setup();
+    let failUpload: ((error: Error) => void) | undefined;
+    const onUploadImage = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failUpload = reject;
+        }),
+    );
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <EditorAddressDialog
+        kind="image"
+        onCancel={onCancel}
+        onSubmit={onSubmit}
+        onUploadImage={onUploadImage}
+      />,
+    );
+    await user.upload(
+      screen.getByLabelText('Choose image to upload'),
+      new File(['image'], 'diagram.png', { type: 'image/png' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Upload image' }));
+    expect(screen.getByRole('button', { name: 'Insert image' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Uploading image…' })).toBeDisabled();
+    expect(screen.getByLabelText('Choose image to upload')).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+    expect(onUploadImage).toHaveBeenCalledOnce();
+
+    failUpload?.(new Error('The file upload failed (503).'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The file upload failed (503).');
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeEnabled();
   });
 
   it('keeps an invalid address in the form and tells the person how to fix it', async () => {

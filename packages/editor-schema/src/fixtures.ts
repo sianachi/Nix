@@ -14,6 +14,11 @@ import { MARK_MIN_VERSION, NODE_MIN_VERSION } from './versions.js';
 
 /** A block-level fixture, keyed by the node it exercises. */
 export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
+  itemBlock: {
+    type: 'itemBlock',
+    attrs: { targetId: '00000000-0000-4000-8000-000000000001', presentation: 'embed' },
+  },
+  pageBreak: { type: 'pageBreak' },
   paragraph: { type: 'paragraph', content: [{ type: 'text', text: 'A paragraph.' }] },
 
   heading: {
@@ -107,6 +112,7 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
     type: 'image',
     attrs: {
       src: 'https://example.test/diagram.png',
+      fileItemId: null,
       alt: 'A diagram',
       title: null,
       width: null,

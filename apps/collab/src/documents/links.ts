@@ -56,12 +56,16 @@ const ITEM_KIND = 'item';
 export function extractItemLinks(json: unknown, sourceItemId: string): ReadonlyMap<string, number> {
   const counts = new Map<string, number>();
   walk(json, (node) => {
-    if (node.type !== REFERENCE_NODE || node.attrs === null || typeof node.attrs !== 'object') {
+    if (
+      (node.type !== REFERENCE_NODE && node.type !== 'itemBlock') ||
+      node.attrs === null ||
+      typeof node.attrs !== 'object'
+    ) {
       return;
     }
 
     const attrs = node.attrs as Record<string, unknown>;
-    if (readString(attrs.kind) !== ITEM_KIND) {
+    if (node.type === REFERENCE_NODE && readString(attrs.kind) !== ITEM_KIND) {
       return;
     }
 
@@ -72,6 +76,39 @@ export function extractItemLinks(json: unknown, sourceItemId: string): ReadonlyM
 
     counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
   });
+
+  return counts;
+}
+
+/**
+ * Every item a materialised canvas refers to, and how often.
+ *
+ * New Excalidraw scenes declare a Nix reference in `element.customData.nix`; the temporary native
+ * canvas used `card.itemId` and `image.imageItemId`. Both linked content items and durable file
+ * children are Nix items, so both contribute an edge. The canonical marker wins when both are
+ * present, so a scene being migrated cannot turn one element into two backlinks merely because it
+ * carries both representations for a while.
+ *
+ * Deleted Excalidraw elements remain in the scene as reconciliation tombstones. They no longer
+ * appear on the canvas and therefore no longer contribute links.
+ */
+export function extractCanvasItemLinks(
+  json: unknown,
+  sourceItemId: string,
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  const root = readRecord(json);
+  const elements = readRecord(root?.elements);
+  if (elements === null) return counts;
+
+  for (const value of Object.values(elements)) {
+    const element = readRecord(value);
+    if (element === null || element.isDeleted === true) continue;
+
+    const targetId = canvasReferenceTarget(element);
+    if (targetId === null || !UUID.test(targetId) || targetId === sourceItemId) continue;
+    counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
+  }
 
   return counts;
 }
@@ -145,4 +182,21 @@ function pushAll(queue: unknown[], children: readonly unknown[]): void {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function canvasReferenceTarget(element: Record<string, unknown>): string | null {
+  const customData = readRecord(element.customData);
+  const marker = readRecord(customData?.nix);
+  if (marker?.kind === ITEM_KIND || marker?.kind === 'file') {
+    return readString(marker.itemId);
+  }
+
+  if (element.type === 'card') return readString(element.itemId);
+  return element.type === 'image' ? readString(element.imageItemId) : null;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

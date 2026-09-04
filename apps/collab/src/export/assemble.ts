@@ -1,3 +1,4 @@
+import { expandEmbeddedSections } from './embedded-sections.ts';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import {
   ARCHIVE_FORMAT,
@@ -398,6 +399,7 @@ export async function* streamBundles(input: {
   readonly tenantId: string;
   readonly items: readonly CoreItem[];
   readonly metadata: GatheredMetadata;
+  readonly resolveEmbeddedItem?: ((id: string) => Promise<CoreItem | null>) | undefined;
 }): AsyncGenerator<ItemBundle> {
   const { sql, tenantId, items, metadata } = input;
 
@@ -417,7 +419,14 @@ export async function* streamBundles(input: {
       views: metadata.views.get(item.id) ?? null,
       viewRows: metadata.viewRows.get(item.id)?.rows ?? [],
       viewRowsTruncated: metadata.viewRows.get(item.id)?.truncated ?? false,
-      body: await readBody(sql, tenantId, item),
+      body:
+        input.resolveEmbeddedItem === undefined
+          ? await readBody(sql, tenantId, item)
+          : await expandEmbeddedSections(await readBody(sql, tenantId, item), async (id) => {
+              const source = await input.resolveEmbeddedItem?.(id);
+              if (source?.type !== 'note' || source.lifecycleState !== 'active') return null;
+              return { title: source.title, body: await readBody(sql, tenantId, source) };
+            }),
     };
   }
 }
