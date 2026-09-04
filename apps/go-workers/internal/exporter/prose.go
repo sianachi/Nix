@@ -687,7 +687,7 @@ func (parser *proseDecoder) attributes(attributes *proseAttrs, depth int) error 
 			var nonNull bool
 			nonNull, err = parser.nonNullValue(depth + 1)
 			attributes.listStyle = attributes.listStyle || nonNull
-		case "colspan", "rowspan", "colwidth", "text", "background", "threadId":
+		case "colspan", "rowspan", "colwidth", "text", "background", "threadId", "presentation":
 			err = parser.skipValue(depth + 1)
 		default:
 			attributes.unknown = true
@@ -994,6 +994,13 @@ func (projection *proseProjection) render(node *proseNode, depth int) error {
 			return projection.writer.write("\\\n")
 		}
 		return projection.writer.write("\n")
+	case "pageBreak":
+		return projection.writer.write("<!-- nix-page-break -->")
+	case "itemBlock":
+		projection.noteLoss("A linked section is represented by its source link; nested or unavailable live content is not included.")
+		node.Attrs.kind = "item"
+		node.Attrs.label = "Linked item"
+		return projection.renderReference(node)
 	case "horizontalRule":
 		if projection.markdown {
 			return projection.writer.write("---")

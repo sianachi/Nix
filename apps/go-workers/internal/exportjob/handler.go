@@ -278,6 +278,9 @@ func recordSource(ctx context.Context, input *nixarchive.BundleStream, format st
 		if format != "markdown" && strings.Contains(body, "<details") {
 			appendUnique(losses, "Collapsible sections were expanded into always-visible document content.")
 		}
+        if format == "markdown" && strings.Contains(body, "<!-- nix-page-break -->") {
+            appendUnique(losses, "Explicit page breaks are represented by markers in Markdown; page layout is not preserved.")
+        }
 		if _, titleLoss := exporter.ProjectTitle(bundle.Title, format == "markdown"); titleLoss {
 			appendUnique(losses, "Title control characters or line breaks were removed in the converted document.")
 		}

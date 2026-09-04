@@ -65,6 +65,11 @@ export const nodeHandlers: NodeHandlers<PdfNode> = {
     margin: [0, 2, 0, 9],
   }),
 
+  pageBreak: () => ({ text: '', pageBreak: 'after' }),
+  itemBlock: (node, ctx) => {
+    ctx.loss.note('reference-flattened', 'A linked section is represented by its source link.');
+    return { text: `Linked item: nix://item/${readString(node.attrs, 'targetId') ?? ''}` };
+  },
   horizontalRule: () => ({
     canvas: [
       {

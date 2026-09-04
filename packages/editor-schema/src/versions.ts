@@ -43,12 +43,19 @@ export const NODE_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze(
 
   // A pointer to another item, or to a person.
   reference: 2,
+  itemBlock: 4,
+  pageBreak: 4,
 });
 
 /** The schema version each mark first became legal in. Only entries above 1 appear. */
 export const MARK_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({
   textColor: 2,
   comment: 2,
+});
+
+/** The image node existed at version 1; this attribute is only safe from version 3 onward. */
+export const ATTRIBUTE_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({
+  'image.fileItemId': 3,
 });
 
 /** The two tables {@link requiredSchemaVersion} consults, together. */
@@ -91,6 +98,14 @@ export function requiredSchemaVersion(
     const nodeMinimum = tables.nodes[node.type.name];
     if (nodeMinimum !== undefined && nodeMinimum > required) {
       required = nodeMinimum;
+    }
+
+    const attributes = node.attrs as Record<string, unknown>;
+    const fileItemId: unknown = node.type.name === 'image' ? attributes.fileItemId : null;
+    if (typeof fileItemId === 'string' && fileItemId.length > 0) {
+      const attributeMinimum = ATTRIBUTE_MIN_VERSION['image.fileItemId'];
+      if (attributeMinimum !== undefined && attributeMinimum > required)
+        required = attributeMinimum;
     }
 
     const { marks } = node;

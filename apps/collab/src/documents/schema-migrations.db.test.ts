@@ -115,6 +115,15 @@ describe.skipIf(!DB_TESTS_ENABLED)('raising a document schema pin, against Postg
     return documentUpdate(FIXTURE_DOCUMENT);
   }
 
+  function fileImageUpdate(): Uint8Array {
+    return documentUpdate({
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { src: '', fileItemId: '11111111-1111-4111-8111-111111111111' } },
+      ],
+    });
+  }
+
   /** A document as version 1 could produce it, using nothing newer. */
   function versionOneUpdate(): Uint8Array {
     return documentUpdate(VERSION_1_DOCUMENT);
@@ -361,9 +370,9 @@ describe.skipIf(!DB_TESTS_ENABLED)('raising a document schema pin, against Postg
     // Every client speaking version 1 has been told this document opens for them, and it has
     // to keep being true until the migration says otherwise.
     await open(TENANTS.alpha);
-    await setPin(TENANTS.alpha, SCHEMA_VERSION - 1);
+    await setPin(TENANTS.alpha, 2);
 
-    const result = await write(TENANTS.alpha, fixtureUpdate());
+    const result = await write(TENANTS.alpha, fileImageUpdate());
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -376,13 +385,13 @@ describe.skipIf(!DB_TESTS_ENABLED)('raising a document schema pin, against Postg
     // The deploy, end to end: ship the build, documents sit at the old pin and hold to the old
     // node set, the job runs, and the new nodes become writable.
     await open(TENANTS.alpha);
-    await setPin(TENANTS.alpha, SCHEMA_VERSION - 1);
-    expect((await write(TENANTS.alpha, fixtureUpdate())).ok).toBe(false);
+    await setPin(TENANTS.alpha, 2);
+    expect((await write(TENANTS.alpha, fileImageUpdate())).ok).toBe(false);
 
     await migrate(TENANTS.alpha, SCHEMA_VERSION);
 
     expect(await pinOf(TENANTS.alpha)).toBe(SCHEMA_VERSION);
-    expect((await write(TENANTS.alpha, fixtureUpdate())).ok).toBe(true);
+    expect((await write(TENANTS.alpha, fileImageUpdate())).ok).toBe(true);
   });
 
   it('refuses to run as a role that row-level security applies to', async () => {

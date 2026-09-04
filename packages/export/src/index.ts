@@ -19,6 +19,10 @@
 
 export { archiveFileName, exportFileName, writeArchive } from './archive.js';
 export {
+  ARCHIVE_FILE_BYTES_UNSUPPORTED,
+  ArchiveFileBytesUnsupportedError,
+} from './file-portability.js';
+export {
   EXPORT_FORMATS,
   createConverterRegistry,
   type Branding,

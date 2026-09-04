@@ -70,9 +70,9 @@ export function createCanvasBinding(
         for (const element of elements) {
           const existing = map.get(element.id);
           if (existing === undefined || supersedes(element, existing)) {
-            // A plain clone rather than a live object: renderers may mutate their scene in
-            // place, and a shared map holding a mutating reference would drift silently.
-            map.set(element.id, { ...element });
+            // Excalidraw elements contain nested points, bindings and group arrays. A shallow
+            // clone still lets later renderer mutation alter Yjs without a transaction.
+            map.set(element.id, structuredClone(element));
           }
         }
       }, LOCAL_ORIGIN);
@@ -97,7 +97,9 @@ export function supersedes(candidate: CanvasElement, existing: CanvasElement): b
 }
 
 function sceneOf(map: Y.Map<CanvasElement>): CanvasElement[] {
-  const elements = [...map.values()];
+  // The editor receives an isolated snapshot for the same reason writes are cloned above:
+  // renderer-owned nested arrays must never become live references into the CRDT.
+  const elements = [...map.values()].map((element) => structuredClone(element));
   // Draw order is the fractional index; elements from builds
   // that carried none sort together at the front, stably by identifier.
   return elements.sort((a, b) => {

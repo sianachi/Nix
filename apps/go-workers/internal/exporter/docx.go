@@ -148,6 +148,12 @@ func writeDOCXMarkdown(output io.Writer, markdown string) error {
 			}
 			continue
 		}
+		if trimmed == "<!-- nix-page-break -->" {
+			if _, err := io.WriteString(output, `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`); err != nil {
+				return err
+			}
+			continue
+		}
 		if trimmed == "" || trimmed == "<details>" || strings.HasPrefix(trimmed, `<details data-toggle-level=`) || trimmed == "</details>" {
 			continue
 		}

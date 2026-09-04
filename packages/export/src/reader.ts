@@ -1145,9 +1145,15 @@ function parseNullableBody(value: unknown, itemType: string, itemId: string): It
         if (!record(element)) return false;
         return (
           element.id === id &&
+          id.length > 0 &&
           typeof element.type === 'string' &&
+          element.type.length > 0 &&
           typeof element.version === 'number' &&
-          typeof element.versionNonce === 'number'
+          Number.isSafeInteger(element.version) &&
+          element.version >= 0 &&
+          typeof element.versionNonce === 'number' &&
+          Number.isSafeInteger(element.versionNonce) &&
+          element.versionNonce >= 0
         );
       })
     ) {

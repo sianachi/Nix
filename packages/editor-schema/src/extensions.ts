@@ -18,6 +18,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { Text } from '@tiptap/extension-text';
 import { Underline } from '@tiptap/extension-underline';
 
+import { ItemBlock, PageBreak } from './note-blocks.js';
 import { Callout } from './callout.js';
 import { ColumnEditing } from './column-commands.js';
 import { Column, ColumnBlock } from './columns.js';
@@ -41,7 +42,7 @@ import { Details, DetailsContent, DetailsSummary } from './details.js';
  */
 export const nixExtensions: Extensions = [
   // Structure.
-  Document,
+  Document.extend({ content: '(block | pageBoundary)+' }),
   Paragraph,
   Text,
   HardBreak,
@@ -52,7 +53,22 @@ export const nixExtensions: Extensions = [
   CodeBlock,
   HorizontalRule,
   Callout,
-  Image,
+  Image.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        /** A durable Nix file item. Its preview URL is resolved only while rendering. */
+        fileItemId: {
+          default: null,
+          parseHTML: (element) => element.getAttribute('data-nix-file-id'),
+          renderHTML: (attributes) =>
+            typeof attributes.fileItemId === 'string' && attributes.fileItemId.length > 0
+              ? { 'data-nix-file-id': attributes.fileItemId }
+              : {},
+        },
+      };
+    },
+  }),
 
   // Lists. Nesting is allowed; a list item holds blocks, so a bullet can carry a
   // paragraph and a nested list rather than text alone.
@@ -88,6 +104,8 @@ export const nixExtensions: Extensions = [
   // both need a renderer that walks something this build does not yet walk, and legalising a
   // node that draws an empty box costs a version bump to take back.
   Reference,
+  ItemBlock,
+  PageBreak,
 
   // Marks.
   Bold,

@@ -1,3 +1,4 @@
+import type { ItemInsertKind } from './item-insert-dialog';
 import { TOGGLE_LEVELS, type ToggleLevel } from '@nix/editor-schema';
 import { Listbox, useListbox } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -49,6 +50,8 @@ export interface SlashCommand {
 /** Actions whose UI is owned outside the caret menu. */
 export interface SlashCommandActions {
   readonly insertImage: () => void;
+  readonly insertItem?: ((kind: ItemInsertKind) => void) | undefined;
+  readonly pageBreak?: (() => void) | undefined;
 }
 
 /**
@@ -234,6 +237,38 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     // insertion point is always a word start, because this menu's own trigger required one.
     run: (editor) => editor.chain().focus().insertContent('[[').run(),
   },
+  {
+    id: 'attachment',
+    label: 'Attachment',
+    hint: 'Upload or link an existing file',
+    icon: Link,
+    keywords: ['file', 'upload'],
+    run: (_editor, actions) => actions.insertItem?.('attachment'),
+  },
+  {
+    id: 'embed-note',
+    label: 'Embed note',
+    hint: 'A live section from another note',
+    icon: StickyNote,
+    keywords: ['embed', 'note', 'section'],
+    run: (_editor, actions) => actions.insertItem?.('embed'),
+  },
+  {
+    id: 'subpage',
+    label: 'New subpage',
+    hint: 'Create a named child note',
+    icon: StickyNote,
+    keywords: ['page', 'child'],
+    run: (_editor, actions) => actions.insertItem?.('subpage'),
+  },
+  {
+    id: 'page-break',
+    label: 'Page break',
+    hint: 'Start a new page in exports',
+    icon: Minus,
+    keywords: ['page', 'print'],
+    run: (_editor, actions) => actions.pageBreak?.(),
+  },
 ];
 
 /**
@@ -335,9 +370,13 @@ interface OpenTrigger {
 export function SlashMenu({
   editor,
   onInsertImage,
+  onInsertItem,
+  onPageBreak,
 }: {
   readonly editor: Editor;
   readonly onInsertImage: () => void;
+  readonly onInsertItem?: ((kind: ItemInsertKind) => void) | undefined;
+  readonly onPageBreak?: (() => void) | undefined;
 }): ReactNode {
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -409,7 +448,13 @@ export function SlashMenu({
   const open = trigger !== null && trigger.from !== dismissed;
   const query = trigger?.query ?? '';
 
-  const commands = filterSlashCommands(query);
+  const commands = filterSlashCommands(query).filter((command) => {
+    if (['attachment', 'embed-note', 'subpage'].includes(command.id))
+      return onInsertItem !== undefined;
+    if (command.id === 'page-break')
+      return onPageBreak !== undefined && editor.state.selection.$from.depth <= 1;
+    return true;
+  });
   const options = commands.map((command) => ({
     id: command.id,
     label: command.label,
@@ -428,7 +473,11 @@ export function SlashMenu({
     // touched, which is what the field-based version got wrong: its arithmetic deleted characters
     // the document actually owned.
     editor.chain().focus().deleteRange({ from: trigger.from, to: trigger.to }).run();
-    command.run(editor, { insertImage: onInsertImage });
+    command.run(editor, {
+      insertImage: onInsertImage,
+      insertItem: onInsertItem,
+      pageBreak: onPageBreak,
+    });
   });
 
   // The keys are taken off the editor's own element, because that is what holds the focus. Capture

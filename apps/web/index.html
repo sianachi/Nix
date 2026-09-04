@@ -32,8 +32,9 @@
       - img-src allows http: and https: because item cover images and image properties are
         arbitrary third-party URLs, and the server's PropertyValidator accepts both schemes. Leaving
         http: out makes the picture picker lie: the browser blocks the image, onError fires, and the
-        UI reports an address the server just accepted as wrong. img-src cannot execute anything,
-        which is what makes the loosest directive here the cheapest one.
+        UI reports an address the server just accepted as wrong. It also allows blob: because the
+        file viewer turns an authorized image download into a revocable blob URL. img-src cannot
+        execute anything, which is what makes the loosest directive here the cheapest one.
       Provider communication is server-side. Application API calls and WebSockets remain
       same-origin; the serving header admits only the configured object-store origin in addition.
       No identity-provider origin is admitted to connect-src or frame-src, and provider tokens
@@ -41,7 +42,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
       data-nix-csp-fallback
     />
 

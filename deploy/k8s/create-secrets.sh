@@ -12,8 +12,8 @@
 # up in your shell history. Consider sealed-secrets or an external-secrets operator instead
 # once this is more than a first bring-up.
 #
-# Existing clusters can rotate only the RabbitMQ identities without touching database or signing
-# secrets by running: deploy/k8s/create-secrets.sh --rabbitmq-only
+# Existing clusters can update either external service secret without touching database or signing
+# secrets by running this script with `--rabbitmq-only` or `--object-store-only`.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -68,15 +68,45 @@ create_rabbitmq_secret() {
   fi
 }
 
+create_object_store_secret() {
+  local update_existing="$1"
+
+  : "${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT to the production S3 endpoint}"
+  : "${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN to the browser-reachable HTTPS origin}"
+  : "${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}"
+  : "${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}"
+  : "${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}"
+
+  local -a object_store_secret_args=(
+    -n nix create secret generic nix-object-store
+    --from-literal=endpoint="$NIX_OBJECT_STORE_ENDPOINT"
+    --from-literal=public-origin="$NIX_OBJECT_STORE_PUBLIC_ORIGIN"
+    --from-literal=region="${NIX_OBJECT_STORE_REGION:-us-east-1}"
+    --from-literal=bucket="$NIX_OBJECT_STORE_BUCKET"
+    --from-literal=access-key="$NIX_OBJECT_STORE_ACCESS_KEY"
+    --from-literal=secret-key="$NIX_OBJECT_STORE_SECRET_KEY"
+  )
+  if [ "$update_existing" = true ]; then
+    kubectl "${object_store_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
+  else
+    kubectl "${object_store_secret_args[@]}"
+  fi
+}
+
 case "${1:-}" in
   --rabbitmq-only)
     create_rabbitmq_secret true
     echo "RabbitMQ service credentials rotated. Run deploy/k8s/deploy.sh to roll them out."
     exit 0
     ;;
+  --object-store-only)
+    create_object_store_secret true
+    echo "Object-store configuration updated. Run deploy/k8s/deploy.sh to roll it out."
+    exit 0
+    ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only]" >&2
     exit 2
     ;;
 esac
@@ -103,17 +133,7 @@ kubectl -n nix create secret generic nix-internal \
   --from-literal=public-forms-signing-key="$(openssl rand -hex 32)"
 
 create_rabbitmq_secret false
-
-: "${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT to the production S3 endpoint}"
-: "${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}"
-: "${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}"
-: "${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}"
-kubectl -n nix create secret generic nix-object-store \
-  --from-literal=endpoint="$NIX_OBJECT_STORE_ENDPOINT" \
-  --from-literal=region="${NIX_OBJECT_STORE_REGION:-us-east-1}" \
-  --from-literal=bucket="$NIX_OBJECT_STORE_BUCKET" \
-  --from-literal=access-key="$NIX_OBJECT_STORE_ACCESS_KEY" \
-  --from-literal=secret-key="$NIX_OBJECT_STORE_SECRET_KEY"
+create_object_store_secret false
 
 auth_key_file="$(mktemp)"
 trap 'rm -f "$auth_key_file"' EXIT

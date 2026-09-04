@@ -8,6 +8,7 @@ import {
   requestArchive,
   saveArchive,
   type ArchiveScope,
+  type ArchiveResult,
 } from './export-archive';
 import {
   formatFor,
@@ -30,6 +31,7 @@ type FormatState =
 
 type Progress =
   | { readonly phase: 'idle' }
+  | { readonly phase: 'completed'; readonly result: ArchiveResult }
   | { readonly phase: 'queued' }
   | { readonly phase: 'running' }
   | { readonly phase: 'cancelling' }
@@ -160,8 +162,16 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
     }
 
     saveArchive(outcome.value);
-    setProgress({ phase: 'idle' });
-    onClose();
+    if (
+      outcome.value.loss.length > 0 ||
+      outcome.value.omittedCount > 0 ||
+      outcome.value.omissions.length > 0
+    ) {
+      setProgress({ phase: 'completed', result: outcome.value });
+    } else {
+      setProgress({ phase: 'idle' });
+      onClose();
+    }
   }
 
   async function cancelCurrent(closeAfter = false): Promise<void> {
@@ -305,6 +315,15 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
               )}
             </Field>
 
+            {selectedFormat.declaredLoss.length > 0 ? (
+              <div className="flex flex-col gap-2" aria-label="Export limitations">
+                {selectedFormat.declaredLoss.map((detail) => (
+                  <Text key={detail} variant="note" tone="muted">
+                    {detail}
+                  </Text>
+                ))}
+              </div>
+            ) : null}
             {hasChildren ? (
               <Segmented
                 label="What to export"
@@ -331,12 +350,24 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
           </div>
         ) : null}
 
+        {progress.phase === 'completed' ? (
+          <div role="status" className="flex flex-col gap-2">
+            <Text variant="note">
+              {progress.result.itemCount} items were exported. {progress.result.omittedCount} items
+              were omitted.
+            </Text>
+            {[...progress.result.loss, ...progress.result.omissions].map((detail, index) => (
+              <Text key={`${String(index)}:${detail}`} variant="note" tone="muted">
+                {detail}
+              </Text>
+            ))}
+          </div>
+        ) : null}
         {progress.phase === 'failed' ? (
           <div role="alert">
             <Text tone="muted">{progress.error}</Text>
           </div>
         ) : null}
-
       </div>
     </Dialog>
   );

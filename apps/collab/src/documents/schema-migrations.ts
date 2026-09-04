@@ -69,6 +69,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       'stored content changes: a version-1 document parses unchanged against version 2, and ' +
       'this step raises the pin and nothing else.',
   },
+  {
+    from: 2,
+    to: 3,
+    describe:
+      'Durable file-backed images. Existing documents parse unchanged; this raises their pins so ' +
+      'an older client cannot discard a file image reference written by this build.',
+  },
+  {
+    from: 3,
+    to: 4,
+    describe: 'Block item references and explicit page breaks; existing content is unchanged.',
+  },
 ];
 
 /** What became of one document. */
