@@ -57,6 +57,8 @@ export const PROSE_NODES = [
   'detailsSummary',
   'detailsContent',
   'reference',
+  'itemBlock',
+  'pageBreak',
 ] as const;
 
 export type ProseNodeName = (typeof PROSE_NODES)[number];
