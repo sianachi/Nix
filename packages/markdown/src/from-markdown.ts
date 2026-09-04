@@ -29,7 +29,13 @@ import {
 import { isLocalImageTarget, isPersistableImageTarget, type MarkdownImportScan } from './scan.js';
 
 export type FromMarkdownResult =
-  | { readonly ok: true; readonly doc: unknown; readonly scan: MarkdownImportScan }
+  | {
+      readonly ok: true;
+      readonly doc: unknown;
+      readonly scan: MarkdownImportScan;
+      /** Filesystem image targets the importer can match to selected attachments. */
+      readonly localImageTargets?: readonly string[];
+    }
   | {
       readonly ok: false;
       readonly reason: string;
@@ -45,6 +51,7 @@ interface MutableMarkdownImportScan {
 
 interface MarkdownEnvironment {
   readonly importScan: MutableMarkdownImportScan;
+  readonly localImageTargets: string[];
   readonly obsidianBoundaries: Map<string, ObsidianBoundaries>;
   references?: Record<string, { href: string; title: string }>;
 }
@@ -283,6 +290,7 @@ function rewriteInlineImages(
     const alt = imageAlt(child);
     if (isLocalImageTarget(source)) {
       environment.importScan.unresolvedLocalImages += 1;
+      environment.localImageTargets.push(source);
       if (linkDepth > 0 || !isAllowedLinkAddress(source)) {
         rewritten.push(replacementText(imageText(child)));
         continue;
@@ -506,7 +514,11 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
     unsupportedImageAddresses: 0,
     inlineImagesFlattened: 0,
   };
-  const environment: MarkdownEnvironment = { importScan, obsidianBoundaries: new Map() };
+  const environment: MarkdownEnvironment = {
+    importScan,
+    localImageTargets: [],
+    obsidianBoundaries: new Map(),
+  };
 
   let json: JsonNode;
   try {
@@ -529,5 +541,5 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
     return { ok: false, reason: parsed.error };
   }
 
-  return { ok: true, doc: rebuilt, scan: importScan };
+  return { ok: true, doc: rebuilt, scan: importScan, localImageTargets: environment.localImageTargets };
 }

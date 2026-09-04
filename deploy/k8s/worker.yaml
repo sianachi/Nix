@@ -15,7 +15,9 @@ spec:
   template:
     metadata:
       labels: { app: nix-import-worker }
-      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+      annotations:
+        nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
+        nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
@@ -65,7 +67,9 @@ spec:
   template:
     metadata:
       labels: { app: nix-export-worker }
-      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+      annotations:
+        nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
+        nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
@@ -168,7 +172,9 @@ spec:
   template:
     metadata:
       labels: { app: nix-plugin-worker }
-      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+      annotations:
+        nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
+        nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
     spec:
       automountServiceAccountToken: false
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }

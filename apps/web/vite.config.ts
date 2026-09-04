@@ -11,9 +11,111 @@
 // The test block runs the same source through jsdom. CSS is not processed
 // during tests - component tests assert behaviour and roles, never computed
 // styles, so compiling Tailwind for them would only cost time.
+import { cp, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+const excalidrawFontUrlPrefix = '/excalidraw-assets/fonts/';
+const requireFromViteConfig = createRequire(import.meta.url);
+const excalidrawFontSourceDirectory = fileURLToPath(
+  new URL('./node_modules/@excalidraw/excalidraw/dist/prod/fonts/', import.meta.url),
+);
+const roughjsEntry = requireFromViteConfig.resolve('roughjs/bin/rough.js', {
+  paths: [fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/', import.meta.url))],
+});
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function excalidrawFontAssets(): Plugin {
+  let buildOutputDirectory: string | undefined;
+
+  return {
+    name: 'nix:excalidraw-font-assets',
+    configResolved(config) {
+      buildOutputDirectory = resolve(config.root, config.build.outDir);
+    },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const requestUrl = request.url;
+        if (requestUrl === undefined) {
+          next();
+          return;
+        }
+
+        let pathname: string;
+        try {
+          pathname = new URL(requestUrl, 'http://nix.local').pathname;
+        } catch {
+          response.statusCode = 400;
+          response.end();
+          return;
+        }
+
+        if (!pathname.startsWith(excalidrawFontUrlPrefix)) {
+          next();
+          return;
+        }
+
+        let requestedRelativePath: string;
+        try {
+          requestedRelativePath = decodeURIComponent(
+            pathname.slice(excalidrawFontUrlPrefix.length),
+          );
+        } catch {
+          response.statusCode = 400;
+          response.end();
+          return;
+        }
+
+        const requestedFile = resolve(excalidrawFontSourceDirectory, requestedRelativePath);
+        const sourceRelativePath = relative(excalidrawFontSourceDirectory, requestedFile);
+        const isContainedFont =
+          sourceRelativePath.endsWith('.woff2') &&
+          sourceRelativePath !== '..' &&
+          !sourceRelativePath.startsWith(`..${sep}`) &&
+          !isAbsolute(sourceRelativePath);
+
+        if (!isContainedFont) {
+          next();
+          return;
+        }
+
+        void readFile(requestedFile)
+          .then((font) => {
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'font/woff2');
+            response.end(font);
+          })
+          .catch((error: unknown) => {
+            if (hasErrorCode(error, 'ENOENT')) {
+              next();
+              return;
+            }
+            next(error);
+          });
+      });
+    },
+    async writeBundle() {
+      if (buildOutputDirectory === undefined) {
+        throw new Error('Vite did not resolve an output directory for Excalidraw font assets.');
+      }
+
+      await cp(
+        excalidrawFontSourceDirectory,
+        resolve(buildOutputDirectory, 'excalidraw-assets/fonts'),
+        { recursive: true },
+      );
+    },
+  };
+}
 
 const fallbackCspMeta =
   /\s*<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]+"\s+data-nix-csp-fallback\s*\/>/u;
@@ -52,7 +154,7 @@ export function parseObjectStorePublicOrigin(value: string): string {
 
 export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
   const origin = parseObjectStorePublicOrigin(objectStorePublicOrigin);
-  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
+  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
 }
 
 const objectStorePublicOrigin = parseObjectStorePublicOrigin(
@@ -67,8 +169,20 @@ const developmentBrowserPolicy = browserPolicy.replace(
 );
 
 export default defineConfig({
+  // Excalidraw's published bundle imports roughjs without its file extension. Vite's browser
+  // resolver accepts that path, while Node 25 (used by Vitest) does not.
+  resolve: {
+    alias: {
+      'roughjs/bin/rough': roughjsEntry,
+    },
+  },
   server: {
     headers: { 'Content-Security-Policy': developmentBrowserPolicy },
+    // The app consumes workspace packages as source. In the local browser this can cause the
+    // React Refresh wrapper for a package module to run before its HTML preamble, preventing
+    // React from mounting at all. Reloading is a reliable development fallback; it leaves the
+    // production bundle untouched.
+    hmr: false,
     // The API is a different origin in development. Proxying keeps the browser same-origin, so
     // there is no CORS preflight on every request and no cookie/credential surprises - the token
     // travels in the Authorization header either way, but same-origin is the shape production has.
@@ -101,6 +215,7 @@ export default defineConfig({
   },
 
   plugins: [
+    excalidrawFontAssets(),
     {
       name: 'nix-configured-content-security-policy',
       enforce: 'pre',
@@ -121,6 +236,9 @@ export default defineConfig({
     setupFiles: ['./src/tests/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    server: {
+      deps: { inline: ['@excalidraw/excalidraw', 'roughjs'] },
+    },
 
     // Not the 5000 default, and please do not "tidy" it back.
     //

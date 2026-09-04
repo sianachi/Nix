@@ -1,7 +1,4 @@
-import {
-  canvasLibrary,
-  isCanceledError,
-} from '@nix/api-client';
+import { canvasLibrary, isCanceledError } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
@@ -36,6 +33,11 @@ export interface CanvasLibraryState {
 
 const NONE: readonly unknown[] = [];
 
+interface PendingCanvasLibrarySave {
+  readonly body: string;
+  readonly items: readonly unknown[];
+}
+
 export function useCanvasLibrary(): CanvasLibraryState {
   const client = useApiClient();
   const [status, setStatus] = useState<CanvasLibraryStatus>('loading');
@@ -53,6 +55,8 @@ export function useCanvasLibrary(): CanvasLibraryState {
   // breaks the echo: initial library setup can re-announce the seeded library,
   // and without this comparison that announcement was a PUT of content Core already had, forever.
   const knownRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<PendingCanvasLibrarySave | null>(null);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,33 +91,48 @@ export function useCanvasLibrary(): CanvasLibraryState {
     };
   }, [client]);
 
+  const flushSaves = useCallback((): void => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+
+    void (async () => {
+      try {
+        while (pendingSaveRef.current !== null) {
+          const pending = pendingSaveRef.current;
+          pendingSaveRef.current = null;
+          if (pending.body === knownRef.current) continue;
+
+          try {
+            await client.execute(canvasLibrary.saveCanvasLibrary(pending.items));
+            // A body becomes known only once Core confirms it. Serial execution means an older
+            // request can never finish after and overwrite a newer library.
+            knownRef.current = pending.body;
+          } catch (cause) {
+            knownRef.current = null;
+            console.warn('The canvas library save failed.', cause);
+          }
+        }
+      } finally {
+        savingRef.current = false;
+      }
+    })();
+  }, [client]);
+
   const save = useCallback(
     (nextItems: readonly unknown[]) => {
-      if (!loadedRef.current) {
-        return;
-      }
+      if (!loadedRef.current) return;
 
       const body = JSON.stringify({ items: nextItems });
-      if (body === knownRef.current) {
+      if (!savingRef.current && pendingSaveRef.current === null && body === knownRef.current) {
         return;
       }
 
-      // Claimed before the request rather than after it, so the echoes that arrive while the PUT
-      // is in flight are deduplicated too; the failure path below un-claims it.
-      knownRef.current = body;
-
-      void (async () => {
-        try {
-          await client.execute(canvasLibrary.saveCanvasLibrary(nextItems));
-        } catch (cause) {
-          // Core does not hold what we claimed it does, so forget the claim: the next change
-          // retries instead of being deduplicated against a write that never landed.
-          knownRef.current = null;
-          console.warn('The canvas library save failed.', cause);
-        }
-      })();
+      // Keep only the newest desired whole-library state while a request is running. The clone
+      // prevents subsequent editor mutation from changing the queued payload behind its hash.
+      pendingSaveRef.current = { body, items: structuredClone(nextItems) };
+      flushSaves();
     },
-    [client],
+    [flushSaves],
   );
 
   return { status, items, save };

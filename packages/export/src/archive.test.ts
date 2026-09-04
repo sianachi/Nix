@@ -3,6 +3,7 @@ import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
 import { archiveFileName, exportFileName, writeArchive } from './archive.js';
+import { ARCHIVE_FILE_BYTES_UNSUPPORTED } from './file-portability.js';
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_FORMAT_VERSION,
@@ -84,6 +85,13 @@ async function collect(archive: AsyncIterable<Uint8Array>): Promise<Uint8Array> 
   }
 
   return out;
+}
+
+async function consumeInto(
+  archive: AsyncIterable<Uint8Array>,
+  chunks: Uint8Array[],
+): Promise<void> {
+  for await (const chunk of archive) chunks.push(chunk);
 }
 
 describe('writeArchive', () => {
@@ -192,6 +200,132 @@ describe('writeArchive', () => {
         }),
       ),
     ).rejects.toThrow(/must declare format/);
+  });
+
+  it('refuses a file item before emitting any archive bytes', async () => {
+    const chunks: Uint8Array[] = [];
+    const withFile = manifest([ROOT]);
+
+    await expect(
+      consumeInto(
+        writeArchive({
+          manifest: {
+            ...withFile,
+            items: withFile.items.map((item) => ({ ...item, type: 'file' })),
+          },
+          bundles: streamOf([bundle(ROOT, { type: 'file', body: null })]),
+        }),
+        chunks,
+      ),
+    ).rejects.toMatchObject({ code: ARCHIVE_FILE_BYTES_UNSUPPORTED });
+
+    expect(chunks).toEqual([]);
+  });
+
+  it('refuses a durable note image rather than completing an archive without its bytes', async () => {
+    const chunks: Uint8Array[] = [];
+
+    await expect(
+      consumeInto(
+        writeArchive({
+          manifest: manifest([ROOT]),
+          bundles: streamOf([
+            bundle(ROOT, {
+              body: {
+                schemaVersion: SCHEMA_VERSION,
+                prosemirror: {
+                  type: 'doc',
+                  content: [
+                    { type: 'image', attrs: { src: '', fileItemId: CHILD, alt: 'Diagram' } },
+                  ],
+                },
+              },
+            }),
+          ]),
+        }),
+        chunks,
+      ),
+    ).rejects.toMatchObject({ code: ARCHIVE_FILE_BYTES_UNSUPPORTED });
+
+    expect(() => unzipSync(Buffer.concat(chunks))).toThrow();
+  });
+
+  it('refuses legacy note image references that still use the nix-file source scheme', async () => {
+    await expect(
+      collect(
+        writeArchive({
+          manifest: manifest([ROOT]),
+          bundles: streamOf([
+            bundle(ROOT, {
+              body: {
+                schemaVersion: SCHEMA_VERSION,
+                prosemirror: {
+                  type: 'doc',
+                  content: [{ type: 'image', attrs: { src: `nix-file:${CHILD}` } }],
+                },
+              },
+            }),
+          ]),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: ARCHIVE_FILE_BYTES_UNSUPPORTED });
+  });
+
+  it.each([
+    {
+      name: 'canonical canvas marker',
+      element: {
+        type: 'image',
+        customData: { nix: { kind: 'file', itemId: CHILD } },
+      },
+    },
+    {
+      name: 'transitional native-canvas field',
+      element: { type: 'image', imageItemId: CHILD },
+    },
+  ])('refuses a durable canvas image carried by its $name', async ({ element }) => {
+    const withCanvas = manifest([ROOT]);
+
+    await expect(
+      collect(
+        writeArchive({
+          manifest: {
+            ...withCanvas,
+            items: withCanvas.items.map((item) => ({ ...item, type: 'canvas' })),
+          },
+          bundles: streamOf([
+            bundle(ROOT, {
+              type: 'canvas',
+              body: {
+                schemaVersion: SCHEMA_VERSION,
+                canvas: { elements: { image: element } },
+              },
+            }),
+          ]),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: ARCHIVE_FILE_BYTES_UNSUPPORTED });
+  });
+
+  it('keeps ordinary remote note images exportable because their bytes are not Nix-owned', async () => {
+    const bytes = await collect(
+      writeArchive({
+        manifest: manifest([ROOT]),
+        bundles: streamOf([
+          bundle(ROOT, {
+            body: {
+              schemaVersion: SCHEMA_VERSION,
+              prosemirror: {
+                type: 'doc',
+                content: [{ type: 'image', attrs: { src: 'https://example.test/diagram.png' } }],
+              },
+            },
+          }),
+        ]),
+      }),
+    );
+
+    expect(unzipSync(bytes)[itemEntryName(ROOT)]).toBeDefined();
   });
 });
 

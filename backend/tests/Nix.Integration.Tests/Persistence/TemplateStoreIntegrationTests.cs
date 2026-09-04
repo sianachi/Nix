@@ -68,6 +68,163 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Template_capture_and_import_refuse_file_items_until_storage_copy_is_supported()
+    {
+        var source = NewItem("Attached image", null, null, 90_000, DateTimeOffset.UtcNow, "file");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.DbContext.Items.Add(source);
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({source.TenantId.Value}, {source.WorkspaceId.Value}, {source.Id.Value}, {source.Id.Value}, 0)",
+                Cancellation);
+
+            var capture = await work.Resolve<TemplateStore>().BeginCaptureAsync(
+                source.WorkspaceId,
+                source.Id,
+                "File template",
+                null,
+                false,
+                false,
+                "capture-file-item",
+                Cancellation);
+            Assert.False(capture.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", capture.Error.Code);
+
+            var import = await work.Resolve<TemplateStore>().BeginImportAsync(
+                source.WorkspaceId,
+                "import-file-item",
+                Descriptor(),
+                [Items()[0] with { ItemType = "file" }],
+                Cancellation);
+            Assert.False(import.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", import.Error.Code);
+
+            var container = NewItem("Canvas with an attachment", null, null, 90_100, DateTimeOffset.UtcNow);
+            var attachment = NewItem("Attached image", null, container.Id, 1, DateTimeOffset.UtcNow, "file");
+            work.DbContext.Items.AddRange(container, attachment);
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({container.TenantId.Value}, {container.WorkspaceId.Value}, {container.Id.Value}, {container.Id.Value}, 0), ({attachment.TenantId.Value}, {attachment.WorkspaceId.Value}, {attachment.Id.Value}, {attachment.Id.Value}, 0), ({container.TenantId.Value}, {container.WorkspaceId.Value}, {container.Id.Value}, {attachment.Id.Value}, 1)",
+                Cancellation);
+
+            var captureWithOmittedChildren = await work.Resolve<TemplateStore>().BeginCaptureAsync(
+                container.WorkspaceId,
+                container.Id,
+                "Canvas template",
+                null,
+                true,
+                false,
+                "capture-file-descendant",
+                Cancellation);
+            Assert.False(captureWithOmittedChildren.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", captureWithOmittedChildren.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Legacy_template_with_file_child_is_refused_by_all_file_unsafe_paths()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var templateId = TemplateId.Create();
+        var rootId = ItemId.Create();
+        var fileId = ItemId.Create();
+        var rootSourceId = Guid.NewGuid();
+        var fileSourceId = Guid.NewGuid();
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.DbContext.WorkspaceTemplates.Add(new WorkspaceTemplate
+            {
+                Id = templateId,
+                TenantId = TestTenants.AlphaContext.TenantId,
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                RootItemId = rootId,
+                StableKey = "legacy.file-template",
+                ProfileKey = "legacy.file-template",
+                Origin = TemplateOrigin.User,
+                Title = "Legacy file template",
+                IncludeBody = true,
+                IncludeChildren = true,
+                State = TemplateState.Active,
+                Revision = 1,
+                CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                CreatedAt = now,
+                LastModifiedAt = now,
+            });
+            work.DbContext.Items.AddRange(
+                new Item
+                {
+                    Id = rootId,
+                    TenantId = TestTenants.AlphaContext.TenantId,
+                    WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                    Type = "canvas",
+                    Seq = 1,
+                    Properties = ItemProperties.WithTitle(null, "Legacy canvas"),
+                    TemplateId = templateId,
+                    TemplateSourceId = rootSourceId,
+                    LifecycleState = ItemLifecycleState.Active,
+                    CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                    LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                    CreatedAt = now,
+                    LastModifiedAt = now,
+                },
+                new Item
+                {
+                    Id = fileId,
+                    TenantId = TestTenants.AlphaContext.TenantId,
+                    WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                    Type = "file",
+                    ParentId = rootId,
+                    Seq = 1,
+                    Properties = ItemProperties.WithTitle(null, "Legacy attachment"),
+                    TemplateId = templateId,
+                    TemplateSourceId = fileSourceId,
+                    LifecycleState = ItemLifecycleState.Active,
+                    CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                    LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                    CreatedAt = now,
+                    LastModifiedAt = now,
+                });
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {rootId.Value}, {rootId.Value}, 0), ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {fileId.Value}, {fileId.Value}, 0), ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {rootId.Value}, {fileId.Value}, 1)",
+                Cancellation);
+
+            var store = work.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "legacy-file-draft", Cancellation);
+            Assert.False(draft.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", draft.Error.Code);
+
+            var preflight = await store.PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                Cancellation);
+            Assert.False(preflight.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", preflight.Error.Code);
+
+            var application = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                "Copy legacy template",
+                "legacy-file-application",
+                Cancellation);
+            Assert.False(application.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", application.Error.Code);
+
+            var export = await store.ExportAsync(templateId, Cancellation);
+            Assert.False(export.IsSuccess);
+            Assert.Equal("templates.file_attachments_unsupported", export.Error.Code);
+        }
+    }
+
+    [Fact]
     public async Task Import_and_draft_edit_accept_child_views_backed_by_an_inherited_template_field()
     {
         const string inheritedSchema = "{\"inherit\":false,\"properties\":[{\"key\":\"phase\",\"label\":\"Phase\",\"type\":\"select\",\"options\":[\"Ready\",\"Done\"],\"required\":false}]}";
@@ -2519,12 +2676,13 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         string? schema,
         ItemId? parentId,
         long seq,
-        DateTimeOffset now) => new()
+        DateTimeOffset now,
+        string type = "note") => new()
         {
             Id = ItemId.Create(),
             TenantId = TestTenants.AlphaContext.TenantId,
             WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
-            Type = "note",
+            Type = type,
             ParentId = parentId,
             Seq = seq,
             Properties = ItemProperties.WithTitle(null, title),
