@@ -406,6 +406,7 @@ describe('markdownToDocument', () => {
       expect(allText(result.doc)).toContain('and a local image');
       expect(allText(result.doc)).toContain('Wiki Link');
       expect(linkHrefs(result.doc)).toContain('./img.png');
+      expect(result.localImageTargets).toEqual(['./img.png']);
       expect(result.scan).toEqual({
         unresolvedWikiLinks: 1,
         unresolvedObsidianEmbeds: 0,
@@ -719,3 +720,19 @@ function linkTitles(docJson: unknown): (string | null)[] {
   walk(docJson as LooseNode);
   return titles;
 }
+
+it('exports block references as links and reports live-section and page-layout losses', () => {
+  const result = documentToMarkdown(
+    doc(
+      {
+        type: 'itemBlock',
+        attrs: { targetId: '11111111-1111-4111-8111-111111111111', presentation: 'embed' },
+      },
+      { type: 'pageBreak' },
+    ),
+  );
+  expect(result.markdown).toContain('nix://item/11111111-1111-4111-8111-111111111111');
+  expect(result.losses.map((loss) => loss.kind)).toEqual(
+    expect.arrayContaining(['item-block-linked', 'page-break-flattened']),
+  );
+});

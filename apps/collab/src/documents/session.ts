@@ -337,17 +337,19 @@ export class DocumentSession {
       return;
     }
 
-    if (this.#overRateLimit(socket)) {
-      return;
-    }
-
     let update: Uint8Array;
     try {
       update = decoding.readVarUint8Array(decoder);
     } catch {
-      this.#refuse(socket, rejection('update_unreadable', 'The payload is not a Yjs update.'));
+      if (!this.#overRateLimit(socket))
+        this.#refuse(socket, rejection('update_unreadable', 'The payload is not a Yjs update.'));
       return;
     }
+
+    // An empty sync-step reply is a handshake, not an edit. Validating it against
+    // a new, uninitialized note would refuse it and request the same reply forever.
+    if (update.byteLength === 2 && update[0] === 0 && update[1] === 0) return;
+    if (this.#overRateLimit(socket)) return;
 
     if (update.byteLength > LIMITS.updateBytes) {
       this.#context.log?.(

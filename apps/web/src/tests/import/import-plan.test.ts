@@ -15,10 +15,9 @@ describe('screening a selection before reading it', () => {
     const paths = ['vault/real.md', 'vault/image.png', 'vault/.obsidian/config.md'];
     const screened = screenPaths(paths);
 
-    expect(screened.wanted).toEqual([true, false, false]);
+    expect(screened.wanted).toEqual([true, true, false]);
     // The reasons match planImport's own, because both apply the one skip rule.
     expect(screened.skipped).toEqual([
-      { path: 'vault/image.png', reason: 'not a Markdown file' },
       { path: 'vault/.obsidian/config.md', reason: 'inside a hidden directory, not imported' },
     ]);
   });
@@ -30,7 +29,7 @@ describe('screening a selection before reading it', () => {
   });
 
   it('carries its skips into the plan so the preview stays whole', () => {
-    const screened = screenPaths(['vault/a.md', 'vault/pic.png']);
+    const screened = screenPaths(['vault/a.md', 'vault/.nix/pic.png']);
     const plan = planImport(
       [{ path: 'vault/a.md', text: 'Body.' }],
       () => ({ ok: true, doc: {}, scan: EMPTY_MARKDOWN_IMPORT_SCAN }),
@@ -39,7 +38,9 @@ describe('screening a selection before reading it', () => {
     );
 
     expect(plan.root?.children.map((child) => child.title)).toEqual(['a']);
-    expect(plan.skipped).toEqual([{ path: 'vault/pic.png', reason: 'not a Markdown file' }]);
+    expect(plan.skipped).toEqual([
+      { path: 'vault/.nix/pic.png', reason: 'inside a hidden directory, not imported' },
+    ]);
   });
 });
 
@@ -99,21 +100,55 @@ describe('planning an import', () => {
     expect(note?.properties).toEqual({ status: 'done', count: 5 });
   });
 
-  it('declares what it cannot import - non-Markdown, hidden directories - instead of dropping it', () => {
+  it('plans selected attachments beside Markdown, while keeping hidden directories out', () => {
+    const image = new File(['pixels'], 'image.png', { type: 'image/png' });
     const plan = planImport(
       [
         { path: 'vault/real.md', text: 'Real.' },
-        { path: 'vault/image.png', text: '' },
+        { path: 'vault/image.png', file: image },
         { path: 'vault/.obsidian/config.md', text: 'tool config' },
       ],
       parseOk,
     );
 
-    expect(plan.root?.children.map((child) => child.title)).toEqual(['real']);
+    expect(plan.root?.children.map((child) => child.title)).toEqual(['image.png', 'real']);
+    expect(plan.root?.children[0]?.kind).toBe('attachment');
     expect(plan.skipped).toEqual([
-      { path: 'vault/image.png', reason: 'not a Markdown file' },
       { path: 'vault/.obsidian/config.md', reason: 'inside a hidden directory, not imported' },
     ]);
+  });
+
+  it('recognises a local Markdown image that has a selected attachment', () => {
+    const plan = planImport(
+      [
+        { path: 'vault/note.md', text: '![Diagram](./image.png)' },
+        { path: 'vault/image.png', file: new File(['pixels'], 'image.png', { type: 'image/png' }) },
+      ],
+      () => ({
+        ok: true,
+        doc: {
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Diagram',
+                  marks: [{ type: 'link', attrs: { href: './image.png' } }],
+                },
+              ],
+            },
+          ],
+        },
+        scan: { ...EMPTY_MARKDOWN_IMPORT_SCAN, unresolvedLocalImages: 1 },
+        localImageTargets: ['./image.png'],
+      }),
+    );
+
+    const note = plan.root?.children.find((child) => child.title === 'note');
+    expect(note?.resolvedLocalImages).toBe(1);
+    expect(note?.scan.unresolvedLocalImages).toBe(0);
   });
 
   it('reports a body the document model rejects as failed, and keeps planning the rest', () => {

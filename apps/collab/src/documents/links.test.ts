@@ -134,3 +134,20 @@ describe('bounding the text handed to the search index', () => {
     expect(boundSearchText(enormous)).toHaveLength(SEARCH_TEXT_CEILING);
   });
 });
+
+it('indexes block note references alongside inline references without treating them as children', () => {
+  const source = '00000000-0000-4000-8000-000000000001';
+  const target = '00000000-0000-4000-8000-000000000002';
+  expect(
+    extractItemLinks(
+      {
+        type: 'doc',
+        content: [
+          { type: 'itemBlock', attrs: { targetId: target, presentation: 'embed' } },
+          { type: 'itemBlock', attrs: { targetId: source, presentation: 'subpage' } },
+        ],
+      },
+      source,
+    ),
+  ).toEqual(new Map([[target, 1]]));
+});

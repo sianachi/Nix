@@ -16,7 +16,7 @@ import { yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { LIMITS } from './limits.ts';
-import { extractItemLinks } from './links.ts';
+import { extractCanvasItemLinks, extractItemLinks } from './links.ts';
 
 /** What one measurement of a merged document says about it. */
 export interface Measurement {
@@ -114,10 +114,9 @@ export interface BodyKindStrategy {
    *
    * Optional, like {@link explain}, and for the same kind of reason: a body kind that cannot hold
    * a reference has nothing to say here, and an implementation returning an empty map on every
-   * call is a worse answer than not claiming to answer. Only prose can hold a reference today.
-   * A canvas will, when cards referencing items arrive, and its edges come out of scene elements
-   * rather than out of document nodes - which is exactly why this is a member of the strategy and
-   * not a function the caller applies to every body kind alike.
+   * call is a worse answer than not claiming to answer. Prose edges come from document nodes;
+   * canvas edges come from scene elements. That difference is exactly why this is a member of the
+   * strategy and not a function the caller applies to every body kind alike.
    */
   extractLinks?(json: unknown, sourceItemId: string): ReadonlyMap<string, number>;
 }
@@ -234,6 +233,10 @@ export const canvasStrategy: BodyKindStrategy = {
       }
     }
     return { json: { elements: scene }, plaintext: words.join('\n') };
+  },
+
+  extractLinks(json: unknown, sourceItemId: string): ReadonlyMap<string, number> {
+    return extractCanvasItemLinks(json, sourceItemId);
   },
 };
 
@@ -385,9 +388,15 @@ function readScene(state: Y.Doc): Record<string, unknown> | null {
       };
       if (
         candidate.id !== id ||
+        id.length === 0 ||
         typeof candidate.type !== 'string' ||
+        candidate.type.length === 0 ||
         typeof candidate.version !== 'number' ||
-        typeof candidate.versionNonce !== 'number'
+        !Number.isSafeInteger(candidate.version) ||
+        candidate.version < 0 ||
+        typeof candidate.versionNonce !== 'number' ||
+        !Number.isSafeInteger(candidate.versionNonce) ||
+        candidate.versionNonce < 0
       ) {
         return null;
       }
