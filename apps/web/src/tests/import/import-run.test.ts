@@ -1,4 +1,4 @@
-import { NixApiError, NixErrorKind, type NixClient } from '@nix/api-client';
+import { files as fileResources, NixApiError, NixErrorKind, type NixClient } from '@nix/api-client';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +29,20 @@ function note(path: string, title: string, overrides: Partial<PlannedNode> = {})
 
 function container(path: string, title: string, children: readonly PlannedNode[]): PlannedNode {
   return note(path, title, { kind: 'container', doc: null, children });
+}
+
+function attachment(path: string, file: File): PlannedNode {
+  return {
+    path,
+    kind: 'attachment',
+    title: file.name,
+    properties: {},
+    doc: null,
+    droppedFrontMatter: [],
+    scan: EMPTY_MARKDOWN_IMPORT_SCAN,
+    file,
+    children: [],
+  };
 }
 
 /** A client whose `execute` runs the given script, one answer per call. */
@@ -86,6 +100,29 @@ afterEach(() => {
 });
 
 describe('running an import plan', () => {
+  it('uploads an attachment under its planned parent without reading it as a note', async () => {
+    const { client, calls } = clientOf((operation) =>
+      operation === 'files.upload.begin' ? { id: 'upload-id' } : item(),
+    );
+    vi.spyOn(fileResources, 'uploadAndCompleteFile').mockResolvedValue({
+      itemId: '00000000-0000-4000-8000-000000000099',
+    } as never);
+
+    const report = await runImportPlan({
+      workspaceId: WORKSPACE_ID,
+      plan: container('vault', 'vault', [
+        attachment('vault/photo.png', new File(['pixels'], 'photo.png', { type: 'image/png' })),
+      ]),
+      parentId: null,
+      client,
+      getAccessToken: () => Promise.resolve('token'),
+    });
+
+    expect(calls.map((call) => call.operation)).toEqual(['items.create', 'files.upload.begin']);
+    expect(calls[1]?.body).toMatchObject({ parentId: report.rootItemId, fileName: 'photo.png' });
+    expect(report.created.map((row) => row.title)).toEqual(['vault', 'photo.png']);
+  });
+
   it('creates parents before children, writes each body once, and reports every created row', async () => {
     const { client, calls } = clientOf(() => item());
     const collab = collabOf(collabOk);

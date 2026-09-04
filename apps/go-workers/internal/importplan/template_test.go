@@ -182,14 +182,14 @@ func templateArchiveSource(t *testing.T, profile any, includeChild, includeRootB
 		})
 	}
 	manifest := map[string]any{
-		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 2, "profile": profile,
+		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 3, "profile": profile,
 		"exportedAt": "2026-09-01T12:00:00Z", "root": templateRoot,
 		"rootEffectiveSchema": map[string]any{"properties": []any{}, "declared": []any{}, "inherit": true},
 		"includesDeleted":     false, "items": items, "omitted": omitted, "loss": loss,
 	}
 	rootBody := any(nil)
 	if includeRootBody {
-		rootBody = map[string]any{"schemaVersion": 2, "prosemirror": map[string]any{"type": "doc", "content": []any{}}}
+		rootBody = map[string]any{"schemaVersion": 3, "prosemirror": map[string]any{"type": "doc", "content": []any{}}}
 	}
 	rootViews := map[string]any{
 		"default": "view", "views": []any{map[string]any{

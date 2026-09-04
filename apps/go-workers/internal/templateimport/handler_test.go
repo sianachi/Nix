@@ -482,7 +482,7 @@ func templateArchive(t *testing.T, includeChild bool) []byte {
 		items = append(items, map[string]any{"id": testChildID, "parentId": testRootID, "seq": "4096", "title": "Sketch", "type": "canvas"})
 	}
 	manifest := map[string]any{
-		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 2, "profile": profile,
+		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 3, "profile": profile,
 		"exportedAt": "2026-09-01T12:00:00Z", "root": testRootID, "rootEffectiveSchema": nil,
 		"includesDeleted": false, "items": items, "omitted": []any{}, "loss": []any{},
 	}
@@ -495,7 +495,7 @@ func templateArchive(t *testing.T, includeChild bool) []byte {
 			"viewRows": []any{}, "viewRowsTruncated": false, "body": body,
 		}
 	}
-	rootBody := map[string]any{"schemaVersion": 2, "prosemirror": map[string]any{"type": "doc", "content": []any{}}}
+	rootBody := map[string]any{"schemaVersion": 3, "prosemirror": map[string]any{"type": "doc", "content": []any{}}}
 	manifestJSON, _ := json.Marshal(manifest)
 	rootJSON, _ := json.Marshal(bundle(testRootID, nil, "2048", "Project", "note", rootBody))
 	entries := []struct {
