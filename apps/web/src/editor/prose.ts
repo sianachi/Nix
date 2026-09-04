@@ -201,6 +201,8 @@ export const proseClasses: Readonly<Record<string, string>> = {
 
   horizontalRule: 'my-8 border-t border-divider',
 
+  itemBlock: `${BLOCK_GAP} rounded-md border border-divider p-4`,
+  pageBreak: `${BLOCK_GAP} border-y border-dashed border-divider py-3`,
   image: `${BLOCK_GAP} block h-auto max-w-full border border-divider`,
 
   // Tables. `table-fixed` is what makes the column widths prosemirror-tables writes into the
