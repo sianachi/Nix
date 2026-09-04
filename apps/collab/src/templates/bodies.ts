@@ -485,7 +485,11 @@ export function remapItemReferences(
   for (const [key, child] of Object.entries(value)) {
     mapped[key] = remapItemReferences(child, mappings, stubUnknown);
   }
-  if (value.type === 'reference' && isRecord(value.attrs) && value.attrs.kind === 'item') {
+  if (
+    (value.type === 'itemBlock' || value.type === 'reference') &&
+    isRecord(value.attrs) &&
+    (value.type === 'itemBlock' || value.attrs.kind === 'item')
+  ) {
     const target = value.attrs.targetId;
     if (typeof target === 'string') {
       const replacement = mappings.get(target);
