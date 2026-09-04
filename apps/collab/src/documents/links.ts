@@ -56,12 +56,16 @@ const ITEM_KIND = 'item';
 export function extractItemLinks(json: unknown, sourceItemId: string): ReadonlyMap<string, number> {
   const counts = new Map<string, number>();
   walk(json, (node) => {
-    if (node.type !== REFERENCE_NODE || node.attrs === null || typeof node.attrs !== 'object') {
+    if (
+      (node.type !== REFERENCE_NODE && node.type !== 'itemBlock') ||
+      node.attrs === null ||
+      typeof node.attrs !== 'object'
+    ) {
       return;
     }
 
     const attrs = node.attrs as Record<string, unknown>;
-    if (readString(attrs.kind) !== ITEM_KIND) {
+    if (node.type === REFERENCE_NODE && readString(attrs.kind) !== ITEM_KIND) {
       return;
     }
 
