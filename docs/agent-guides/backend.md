@@ -17,5 +17,7 @@ Stream first. Follow the memory order in the legacy standards; annotate forced
 BUFFERS)` plan. A documented index is not proof it is used.
 
 Run the mapped unit checks. Persistence, RLS, permission, migration, or SQL work
-also needs integration proof against real Postgres. A backend build regenerates
-the OpenAPI contract; regenerate the API client whenever that contract changes.
+also needs integration proof against real Postgres. Ordinary backend builds do
+not regenerate OpenAPI. For a contract change, run `dotnet build
+backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true`, then
+regenerate the API client and commit both generated outputs.

@@ -1,9 +1,4 @@
-import {
-  bookmarks,
-  isNixApiError,
-  type KeptItem,
-  type NixClient,
-} from '@nix/api-client';
+import { bookmarks, isNixApiError, type KeptItem, type NixClient } from '@nix/api-client';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
@@ -45,7 +40,7 @@ export interface BookmarksState {
 }
 
 interface BookmarksStore extends BookmarksState {
-  readonly reload: () => Promise<void>;
+  readonly reload: (forceRefresh?: boolean) => Promise<void>;
   readonly keep: (itemId: string) => Promise<void>;
   readonly release: (itemId: string) => Promise<void>;
   readonly toggle: (itemId: string) => Promise<void>;
@@ -84,14 +79,9 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
   hidden: 0,
   error: null,
 
-  reload: async () => {
+  reload: async (forceRefresh = false) => {
     try {
-      // `reload` is an explicit synchronization point. A successful keep/remove marks the cached
-      // shelf stale, but stale-while-revalidate would otherwise hand this store the old shelf and
-      // refresh only after the optimistic state had already been overwritten.
-      const shelf = await configuredClient().query(bookmarks.listBookmarks(), {
-        forceRefresh: true,
-      });
+      const shelf = await configuredClient().query(bookmarks.listBookmarks(), { forceRefresh });
       set({
         status: 'ready',
         items: shelf.items,
@@ -142,7 +132,7 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
       // Re-read rather than synthesising a row. The list carries the item's title and workspace and
       // this build has neither, so an invented row would put a name on the shelf that came from
       // nowhere.
-      await get().reload();
+      await get().reload(true);
     } catch {
       set({ keptIds: before });
     }
