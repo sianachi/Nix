@@ -8,7 +8,6 @@ import { ApiClientProvider } from '../../../api/api-client-provider';
 import { AuthProvider } from '../../../auth/auth-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
-import { ApiClientProvider } from '../../../api/api-client-provider';
 
 /**
  * The query view, driven against a stubbed run endpoint: the five states, the container names on
