@@ -39,6 +39,10 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplatePreflight>(TemplateErrors.Invalid("The template has no active root."));
         }
+        if (ContainsFileItems(source))
+        {
+            return Result.Failure<TemplatePreflight>(TemplateErrors.FileAttachmentsUnsupported());
+        }
         var canApply = await _permissions.CanWriteWorkspaceAsync(template.WorkspaceId, cancellationToken)
             .ConfigureAwait(false);
         // Preflighting an application of a captured template: the source came from a workspace and

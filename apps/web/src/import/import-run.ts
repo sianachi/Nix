@@ -13,10 +13,18 @@
  * step between the two, so a change to any of those here owes the same change there.
  */
 
-import { isNixApiError, items, structure, type NixClient } from '@nix/api-client';
+import {
+  files as fileResources,
+  isNixApiError,
+  items,
+  structure,
+  type NixClient,
+} from '@nix/api-client';
 import type { MarkdownImportScan } from '@nix/markdown/scan';
 
+import { mediaTypeForFile } from '../lib/file-kind';
 import { writeImportedBody } from './note-body-writer';
+import { rewriteLocalImageReferences } from './local-image-references';
 import type { PlannedNode } from './import-plan';
 
 export interface CreatedRow {
@@ -27,6 +35,16 @@ export interface CreatedRow {
   readonly droppedFrontMatter: readonly string[];
   readonly bodyError?: string;
   readonly propertiesError?: string;
+}
+
+interface MutableCreatedRow {
+  path: string;
+  itemId: string;
+  title: string;
+  scan: MarkdownImportScan;
+  droppedFrontMatter: readonly string[];
+  bodyError?: string;
+  propertiesError?: string;
 }
 
 export interface PathReasonRow {
@@ -74,7 +92,7 @@ export interface ImportRunRequest {
 export async function runImportPlan(request: ImportRunRequest): Promise<ImportRunReport> {
   const { plan, parentId, client, getAccessToken, onProgress, signal, workspaceId } = request;
 
-  const created: CreatedRow[] = [];
+  const created: MutableCreatedRow[] = [];
   const failed: PathReasonRow[] = [];
   const notAttempted: PathReasonRow[] = [];
   let stoppedEarly = false;
@@ -83,6 +101,12 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
   // whatever this names, and a positional read would silently name the wrong item if anything
   // were ever created before the root.
   let rootItemId: string | null = null;
+  const attachmentItemIds = new Map<string, string>();
+  const pendingBodies: {
+    readonly node: PlannedNode;
+    readonly itemId: string;
+    readonly row: MutableCreatedRow;
+  }[] = [];
 
   const total = countNodes(plan);
   let attempted = 0;
@@ -135,15 +159,35 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
       // to that key through the cache (the sidebar fetches directly), so an N-item import costs N
       // cheap invalidation walks and no refetches - if a tree subscriber ever appears, this loop
       // is the first place to revisit.
-      const item = await client.execute(
-        items.createItem(workspaceId, {
-          type: 'note',
-          title: next.node.title,
-          ...(next.parentId !== null ? { parentId: next.parentId } : {}),
-        }),
-        signal === undefined ? undefined : { signal },
-      );
-      itemId = item.id;
+      if (next.node.kind === 'attachment') {
+        const file = next.node.file;
+        if (file === undefined) {
+          throw new Error('The attachment is no longer available. Choose the files again.');
+        }
+        const upload = await client.execute(
+          fileResources.beginUpload({
+            workspaceId,
+            parentId: next.parentId,
+            fileName: file.name,
+            mediaType: mediaTypeForFile(file),
+            byteLength: file.size,
+            idempotencyKey: `web-import-file:${crypto.randomUUID()}`,
+          }),
+          signal === undefined ? undefined : { signal },
+        );
+        const published = await fileResources.uploadAndCompleteFile(client, upload, file, signal);
+        itemId = published.itemId;
+      } else {
+        const item = await client.execute(
+          items.createItem(workspaceId, {
+            type: 'note',
+            title: next.node.title,
+            ...(next.parentId !== null ? { parentId: next.parentId } : {}),
+          }),
+          signal === undefined ? undefined : { signal },
+        );
+        itemId = item.id;
+      }
       if (head === 0) {
         rootItemId = itemId;
       }
@@ -173,15 +217,7 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
       continue;
     }
 
-    const row: {
-      path: string;
-      itemId: string;
-      title: string;
-      scan: MarkdownImportScan;
-      droppedFrontMatter: readonly string[];
-      bodyError?: string;
-      propertiesError?: string;
-    } = {
+    const row: MutableCreatedRow = {
       path: next.node.path,
       itemId,
       title: next.node.title,
@@ -190,18 +226,12 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
     };
     created.push(row);
 
+    if (next.node.kind === 'attachment') {
+      attachmentItemIds.set(next.node.path, itemId);
+    }
+
     if (next.node.doc !== null) {
-      const outcome = await writeImportedBody({
-        itemId,
-        doc: next.node.doc,
-        token,
-        ...(signal === undefined ? {} : { signal }),
-        ...(request.collabBaseUrl === undefined ? {} : { baseUrl: request.collabBaseUrl }),
-        ...(request.fetchImpl === undefined ? {} : { fetchImpl: request.fetchImpl }),
-      });
-      if (!outcome.ok) {
-        row.bodyError = outcome.error;
-      }
+      pendingBodies.push({ node: next.node, itemId, row });
     }
 
     if (Object.keys(next.node.properties).length > 0) {
@@ -239,6 +269,38 @@ export async function runImportPlan(request: ImportRunRequest): Promise<ImportRu
 
     for (const child of next.node.children) {
       queue.push({ node: child, parentId: itemId });
+    }
+  }
+
+  // File ids do not exist until their upload has completed. Writing note bodies after the tree
+  // is created lets a local Markdown image point at that durable id rather than an expiring URL.
+  for (const pending of pendingBodies) {
+    const rewritten = rewriteLocalImageReferences(
+      pending.node.doc,
+      pending.node.path,
+      pending.node.localImageTargets ?? [],
+      attachmentItemIds,
+    );
+    const expectedResolved = pending.node.resolvedLocalImages ?? 0;
+    if (rewritten.resolved !== expectedResolved) {
+      pending.row.scan = {
+        ...pending.row.scan,
+        unresolvedLocalImages: Math.max(
+          0,
+          pending.row.scan.unresolvedLocalImages + expectedResolved - rewritten.resolved,
+        ),
+      };
+    }
+    const outcome = await writeImportedBody({
+      itemId: pending.itemId,
+      doc: rewritten.doc,
+      token,
+      ...(signal === undefined ? {} : { signal }),
+      ...(request.collabBaseUrl === undefined ? {} : { baseUrl: request.collabBaseUrl }),
+      ...(request.fetchImpl === undefined ? {} : { fetchImpl: request.fetchImpl }),
+    });
+    if (!outcome.ok) {
+      pending.row.bodyError = outcome.error;
     }
   }
 

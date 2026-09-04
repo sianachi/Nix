@@ -8,6 +8,10 @@ import {
   type ArchiveManifest,
   type ItemBundle,
 } from './manifest.js';
+import {
+  assertBundleHasNoUnportableFiles,
+  assertManifestHasNoUnportableFiles,
+} from './file-portability.js';
 
 /**
  * Writes a `.nix` archive as a stream of chunks.
@@ -35,6 +39,10 @@ export async function* writeArchive(input: {
   if (manifest.format !== ARCHIVE_FORMAT) {
     throw new Error(`An archive manifest must declare format '${ARCHIVE_FORMAT}'.`);
   }
+
+  // Archive v1 has no file-byte entry. Check the manifest before constructing the zip so a file
+  // item produces no plausible prefix at all; a later body reference still leaves the zip open.
+  assertManifestHasNoUnportableFiles(manifest);
 
   // A holder rather than a bare `let`: the callback below assigns it, which the compiler cannot
   // see, so a plain variable would be narrowed to null at every read and the check would compile
@@ -75,6 +83,8 @@ export async function* writeArchive(input: {
     if (written.has(bundle.id)) {
       throw new Error(`The bundle for ${bundle.id} was produced twice.`);
     }
+
+    assertBundleHasNoUnportableFiles(bundle);
 
     written.add(bundle.id);
     yield* addEntry(zip, queue, state, itemEntryName(bundle.id), encodeJson(bundle), mtime);

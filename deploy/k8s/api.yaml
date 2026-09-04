@@ -25,7 +25,9 @@ spec:
   template:
     metadata:
       labels: { app: nix-api }
-      annotations: { nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}" }
+      annotations:
+        nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
+        nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -62,6 +64,8 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: api-url } }
             - name: Nix__ObjectStorage__Endpoint
               valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: Nix__ObjectStorage__PublicOrigin
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
             - name: Nix__ObjectStorage__Region
               valueFrom: { secretKeyRef: { name: nix-object-store, key: region } }
             - name: Nix__ObjectStorage__Bucket

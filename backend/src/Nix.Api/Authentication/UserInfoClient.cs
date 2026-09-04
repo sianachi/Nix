@@ -212,8 +212,6 @@ public sealed class UserInfoClient : IUserInfoClient
     {
         if (!Uri.TryCreate(validatedIssuer, UriKind.Absolute, out var issuer)
             || !endpoint.IsAbsoluteUri
-            || endpoint.Scheme != Uri.UriSchemeHttps
-            || issuer.Scheme != Uri.UriSchemeHttps
             || endpoint.UserInfo.Length != 0
             || endpoint.Fragment.Length != 0
             || issuer.UserInfo.Length != 0)
@@ -221,7 +219,12 @@ public sealed class UserInfoClient : IUserInfoClient
             return false;
         }
 
-        return string.Equals(endpoint.Scheme, issuer.Scheme, StringComparison.OrdinalIgnoreCase)
+        var sameScheme = string.Equals(endpoint.Scheme, issuer.Scheme, StringComparison.OrdinalIgnoreCase);
+        var transportAllowed = endpoint.Scheme == Uri.UriSchemeHttps
+            || (endpoint.Scheme == Uri.UriSchemeHttp && endpoint.IsLoopback && issuer.IsLoopback);
+
+        return sameScheme
+            && transportAllowed
             && string.Equals(endpoint.IdnHost, issuer.IdnHost, StringComparison.OrdinalIgnoreCase)
             && endpoint.Port == issuer.Port;
     }

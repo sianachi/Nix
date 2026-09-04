@@ -16,7 +16,10 @@ const (
 	nixArchiveFormat  = "nix-archive"
 	nixArchiveVersion = 1
 	nixSchemaMinimum  = 1
-	nixSchemaMaximum  = 2
+	// Keep this in lockstep with @nix/editor-schema's SCHEMA_VERSION. Version 3
+	// adds the durable image fileItemId attribute; the importer preserves the
+	// opaque document envelope and still validates its shape below.
+	nixSchemaMaximum = 3
 )
 
 var archiveIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)

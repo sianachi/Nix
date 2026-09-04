@@ -13,12 +13,19 @@ spec:
   replicas: 2
   selector: { matchLabels: { app: nix-web } }
   template:
-    metadata: { labels: { app: nix-web } }
+    metadata:
+      labels: { app: nix-web }
+      annotations: { nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}" }
     spec:
       containers:
         - name: caddy
           image: ${REGISTRY}/web:${TAG}
           ports: [{ containerPort: 8090 }]
+          env:
+            # Must match Core's browser capability origin so Caddy admits the signed download and
+            # upload requests without broadening connect-src to arbitrary hosts.
+            - name: NIX_OBJECT_STORE_PUBLIC_ORIGIN
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
           volumeMounts:
             - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
             - { name: caddy-data, mountPath: /data }

@@ -689,6 +689,27 @@ describe('the hostile archive reader', () => {
       code: 'archive.body_invalid',
     });
 
+    for (const element of [
+      { id: 'element', type: 'rectangle', version: 1.5, versionNonce: 1 },
+      { id: 'element', type: 'rectangle', version: 1, versionNonce: -1 },
+    ]) {
+      const invalidReconciliationBytes = zipSync({
+        [MANIFEST_ENTRY]: strToU8(JSON.stringify(canvasManifest)),
+        [itemEntryName(ROOT)]: strToU8(
+          JSON.stringify({
+            ...malformed,
+            body: {
+              schemaVersion: BASE_SCHEMA_VERSION,
+              canvas: { elements: { element } },
+            },
+          }),
+        ),
+      });
+      await expect(readArchive(pieces(invalidReconciliationBytes))).rejects.toMatchObject({
+        code: 'archive.body_invalid',
+      });
+    }
+
     const elements = Object.fromEntries(
       Array.from({ length: 10_001 }, (_unused, index) => {
         const id = `element-${String(index)}`;
