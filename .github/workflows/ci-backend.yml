@@ -96,7 +96,7 @@ jobs:
         run: dotnet format Nix.slnx --verify-no-changes
 
       - name: Build (analyzers + warnings-as-errors)
-        run: dotnet build Nix.slnx --configuration Release
+        run: dotnet build Nix.slnx --configuration Release -p:NixGenerateOpenApiContract=true
 
       # The build above regenerates backend/openapi/nix-api.json (see the OpenAPI
       # section of Nix.Api.csproj). If the committed contract no longer matches the
