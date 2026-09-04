@@ -1,9 +1,12 @@
 # Workflow and validation guide
 
-Run `scripts/changed-path-checks.sh` against the actual diff before claiming work
-is verified. Its recommendations are local minimums; CI path filters and review
-requirements still govern merging. Root recursive commands are useful for
-cross-cutting changes, not a default for a narrowly scoped edit.
+Before editing in a shared or dirty checkout, create a focused worktree with
+`scripts/new-goal-worktree.sh <feature-slug> [base-ref]`. Run
+`scripts/validate-changed.sh --working-tree` against the actual diff before
+claiming work is verified; use `--dry-run` to inspect the exact command list.
+Its recommendations are local minimums; CI path filters and review requirements
+still govern merging. Root recursive commands are useful for cross-cutting
+changes, not a default for a narrowly scoped edit.
 
 Every frontend guard has a fixture self-test. Run its self-test before the guard.
 The Storybook runner can hang in headless environments; stop after a couple of

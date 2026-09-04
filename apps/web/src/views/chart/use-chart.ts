@@ -1,15 +1,18 @@
-import { itemChartSchema, type ItemChart } from '@nix/api-client';
+import {
+  isCanceledError,
+  isNixApiError,
+  itemChart as coreItemChart,
+  type ItemChart,
+} from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useAuth } from '../../auth/auth-provider';
+import { useApiClient } from '../../api/api-client-provider';
 
 /**
  * One chart view's buckets, refreshed on demand.
  *
- * Talks to Core with `fetch` rather than through `@nix/api-client`'s cache layer, for the reason
- * `use-query-results.ts` gives: the descriptor executor wants a configured `NixClient` and this
- * needs one thing, a bearer token per request. The schema is the package's own, so the parse is
- * not duplicated logic - only the transport is, and both change together when the client is wired.
+ * Uses the configured API client so authentication, cancellation, caching, error mapping, and
+ * response parsing stay on the same path as the other server-owned views.
  *
  * **The client names the view and never sends the grouping.** The stored view is the whole
  * configuration, exactly as it is for a smart list, and the buckets are computed over every child
@@ -23,13 +26,8 @@ import { useAuth } from '../../auth/auth-provider';
  * Keyed on the problem's `code` rather than on the status alone: a bodyless 404 is this build
  * asking a server that does not offer the endpoint, not a refusal.
  */
-async function refusal(response: Response): Promise<string> {
-  const code: unknown = await response
-    .json()
-    .then((body: unknown) =>
-      typeof body === 'object' && body !== null && 'code' in body ? body.code : null,
-    )
-    .catch(() => null);
+function refusal(reason: unknown): string {
+  const code = isNixApiError(reason) ? reason.code : null;
 
   if (code === 'items.not_found') {
     return 'This item could not be found.';
@@ -43,7 +41,7 @@ async function refusal(response: Response): Promise<string> {
     return 'This chart is not finished: it needs a property to group by, and a property to total if it totals one. Edit it under Views.';
   }
 
-  if (response.status === 404) {
+  if (isNixApiError(reason) && reason.status === 404) {
     return 'This version of the application asked for a chart the server does not offer. The server may be running an older build.';
   }
 
@@ -62,7 +60,7 @@ export interface ChartState {
 }
 
 export function useChart(itemId: string, viewId: string): ChartState {
-  const { getAccessToken } = useAuth();
+  const client = useApiClient();
 
   const [status, setStatus] = useState<ChartStatus>('loading');
   const [chart, setChart] = useState<ItemChart | null>(null);
@@ -73,40 +71,15 @@ export function useChart(itemId: string, viewId: string): ChartState {
     setError(null);
 
     try {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `/api/v1/items/${itemId}/chart?view=${encodeURIComponent(viewId)}`,
-        {
-          headers: {
-            'content-type': 'application/json',
-            ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-          },
-        },
-      );
-
-      if (!response.ok) {
-        setError(await refusal(response));
-        setStatus('error');
-        return;
-      }
-
-      const parsed = itemChartSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        // A parse failure is telemetry, not a silent fallback: the contract moved and this build
-        // did not.
-        console.warn('A chart response did not match the contract:', parsed.error.message);
-        setError('The chart could not be read.');
-        setStatus('error');
-        return;
-      }
-
-      setChart(parsed.data);
+      const loaded = await client.query(coreItemChart.itemChart(itemId, viewId));
+      setChart(loaded);
       setStatus('ready');
-    } catch {
-      setError('Core could not be reached.');
+    } catch (reason) {
+      if (isCanceledError(reason)) return;
+      setError(isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.');
       setStatus('error');
     }
-  }, [getAccessToken, itemId, viewId]);
+  }, [client, itemId, viewId]);
 
   useEffect(() => {
     queueMicrotask(() => {

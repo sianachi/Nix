@@ -98,17 +98,14 @@ export function useAccessTokens(): AccessTokensState {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
-    async (signal?: AbortSignal): Promise<void> => {
+    async (signal?: AbortSignal, forceRefresh = false): Promise<void> => {
       setStatus('loading');
       setError(null);
 
       try {
         const loaded = await client.query(accessTokens.listAccessTokens(), {
           signal,
-          // This hook owns a live audit table rather than a stale-data view. In particular, the
-          // read after revocation must await the invalidated row instead of first rendering the
-          // stale live token while a background revalidation happens out of sight.
-          forceRefresh: true,
+          forceRefresh,
         });
         setTokens(loaded.tokens);
         setStatus('ready');
@@ -143,7 +140,7 @@ export function useAccessTokens(): AccessTokensState {
   }, [load]);
 
   const reload = useCallback(async (): Promise<void> => {
-    await load();
+    await load(undefined, true);
   }, [load]);
 
   const create = useCallback(
