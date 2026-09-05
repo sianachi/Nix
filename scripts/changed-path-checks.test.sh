@@ -39,7 +39,19 @@ esac
 workflow_output=$("$planner" scripts/validate-changed.sh)
 assert_contains "$workflow_output" 'validate-changed.test.sh'
 
-empty_output=$("$planner" --working-tree)
-assert_contains "$empty_output" 'Changed paths:'
+compose_output=$("$planner" deploy/compose.prod.yml)
+assert_contains "$compose_output" 'bash deploy/compose/check.test.sh'
+
+fixture=$(mktemp -d)
+trap 'rm -rf "$fixture"' EXIT
+git -C "$fixture" init -q
+git -C "$fixture" -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m fixture
+empty_output=$(cd "$fixture" && "$planner" --working-tree)
+assert_contains "$empty_output" 'No changed paths detected'
+mkdir -p "$fixture/deploy"
+touch "$fixture/deploy/compose.prod.yml"
+dirty_output=$(cd "$fixture" && "$planner" --working-tree)
+assert_contains "$dirty_output" 'Changed paths:'
+assert_contains "$dirty_output" 'bash deploy/compose/check.test.sh'
 
 echo 'changed-path-checks.test: passed'
