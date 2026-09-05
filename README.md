@@ -15,32 +15,9 @@ and recovery verification remain separate from implementation status. See [docum
 
 ## See Nix in action
 
-
-
 https://github.com/user-attachments/assets/b91aa29d-66a0-4730-9e3f-f8ce5f9f93f9
 
-
-
-
-
-
-
 Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
-
-## Contribute to Nix
-
-Nix is being built in the open by people who care about calm, capable tools for collaborative work.
-If you want to help make documents, structured data and team workflows fit together better, we would
-love your contribution.
-
-Start with the product direction in this README, then read the [developer documentation](docs/README.md)
-and the contributor guides in `docs/agent-guides/`. Set up the local stack with `bash scripts/dev-stack-up.sh`,
-run the services listed in [Running the application](#running-the-application), and keep changes focused.
-Before proposing a change, run the checks selected by `./scripts/changed-path-checks.sh --working-tree`.
-
-Useful places to begin are the current roadmap below, test coverage around a feature you use, and
-documentation improvements that make the project easier to understand. Please keep product claims
-grounded in observed behaviour and do not hand-edit generated API contracts or clients.
 
 ## Problems Nix is solving
 
