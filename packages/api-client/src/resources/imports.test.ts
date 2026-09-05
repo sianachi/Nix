@@ -105,9 +105,7 @@ describe('the durable document import resource', () => {
       http.get(testUrl(`/api/v1/operations/${OPERATION_ID}`), () =>
         HttpResponse.json(durableOperation()),
       ),
-      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () =>
-        HttpResponse.json(documentImport()),
-      ),
+      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () => HttpResponse.json(documentImport())),
       http.get(testUrl(`/api/v1/imports/${IMPORT_ID}/preview`), () =>
         HttpResponse.json({
           url: CAPABILITY,
@@ -116,8 +114,9 @@ describe('the durable document import resource', () => {
           byteLength: Buffer.byteLength(plan),
         }),
       ),
-      http.get(CAPABILITY, () =>
-        new HttpResponse(plan, { headers: { 'content-type': 'application/json' } }),
+      http.get(
+        CAPABILITY,
+        () => new HttpResponse(plan, { headers: { 'content-type': 'application/json' } }),
       ),
     );
 
@@ -160,9 +159,7 @@ describe('the durable document import resource', () => {
       http.get(testUrl(`/api/v1/operations/${OPERATION_ID}`), () =>
         HttpResponse.json(durableOperation()),
       ),
-      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () =>
-        HttpResponse.json(documentImport()),
-      ),
+      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () => HttpResponse.json(documentImport())),
       http.get(testUrl(`/api/v1/imports/${IMPORT_ID}/preview`), () =>
         HttpResponse.json({
           url: CAPABILITY,

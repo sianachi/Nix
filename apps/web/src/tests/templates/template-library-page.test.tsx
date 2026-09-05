@@ -232,7 +232,7 @@ describe('the workspace template library', () => {
       name: 'This saved draft is no longer available',
     });
     expect(heading).toBeVisible();
-    expect(heading).toHaveFocus();
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(notice).toHaveAttribute('aria-live', 'assertive');
     expect(screen.getByText(/cannot be recovered/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try to resume again' })).toBeVisible();
@@ -255,7 +255,7 @@ describe('the workspace template library', () => {
       name: 'Another template draft is active',
     });
     expect(heading).toBeVisible();
-    expect(heading).toHaveFocus();
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(notice).toHaveAttribute('aria-live', 'assertive');
     expect(screen.getByText(/another tab must be finished or discarded first/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();

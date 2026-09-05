@@ -180,9 +180,7 @@ describe('the import dialog', () => {
     await pick(new File(['%PDF'], 'report.pdf', { type: 'application/pdf' }));
 
     expect(await screen.findByRole('heading', { name: 'Item mapping' })).toBeInTheDocument();
-    expect(screen.getByText(/report.pdf becomes a file/)).toHaveTextContent(
-      'retained as a file',
-    );
+    expect(screen.getByText(/report.pdf becomes a file/)).toHaveTextContent('retained as a file');
     expect(screen.getByText('Exact PDF layout is not preserved.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Import 2 items' }));
 
@@ -485,6 +483,8 @@ describe('the import dialog', () => {
     await pick(new File(['x'], 'photo.jpg', { type: 'image/jpeg' }));
 
     expect(await screen.findByRole('button', { name: 'Import 2 items' })).toBeInTheDocument();
-    expect(screen.getByText(/file or note from the chosen files will be created/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/file or note from the chosen files will be created/),
+    ).toBeInTheDocument();
   });
 });

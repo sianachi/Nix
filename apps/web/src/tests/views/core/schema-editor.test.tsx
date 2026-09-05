@@ -502,7 +502,10 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+    await user.selectOptions(
+      secondOf(screen.getAllByRole('combobox', { name: /type/i })),
+      'rollup',
+    );
 
     const fold = screen.getByRole('combobox', { name: /how hours folds the children/i });
     expect(fold).toBeVisible();
@@ -547,7 +550,10 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+    await user.selectOptions(
+      secondOf(screen.getAllByRole('combobox', { name: /type/i })),
+      'rollup',
+    );
     await user.selectOptions(screen.getByRole('combobox', { name: /how hours folds/i }), 'sum');
 
     expect(screen.getByRole('alert')).toHaveTextContent(/Choose a property to fold/);
@@ -569,9 +575,15 @@ describe('the schema editor', () => {
       />,
     );
 
-    await user.selectOptions(secondOf(screen.getAllByRole('combobox', { name: /type/i })), 'rollup');
+    await user.selectOptions(
+      secondOf(screen.getAllByRole('combobox', { name: /type/i })),
+      'rollup',
+    );
     await user.selectOptions(screen.getByRole('combobox', { name: /how hours folds/i }), 'sum');
-    await user.selectOptions(screen.getByRole('combobox', { name: /which property hours folds/i }), 'estimate');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /which property hours folds/i }),
+      'estimate',
+    );
     await user.click(screen.getByRole('button', { name: /save fields/i }));
 
     expect(setSchema).toHaveBeenCalledWith({

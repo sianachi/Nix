@@ -48,7 +48,9 @@ async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Prom
   return { env, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -97,12 +99,17 @@ describe('nixctl query', () => {
     const { env, done } = await withProfile();
     server.use(
       http.get(`${API}/api/v1/items/:itemId/query`, () =>
-        HttpResponse.json({ code: 'items.not_found', detail: 'No item is visible.' }, { status: 404 }),
+        HttpResponse.json(
+          { code: 'items.not_found', detail: 'No item is visible.' },
+          { status: 404 },
+        ),
       ),
     );
 
     await expect(
-      capture((json) => runQuery('default', ITEM, { view: 'board', today: '2026-08-19' }, json, { env })),
+      capture((json) =>
+        runQuery('default', ITEM, { view: 'board', today: '2026-08-19' }, json, { env }),
+      ),
     ).rejects.toMatchObject({ status: 404 });
     await done();
   });

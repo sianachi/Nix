@@ -111,22 +111,18 @@ export async function runImport(
     readonly setExitCode?: boolean;
   } = {},
 ): Promise<void> {
-  const writeResult = execution.writeResult ?? ((value: unknown) => {
-    printResult(value, output);
-  });
+  const writeResult =
+    execution.writeResult ??
+    ((value: unknown) => {
+      printResult(value, output);
+    });
   const setExitCode = execution.setExitCode ?? true;
   const skipped: SkippedEntry[] = [];
   const failed: FailedEntry[] = [];
 
   const documentFormat = asDocumentFormat(options.path);
   if (documentFormat !== null) {
-    await runWorkerDocumentImport(
-      profileName,
-      options,
-      documentFormat,
-      deps,
-      writeResult,
-    );
+    await runWorkerDocumentImport(profileName, options, documentFormat, deps, writeResult);
     return;
   }
   const root = await plan(options.path, skipped, failed);

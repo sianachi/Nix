@@ -1,4 +1,11 @@
-import { useCallback, useMemo } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useMemo,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 
@@ -184,9 +191,16 @@ export function parseViewState(params: URLSearchParams, pane = 0): ViewState {
  * write their own pane's parameters without any of them knowing panes exist. Outside a provider
  * that is pane one, which is every caller today.
  */
+export const LocalViewStateContext = createContext<{
+  params: URLSearchParams;
+  setParams: Dispatch<SetStateAction<URLSearchParams>>;
+} | null>(null);
+
 export function useViewState(): ViewStateControl {
   const pane = usePaneIndex();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [routeParams, setSearchParams] = useSearchParams();
+  const local = useContext(LocalViewStateContext);
+  const searchParams = local?.params ?? routeParams;
   // The parsed filter array is an input to the full-container filter/sort and virtualization
   // pipeline. Stable identity prevents interaction-only renders from repeating that work and
   // replacing the virtualizer's key sequence when the address has not changed.
@@ -196,9 +210,10 @@ export function useViewState(): ViewStateControl {
     (mutate: (next: URLSearchParams) => void, push: boolean): void => {
       const next = new URLSearchParams(searchParams);
       mutate(next);
-      setSearchParams(next, { replace: !push });
+      if (local !== null) local.setParams(next);
+      else setSearchParams(next, { replace: !push });
     },
-    [searchParams, setSearchParams],
+    [local, searchParams, setSearchParams],
   );
 
   const selectView = useCallback(

@@ -367,11 +367,19 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
             -- Ninety-seven rather than fifty: the children are spread across the containers by
             -- `n % 50`, so a bad value every fiftieth row would land every one of them in the same
             -- container and leave the other forty-nine untested.
+            -- Resolve the parents once. A join against reset-table statistics can make fixture
+            -- construction scan the whole child series once per parent before ANALYZE runs.
+            WITH container_ids AS (
+                SELECT array_agg(id ORDER BY seq) AS ids
+                FROM item
+                WHERE tenant_id = {{alphaTenant}}
+                  AND seq BETWEEN 200001 AND {{200000 + Containers}}
+            )
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties,
                  lifecycle_state, purge_after, created_by, last_modified_by, created_at, last_modified_at)
             SELECT gen_random_uuid(), {{alphaTenant}}, {{alphaWorkspace}}, 'note',
-                   container.id,
+                   container.ids[1 + (n % {{Containers}})],
                    300000 + n,
                    jsonb_build_object('title', 'Task ' || n)
                    || CASE WHEN n % 97 = 0
@@ -385,10 +393,8 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                           -- bucketing measured against a single group. Seven is coprime with it.
                           'status', (ARRAY['Todo','Doing','Done','Blocked','Waiting','Parked','Dropped'])[1 + (n % 7)]),
                    'active', NULL, {{alphaPrincipal}}, {{alphaPrincipal}}, now(), now()
-            FROM generate_series(1, {{AlphaChildren}}) AS n
-            JOIN item AS container
-              ON container.tenant_id = {{alphaTenant}}
-             AND container.seq = 200000 + 1 + (n % {{Containers}});
+            FROM container_ids AS container
+            CROSS JOIN generate_series(1, {{AlphaChildren}}) AS n;
 
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties,

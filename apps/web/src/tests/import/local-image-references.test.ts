@@ -11,7 +11,9 @@ const SOURCE = {
         {
           type: 'text',
           text: 'Architecture',
-          marks: [{ type: 'link', attrs: { href: './assets/architecture.png', title: 'System map' } }],
+          marks: [
+            { type: 'link', attrs: { href: './assets/architecture.png', title: 'System map' } },
+          ],
         },
       ],
     },

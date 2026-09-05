@@ -51,7 +51,7 @@ describe('creating an item', () => {
     });
   });
 
-  it('opens the parent so a child made inside a closed one is not invisible', async () => {
+  it('opens the new child without expanding its sidebar parent', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />, `/?item=${PARENT.id}`);
@@ -63,8 +63,11 @@ describe('creating an item', () => {
     await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i }));
     await user.click(await screen.findByRole('menuitem', { name: /new note inside engineering/i }));
 
-    // A creation you cannot see reads as a creation that failed.
-    expect(await screen.findByRole('button', { name: /collapse engineering/i })).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Untitled note');
+    });
+    expect(screen.getByRole('button', { name: /expand engineering/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /expand engineering/i }));
     expect(screen.getByRole('button', { name: 'Untitled note' }).closest('ul')).toHaveAttribute(
       'role',
       'group',

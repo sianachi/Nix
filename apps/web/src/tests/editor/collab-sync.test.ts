@@ -478,6 +478,22 @@ describe('the websocket provider', () => {
     expect(h.tokens).toEqual(['token-0', 'token-1']);
   });
 
+  it('reconnects promptly when the app returns to the foreground', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    h.latest().open();
+    ready(h.latest());
+    const old = h.latest();
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settled();
+    expect(old.closedWith).toBe(1000);
+    expect(h.sockets).toHaveLength(2);
+    expect(h.tokens).toEqual(['token-0', 'token-1']);
+    vi.restoreAllMocks();
+  });
+
   it('stops entirely on destroy: socket closed, no reconnect', async () => {
     const h = harness();
     await settled();

@@ -39,7 +39,10 @@ export async function login(
   };
 
   // Prove it before it is written: whoami exchanges the token and reads the acting principal.
-  const session = openSession({ profile, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) });
+  const session = openSession({
+    profile,
+    ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+  });
   const principal = await whoami(session, deps.fetchImpl);
 
   await saveProfile(input.profileName, profile, {

@@ -152,9 +152,10 @@ describe('an item with views', () => {
 
     const primarySlot = await screen.findByRole('region', { name: 'Primary' });
     expect(primarySlot.parentElement).toHaveClass('flex', 'min-h-full', 'flex-col');
-    expect(
-      screen.getByRole('separator', { name: 'Resize Primary and Companion' }),
-    ).toHaveAttribute('aria-orientation', 'horizontal');
+    expect(screen.getByRole('separator', { name: 'Resize Primary and Companion' })).toHaveAttribute(
+      'aria-orientation',
+      'horizontal',
+    );
     expect(screen.getByRole('region', { name: 'Companion' })).toHaveClass('min-h-0', 'min-w-0');
   });
 

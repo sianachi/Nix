@@ -541,5 +541,10 @@ export function markdownToDocument(markdown: string): FromMarkdownResult {
     return { ok: false, reason: parsed.error };
   }
 
-  return { ok: true, doc: rebuilt, scan: importScan, localImageTargets: environment.localImageTargets };
+  return {
+    ok: true,
+    doc: rebuilt,
+    scan: importScan,
+    localImageTargets: environment.localImageTargets,
+  };
 }
