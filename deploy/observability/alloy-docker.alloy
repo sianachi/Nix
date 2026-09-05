@@ -1,0 +1,34 @@
+// Docker discovery tails Nix containers through the Docker API.
+// Keep labels deliberately low-cardinality. Request, workspace, and job IDs belong
+// in structured log fields and must never become Loki labels.
+discovery.docker "nix" {
+  host = "tcp://docker-socket-proxy:2375"
+
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=nix"]
+  }
+}
+
+discovery.relabel "nix" {
+  targets = discovery.docker.nix.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "nix" {
+  host       = "tcp://docker-socket-proxy:2375"
+  targets    = discovery.relabel.nix.output
+  labels     = { environment = "production" }
+  forward_to = [loki.write.nix.receiver]
+}
+
+loki.write "nix" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

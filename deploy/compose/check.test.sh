@@ -18,6 +18,17 @@ assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
 assert not s['nix-versitygw'].get('ports')
+assert set(s['docker-socket-proxy']['networks']) == {'docker-logs'}
+assert set(s['alloy']['networks']) == {'docker-logs', 'observability'}
+assert set(s['loki']['networks']) == {'observability'}
+assert set(s['grafana']['networks']) == {'observability', 'grafana-access'}
+assert c['networks']['docker-logs']['internal']
+assert c['networks']['observability']['internal']
+assert s['docker-socket-proxy']['environment']['POST'] == '0'
+assert not s['docker-socket-proxy'].get('ports')
+assert not s['loki'].get('ports')
+assert s['grafana']['ports'][0]['host_ip'] == '127.0.0.1'
+assert s['grafana']['environment']['GF_AUTH_ANONYMOUS_ENABLED'] == 'false'
 from pathlib import Path
 edge=Path('deploy/Caddyfile.prod').read_text()
 exchange=edge.split('handle /public/v1/auth/token {',1)[1].split('\n\thandle ',1)[0]
