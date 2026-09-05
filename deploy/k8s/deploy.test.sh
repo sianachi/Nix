@@ -11,7 +11,7 @@ export KUBECTL_LOG="$test_root/kubectl.log"
 export RENDERED_PRESET_JOB="$test_root/template-presets.yaml"
 export RENDERED_RABBITMQ="$test_root/rabbitmq.yaml"
 export RENDERED_API="$test_root/api.yaml"
-export RENDERED_MEDIA="$test_root/media.yaml"
+export RENDERED_TEMPLATE_SYNC="$test_root/template-sync.yaml"
 export RENDERED_WORKERS="$test_root/workers.yaml"
 export RENDERED_WEB="$test_root/web.yaml"
 
@@ -63,8 +63,8 @@ if [[ " $* " == *" apply -f - "* ]]; then
   if [[ "$payload" == *"name: nix-api-data-protection"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_API"
   fi
-  if [[ "$payload" == *"name: nix-media"* && "$payload" == *"containerPort: 8200"* ]]; then
-    printf '%s\n' "$payload" > "$RENDERED_MEDIA"
+  if [[ "$payload" == *"name: nix-template-boot-render-order"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_TEMPLATE_SYNC"
   fi
   if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* && "$payload" == *"name: nix-plugin-worker"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WORKERS"
@@ -177,7 +177,16 @@ test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_API")"
 grep -Fq 'key: api-url' "$RENDERED_API"
 grep -Fq 'name: Nix__ObjectStorage__PublicOrigin' "$RENDERED_API"
 grep -Fq 'key: public-origin' "$RENDERED_API"
-test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_MEDIA")" -eq 1
+if grep -Eq 'nix-media|/media:' "$KUBECTL_LOG" "$RENDERED_TEMPLATE_SYNC"; then
+  echo 'Deployment still references the retired Media service.' >&2
+  exit 1
+fi
+grep -Fq 'image: registry.example.test/collab:render-order' "$RENDERED_TEMPLATE_SYNC"
+grep -Fq 'name: NIX_TEMPLATE_BOOT_CORE_URL, value: http://nix-api:8080' "$RENDERED_TEMPLATE_SYNC"
+if grep -Fq 'NIX_TEMPLATE_BOOT_MEDIA_URL' "$RENDERED_TEMPLATE_SYNC"; then
+  echo 'Template sync still uses the retired Media URL.' >&2
+  exit 1
+fi
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
 test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WORKERS")" -eq 3
 grep -Fq 'key: import-url' "$RENDERED_WORKERS"

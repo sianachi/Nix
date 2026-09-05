@@ -1,9 +1,7 @@
 # k3s deployment Caddyfile. Loaded into the nix-caddy ConfigMap by deploy/k8s/deploy.sh and
 # mounted into the nix-web pod at /etc/caddy/Caddyfile.
 #
-# Differs from deploy/Caddyfile (the dev-adjacent reference copy) in three ways: service DNS
-# instead of localhost, a /media handler (apps/web/src/export/export-formats.ts routes PDF
-# and DOCX exports at /media - without this handler both formats 404), and HSTS enabled
+# Uses service DNS instead of localhost and enables HSTS
 # (only safe because this deployment is HTTPS-only behind the Ingress in deploy/k8s/ingress.yaml).
 #
 # The CSP here must stay in step with the meta tag in apps/web/index.html, including the
@@ -27,11 +25,6 @@
 	# This also exposes service routes; Collab's internal-secret check is the boundary.
 	handle_path /collab/* {
 		reverse_proxy nix-collab:8100
-	}
-
-	# Media, same shape.
-	handle_path /media/* {
-		reverse_proxy nix-media:8200
 	}
 
 	handle {

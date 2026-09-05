@@ -92,10 +92,6 @@ kubectl -n nix run verify-curl-opensearch --rm -i --image=curlimages/curl --rest
   --labels=nix.io/verify=true -- \
   curl -fsS http://nix-opensearch:9200/_cluster/health
 
-echo "== Media =="
-kubectl -n nix run verify-curl-media --rm -i --image=curlimages/curl --restart=Never -- \
-  curl -fsS http://nix-media:8200/healthz
-
 echo "== Go workers =="
 for worker in import-worker export-worker indexer plugin-worker; do
   kubectl -n nix run "verify-curl-$worker" --rm -i --image=curlimages/curl --restart=Never -- \
@@ -107,7 +103,6 @@ curl -fsS "https://$DOMAIN/" -o /dev/null -w '%{http_code} app\n'
 curl -fsS "https://$DOMAIN/api/v1/health/status" -w ' core\n'
 curl -fsS "https://$DOMAIN/auth/session" -w ' browser auth\n'
 curl -fsS "https://$DOMAIN/collab/healthz" -w ' collab\n'
-curl -fsS "https://$DOMAIN/media/healthz" -w ' media\n'
 
 echo "== /internal must be unreachable (expect 404) =="
 curl -s -o /dev/null -w '%{http_code} internal (want 404)\n' "https://$DOMAIN/internal/authorize"
