@@ -157,6 +157,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      Logging__Console__FormatterName: json
       ConnectionStrings__Nix: ${NIX_CORE_DATABASE_URL:?set NIX_CORE_DATABASE_URL}
       Nix__InternalSecret: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
       Nix__Collaboration__BaseUrl: http://nix-collab:8100
@@ -495,7 +496,96 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # The proxy grants Alloy read-only access to the small Docker API surface it
+  # needs for discovery and log tailing. Do not mount the Docker socket into
+  # Alloy directly: it is equivalent to root access on the host.
+  docker-socket-proxy:
+    networks: [docker-logs]
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.4.1
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      EVENTS: "1"
+      INFO: "1"
+      NETWORKS: "1"
+      PING: "1"
+      VERSION: "1"
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run:size=8m,mode=755
+      - /tmp:size=8m,mode=1777
+    mem_limit: 64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  loki:
+    networks: [observability]
+    image: grafana/loki:${NIX_LOKI_IMAGE_TAG:-3.5.5}
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - nix-loki-data:/loki
+    mem_limit: 512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  alloy:
+    networks: [docker-logs, observability]
+    image: grafana/alloy:${NIX_ALLOY_IMAGE_TAG:-v1.11.3}
+    user: "473:473"
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    depends_on:
+      docker-socket-proxy:
+        condition: service_started
+      loki:
+        condition: service_started
+    volumes:
+      - ./observability/alloy-docker.alloy:/etc/alloy/config.alloy:ro
+      - nix-alloy-data:/var/lib/alloy
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    networks: [observability, grafana-access]
+    image: grafana/grafana:${NIX_GRAFANA_IMAGE_TAG:-12.2.0}
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${NIX_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${NIX_GRAFANA_ADMIN_PASSWORD:?set NIX_GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${NIX_GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./observability/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/nix-logs.yaml:ro
+      - nix-grafana-data:/var/lib/grafana
+    mem_limit: 512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 networks:
+  grafana-access: {}
+  docker-logs:
+    internal: true
+  observability:
+    internal: true
   default:
     name: nix
     ipam:
@@ -517,3 +607,9 @@ volumes:
     name: nix-caddy-config
   nix-api-data-protection:
     name: nix-api-data-protection
+  nix-loki-data:
+    name: nix-loki-data
+  nix-alloy-data:
+    name: nix-alloy-data
+  nix-grafana-data:
+    name: nix-grafana-data
