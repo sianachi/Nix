@@ -15,7 +15,15 @@ and recovery verification remain separate from implementation status. See [docum
 
 ## See Nix in action
 
-[![Preview of the Nix product tour](assets/nix-product-tour-poster.png)](assets/nix-product-tour.mp4)
+
+
+https://github.com/user-attachments/assets/b91aa29d-66a0-4730-9e3f-f8ce5f9f93f9
+
+
+
+
+
+
 
 Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
 
