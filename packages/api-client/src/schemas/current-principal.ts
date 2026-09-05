@@ -13,5 +13,6 @@ export const currentPrincipalSchema = z.object({
 
 export type CurrentPrincipal = z.infer<typeof currentPrincipalSchema>;
 
-const _currentPrincipalContract = currentPrincipalSchema satisfies z.ZodType<CurrentPrincipalContract>;
+const _currentPrincipalContract =
+  currentPrincipalSchema satisfies z.ZodType<CurrentPrincipalContract>;
 void _currentPrincipalContract;

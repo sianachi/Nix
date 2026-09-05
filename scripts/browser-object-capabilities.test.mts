@@ -68,11 +68,7 @@ test('Vite removes the fail-closed meta fallback and serves the configured CSP a
 });
 
 test('Caddy policies use the exact configured origin placeholder', async () => {
-  for (const path of [
-    'deploy/Caddyfile',
-    'deploy/Caddyfile.prod',
-    'deploy/k8s/Caddyfile',
-  ]) {
+  for (const path of ['deploy/Caddyfile', 'deploy/Caddyfile.prod', 'deploy/k8s/Caddyfile']) {
     const caddyfile = await readFile(new URL(path, repo), 'utf8');
     const policy = /Content-Security-Policy "([^"]+)"/u.exec(caddyfile)?.[1];
     assert.ok(policy !== undefined, `${path} has no CSP header`);

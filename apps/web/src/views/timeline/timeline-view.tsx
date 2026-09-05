@@ -1,3 +1,4 @@
+import { useNarrowViewport } from '../../layout/viewport';
 import { Blueprint, Button, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
@@ -105,6 +106,8 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
    * notice and correct it before believing anything on the screen. The grain *is* in the address,
    * for the opposite reason: "look at this quarter" is a decision worth sending.
    */
+  const narrow = useNarrowViewport();
+  const [showGrid, setShowGrid] = useState(false);
   const [anchor, setAnchor] = useState<CalendarDay>(todayDay);
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const panelId = useId();
@@ -282,33 +285,77 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
         />
       )}
 
-      <Blueprint className="p-3">
-        {/* The track owns the wide axis, which is this view's to own - the pane's scroller is
+      {narrow ? (
+        <Button
+          variant="ghost"
+          aria-pressed={showGrid}
+          onClick={() => {
+            setShowGrid(!showGrid);
+          }}
+        >
+          {showGrid ? 'Show schedule' : 'Show timeline grid'}
+        </Button>
+      ) : null}
+      {narrow && !showGrid ? (
+        <section aria-label="Timeline schedule">
+          <ul className="divide-y divide-divider">
+            {rows.map((entry) => (
+              <li key={entry.item.id} className="flex flex-col gap-2 py-3">
+                <Button
+                  variant="ghost"
+                  className="justify-start whitespace-normal text-left"
+                  onClick={() => {
+                    onOpen(entry.item.id);
+                  }}
+                >
+                  {entry.item.title || 'Untitled'}
+                </Button>
+                <Text as="p" variant="caption">
+                  {readPropertyText(entry.item, startKey)}
+                  {endKey ? ` – ${readPropertyText(entry.item, endKey)}` : ''}
+                </Text>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setRescheduling(entry.item.id);
+                  }}
+                >
+                  Reschedule {entry.item.title || 'Untitled'}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {rows.length === 0 ? <Text as="p">No items scheduled in this window.</Text> : null}
+        </section>
+      ) : (
+        <Blueprint className="p-3">
+          {/* The track owns the wide axis, which is this view's to own - the pane's scroller is
             y-only for exactly this reason. Inside the frame's padding rather than around it, so
             scrolled columns do not slide under the gutter beside the sticky column.
 
             Focusable and named, which is the standard treatment for a scrollable region: without a
             tab stop the axis can only be scrolled by tabbing through the bars inside it, so a
             keyboard user who wants to read the dates has to activate something to move. */}
-        <div
-          role="region"
-          aria-label={`${view.name}, ${axis.label}`}
-          // The rule cannot see that this element scrolls, and only its author can. Without a tab
-          // stop the axis is reachable by keyboard only by tabbing through the bars inside it, so
-          // somebody who wants to read the dates has to activate something to move.
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
-          tabIndex={0}
-          className={cn('overflow-x-auto', focusRing)}
-        >
-          <TimelineTable
-            name={view.name}
-            axis={axis}
-            rows={rows}
-            todayText={todayText}
-            aside={aside}
-          />
-        </div>
-      </Blueprint>
+          <div
+            role="region"
+            aria-label={`${view.name}, ${axis.label}`}
+            // The rule cannot see that this element scrolls, and only its author can. Without a tab
+            // stop the axis is reachable by keyboard only by tabbing through the bars inside it, so
+            // somebody who wants to read the dates has to activate something to move.
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
+            tabIndex={0}
+            className={cn('overflow-x-auto', focusRing)}
+          >
+            <TimelineTable
+              name={view.name}
+              axis={axis}
+              rows={rows}
+              todayText={todayText}
+              aside={aside}
+            />
+          </div>
+        </Blueprint>
+      )}
 
       {/*
         **One panel, in one place, for whichever item is being rescheduled.**

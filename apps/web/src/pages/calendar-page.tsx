@@ -1,3 +1,4 @@
+import { useItemDialog } from '../items/item-dialog-context';
 import { Button, Text } from '@nix/ui';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
@@ -69,6 +70,7 @@ function todayHere(): CalendarDay {
 export function CalendarPage(): ReactElement {
   const [params, setParams] = useSearchParams();
   const { openPreview } = useOpenItem();
+  const openDialog = useItemDialog();
 
   // Read once and held, so a page left open overnight does not silently change what "today" means
   // underneath a reader who is looking at last month.
@@ -190,7 +192,7 @@ export function CalendarPage(): ReactElement {
           write({ on: anchorText(next) });
         }}
         today={today}
-        onOpen={openPreview}
+        onOpen={openDialog ?? openPreview}
         onReschedule={(entry, value) => {
           void reschedule(entry.itemId, entry.dateProperty, value);
         }}

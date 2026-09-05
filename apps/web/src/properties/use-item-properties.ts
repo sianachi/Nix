@@ -127,7 +127,9 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         // panel's rollup rows on every edit.
         setItem((previous) => keepComputed(previous ?? undefined, written));
       } catch (reason) {
-        return isNixApiError(reason) ? (reason.detail ?? 'That change could not be saved.') : 'That change could not be saved.';
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'That change could not be saved.')
+          : 'That change could not be saved.';
       }
 
       return null;

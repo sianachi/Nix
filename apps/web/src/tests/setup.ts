@@ -7,6 +7,7 @@ import { stubCoreApi } from './api-stub';
 import { stubViewport } from './stub-viewport';
 import { resetAnnouncements } from '../a11y/announcer';
 import { resetSession } from './render-with-router';
+import { browserStorage, browserSessionStorage } from '../lib/browser-storage';
 
 /**
  * jsdom implements `<dialog>` as far as its `open` attribute and stops: `showModal` and `close` do
@@ -84,6 +85,8 @@ configure({ asyncUtilTimeout: 5_000 });
 // suite would be a suite about failed requests; tests that care about a particular answer call
 // stubCoreApi again with it.
 beforeEach(() => {
+  browserStorage()?.clear();
+  browserSessionStorage()?.clear();
   stubCoreApi();
 });
 
@@ -138,5 +141,43 @@ if (typeof Range !== 'undefined' && typeof Range.prototype.getClientRects !== 'f
 if (typeof Range !== 'undefined' && typeof Range.prototype.getBoundingClientRect !== 'function') {
   Range.prototype.getBoundingClientRect = function getBoundingClientRect(): DOMRect {
     return new DOMRect();
+  };
+}
+
+// Node 22 supplies fetch/Response while jsdom supplies Blob/File. Keep their binary APIs in
+// one realm: Axios probes Blob.stream(), and the API client validates returned Blob instances.
+if (typeof FileReader !== 'undefined' && typeof Blob.prototype.stream !== 'function') {
+  Blob.prototype.arrayBuffer = function arrayBuffer(): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve(reader.result as ArrayBuffer);
+      };
+      reader.onerror = () => {
+        reject(reader.error ?? new Error('Blob read failed.'));
+      };
+      reader.readAsArrayBuffer(this);
+    });
+  };
+  Blob.prototype.text = async function text(): Promise<string> {
+    return new TextDecoder().decode(await this.arrayBuffer());
+  };
+  Blob.prototype.stream = function stream(): ReadableStream<Uint8Array<ArrayBuffer>> {
+    const bytes = this.arrayBuffer();
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          controller.enqueue(new Uint8Array(await bytes));
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+  };
+  Response.prototype.blob = async function blob(): Promise<Blob> {
+    return new Blob([await this.arrayBuffer()], {
+      type: this.headers.get('content-type') ?? '',
+    });
   };
 }

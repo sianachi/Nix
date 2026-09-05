@@ -61,10 +61,13 @@ describe('the PAT token provider', () => {
   it('surfaces Core its own refusal when the token cannot mint a session', async () => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve(
-        new Response(JSON.stringify({ code: 'auth.token_revoked', detail: 'That token was revoked.' }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ code: 'auth.token_revoked', detail: 'That token was revoked.' }),
+          {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       ),
     );
     const tokens = createPatTokenProvider({ profile, fetchImpl });
@@ -83,7 +86,9 @@ describe('endpoint resolution', () => {
   });
 
   it('honours explicit service URLs', () => {
-    expect(endpointsFor({ ...profile, collabUrl: 'http://collab', mediaUrl: 'http://media' })).toEqual({
+    expect(
+      endpointsFor({ ...profile, collabUrl: 'http://collab', mediaUrl: 'http://media' }),
+    ).toEqual({
       apiUrl: 'http://localhost:5014',
       collabUrl: 'http://collab',
       mediaUrl: 'http://media',

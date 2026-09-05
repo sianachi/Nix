@@ -244,9 +244,7 @@ export function ImportDialog({
     }
   }
 
-  async function runDocument(
-    current: Extract<Phase, { name: 'document-preview' }>,
-  ): Promise<void> {
+  async function runDocument(current: Extract<Phase, { name: 'document-preview' }>): Promise<void> {
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
@@ -264,7 +262,12 @@ export function ImportDialog({
       );
       activeDocumentImport.current = null;
       if (completed.rootItemId !== null) onImported?.(completed.rootItemId);
-      setPhase({ name: 'document-report', operation: completed, plan: current.plan, undo: { name: 'available' } });
+      setPhase({
+        name: 'document-report',
+        operation: completed,
+        plan: current.plan,
+        undo: { name: 'available' },
+      });
     } catch (reason) {
       if (controller.signal.aborted) {
         setPhase({ name: 'pick', reading: false, error: 'The document import was cancelled.' });
@@ -309,9 +312,7 @@ export function ImportDialog({
     });
   }
 
-  async function undoDocument(
-    current: Extract<Phase, { name: 'document-report' }>,
-  ): Promise<void> {
+  async function undoDocument(current: Extract<Phase, { name: 'document-report' }>): Promise<void> {
     if (current.operation.rootItemId === null) return;
     setPhase({ ...current, undo: { name: 'working' } });
     const outcome = await undoImport(client, workspaceId, current.operation.rootItemId);
@@ -407,9 +408,9 @@ export function ImportDialog({
           <>
             <Text tone="muted" variant="body">
               Choose a PDF, Word document, UTF-8 text file, Nix archive, Markdown files, an Obsidian
-              vault, or folders containing Markdown notes and attachments. Documents become
-              editable notes and their original files are retained as children. Markdown folders
-              keep their hierarchy, supported formatting, and non-hidden attachments.
+              vault, or folders containing Markdown notes and attachments. Documents become editable
+              notes and their original files are retained as children. Markdown folders keep their
+              hierarchy, supported formatting, and non-hidden attachments.
             </Text>
             <Text tone="muted" variant="note">
               PDF import extracts existing text but does not perform OCR. The preview names content
@@ -617,10 +618,10 @@ function Preview({
     <>
       <FocusOnMount>
         <Text variant="body">
-          {String(contentItems)} {contentItems === 1 ? 'file or note' : 'files and notes'} from
-          the chosen files will be created
-          under a new item called &ldquo;{root.title}&rdquo; - {String(plan.totalItems)} items in
-          all, counting folders. Nothing is created until you press Import.
+          {String(contentItems)} {contentItems === 1 ? 'file or note' : 'files and notes'} from the
+          chosen files will be created under a new item called &ldquo;{root.title}&rdquo; -{' '}
+          {String(plan.totalItems)} items in all, counting folders. Nothing is created until you
+          press Import.
         </Text>
       </FocusOnMount>
       {losses.map((loss) => (
@@ -766,8 +767,8 @@ function DocumentPreview({
       <FocusOnMount>
         <Text variant="body">
           {String(operation.itemCount ?? plan.items.length)} items will be published together under
-          &ldquo;{operation.title}&rdquo;. Nothing is visible until every note body and retained file is
-          ready.
+          &ldquo;{operation.title}&rdquo;. Nothing is visible until every note body and retained
+          file is ready.
         </Text>
       </FocusOnMount>
       {losses.map((loss) => (
@@ -866,10 +867,7 @@ function documentFormat(name: string): 'nix' | 'docx' | 'pdf' | 'txt' | null {
   return null;
 }
 
-function documentMediaType(
-  format: 'nix' | 'docx' | 'pdf' | 'txt',
-  browserType: string,
-): string {
+function documentMediaType(format: 'nix' | 'docx' | 'pdf' | 'txt', browserType: string): string {
   if (format === 'pdf') return 'application/pdf';
   if (format === 'txt') return 'text/plain';
   if (format === 'docx') {

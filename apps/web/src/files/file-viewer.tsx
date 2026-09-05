@@ -137,7 +137,8 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const file = visibleRecord.current;
   return (
     <section aria-label="File" className="flex flex-1 flex-col gap-4 overflow-y-auto p-8">
-      {currentPreview?.url === null || currentPreview?.url === undefined ? null : currentMediaType === 'application/pdf' ? (
+      {currentPreview?.url === null ||
+      currentPreview?.url === undefined ? null : currentMediaType === 'application/pdf' ? (
         <iframe
           title={file.fileName}
           src={currentPreview.url}

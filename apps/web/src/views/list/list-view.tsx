@@ -1,4 +1,5 @@
-import { Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
+import { useNarrowViewport } from '../../layout/viewport';
+import { Button, Text, Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { isKnownPropertyType } from '../../properties/property-input';
@@ -66,6 +67,7 @@ export interface ListViewProps {
 
 export function ListView(props: ListViewProps): ReactNode {
   const { container, view, onOpen } = props;
+  const narrow = useNarrowViewport();
   const viewState = useViewState();
   const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
 
@@ -167,7 +169,16 @@ export function ListView(props: ListViewProps): ReactNode {
     >
       {chrome.notice}
 
-      <ListRows items={chrome.items} columns={columns} sort={sort} onSortChange={onSortChange} />
+      {narrow ? (
+        <MobileListRows
+          items={chrome.items}
+          columns={columns}
+          sort={sort}
+          onSortChange={onSortChange}
+        />
+      ) : (
+        <ListRows items={chrome.items} columns={columns} sort={sort} onSortChange={onSortChange} />
+      )}
 
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
           enter the row-header inventory that eleven assertions compare against exactly - so it
@@ -358,4 +369,84 @@ interface CellRefusalStore {
 
 function cellRefusalKey(itemId: string, key: string): string {
   return `${itemId}\u0000${key}`;
+}
+
+function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): ReactNode {
+  const [limit, setLimit] = useState(40);
+  return (
+    <section aria-label="Items in this one" className="flex flex-col gap-3">
+      <label className="flex flex-wrap items-center gap-2">
+        <Text as="span" variant="caption">
+          Sort by
+        </Text>
+        <select
+          aria-label="Sort by"
+          value={sort?.columnKey ?? ''}
+          className="min-w-0 rounded-md border border-divider bg-background p-2"
+          onChange={(event) => {
+            onSortChange({
+              columnKey: event.target.value,
+              direction: sort?.direction ?? 'ascending',
+            });
+          }}
+        >
+          <option value="" disabled>
+            Item order
+          </option>
+          {columns.map((column) => (
+            <option key={column.key} value={column.key}>
+              {column.header}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="ghost"
+          disabled={!sort}
+          onClick={() => {
+            if (sort)
+              onSortChange({
+                ...sort,
+                direction: sort.direction === 'ascending' ? 'descending' : 'ascending',
+              });
+          }}
+        >
+          {sort?.direction === 'descending' ? 'Descending' : 'Ascending'}
+        </Button>
+      </label>
+      <ul className="divide-y divide-divider">
+        {items.slice(0, limit).map((item) => (
+          <li key={item.id} className="py-3">
+            <div className="py-2">{columns[0]?.cell(item)}</div>
+            {columns.length > 1 ? (
+              <details>
+                <summary className="cursor-pointer py-2">Fields</summary>
+                <dl className="flex flex-col gap-3">
+                  {columns.slice(1).map((column) => (
+                    <div key={column.key} className="min-w-0">
+                      <dt>
+                        <Text as="span" variant="caption" tone="muted">
+                          {column.header}
+                        </Text>
+                      </dt>
+                      <dd className="min-w-0 py-1">{column.cell(item)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {items.length > limit ? (
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setLimit((current) => current + 40);
+          }}
+        >
+          Show more items
+        </Button>
+      ) : null}
+    </section>
+  );
 }

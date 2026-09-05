@@ -1,3 +1,4 @@
+import * as drafts from '../../editor/draft-journal';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useState } from 'react';
@@ -174,6 +175,29 @@ describe('Core-mediated browser sessions', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     refresh.resolve(json({ accessToken: 'renewed-core-token', expiresAt: future }));
     expect(await screen.findByText('renewed-core-token')).toBeInTheDocument();
+  });
+
+  it('still signs out of Core when local draft cleanup is unavailable and reports the cleanup failure', async () => {
+    const user = userEvent.setup();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(authenticated())
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('indexedDB', {});
+    const clear = vi.spyOn(drafts, 'clearDrafts').mockRejectedValue(new Error('Storage blocked'));
+    renderProvider();
+    await screen.findByText('authenticated');
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    await screen.findByText('failed');
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/auth/logout',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(useSessionStore.getState().error).toContain('Local drafts could not be cleared');
+    clear.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it('revokes the Core session and clears the in-memory token on sign-out', async () => {

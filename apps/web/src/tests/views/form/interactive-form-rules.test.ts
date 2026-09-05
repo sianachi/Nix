@@ -120,7 +120,14 @@ describe('a field bound to a computed property', () => {
     // out of the editor's picker, because a property can become computed after the form was built.
     const computed: readonly PropertyDefinition[] = [
       ...SCHEMA,
-      { key: 'score', label: 'Score', type: 'formula', options: [], required: false, expression: '1' },
+      {
+        key: 'score',
+        label: 'Score',
+        type: 'formula',
+        options: [],
+        required: false,
+        expression: '1',
+      },
     ];
 
     const built = form();

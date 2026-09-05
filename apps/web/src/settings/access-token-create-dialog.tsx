@@ -356,12 +356,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
           </div>
         </form>
       ) : (
-        <SecretSurface
-          minted={minted}
-          copyState={copyState}
-          onCopy={copySecret}
-          onDone={dismiss}
-        />
+        <SecretSurface minted={minted} copyState={copyState} onCopy={copySecret} onDone={dismiss} />
       )}
     </Dialog>
   );

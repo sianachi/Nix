@@ -13,7 +13,11 @@ const manifest = JSON.parse(
   readonly name?: string;
   readonly start_url?: string;
   readonly display?: string;
-  readonly icons?: readonly { readonly src?: string; readonly sizes?: string; readonly type?: string }[];
+  readonly icons?: readonly {
+    readonly src?: string;
+    readonly sizes?: string;
+    readonly type?: string;
+  }[];
 };
 
 function pngDimensions(path: string): readonly [number, number] {

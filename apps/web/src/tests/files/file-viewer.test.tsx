@@ -38,7 +38,8 @@ function record(previewable: boolean, mediaType = 'image/png') {
 function fakeClient(previewable: boolean, mediaType = 'image/png'): NixClient {
   return {
     query: vi.fn((endpoint: { operation: string }) => {
-      if (endpoint.operation === 'files.get') return Promise.resolve(record(previewable, mediaType));
+      if (endpoint.operation === 'files.get')
+        return Promise.resolve(record(previewable, mediaType));
       if (endpoint.operation === 'files.download') {
         return Promise.resolve({
           url: 'http://localhost:9447/preview',
@@ -109,14 +110,13 @@ describe('the file item viewer', () => {
     client = fakeClient(true, 'application/pdf');
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        () =>
-          Promise.resolve(
-            new Response('payload', {
-              status: 200,
-              headers: { 'content-type': 'application/pdf' },
-            }),
-          ),
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('payload', {
+            status: 200,
+            headers: { 'content-type': 'application/pdf' },
+          }),
+        ),
       ),
     );
 
@@ -127,7 +127,10 @@ describe('the file item viewer', () => {
 
   it('keeps download available when an authorized preview is refused', async () => {
     client = fakeClient(true);
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(null, { status: 403 }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(null, { status: 403 }))),
+    );
 
     render(<FileViewer itemId={ITEM} />);
 

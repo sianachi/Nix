@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, stat, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configPath, loadConfig, removeProfile, resolveProfile, saveProfile, type Profile } from './config.ts';
+import {
+  configPath,
+  loadConfig,
+  removeProfile,
+  resolveProfile,
+  saveProfile,
+  type Profile,
+} from './config.ts';
 
 const profile: Profile = { apiUrl: 'http://localhost:5014', token: 'nixpat_abc' };
 

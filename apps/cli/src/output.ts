@@ -19,7 +19,10 @@ export interface OutputOptions {
 }
 
 /** Reads the output shape from the parsed global flags and the real stdout. */
-export function outputOptions(json: boolean, stream: { isTTY?: boolean } = process.stdout): OutputOptions {
+export function outputOptions(
+  json: boolean,
+  stream: { isTTY?: boolean } = process.stdout,
+): OutputOptions {
   return { json, isTty: stream.isTTY === true };
 }
 
@@ -82,7 +85,10 @@ export function toFailure(error: unknown): Failure {
     return { message: detail, code: ExitCode.General };
   }
 
-  return { message: error instanceof Error ? error.message : String(error), code: ExitCode.General };
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    code: ExitCode.General,
+  };
 }
 
 /**

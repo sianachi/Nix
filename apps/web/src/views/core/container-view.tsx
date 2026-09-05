@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Button } from '@nix/ui';
+import { useNarrowViewport } from '../../layout/viewport';
+import { useItemDialog } from '../../items/item-dialog-context';
 
 import { ErrorPanel } from '../../components/states/status-panels';
 import type { View } from './container-model';
@@ -25,7 +28,29 @@ export interface ContainerViewProps {
 }
 
 export function ContainerView({ container, view, onOpen }: ContainerViewProps): ReactNode {
-  return <div className={VIEW_GUTTER}>{renderContent(container, view, onOpen)}</div>;
+  const openDialog = useItemDialog();
+  const narrow = useNarrowViewport();
+  const [grid, setGrid] = useState(false);
+  if (narrow && view?.kind === 'sheet')
+    return (
+      <div className={VIEW_GUTTER}>
+        <Button
+          variant="ghost"
+          aria-pressed={grid}
+          onClick={() => {
+            setGrid(!grid);
+          }}
+        >
+          {grid ? 'Browse records' : 'Show spreadsheet grid'}
+        </Button>
+        {grid ? (
+          renderContent(container, view, openDialog ?? onOpen)
+        ) : (
+          <ListView container={container} view={view} onOpen={openDialog ?? onOpen} />
+        )}
+      </div>
+    );
+  return <div className={VIEW_GUTTER}>{renderContent(container, view, openDialog ?? onOpen)}</div>;
 }
 
 function renderContent(

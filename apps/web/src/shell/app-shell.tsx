@@ -1,3 +1,8 @@
+import { useBackDismiss } from '../layout/use-back-dismiss';
+import { ItemDialogProvider } from '../items/item-dialog-provider';
+import { MobileNavigation } from './mobile-navigation';
+import { PwaControls } from '../pwa/pwa-controls';
+import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
 import { useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate } from 'react-router';
@@ -75,6 +80,8 @@ import { WorkspaceInvitationNotice } from '../workspaces/workspace-invitation-no
 export function AppShell(): ReactNode {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
+  useRememberLocation(workspaceId);
+  const [creating, setCreating] = useState(false);
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
@@ -93,6 +100,11 @@ export function AppShell(): ReactNode {
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
+  useBackDismiss(narrow && (sidebar.visible || searchOpen || workspaceImportOpen), () => {
+    setWorkspaceImportOpen(false);
+    setSearchOpen(false);
+    if (sidebar.visible) sidebar.toggle();
+  });
 
   // What Escape and a scrim tap - the two "never mind" exits from the drawer - focus afterwards.
   // Unlike `closeDrawerAfter` above, these are not "there, that one": nothing was chosen, so focus
@@ -202,7 +214,8 @@ export function AppShell(): ReactNode {
   useShellSearchShortcut(setSearchOpen);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background font-body text-foreground">
+    // design-token-exempt: device safe-area inset protects the header in standalone mode.
+    <div className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] font-body text-foreground">
       {/* First focusable thing in the document, for everybody, on every screen. It used to live in
           a layout element that the route tree had stopped rendering, so in practice the app had no
           skip link at all.
@@ -284,27 +297,29 @@ export function AppShell(): ReactNode {
           `min-h-0` so this row can shrink inside the `h-dvh` column, which is what gives the pane
           row underneath a definite height to scroll against. */}
       <div className="flex min-h-0 flex-1">
-        <NavRail
-          onImport={() => {
-            // The import is modal, so there is no reason to leave a narrow-screen drawer open
-            // underneath it. Closing it also means the imported root can be revealed cleanly in
-            // the tree once the report is dismissed.
-            if (narrow && sidebar.visible) {
-              sidebar.toggle();
-            }
-            setWorkspaceImportOpen(true);
-          }}
-          onNavigate={() => {
-            // A phone has no room to leave the tree open over the destination it was just asked
-            // to leave for. Focus is left on the rail link that was activated rather than moved
-            // into the pane: unlike a row in the tree, the link stays on screen, becomes the
-            // current destination, and is a reasonable place to be standing. Left alone on a wide
-            // screen, where the tree shares the screen rather than covering it.
-            if (narrow && sidebar.visible) {
-              sidebar.toggle();
-            }
-          }}
-        />
+        {!narrow || sidebar.visible ? (
+          <NavRail
+            onImport={() => {
+              // The import is modal, so there is no reason to leave a narrow-screen drawer open
+              // underneath it. Closing it also means the imported root can be revealed cleanly in
+              // the tree once the report is dismissed.
+              if (narrow && sidebar.visible) {
+                sidebar.toggle();
+              }
+              setWorkspaceImportOpen(true);
+            }}
+            onNavigate={() => {
+              // A phone has no room to leave the tree open over the destination it was just asked
+              // to leave for. Focus is left on the rail link that was activated rather than moved
+              // into the pane: unlike a row in the tree, the link stays on screen, becomes the
+              // current destination, and is a reasonable place to be standing. Left alone on a wide
+              // screen, where the tree shares the screen rather than covering it.
+              if (narrow && sidebar.visible) {
+                sidebar.toggle();
+              }
+            }}
+          />
+        ) : null}
 
         <div className={`flex flex-1 flex-col ${paneClip}`}>
           <ShellHeader
@@ -376,12 +391,45 @@ export function AppShell(): ReactNode {
                   catalog response cannot leave a mounted screen holding the initial capability
                   snapshot. */}
               <TemplateLibraryProvider library={templateLibrary}>
-                <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+                <ItemDialogProvider tree={tree}>
+                  <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+                </ItemDialogProvider>
               </TemplateLibraryProvider>
             </main>
           </div>
         </div>
       </div>
+
+      <PwaControls />
+      {narrow ? (
+        <MobileNavigation
+          workspaceId={workspaceId}
+          treeOpen={sidebar.visible}
+          creating={creating}
+          onTree={sidebar.toggle}
+          onSearch={() => {
+            setSearchOpen(true);
+          }}
+          onCreate={() => {
+            if (creating) return;
+            setCreating(true);
+            void tree
+              .create(null, 'Untitled note')
+              .then((outcome) => {
+                if (outcome.id !== null) {
+                  if (sidebar.visible) sidebar.toggle();
+                  openPreview(outcome.id);
+                } else announce(outcome.refusal ?? 'That could not be created.');
+              })
+              .catch(() => {
+                announce('The note could not be created. Try again.');
+              })
+              .finally(() => {
+                setCreating(false);
+              });
+          }}
+        />
+      ) : null}
 
       {workspaceImportOpen ? (
         <ImportDialog

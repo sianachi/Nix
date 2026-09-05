@@ -261,7 +261,10 @@ const EMPTY: Readonly<Record<string, PropertyValue>> = Object.freeze({});
  * is the honest trade against blanking them: a rollup is a summary of other rows, and the write
  * that just happened may or may not have changed them.
  */
-export function keepComputed<TItem extends PropertyOwner>(previous: TItem | undefined, next: TItem): TItem {
+export function keepComputed<TItem extends PropertyOwner>(
+  previous: TItem | undefined,
+  next: TItem,
+): TItem {
   return next.computed == null && previous?.computed != null
     ? { ...next, computed: previous.computed }
     : next;

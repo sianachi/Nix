@@ -303,7 +303,10 @@ function resolveNode(node: PlannedNode, attachments: ReadonlyMap<string, string>
     scan:
       resolved === 0
         ? node.scan
-        : { ...node.scan, unresolvedLocalImages: Math.max(0, node.scan.unresolvedLocalImages - resolved) },
+        : {
+            ...node.scan,
+            unresolvedLocalImages: Math.max(0, node.scan.unresolvedLocalImages - resolved),
+          },
   };
 }
 

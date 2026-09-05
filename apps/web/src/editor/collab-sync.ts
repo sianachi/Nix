@@ -1,3 +1,5 @@
+import { registerPendingWork } from '../lib/pending-work';
+import { createDraftJournal, type DraftState, type DraftRecord } from './draft-journal';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
@@ -74,6 +76,8 @@ export interface ProviderSocket {
 }
 
 export interface CollabSyncOptions {
+  readonly draftScope?: string;
+  readonly onDraftState?: (state: DraftState) => void;
   readonly itemId: string;
   /** Overrides the ordinary item WebSocket route for staged or library-only document aliases. */
   readonly documentPath?: string | undefined;
@@ -139,6 +143,29 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   const createSocket =
     options.createSocket ??
     ((url: string): ProviderSocket => new WebSocket(resolveUrl(url)) as unknown as ProviderSocket);
+
+  const draft =
+    options.draftScope && typeof indexedDB !== 'undefined'
+      ? createDraftJournal(options.draftScope, (state) => options.onDraftState?.(state))
+      : null;
+  let restoredDrafts: DraftRecord[] = [];
+  const draftsReady = draft
+    ?.read()
+    .then((records) => {
+      restoredDrafts = records;
+    })
+    .catch(() => {
+      options.onDraftState?.('error');
+    });
+  let localRevision = 0;
+  let confirmedRevision = 0;
+  let confirming = false;
+  let writeRefused = false;
+  const hasWriteRefusal = (): boolean => writeRefused;
+  const browserWindow = typeof window === 'undefined' ? undefined : window;
+  const browserDocument = typeof document === 'undefined' ? undefined : document;
+  let connecting = false;
+  const restoreOrigin = Symbol('restored-draft');
 
   const ownsAwareness = options.awareness === undefined;
   const awareness = options.awareness ?? new awarenessProtocol.Awareness(doc);
@@ -241,6 +268,8 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       return;
     }
 
+    localRevision += 1;
+    if (origin !== restoreOrigin) draft?.append(update);
     pending.push(update);
 
     if (socket === null || !ready || socket.readyState !== 1 || mode === 'read') {
@@ -283,11 +312,14 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   }
 
   async function connect(): Promise<void> {
-    if (destroyed) {
+    if (destroyed || connecting) {
       return;
     }
 
-    const token = await getAccessToken();
+    connecting = true;
+    await draftsReady;
+    const token = await getAccessToken().catch(() => null);
+    connecting = false;
     if (isDestroyed()) {
       // destroy() may have run while the token was being fetched; the narrowing above
       // cannot see that, so the check goes through a call the compiler treats as opaque.
@@ -340,6 +372,10 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       const verdict = classifyClose(event.code);
       onState(verdict.state);
       if (event.code === CLOSE_REVOKED) {
+        restoredDrafts = [];
+        void draft?.discard().catch(() => {
+          options.onDraftState?.('error');
+        });
         onNotice?.({ code: 'access_revoked', detail: 'Access to this document was revoked.' });
       }
       scheduleReconnect(verdict.delayMs ?? retryMs);
@@ -354,8 +390,32 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       const frame = JSON.parse(data) as { type?: string; mode?: string };
       if (frame.type === 'ready') {
         ready = true;
+        writeRefused = false;
         retryMs = minRetryMs;
         mode = frame.mode === 'read' ? 'read' : 'write';
+        if (mode === 'write' && restoredDrafts.length > 0) {
+          for (const record of restoredDrafts) {
+            try {
+              Y.applyUpdate(doc, record.update, restoreOrigin);
+              pending.push(record.update);
+            } catch {
+              writeRefused = true;
+              options.onDraftState?.('error');
+              onNotice?.({
+                code: 'local_draft_unreadable',
+                detail:
+                  'A saved draft could not be recovered. Keep this device’s data until the draft is recovered.',
+              });
+            }
+          }
+          localRevision += 1;
+          restoredDrafts = [];
+        } else if (mode === 'read') {
+          restoredDrafts = [];
+          void draft?.discard().catch(() => {
+            options.onDraftState?.('error');
+          });
+        }
 
         // Both sides open with sync step 1: the server's pulls this document's offline
         // edits, and this one pulls everything the server holds.
@@ -420,10 +480,14 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
           code?: string;
           detail?: string;
         };
+        writeRefused = true;
         if (notice.code === 'read_only') {
           // The server stopped accepting this session's writes - a revoked grant, told
           // honestly instead of silently dropping edits.
           mode = 'read';
+          void draft?.discard().catch(() => {
+            options.onDraftState?.('error');
+          });
           report();
         }
         if (typeof notice.code === 'string') {
@@ -448,7 +512,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   onState('connecting');
   void connect();
 
-  return {
+  const sync: CollabSync = {
     awareness,
     flushAndWait(): Promise<void> {
       const current = socket;
@@ -494,6 +558,10 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       flushPending();
 
       destroyed = true;
+      unregisterPending();
+      clearInterval(confirmationTimer);
+      browserWindow?.removeEventListener('online', resume);
+      browserDocument?.removeEventListener('visibilitychange', visible);
       rejectBarriers('The editor closed before its changes were confirmed.');
       doc.off('update', onDocUpdate);
       awareness.off('update', onAwarenessUpdate);
@@ -507,6 +575,51 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       socket = null;
     },
   };
+  async function confirm(): Promise<void> {
+    if (localRevision === confirmedRevision || confirming || destroyed) return;
+    confirming = true;
+    const revision = localRevision;
+    try {
+      const records = (await draft?.snapshot()) ?? [];
+      if (hasWriteRefusal()) throw new Error('The server refused an edit.');
+      await sync.flushAndWait();
+      if (hasWriteRefusal()) throw new Error('The server refused an edit.');
+      await draft?.acknowledge(records);
+      confirmedRevision = revision;
+    } finally {
+      confirming = false;
+    }
+  }
+  const unregisterPending = registerPendingWork(async () => {
+    if (hasWriteRefusal()) throw new Error('Resolve the refused edit before updating.');
+    if (localRevision !== confirmedRevision) {
+      await sync.flushAndWait();
+      if (hasWriteRefusal()) throw new Error('Resolve the refused edit before updating.');
+    }
+  });
+  const confirmationTimer = setInterval(() => {
+    void confirm().catch(() => undefined);
+  }, 2_000);
+  const resume = (): void => {
+    if (destroyed || connecting) return;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    const previous = socket;
+    socket = null;
+    ready = false;
+    rejectBarriers('Reconnecting to confirm pending edits.');
+    previous?.close(1000, 'Resuming the editor.');
+    onState('connecting');
+    void connect();
+  };
+  const visible = (): void => {
+    if (browserDocument?.visibilityState === 'visible') resume();
+  };
+  browserWindow?.addEventListener('online', resume);
+  browserDocument?.addEventListener('visibilitychange', visible);
+  return sync;
 }
 
 /** How a close code translates into a state and a retry cadence. */
