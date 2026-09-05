@@ -61,3 +61,8 @@ deploy/.dev-access-token-key.pem
 # tree rather than content: committing it would commit the checkout. `nix-lanes/`
 # sits outside the repository and needs no entry; this one does.
 /feature/
+
+# Private production host configuration and keys; templates remain tracked.
+/deploy/*.env
+/deploy/compose.host.yml
+/deploy/*.pem

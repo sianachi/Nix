@@ -75,6 +75,7 @@ has_frontend_guard=false
 has_backend_guard=false
 has_sensitive_backend=false
 has_workflow_script=false
+has_compose=false
 frontend_packages=()
 
 add_frontend_package() {
@@ -101,6 +102,7 @@ for path in "${paths[@]}"; do
     apps/go-workers/*) has_workers=true ;;
   esac
   case "$path" in
+    deploy/compose/*|deploy/compose.prod*|deploy/Caddyfile.prod|deploy/docker/*|deploy/k8s/deploy*|.github/workflows/ci-deploy.yml) has_compose=true ;;
     backend/openapi/*)
       has_openapi=true; has_backend=true; has_frontend=true; has_frontend_sources=true
       add_frontend_package '@nix/api-client'
@@ -175,6 +177,11 @@ fi
 if [ "$has_sensitive_backend" = true ]; then
   emit 'dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj'
   [ "$format" = commands ] || echo '  Required review: security; add backend-data review for persistence, SQL, or migrations.'
+fi
+
+if [ "$has_compose" = true ]; then
+  emit 'bash deploy/compose/check.test.sh'
+  emit 'bash deploy/k8s/deploy.test.sh'
 fi
 
 if [ "$has_workers" = true ]; then
