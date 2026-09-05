@@ -66,6 +66,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetWorkspaceCalendar"] = Requirement.Read,
         ["GetWorkspaceGraph"] = Requirement.Read,
         ["ListItems"] = Requirement.Read,
+        ["ListTrash"] = Requirement.Read,
         ["ListWorkspaceMembers"] = Requirement.Read,
         ["ListWorkspaceInvitations"] = Requirement.Read,
         ["GetAccessTokenSigningKeys"] = Requirement.Read,
@@ -78,6 +79,7 @@ public sealed class AccessTokenScopePolicyTests
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
         ["DeleteItem"] = Requirement.Write,
+        ["PurgeItem"] = Requirement.Write,
         ["KeepItem"] = Requirement.Write,
         ["ReleaseItem"] = Requirement.Write,
         // Both recurrence writes are ordinary item edits under a token's write scope: setting a
