@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { InteractiveFormEditor } from '../form/interactive-form-editor';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
 import type { PropertyDefinition, View } from './container-model';
+import { LineListInput } from './line-list-input';
 import { findViewKind } from './view-kinds';
 
 export interface StructuredViewConfigurationProps {
@@ -93,17 +94,14 @@ export function StructuredViewConfiguration({
       {view.kind === 'board' ? (
         <Field label="Column order" hint="One select option per line.">
           {(control) => (
-            <textarea
+            <LineListInput
               {...control}
               rows={3}
-              value={view.groupOrder.join('\n')}
-              onChange={(event) => {
+              value={view.groupOrder}
+              onChange={(groupOrder) => {
                 onChange({
                   ...view,
-                  groupOrder: event.target.value
-                    .split('\n')
-                    .map((entry) => entry.trim())
-                    .filter(Boolean),
+                  groupOrder,
                 });
               }}
             />

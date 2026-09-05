@@ -16,6 +16,7 @@ import { SettingsPage } from './pages/settings-page';
 import { TemplateLibraryPage } from './templates/template-library-page';
 import { TemplateImportPage } from './templates/template-import-page';
 import { TemplateStudioPage } from './templates/template-studio-page';
+import { TrashPage } from './pages/trash-page';
 import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { RequireSession } from './shell/require-session';
 import { AppShell } from './shell/app-shell';
@@ -104,6 +105,7 @@ export function App(): ReactElement {
                     <Route path="daily/:date" element={<DailyNotePage />} />
                     <Route path="graph" element={<GraphPage />} />
                     <Route path="bookmarks" element={<BookmarksPage />} />
+                    <Route path="trash" element={<TrashPage />} />
                     <Route path="templates" element={<TemplateLibraryPage />} />
                     <Route path="templates/new" element={<TemplateStudioPage />} />
                     <Route path="templates/import" element={<TemplateImportPage />} />
