@@ -14,3 +14,12 @@
 .DS_Store
 *.pem
 *.key
+
+# Local IDE state, credentials, key rings and compiled worker output.
+.idea
+deploy/.zitadel
+deploy/.dev-data-protection
+deploy/*.env
+deploy/compose.host.yml
+apps/go-workers/nix-worker
+apps/go-workers/nix-worker.exe
