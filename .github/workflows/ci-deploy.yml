@@ -1,0 +1,21 @@
+name: CI Compose deployment
+on:
+  push:
+    branches: [main]
+    paths: ['deploy/**', 'scripts/changed-path-checks*', '.github/workflows/ci-deploy.yml']
+  pull_request:
+    paths: ['deploy/**', 'scripts/changed-path-checks*', '.github/workflows/ci-deploy.yml']
+permissions:
+  contents: read
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - run: bash deploy/compose/check.test.sh
+      - run: bash deploy/k8s/deploy.test.sh
+      - run: bash scripts/changed-path-checks.test.sh && bash scripts/validate-changed.test.sh
