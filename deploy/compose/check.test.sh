@@ -38,7 +38,14 @@ command=args[0]
 if command=='auth': print(json.dumps(dict(apiUrl=os.environ.get('TEST_API_URL','https://production.example'))))
 elif command=='import':
  print(json.dumps(dict(rootItemId='smoke-root',createdCount=2,atomic=True,omissions=[],loss=[])))
+elif command=='item' and '--parent' in args:
+ print(json.dumps(dict(items=[dict(id='original-file',type='file')])))
+elif command=='file':
+ path=args[args.index('--out')+1]
+ open(path,'w').write('Nix release smoke test\n\nStorage transfer and document conversion verification.\n')
+ print('{}')
 elif command=='export':
+ assert args[args.index('--scope')+1]=='item'
  fmt=args[args.index('--format')+1]
  if os.environ.get('FAIL_EXPORT')==fmt: sys.exit(1)
  path=args[args.index('--out')+1]
