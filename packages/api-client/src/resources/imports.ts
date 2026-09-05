@@ -1,7 +1,12 @@
 import type { z } from 'zod';
 
 import type { NixClient } from '../client.js';
-import { defineCommand, defineQuery, type CommandEndpoint, type QueryEndpoint } from '../endpoints.js';
+import {
+  defineCommand,
+  defineQuery,
+  type CommandEndpoint,
+  type QueryEndpoint,
+} from '../endpoints.js';
 import {
   documentImportPlanSchema,
   documentImportPreviewCapabilitySchema,
@@ -185,6 +190,7 @@ async function capabilityFetch(url: string, init: RequestInit): Promise<Response
     throw new TypeError('Object capabilities cannot contain URL credentials.');
   }
   const response = await fetch(parsed, { ...init, credentials: 'omit', redirect: 'error' });
-  if (!response.ok) throw new Error(`The object capability was refused (${String(response.status)}).`);
+  if (!response.ok)
+    throw new Error(`The object capability was refused (${String(response.status)}).`);
   return response;
 }

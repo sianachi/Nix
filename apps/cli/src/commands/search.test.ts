@@ -37,7 +37,9 @@ async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Prom
   return { env, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -67,7 +69,9 @@ describe('nixctl search', () => {
       }),
     );
 
-    const printed = (await capture((json) => runSearch('default', 'soup', { limit: 2 }, json, { env }))) as {
+    const printed = (await capture((json) =>
+      runSearch('default', 'soup', { limit: 2 }, json, { env }),
+    )) as {
       count: number;
       truncated: boolean;
       results: unknown[];

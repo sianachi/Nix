@@ -149,10 +149,13 @@ describe('evaluating a formula property', () => {
 
   it('lets one over-long formula report a limit without taking the others down with it', () => {
     const long = '1 + '.repeat(PROPERTY_FORMULA_LIMITS.maxLength) + '1';
-    const { values } = evaluate([
-      { key: 'long', expression: long },
-      { key: 'fine', expression: '[a] + 1' },
-    ], { a: 1 });
+    const { values } = evaluate(
+      [
+        { key: 'long', expression: long },
+        { key: 'fine', expression: '[a] + 1' },
+      ],
+      { a: 1 },
+    );
 
     expect(values.get('long')).toEqual({ error: '#LIMIT!' });
     expect(values.get('fine')).toBe(2);

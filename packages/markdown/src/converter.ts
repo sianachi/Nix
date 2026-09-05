@@ -13,12 +13,7 @@
  * output as UTF-8 chunks, one item at a time in manifest order (parents before children).
  */
 
-import type {
-  ConvertRequest,
-  DocumentConverter,
-  LossKind,
-  LossNotice,
-} from '@nix/export';
+import type { ConvertRequest, DocumentConverter, LossKind, LossNotice } from '@nix/export';
 
 import { documentToMarkdown } from './to-markdown.js';
 

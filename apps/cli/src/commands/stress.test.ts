@@ -14,7 +14,11 @@ const WS = '22222222-2222-4222-8222-222222222222';
 let nextId = 0;
 
 /** A full ItemResponse, so the client's item schema parses each create. */
-function itemFrom(body: { type?: string; title?: string; parentId?: string | null }): Record<string, unknown> {
+function itemFrom(body: {
+  type?: string;
+  title?: string;
+  parentId?: string | null;
+}): Record<string, unknown> {
   nextId += 1;
   const id = `00000000-0000-4000-8000-${String(nextId).padStart(12, '0')}`;
   return {
@@ -56,7 +60,9 @@ async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Prom
   return { env, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -76,7 +82,11 @@ describe('nixctl stress seed', () => {
     const parentIds: (string | null)[] = [];
     server.use(
       http.post(`${API}/api/v1/workspaces/:workspaceId/items`, async ({ request }) => {
-        const body = (await request.json()) as { type?: string; title?: string; parentId?: string | null };
+        const body = (await request.json()) as {
+          type?: string;
+          title?: string;
+          parentId?: string | null;
+        };
         parentIds.push(body.parentId ?? null);
         return HttpResponse.json(itemFrom(body));
       }),
@@ -103,7 +113,11 @@ describe('nixctl stress seed', () => {
     server.use(
       http.post(`${API}/api/v1/workspaces/:workspaceId/items`, async ({ request }) => {
         creates += 1;
-        const body = (await request.json()) as { type?: string; title?: string; parentId?: string | null };
+        const body = (await request.json()) as {
+          type?: string;
+          title?: string;
+          parentId?: string | null;
+        };
         return HttpResponse.json(itemFrom(body));
       }),
     );
@@ -133,7 +147,11 @@ describe('nixctl stress seed', () => {
             { status: 429 },
           );
         }
-        const body = (await request.json()) as { type?: string; title?: string; parentId?: string | null };
+        const body = (await request.json()) as {
+          type?: string;
+          title?: string;
+          parentId?: string | null;
+        };
         return HttpResponse.json(itemFrom(body));
       }),
     );
@@ -150,9 +168,9 @@ describe('nixctl stress seed', () => {
 
   it('rejects a non-positive count before opening a session', async () => {
     const { env, done } = await withProfile();
-    await expect(capture((json) => seed('default', { workspaceId: WS, count: 0 }, json, { env }))).rejects.toThrow(
-      /positive integer/,
-    );
+    await expect(
+      capture((json) => seed('default', { workspaceId: WS, count: 0 }, json, { env })),
+    ).rejects.toThrow(/positive integer/);
     await done();
   });
 });
@@ -186,8 +204,15 @@ describe('nixctl stress run read-storm', () => {
     const now = (): number => ticks[tick++] ?? 0;
 
     const printed = (await capture((json) =>
-      stressRun('default', { scenario: 'read-storm', itemId: ITEM, iterations: 3 }, json, { env, now }),
-    )) as { ok: number; errors: number; latencyMs: { p50: number; p95: number; p99: number; max: number } };
+      stressRun('default', { scenario: 'read-storm', itemId: ITEM, iterations: 3 }, json, {
+        env,
+        now,
+      }),
+    )) as {
+      ok: number;
+      errors: number;
+      latencyMs: { p50: number; p95: number; p99: number; max: number };
+    };
 
     expect(reads).toBe(3);
     expect(printed.ok).toBe(3);
@@ -227,7 +252,9 @@ describe('nixctl stress run read-storm', () => {
   it('rejects an unknown scenario before opening a session', async () => {
     const { env, done } = await withProfile();
     await expect(
-      capture((json) => stressRun('default', { scenario: 'chaos', itemId: ITEM, iterations: 1 }, json, { env })),
+      capture((json) =>
+        stressRun('default', { scenario: 'chaos', itemId: ITEM, iterations: 1 }, json, { env }),
+      ),
     ).rejects.toThrow(/Unknown scenario/);
     await done();
   });
@@ -235,7 +262,9 @@ describe('nixctl stress run read-storm', () => {
   it('rejects read-storm with no --item', async () => {
     const { env, done } = await withProfile();
     await expect(
-      capture((json) => stressRun('default', { scenario: 'read-storm', iterations: 1 }, json, { env })),
+      capture((json) =>
+        stressRun('default', { scenario: 'read-storm', iterations: 1 }, json, { env }),
+      ),
     ).rejects.toThrow(/needs --item/);
     await done();
   });
@@ -259,7 +288,10 @@ describe('nixctl stress run search-storm', () => {
     const now = (): number => ticks[tick++] ?? 0;
 
     const printed = (await capture((json) =>
-      stressRun('default', { scenario: 'search-storm', query: 'soup', iterations: 3 }, json, { env, now }),
+      stressRun('default', { scenario: 'search-storm', query: 'soup', iterations: 3 }, json, {
+        env,
+        now,
+      }),
     )) as { scenario: string; target: string; ok: number; latencyMs: { p50: number; max: number } };
 
     expect(searches).toBe(3);
@@ -274,7 +306,9 @@ describe('nixctl stress run search-storm', () => {
   it('rejects search-storm with no --query', async () => {
     const { env, done } = await withProfile();
     await expect(
-      capture((json) => stressRun('default', { scenario: 'search-storm', iterations: 1 }, json, { env })),
+      capture((json) =>
+        stressRun('default', { scenario: 'search-storm', iterations: 1 }, json, { env }),
+      ),
     ).rejects.toThrow(/needs --query/);
     await done();
   });
@@ -307,7 +341,13 @@ describe('nixctl stress run query-storm', () => {
     const printed = (await capture((json) =>
       stressRun(
         'default',
-        { scenario: 'query-storm', itemId: ITEM, viewId: 'board', today: '2026-01-01', iterations: 3 },
+        {
+          scenario: 'query-storm',
+          itemId: ITEM,
+          viewId: 'board',
+          today: '2026-01-01',
+          iterations: 3,
+        },
         json,
         { env, now },
       ),
@@ -325,7 +365,9 @@ describe('nixctl stress run query-storm', () => {
     const { env, done } = await withProfile();
     await expect(
       capture((json) =>
-        stressRun('default', { scenario: 'query-storm', itemId: ITEM, iterations: 1 }, json, { env }),
+        stressRun('default', { scenario: 'query-storm', itemId: ITEM, iterations: 1 }, json, {
+          env,
+        }),
       ),
     ).rejects.toThrow(/needs --item .*--view .*--today/);
     await done();

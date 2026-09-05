@@ -1,3 +1,4 @@
+import { useNarrowViewport } from '../../layout/viewport';
 import { Blueprint, Button, Dialog, Field, Icon, Input, Text, cn } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
@@ -135,6 +136,8 @@ function describeUnrenderable(
 
 export function CalendarView(props: CalendarViewProps): ReactNode {
   const { container, view, onOpen } = props;
+  const narrow = useNarrowViewport();
+  const [showGrid, setShowGrid] = useState(false);
   const viewState = useViewState();
   const { mode: urlMode, setMode } = viewState;
 
@@ -392,7 +395,47 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         </div>
       )}
 
-      {mode === 'month' ? (
+      {narrow ? (
+        <Button
+          variant="ghost"
+          aria-pressed={showGrid}
+          onClick={() => {
+            setShowGrid(!showGrid);
+          }}
+        >
+          {showGrid ? 'Show agenda' : 'Show calendar grid'}
+        </Button>
+      ) : null}
+      {narrow && !showGrid ? (
+        <section aria-label="Calendar agenda" className="flex flex-col gap-4">
+          {[...byDate]
+            .filter(([date]) =>
+              mode === 'month'
+                ? date.startsWith(prefix)
+                : (mode === 'week' ? weekOf(anchor) : [anchor]).some(
+                    (day) => dayText(day) === date,
+                  ),
+            )
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, dated]) => (
+              <section key={date} aria-label={date}>
+                <Text as="h3" variant="h6">
+                  {date}
+                </Text>
+                <ul className="flex flex-col gap-2">
+                  {dated.map((item) => (
+                    <li key={item.id}>
+                      <ItemCard item={item} card={card} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          <Text as="p" variant="caption" tone="muted">
+            Only scheduled items in this date window appear here.
+          </Text>
+        </section>
+      ) : mode === 'month' ? (
         <MonthGrid
           month={month}
           todayText={todayText}

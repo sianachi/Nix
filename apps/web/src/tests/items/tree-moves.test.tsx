@@ -203,6 +203,7 @@ describe('moving an item to the workspace root', () => {
     const child = { ...ROOT_C, parentId: parent.id, title: 'Nested' };
 
     renderSidebar(treeOf(move, [parent, ROOT_B, child], new Set([parent.id])), child.id);
+    await user.click(screen.getByRole('button', { name: `Expand ${parent.title}` }));
 
     await user.click(screen.getByRole('button', { name: /move nested to the workspace root/i }));
 

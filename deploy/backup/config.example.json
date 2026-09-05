@@ -1,0 +1,13 @@
+{
+  "repository": "s3:https://f68668252f8cb73b3936ca4cd56a8a8a.r2.cloudflarestorage.com/nix-backup/restic/nix-local",
+  "image": "restic/restic:0.19.1",
+  "docker": "/opt/homebrew/bin/docker",
+  "host": "nix-local",
+  "postgres_container": "nix-dev-postgres-1",
+  "zitadel_container": "nix-dev-zitadel-db-1",
+  "objects_volume": "nix-dev_versity-data",
+  "credentials_file": "/absolute/private/path/r2.env",
+  "password_file": "/absolute/private/path/restic-password",
+  "state_directory": "/absolute/private/path/state",
+  "recovery_paths": []
+}

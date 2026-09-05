@@ -266,6 +266,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
           here rather than to the row it deleted, which is gone by the time that matters. */}
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
+        <SidebarPins onSelect={onSelect} />
         <TreeBody
           tree={tree}
           selectedId={selectedId}
@@ -782,7 +783,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     onDeleteItem,
   } = props;
 
-  const expanded = tree.isExpanded(item.id);
+  // Loading/revealing children must not opt the sidebar into showing them.
+  const [expanded, setExpanded] = useState(false);
   const children = tree.childrenOf(item.id);
   const selected = selectedId === item.id;
 
@@ -935,7 +937,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             type="button"
             aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
             onClick={() => {
-              void tree.toggle(item.id);
+              setExpanded(!expanded);
+              if (!expanded && !tree.isExpanded(item.id)) void tree.toggle(item.id);
             }}
             className="flex size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm) items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
@@ -1103,5 +1106,51 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         </ul>
       ) : null}
     </li>
+  );
+}
+
+function SidebarPins({ onSelect }: { readonly onSelect: (itemId: string) => void }): ReactNode {
+  const { workspaceId } = useWorkspace();
+  const items = useBookmarksStore((state) => state.items);
+  const status = useBookmarksStore((state) => state.status);
+  const error = useBookmarksStore((state) => state.error);
+  const pins = items.filter((item) => item.workspaceId === workspaceId);
+  return (
+    <section aria-label="Pinned items" className="border-b border-divider px-3 py-2">
+      <Text as="p" variant="caption" tone="muted">
+        Pinned items
+      </Text>
+      {status === 'loading' ? (
+        <Text as="p" variant="caption">
+          Loading pins…
+        </Text>
+      ) : null}
+      {error ? (
+        <Text as="p" variant="caption" role="status">
+          Pins are unavailable. Open Bookmarks to retry.
+        </Text>
+      ) : null}
+      {status === 'ready' && pins.length === 0 ? (
+        <Text as="p" variant="caption" tone="muted">
+          Bookmark an item to pin it here.
+        </Text>
+      ) : null}
+      <ul>
+        {pins.map((item) => (
+          <li key={item.itemId} className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className={`min-w-0 flex-1 truncate py-2 text-left ${focusRing}`}
+              onClick={() => {
+                onSelect(item.itemId);
+              }}
+            >
+              {item.title !== null && item.title.length > 0 ? item.title : 'Untitled'}
+            </button>
+            <BookmarkButton itemId={item.itemId} title={item.title ?? ''} compact />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

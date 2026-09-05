@@ -29,16 +29,25 @@ describe('toFailure', () => {
       title: 'Not found',
       detail: 'No item 123 is visible.',
     });
-    expect(toFailure(error)).toEqual({ message: 'No item 123 is visible.', code: ExitCode.NotFound });
+    expect(toFailure(error)).toEqual({
+      message: 'No item 123 is visible.',
+      code: ExitCode.NotFound,
+    });
   });
 
   it('maps a 403 to the refused code', () => {
-    const error = NixApiError.fromProblemDetails(403, { code: 'auth.insufficient_scope', detail: 'Out of scope.' });
+    const error = NixApiError.fromProblemDetails(403, {
+      code: 'auth.insufficient_scope',
+      detail: 'Out of scope.',
+    });
     expect(toFailure(error).code).toBe(ExitCode.Refused);
   });
 
   it('maps a 401 to the refused code', () => {
-    const error = NixApiError.fromProblemDetails(401, { code: 'auth.token_revoked', detail: 'Revoked.' });
+    const error = NixApiError.fromProblemDetails(401, {
+      code: 'auth.token_revoked',
+      detail: 'Revoked.',
+    });
     expect(toFailure(error).code).toBe(ExitCode.Refused);
   });
 

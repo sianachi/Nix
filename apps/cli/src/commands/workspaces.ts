@@ -19,7 +19,10 @@ export async function listWorkspaces(
 ): Promise<void> {
   const session = await resolveSession(profileName, deps);
   const result = await session.client.query(workspaces.listWorkspacesPage(validatePage(page)));
-  printResult({ workspaces: result.items, count: result.items.length, nextCursor: result.nextCursor }, output);
+  printResult(
+    { workspaces: result.items, count: result.items.length, nextCursor: result.nextCursor },
+    output,
+  );
 }
 
 export async function createWorkspace(
@@ -71,7 +74,10 @@ export async function listWorkspaceInvitees(
   const result = await session.client.query(
     workspaces.listInviteesPage(workspaceId, validatePage(page)),
   );
-  printResult({ invitees: result.items, count: result.items.length, nextCursor: result.nextCursor }, output);
+  printResult(
+    { invitees: result.items, count: result.items.length, nextCursor: result.nextCursor },
+    output,
+  );
 }
 
 export async function inviteWorkspaceMember(
@@ -141,7 +147,10 @@ export async function listWorkspaceMembers(
   const result = await session.client.query(
     workspaces.listMembersPage(workspaceId, validatePage(page)),
   );
-  printResult({ members: result.items, count: result.items.length, nextCursor: result.nextCursor }, output);
+  printResult(
+    { members: result.items, count: result.items.length, nextCursor: result.nextCursor },
+    output,
+  );
 }
 
 export async function changeWorkspaceMemberRole(

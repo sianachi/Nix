@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Nix</title>
     <link rel="icon" type="image/png" href="/nix-icon.png" />
     <link rel="apple-touch-icon" href="/nix-icon-192.png" />
@@ -72,7 +72,13 @@
       })();
     </script>
   </head>
-  <body>
+  <!-- Touch editing uses at least the 17px type step to avoid focus-triggered zoom on iOS.
+       Raise only the smaller tokens inside editable controls, preserving larger title and
+       heading sizes, desktop typography, and user-controlled pinch zoom. Body scope also
+       covers dialogs rendered through portals. -->
+  <body
+    class="[@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-2xs:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-xs:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-sm:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-base:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-md:var(--text-lg)]"
+  >
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

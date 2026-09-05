@@ -1,3 +1,5 @@
+import { useSessionStore } from '../auth/session-store';
+import { readLastLocation } from '../pwa/last-location';
 import { Button } from '@nix/ui';
 import type { ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
@@ -33,6 +35,7 @@ function WorkspaceStateFrame({ children }: { readonly children: ReactNode }): Re
 export function LegacyWorkspaceRedirect(): ReactNode {
   const state = useAccessibleWorkspaces();
   const location = useLocation();
+  const subject = useSessionStore((state) => state.profile?.subject);
 
   if (state.status === 'loading') {
     return (
@@ -66,6 +69,15 @@ export function LegacyWorkspaceRedirect(): ReactNode {
       </WorkspaceStateFrame>
     );
   }
+
+  const saved =
+    subject && location.pathname === '/' && location.search === '' && location.hash === ''
+      ? readLastLocation(
+          subject,
+          state.workspaces.map((workspace) => workspace.id),
+        )
+      : null;
+  if (saved) return <Navigate replace to={saved} />;
 
   const remembered = readLastWorkspaceId();
   const rememberedWorkspace = state.workspaces.find((workspace) => workspace.id === remembered);

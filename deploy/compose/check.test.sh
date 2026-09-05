@@ -18,6 +18,11 @@ assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
 assert not s['nix-versitygw'].get('ports')
+from pathlib import Path
+edge=Path('deploy/Caddyfile.prod').read_text()
+exchange=edge.split('handle /public/v1/auth/token {',1)[1].split('\n\thandle ',1)[0]
+assert 'reverse_proxy nix-api:8080' in exchange
+assert 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' in exchange
 PY
 mkdir "$fixture/bin"
 cat > "$fixture/bin/pdftotext" <<'PY'

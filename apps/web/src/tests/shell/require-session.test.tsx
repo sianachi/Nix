@@ -54,7 +54,9 @@ describe('the session gate', () => {
 
     renderAt(<App />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not configured on this nix server/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /not configured on this nix server/i,
+    );
     expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
   });
 

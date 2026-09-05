@@ -35,7 +35,7 @@ export function ShellHeader({
         aria-label={sidebarVisible ? 'Hide the workspace tree' : 'Show the workspace tree'}
         aria-expanded={sidebarVisible}
         onClick={onToggleSidebar}
-        className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+        className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted max-sm:min-h-11 max-sm:min-w-11 hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
       >
         <Icon icon={sidebarVisible ? PanelLeftClose : PanelLeftOpen} size="sm" />
       </button>
@@ -54,7 +54,7 @@ export function ShellHeader({
         type="button"
         onClick={onOpenSearch}
         aria-label="Search"
-        className={`ml-auto flex shrink-0 items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs text-muted hover:bg-foreground/7 sm:px-3 ${focusRing}`}
+        className={`ml-auto flex shrink-0 max-sm:min-h-11 max-sm:min-w-11 items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs text-muted hover:bg-foreground/7 sm:px-3 ${focusRing}`}
       >
         <Icon icon={Search} size="sm" />
         <span className="hidden sm:inline">Search</span>
