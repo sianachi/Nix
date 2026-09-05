@@ -13,6 +13,11 @@
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
 #   kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
 set -euo pipefail
+if [ "${NIX_DEPLOY_TARGET:-compose}" != kubernetes ]; then
+  echo 'Kubernetes deployment is inactive. Use deploy/compose/deploy.sh.' >&2
+  echo 'An explicit NIX_DEPLOY_TARGET=kubernetes is required to return to this target.' >&2
+  exit 2
+fi
 cd "$(git rev-parse --show-toplevel)"
 source deploy/k8s/template-boot-config.sh
 

@@ -162,6 +162,13 @@ backend/
                           frontend; never hand-edit
 ```
 
+## Production deployment
+
+Docker Compose is the default production target until an explicit decision to return to Kubernetes.
+Use the [Compose deployment runbook](deploy/README.md) for immutable builds, migrations, Versity
+storage, rollback and mandatory import/export verification. Kubernetes tooling is retained but is
+not part of the default release workflow.
+
 ## Getting started
 
 ```

@@ -1,6 +1,40 @@
 name: nix
 
 services:
+  nix-versitygw:
+    image: versity/versitygw:v1.7.0
+    restart: unless-stopped
+    command: ["--health", "/health", "posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY: ${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}
+      ROOT_SECRET_KEY: ${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}
+    volumes:
+      - nix-versity-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7070/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+
+  nix-storage-init:
+    image: amazon/aws-cli:2
+    profiles: [maintenance]
+    restart: "no"
+    environment:
+      AWS_ACCESS_KEY_ID: ${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}
+      AWS_DEFAULT_REGION: ${NIX_OBJECT_STORE_REGION:-us-east-1}
+      NIX_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - 'aws --endpoint-url http://nix-versitygw:7070 s3api head-bucket --bucket "$$NIX_BUCKET" >/dev/null 2>&1 || aws --endpoint-url http://nix-versitygw:7070 s3api create-bucket --bucket "$$NIX_BUCKET"'
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -168,6 +202,18 @@ services:
         aliases:
           - nix-api
 
+  nix-collab-migrate:
+    image: localhost/nix/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    profiles: [maintenance]
+    restart: "no"
+    environment:
+      NIX_COLLAB_MIGRATOR_CONNECTION_STRING: ${NIX_COLLAB_MIGRATOR_CONNECTION_STRING:-}
+    command: ["pnpm", "--filter", "@nix/collab", "migrate-documents"]
+    mem_limit: 768m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
   nix-collab:
     image: localhost/nix/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
@@ -210,7 +256,7 @@ services:
           - nix-collab
 
   nix-import-worker:
-    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -251,7 +297,7 @@ services:
           - nix-import-worker
 
   nix-export-worker:
-    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -293,7 +339,7 @@ services:
           - nix-export-worker
 
   nix-indexer:
-    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -335,7 +381,7 @@ services:
           - nix-indexer
 
   nix-plugin-worker:
-    image: localhost/nix/worker:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -414,6 +460,7 @@ services:
         condition: service_healthy
     environment:
       NIX_OBJECT_STORE_PUBLIC_ORIGIN: ${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      NIX_OBJECT_STORE_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data
@@ -460,7 +507,10 @@ volumes:
     name: nix-postgres-data
   nix-rabbitmq-data:
     name: nix-rabbitmq-data
+  nix-versity-data:
+    name: nix-versity-data
   nix-caddy-data:
+    name: nix-caddy-data
   nix-opensearch-data:
     name: nix-opensearch-data
   nix-caddy-config:

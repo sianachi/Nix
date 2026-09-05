@@ -112,7 +112,7 @@ TEMPLATE_BOOT_WORKSPACE_ID=11111111-1111-4111-8111-111111111111 \
 TEMPLATE_BOOT_OIDC_AUDIENCE=project-id \
 TEMPLATE_BOOT_PVC=template-files \
 TEMPLATE_BOOT_SERVICE_KEY_SECRET=template-service-key \
-bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null
+NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null
 
 line_of() {
   local pattern="$1"
