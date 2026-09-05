@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from 'lucide-react
 import { type ReactNode } from 'react';
 
 import type { PropertyDefinition as PropertyDefinitionType } from '../core/container-model';
+import { LineListInput } from '../core/line-list-input';
 import { PROPERTY_TYPES, isDateShaped } from '../core/property-types';
 import { StructuredViewConfiguration } from '../core/structured-view-configuration';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
@@ -29,11 +30,11 @@ export function BasicsStep({
 }): ReactNode {
   return (
     <section className="flex flex-col gap-4">
-      <div>
+      <div className="max-w-prose">
         <Text variant="h2" as="h2">
           {existingItem ? 'Name the view' : 'Name the setup'}
         </Text>
-        <Text variant="bodySmall" tone="muted">
+        <Text variant="note" tone="muted" className="mt-1">
           {recipe.detail}
         </Text>
       </div>
@@ -49,10 +50,10 @@ export function BasicsStep({
         )}
       </Field>
       <Blueprint className="p-4">
-        <Text variant="note" tone="muted">
+        <Text variant="caption" tone="muted">
           Destination
         </Text>
-        <Text variant="bodySmall">{destination}</Text>
+        <Text variant="body">{destination}</Text>
       </Blueprint>
     </section>
   );
@@ -70,11 +71,11 @@ export function SetupStep({
   const fields = mergedFields(draft.properties, existingProperties);
   return (
     <section className="flex flex-col gap-5">
-      <div>
+      <div className="max-w-prose">
         <Text variant="h2" as="h2">
           Set up {draft.view.name}
         </Text>
-        <Text variant="bodySmall" tone="muted">
+        <Text variant="note" tone="muted" className="mt-1">
           Fields are shared by this view and every companion.
         </Text>
       </div>
@@ -231,20 +232,17 @@ function FieldsEditor({
           {property.type === 'select' || property.type === 'multi_select' ? (
             <Field label="Options" hint="One option per line.">
               {(control) => (
-                <textarea
+                <LineListInput
                   {...control}
                   rows={3}
-                  value={property.options.join('\n')}
-                  onChange={(event) => {
+                  value={property.options}
+                  onChange={(options) => {
                     onChange(
                       properties.map((entry, position) =>
                         position === index
                           ? {
                               ...entry,
-                              options: event.target.value
-                                .split('\n')
-                                .map((value) => value.trim())
-                                .filter(Boolean),
+                              options,
                             }
                           : entry,
                       ),

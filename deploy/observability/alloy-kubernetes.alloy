@@ -1,0 +1,45 @@
+// This ServiceAccount can only discover Pods in Nix's namespace. Loki stores
+// namespace, pod, container and app as labels; do not promote request IDs or
+// tenant/workspace IDs to labels.
+discovery.kubernetes "nix_pods" {
+  role = "pod"
+
+  namespaces {
+    names = ["nix"]
+  }
+}
+
+discovery.relabel "nix_pods" {
+  targets = discovery.kubernetes.nix_pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    target_label  = "service"
+  }
+}
+
+loki.source.kubernetes "nix" {
+  targets    = discovery.relabel.nix_pods.output
+  forward_to = [loki.write.nix.receiver]
+}
+
+loki.write "nix" {
+  endpoint {
+    url = "http://nix-loki:3100/loki/api/v1/push"
+  }
+}

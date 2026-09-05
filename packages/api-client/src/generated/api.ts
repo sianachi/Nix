@@ -356,6 +356,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/items/trash': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Recoverable items in the workspace trash
+     * @description Returns directly deleted items the caller may read, newest first. Descendants hidden by a deleted ancestor are not independently trashed.
+     */
+    get: operations['ListTrash'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/items': {
     parameters: {
       query?: never;
@@ -443,6 +463,23 @@ export interface paths {
      */
     post: operations['RestoreItem'];
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/purge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Permanently delete a trashed item */
+    delete: operations['PurgeItem'];
     options?: never;
     head?: never;
     patch?: never;
@@ -3573,6 +3610,40 @@ export interface operations {
       };
     };
   };
+  ListTrash: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CursorPageOfItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   ListItems: {
     parameters: {
       query?: {
@@ -3877,6 +3948,44 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PurgeItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };

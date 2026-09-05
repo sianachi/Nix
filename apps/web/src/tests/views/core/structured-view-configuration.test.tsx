@@ -37,6 +37,17 @@ function BoardConfiguration(): ReactNode {
 }
 
 describe('shared structured-view configuration', () => {
+  it('allows new lines and multiword board columns to be typed', async () => {
+    const user = userEvent.setup();
+    render(<BoardConfiguration />);
+    const order = screen.getByRole('textbox', { name: 'Column order' });
+    await user.clear(order);
+    await user.type(order, 'To do{Enter}In progress{Enter}Done{Enter}');
+    expect(order).toHaveValue('To do\nIn progress\nDone\n');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Group by' }), 'priority');
+    expect(order).toHaveValue('');
+  });
+
   it('edits configured properties and ordered visible fields through one control surface', async () => {
     const user = userEvent.setup();
     render(<BoardConfiguration />);

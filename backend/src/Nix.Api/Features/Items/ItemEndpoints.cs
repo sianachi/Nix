@@ -55,6 +55,13 @@ internal static class ItemEndpoints
         var workspaceItems = endpoints.MapGroup("/api/v1/workspaces/{workspaceId:guid}/items")
             .WithTags("Items");
 
+        workspaceItems.MapGet("/trash", ListTrashEndpoint.Handle)
+            .WithName("ListTrash")
+            .WithSummary("Recoverable items in the workspace trash")
+            .WithDescription("Returns directly deleted items the caller may read, newest first. Descendants hidden by a deleted ancestor are not independently trashed.")
+            .Produces<CursorPage<ItemResponse>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         workspaceItems.MapGet("/", ListItemsEndpoint.Handle)
             .WithName("ListItems")
             .WithSummary("Children of an item, or the workspace root")
@@ -138,6 +145,11 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        items.MapDelete("/{itemId:guid}/purge", PurgeItemEndpoint.Handle)
+            .WithName("PurgeItem").WithSummary("Permanently delete a trashed item")
+            .Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;

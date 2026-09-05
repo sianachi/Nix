@@ -147,7 +147,8 @@ export function InteractiveFormEditor({
           </div>
           <Field label="Introduction">
             {(control) => (
-              <Input
+              <textarea
+                rows={3}
                 {...control}
                 value={page.description ?? ''}
                 onChange={(event) => {
@@ -290,7 +291,8 @@ export function InteractiveFormEditor({
       </div>
       <Field label="Confirmation message">
         {(control) => (
-          <Input
+          <textarea
+            rows={3}
             {...control}
             value={form.confirmationMessage}
             onChange={(event) => {
@@ -733,15 +735,26 @@ function BlockEditor({
           }
           className="min-w-full sm:min-w-0 sm:flex-1"
         >
-          {(control) => (
-            <Input
-              {...control}
-              value={block.text}
-              onChange={(event) => {
-                onChange({ ...block, text: event.target.value });
-              }}
-            />
-          )}
+          {(control) =>
+            block.kind === 'paragraph' ? (
+              <textarea
+                {...control}
+                rows={3}
+                value={block.text}
+                onChange={(event) => {
+                  onChange({ ...block, text: event.target.value });
+                }}
+              />
+            ) : (
+              <Input
+                {...control}
+                value={block.text}
+                onChange={(event) => {
+                  onChange({ ...block, text: event.target.value });
+                }}
+              />
+            )
+          }
         </Field>
         <Button
           variant="icon"
@@ -818,7 +831,8 @@ function BlockEditor({
           </div>
           <Field label="Help text">
             {(control) => (
-              <Input
+              <textarea
+                rows={3}
                 {...control}
                 value={block.help ?? ''}
                 onChange={(event) => {

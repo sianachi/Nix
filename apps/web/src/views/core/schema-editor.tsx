@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from './container-model';
 import { EditorShell } from './editor-shell';
+import { LineListInput } from './line-list-input';
 import {
   PROPERTY_TYPES,
   ROLLUP_AGGREGATES,
@@ -321,15 +322,12 @@ export function SchemaEditor({
                 hint="One per line. A board's columns are chosen separately, so a board can show only some of these."
               >
                 {(control) => (
-                  <textarea
+                  <LineListInput
                     {...control}
-                    value={property.options.join('\n')}
-                    onChange={(event) => {
+                    value={property.options}
+                    onChange={(options) => {
                       update(index, {
-                        options: event.target.value
-                          .split('\n')
-                          .map((option) => option.trim())
-                          .filter((option) => option.length > 0),
+                        options,
                       });
                     }}
                     rows={3}

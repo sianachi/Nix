@@ -1,0 +1,150 @@
+# Single-replica observability plane for the Nix namespace. Loki's filesystem
+# store is intentionally not clustered; moving to multiple replicas requires a
+# shared object store and an explicit storage migration.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-loki-data, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 50Gi }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-grafana-data, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-loki, namespace: nix }
+spec:
+  selector: { app: nix-loki }
+  ports: [{ port: 3100, targetPort: 3100 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: nix-loki, namespace: nix }
+spec:
+  serviceName: nix-loki
+  replicas: 1
+  selector: { matchLabels: { app: nix-loki } }
+  template:
+    metadata: { labels: { app: nix-loki } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: loki
+          image: grafana/loki:3.5.5
+          args: ["-config.file=/etc/loki/config.yaml"]
+          ports: [{ containerPort: 3100 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki, readOnly: true }
+            - { name: data, mountPath: /loki }
+          livenessProbe: { httpGet: { path: /ready, port: 3100 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /ready, port: 3100 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes:
+        - name: config
+          configMap: { name: nix-loki-config }
+        - name: data
+          persistentVolumeClaim: { claimName: nix-loki-data }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-grafana, namespace: nix }
+spec:
+  selector: { app: nix-grafana }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-grafana, namespace: nix }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nix-grafana } }
+  template:
+    metadata: { labels: { app: nix-grafana } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 472, runAsGroup: 472, fsGroup: 472, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: grafana
+          image: grafana/grafana:12.2.0
+          ports: [{ containerPort: 3000 }]
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom: { secretKeyRef: { name: nix-observability, key: grafana-admin-user } }
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: nix-observability, key: grafana-admin-password } }
+            - { name: GF_USERS_ALLOW_SIGN_UP, value: "false" }
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "false" }
+          volumeMounts:
+            - { name: provisioning, mountPath: /etc/grafana/provisioning/datasources, readOnly: true }
+            - { name: data, mountPath: /var/lib/grafana }
+          livenessProbe: { httpGet: { path: /api/health, port: 3000 }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /api/health, port: 3000 }, periodSeconds: 5 }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 512Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+      volumes:
+        - name: provisioning
+          configMap: { name: nix-grafana-provisioning }
+        - name: data
+          persistentVolumeClaim: { claimName: nix-grafana-data }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: nix-alloy, namespace: nix }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: nix-alloy, namespace: nix }
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: nix-alloy, namespace: nix }
+subjects:
+  - kind: ServiceAccount
+    name: nix-alloy
+    namespace: nix
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nix-alloy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-alloy, namespace: nix }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nix-alloy } }
+  template:
+    metadata: { labels: { app: nix-alloy } }
+    spec:
+      serviceAccountName: nix-alloy
+      securityContext: { runAsNonRoot: true, runAsUser: 473, runAsGroup: 473, fsGroup: 473, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.11.3
+          args: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+          volumeMounts:
+            - { name: config, mountPath: /etc/alloy, readOnly: true }
+            - { name: positions, mountPath: /var/lib/alloy }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes:
+        - name: config
+          configMap: { name: nix-alloy-config }
+        - name: positions
+          emptyDir: { sizeLimit: 128Mi }

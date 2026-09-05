@@ -54,6 +54,8 @@ spec:
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: Production
+            - name: Logging__Console__FormatterName
+              value: json
             - name: ConnectionStrings__Nix
               valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
             - name: Nix__InternalSecret

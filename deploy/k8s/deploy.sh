@@ -49,6 +49,10 @@ if ! kubectl -n nix get secret nix-object-store >/dev/null 2>&1; then
   echo "secret nix-object-store not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
+if ! kubectl -n nix get secret nix-observability >/dev/null 2>&1; then
+  echo "secret nix-observability not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
+  exit 1
+fi
 for rabbitmq_key in api-password import-password export-password index-password plugin-password api-url import-url export-url index-url plugin-url; do
   rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
   if [ -z "$rabbitmq_value" ]; then
@@ -116,6 +120,22 @@ fi
 echo "== Caddyfile =="
 kubectl -n nix create configmap nix-caddy --from-file=Caddyfile=deploy/k8s/Caddyfile \
   --dry-run=client -o yaml | kubectl apply -f -
+
+echo "== Observability =="
+kubectl -n nix create configmap nix-loki-config \
+  --from-file=config.yaml=deploy/observability/loki.yaml \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nix create configmap nix-alloy-config \
+  --from-file=config.alloy=deploy/observability/alloy-kubernetes.alloy \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nix create configmap nix-grafana-provisioning \
+  --from-file=nix-logs.yaml=deploy/observability/grafana-datasource-kubernetes.yaml \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f deploy/k8s/observability.yaml
+kubectl -n nix rollout restart statefulset/nix-loki deployment/nix-alloy deployment/nix-grafana
+kubectl -n nix rollout status statefulset/nix-loki --timeout=180s
+kubectl -n nix rollout status deployment/nix-alloy --timeout=180s
+kubectl -n nix rollout status deployment/nix-grafana --timeout=180s
 
 echo "== Workloads =="
 render deploy/k8s/api.yaml | kubectl apply -f -
