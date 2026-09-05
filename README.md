@@ -82,7 +82,6 @@ and recovery verification remain separate from implementation status. See [docum
   export, import and stress/read/search/query runs.
 - An MCP server started through `nixctl mcp`, authenticated as the acting principal and limited to
   that principal's reach.
-- Progressive web app installation and an Electron hosted-web desktop shell.
 - RabbitMQ-backed import, export, indexing and signed WebAssembly plugin execution in a unified Go
   worker; workers use internal APIs and object capabilities without database credentials.
 - Editable Markdown, TXT, DOCX and PDF imports, plus `.nix` archive import. PDF OCR is unavailable.
@@ -104,9 +103,6 @@ The remaining roadmap is intentionally short and ordered by priority.
 3. **Prove import and portability.** Verify `.nix` round trips and DOCX/PDF fidelity, resolve remaining
    wiki-link gaps, audit hostile-input and streaming bounds, and run the full 10,000-note import
    stress test. Import handlers exist; their presence does not establish end-to-end fidelity or scale.
-4. **Extend native clients.** Build on the Electron hosted-web shell toward desktop and mobile applications with the same documents,
-   collaboration, authentication and permission model as the web application, while respecting the
-   platform conventions of each device.
 
 Each planned area has a measurable stress test. A green test suite is not treated as proof of layout,
 accessibility, query plans, export fidelity or production operations until those things are observed.
@@ -151,7 +147,6 @@ apps/
   collab/     Collaboration service (CRDT/WebSocket)
   go-workers/ Unified Go worker (role-configurable, no DB access)
   cli/        nixctl CLI and MCP server
-  desktop/    Electron hosted-web shell
 packages/
   api-client/     Generated HTTP client, contract types
   design-tokens/  Colors, fonts, spacing, radii, shadows
@@ -220,13 +215,6 @@ when using the default seed settings. Generated machine-specific configuration i
 The dev API defaults to Postgres search (`Nix__Search__OpenSearchEnabled=false`) even though
 stack-up starts OpenSearch and the worker indexes events. Enable the API flag explicitly when
 exercising OpenSearch. A running web/API pair alone does not run asynchronous jobs.
-
-## Desktop
-
-With the web stack running, use `pnpm desktop:dev`. `pnpm desktop:build` creates an unpacked
-Electron build. Packaged launches require `NIX_DESKTOP_WEB_URL` or `--web-url=<url>` pointing
-to the hosted application. This shell uses the existing web application and authentication;
-it is not a standalone offline backend or a completed native mobile client.
 
 ## Debugging (Rider)
 

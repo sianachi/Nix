@@ -97,7 +97,6 @@ for path in "${paths[@]}"; do
       package_name=${package_name%%/*}
       add_frontend_package "@nix/$package_name"
       ;;
-    apps/desktop/*) has_desktop=true ;;
     backend/*|Nix.slnx|Nix.Frontend/*) has_backend=true ;;
     apps/go-workers/*) has_workers=true ;;
   esac
@@ -151,11 +150,6 @@ if [ "$has_frontend" = true ]; then
     emit './scripts/check-text-primitive.test.sh && ./scripts/check-text-primitive.sh'
     emit './scripts/check-frontend-layering.test.sh && ./scripts/check-frontend-layering.sh'
   fi
-fi
-
-if [ "$has_desktop" = true ]; then
-  emit 'pnpm --filter @nix/desktop test'
-  emit 'pnpm --filter @nix/desktop build'
 fi
 
 if [ "$has_backend" = true ]; then
