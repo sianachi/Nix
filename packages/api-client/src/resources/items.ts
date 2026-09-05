@@ -64,6 +64,15 @@ export const listItems = (
     pageSize: options.pageSize,
   });
 
+/** Directly deleted, recoverable items in one workspace, newest first. */
+export const listTrash = (workspaceId: string, pageSize?: number): PagedQueryEndpoint<Item> =>
+  definePagedQuery<Item>({
+    operation: 'items.trash',
+    path: `/api/v1/workspaces/${workspaceId}/items/trash`,
+    itemSchema,
+    pageSize,
+  });
+
 /** One item. */
 export const itemById = (itemId: string): QueryEndpoint<Item> =>
   defineQuery<Item>({
@@ -198,5 +207,14 @@ export const restoreItem = (workspaceId: string, itemId: string): CommandEndpoin
     method: 'POST',
     path: `/api/v1/items/${itemId}/restore`,
     schema: itemSchema,
+    invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
+  });
+
+export const purgeItem = (workspaceId: string, itemId: string): CommandEndpoint<undefined> =>
+  defineCommand<undefined>({
+    operation: 'items.purge',
+    method: 'DELETE',
+    path: `/api/v1/items/${itemId}/purge`,
+    schema: noContentSchema,
     invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
   });
