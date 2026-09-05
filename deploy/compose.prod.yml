@@ -20,7 +20,7 @@ services:
       - no-new-privileges:true
 
   nix-storage-init:
-    image: amazon/aws-cli:2
+    image: amazon/aws-cli:2.36.31
     profiles: [maintenance]
     restart: "no"
     environment:
