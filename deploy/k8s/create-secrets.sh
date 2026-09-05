@@ -93,6 +93,31 @@ create_object_store_secret() {
   fi
 }
 
+create_observability_secret() {
+  local update_existing="$1"
+  local grafana_admin_user grafana_admin_password
+
+  if [ "$update_existing" = true ]; then
+    if [ -n "${NIX_GRAFANA_ADMIN_USER:-}" ] || [ -n "${NIX_GRAFANA_ADMIN_PASSWORD:-}" ]; then
+      echo "Grafana credential rotation is not supported by this script: Grafana applies its admin password only on first initialization." >&2
+      echo "Update the credential through Grafana's supported administration flow before changing nix-observability." >&2
+      return 1
+    fi
+    echo "nix-observability is unchanged; Grafana admin credentials are initialized only on first deployment."
+    return 0
+  fi
+
+  grafana_admin_user="${NIX_GRAFANA_ADMIN_USER:-admin}"
+  grafana_admin_password="${NIX_GRAFANA_ADMIN_PASSWORD:-$(openssl rand -hex 24)}"
+
+  local -a observability_secret_args=(
+    -n nix create secret generic nix-observability
+    --from-literal=grafana-admin-user="$grafana_admin_user"
+    --from-literal=grafana-admin-password="$grafana_admin_password"
+  )
+  kubectl "${observability_secret_args[@]}"
+}
+
 case "${1:-}" in
   --rabbitmq-only)
     create_rabbitmq_secret true
@@ -104,9 +129,13 @@ case "${1:-}" in
     echo "Object-store configuration updated. Run deploy/k8s/deploy.sh to roll it out."
     exit 0
     ;;
+  --observability-only)
+    create_observability_secret true
+    exit 0
+    ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--observability-only]" >&2
     exit 2
     ;;
 esac
@@ -134,6 +163,7 @@ kubectl -n nix create secret generic nix-internal \
 
 create_rabbitmq_secret false
 create_object_store_secret false
+create_observability_secret false
 
 auth_key_file="$(mktemp)"
 trap 'rm -f "$auth_key_file"' EXIT
