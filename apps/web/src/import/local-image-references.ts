@@ -8,7 +8,10 @@ interface JsonNode {
   readonly attrs?: Readonly<Record<string, unknown>>;
   readonly content?: readonly JsonNode[];
   readonly text?: string;
-  readonly marks?: readonly { readonly type: string; readonly attrs?: Readonly<Record<string, unknown>> }[];
+  readonly marks?: readonly {
+    readonly type: string;
+    readonly attrs?: Readonly<Record<string, unknown>>;
+  }[];
 }
 
 export function rewriteLocalImageReferences(
@@ -47,7 +50,8 @@ function asImportedImage(
   candidates: ReadonlySet<string>,
   attachmentItemIds: ReadonlyMap<string, string>,
 ): JsonNode | null {
-  const text = node.type === 'paragraph' && node.content?.length === 1 ? node.content[0] : undefined;
+  const text =
+    node.type === 'paragraph' && node.content?.length === 1 ? node.content[0] : undefined;
   const link = text?.marks?.find((mark) => mark.type === 'link');
   const href = typeof link?.attrs?.href === 'string' ? link.attrs.href : null;
   if (text?.type !== 'text' || href === null || !candidates.has(normalizeTarget(href))) return null;
@@ -88,5 +92,9 @@ function normalizeTarget(target: string): string {
 }
 
 function isNode(value: unknown): value is JsonNode {
-  return typeof value === 'object' && value !== null && typeof (value as { type?: unknown }).type === 'string';
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === 'string'
+  );
 }

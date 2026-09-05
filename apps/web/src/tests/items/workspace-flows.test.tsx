@@ -73,7 +73,9 @@ describe('creating an item', () => {
     stubCoreApi({ items: [PARENT, CHILD] });
     renderAt(<App />, `/?item=${CHILD.id}`);
 
-    await screen.findByRole('button', { name: 'Roadmap' });
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Roadmap');
+    });
 
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
     await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside roadmap/i }));

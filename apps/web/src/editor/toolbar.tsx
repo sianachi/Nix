@@ -367,7 +367,7 @@ export function EditorToolbar({
       role="toolbar"
       aria-label="Formatting"
       aria-orientation="horizontal"
-      className="flex flex-wrap items-center gap-0.5 px-8 py-1.5"
+      className="flex w-max flex-nowrap items-center gap-0.5 px-2 py-1.5 sm:w-auto sm:flex-wrap sm:px-8"
     >
       <Group controls={blocks} />
       <Separator />
@@ -377,7 +377,7 @@ export function EditorToolbar({
       <Separator />
       <Group controls={inserts} />
       {onInsertItem !== undefined ? (
-        <div className="relative">
+        <div className="relative shrink-0">
           <Button
             variant="ghost"
             aria-expanded={insertOpen}
@@ -391,7 +391,7 @@ export function EditorToolbar({
             <div
               role="group"
               aria-label="Insert content"
-              className="absolute left-0 z-20 flex w-48 flex-col gap-1 rounded-md border border-divider bg-background p-2 shadow-md"
+              className="absolute left-0 z-20 flex w-48 flex-col max-sm:static max-sm:w-max max-sm:flex-row gap-1 rounded-md border border-divider bg-background p-2 shadow-md"
             >
               <Button
                 variant="ghost"
@@ -471,7 +471,7 @@ function Group({
   readonly label?: string;
 }): ReactNode {
   return (
-    <div role="group" aria-label={label} className="flex items-center gap-0.5">
+    <div role="group" aria-label={label} className="flex shrink-0 items-center gap-0.5">
       {controls.map((control) => (
         <ToolbarButton key={control.id} control={control} />
       ))}

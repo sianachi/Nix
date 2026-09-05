@@ -37,6 +37,7 @@
   </Folder>
 
   <Folder Name="/deploy/">
+    <File Path="deploy/Caddyfile" />
     <File Path="deploy/compose.dev.yml" />
     <File Path="deploy/seed/seed.sh" />
     <File Path="deploy/seed/seed.sql" />
@@ -47,8 +48,20 @@
 
   <Folder Name="/scripts/">
     <File Path="scripts/check-byte-array-markers.sh" />
+    <File Path="scripts/check-frontend-layering.sh" />
+    <File Path="scripts/check-frontend-layering.test.sh" />
+    <File Path="scripts/check-layering.sh" />
     <File Path="scripts/check-no-controllers.sh" />
     <File Path="scripts/check-raw-design-values.sh" />
+    <File Path="scripts/check-raw-design-values.test.sh" />
+    <File Path="scripts/check-root-is-unambiguous.sh" />
+    <File Path="scripts/check-spacing-roles.sh" />
+    <File Path="scripts/check-spacing-roles.test.sh" />
+    <File Path="scripts/check-text-primitive.sh" />
+    <File Path="scripts/check-text-primitive.test.sh" />
+    <File Path="scripts/dev-collab.sh" />
+    <File Path="scripts/dev-migrate.sh" />
+    <File Path="scripts/dev-stack-up.sh" />
     <File Path="scripts/new-goal-worktree.sh" />
   </Folder>
 

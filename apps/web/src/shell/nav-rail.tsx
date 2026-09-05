@@ -162,9 +162,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   const workspaceRoot = `/w/${workspaceId}`;
   const items = workspace.canUseDailyNotes
     ? ITEMS
-    : ITEMS.filter(
-        (item) => item.kind !== 'destination' || item.to !== '/daily',
-      );
+    : ITEMS.filter((item) => item.kind !== 'destination' || item.to !== '/daily');
 
   // Which control is the rail's single tab stop. Null until somebody has actually put focus in here,
   // so the entry point is the current destination by default - derived from the URL rather than
@@ -185,7 +183,8 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
         : pathname === `${workspaceRoot}${item.to}` ||
           (item.to === '' && pathname === `${workspaceRoot}/`)),
   );
-  const entryIndex = focusedIndex === null ? Math.max(currentIndex, 0) : Math.min(focusedIndex, items.length - 1);
+  const entryIndex =
+    focusedIndex === null ? Math.max(currentIndex, 0) : Math.min(focusedIndex, items.length - 1);
 
   // Handled on the control rather than on the list around it: a key press acts from wherever focus
   // actually is, and hanging a keyboard listener on a `<ul>` would be putting interaction on an

@@ -1,4 +1,9 @@
-import { LOSS_KINDS, type ArchiveManifest, type ConvertRequest, type ItemBundle } from '@nix/export';
+import {
+  LOSS_KINDS,
+  type ArchiveManifest,
+  type ConvertRequest,
+  type ItemBundle,
+} from '@nix/export';
 import { describe, expect, it } from 'vitest';
 
 import { markdownConverter } from './converter.js';

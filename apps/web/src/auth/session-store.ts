@@ -60,9 +60,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   sessionRestoreCancelled: () => {
     set((state) =>
-      state.status === 'authenticating'
-        ? { status: 'unknown', profile: null, error: null }
-        : state,
+      state.status === 'authenticating' ? { status: 'unknown', profile: null, error: null } : state,
     );
   },
 

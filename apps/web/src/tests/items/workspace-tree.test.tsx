@@ -127,7 +127,14 @@ describe('the workspace tree', () => {
 
     // Loading, empty and failed are three different situations. Collapsing them is how a person
     // ends up staring at "no items" when the request returned a 500.
-    expect(await screen.findByRole('button', { name: /try again/i })).toBeVisible();
+    expect(
+      await within(await screen.findByRole('complementary', { name: 'Workspace' })).findByRole(
+        'button',
+        {
+          name: /try again/i,
+        },
+      ),
+    ).toBeVisible();
     expect(screen.queryByText(/nothing here yet/i)).not.toBeInTheDocument();
   });
 });

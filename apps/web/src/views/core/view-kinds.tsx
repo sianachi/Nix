@@ -71,7 +71,8 @@ export interface ViewRendererProps {
  */
 export interface ViewConfiguration {
   /** The field on the view that names the property. */
-  readonly field: 'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty' | 'measureProperty';
+  readonly field:
+    'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty' | 'measureProperty';
 
   readonly label: string;
 

@@ -10,6 +10,9 @@ children, can declare a property schema and can offer views over those children.
 "folder" type: a spreadsheet can contain kanban boards, a board can contain notes, and any item can
 be reorganised without changing what it is.
 
+This overview describes committed implementation as of 5 September 2026. Runtime, export-fidelity
+and recovery verification remain separate from implementation status. See [documentation](docs/README.md).
+
 ## Problems Nix is solving
 
 - **Documents and project work are split across tools.** Notes, tasks, dates, structured records and
@@ -36,6 +39,8 @@ be reorganised without changing what it is.
 
 ### Documents, structure and collaboration
 
+- Durable file uploads and attachments, PDF and supported-image previews, file-backed editor images,
+  embedded live note sections and explicit page breaks.
 - Rich notes with headings, lists, tasks, quotes, code, callouts, tables, images, links, columns,
   collapsible sections, colour, drag handles and slash commands.
 - A composable item tree with nesting, breadcrumbs, drag-to-reparent, cycle checking, create-in-place,
@@ -67,7 +72,8 @@ be reorganised without changing what it is.
 
 ### Access, portability and operations
 
-- OIDC authentication with PKCE and multi-issuer support; workspace-scoped roles, invitations,
+- Core-owned browser BFF authentication with OIDC, PKCE, HttpOnly sessions and short-lived Nix tokens;
+  multi-issuer support; workspace-scoped roles, invitations,
   membership administration, personal workspace provisioning and live revocation.
 - Permission-filtered access backed by Postgres row-level security; roles live in the database, not
   in tokens.
@@ -76,8 +82,12 @@ be reorganised without changing what it is.
   export, import and stress/read/search/query runs.
 - An MCP server started through `nixctl mcp`, authenticated as the acting principal and limited to
   that principal's reach.
-- Progressive web app installation, production Docker/Kubernetes manifests, migrations, seed,
-  backup jobs, verification jobs and restricted-egress media conversion with no database credentials.
+- Progressive web app installation and an Electron hosted-web desktop shell.
+- RabbitMQ-backed import, export, indexing and signed WebAssembly plugin execution in a unified Go
+  worker; workers use internal APIs and object capabilities without database credentials.
+- Editable Markdown, TXT, DOCX and PDF imports, plus `.nix` archive import. PDF OCR is unavailable.
+- Docker/Kubernetes manifests, migrations, seed and verification jobs. The Kubernetes backup job
+  dumps the Nix database only; full recovery also requires object storage, identity data and keys.
 
 ## Planned features
 
@@ -88,13 +98,13 @@ The remaining roadmap is intentionally short and ordered by priority.
    performance over 10,000 items.
 2. **Make the workspace trustworthy and operable.** Complete specialist security, UX,
    structure and performance reviews; run real browser and screen-reader checks; verify exports in
-   Word and PDF readers; fix canvas persistence and client-layer defects; add trash, version history,
+   Word and PDF readers; verify the revised canvas persistence and client behavior; complete trash, version history,
    bundle and dependency gates; complete backup/restore, observability, security contact and memory
    budgets.
-3. **Complete import.** Add `.nix` round-trip import and DOCX/PDF import, resolve wiki links,
-   harden hostile-input parsing, make the import path streaming and bounded, and run the full
-   10,000-note import plus `.nix` round-trip stress test. Markdown import/export already ships.
-4. **Build native clients.** Deliver native desktop and mobile applications with the same documents,
+3. **Prove import and portability.** Verify `.nix` round trips and DOCX/PDF fidelity, resolve remaining
+   wiki-link gaps, audit hostile-input and streaming bounds, and run the full 10,000-note import
+   stress test. Import handlers exist; their presence does not establish end-to-end fidelity or scale.
+4. **Extend native clients.** Build on the Electron hosted-web shell toward desktop and mobile applications with the same documents,
    collaboration, authentication and permission model as the web application, while respecting the
    platform conventions of each device.
 
@@ -106,9 +116,9 @@ accessibility, query plans, export fidelity or production operations until those
 After the core document workspace and native clients are mature, Nix may grow toward a broader
 knowledge and collaboration platform. Long-term goals include:
 
-- An extension and plugin runtime, with a marketplace, third-party authors, reviews and updates.
+- A broader extension ecosystem, marketplace, third-party authors, reviews and updates beyond the
+  implemented signed-component worker runtime.
 - Public workspaces, share links and richer public publishing.
-- File uploads, attachments and object storage integrated into the document model.
 - External calendar integrations, OAuth connections and ICS feeds.
 - More expressive access control, including full ACL precedence, deny rules, inheritance breaks and
   an audit pipeline.
@@ -128,8 +138,8 @@ already part of the nearer-term plan above.
   Core for envelope CRUD, hand-written SQL for closure/permissions/search.
 - **Frontend:** React 19, TypeScript strict, Tailwind CSS v4, Zod, Zustand,
   axios (only inside `packages/api-client`).
-- **Services:** Collaboration + Media are Node 22/TypeScript. Media has no
-  DB credentials, ever.
+- **Services:** Collaboration is Node 22/TypeScript. Go 1.26 workers handle asynchronous jobs
+  through RabbitMQ; OpenSearch is a rebuildable derived index. Workers never receive DB credentials.
 - **Auth:** OIDC (Zitadel first, multi-issuer by design). Roles live in the
   database, never in tokens.
 
@@ -139,7 +149,9 @@ already part of the nearer-term plan above.
 apps/
   web/        React frontend
   collab/     Collaboration service (CRDT/WebSocket)
-  media/      Media service (no DB access)
+  go-workers/ Unified Go worker (role-configurable, no DB access)
+  cli/        nixctl CLI and MCP server
+  desktop/    Electron hosted-web shell
 packages/
   api-client/     Generated HTTP client, contract types
   design-tokens/  Colors, fonts, spacing, radii, shadows
@@ -171,59 +183,60 @@ not part of the default release workflow.
 
 ## Getting started
 
-```
-mise install                     # pins Node 22, pnpm 10, .NET 10
-cp .env.example .env
-docker compose -f deploy/compose.dev.yml up -d
+Install Docker, mise and the pinned toolchain, then bootstrap packages and infrastructure:
+
+```sh
+mise install                     # Node 22, pnpm 10, .NET 10, Go 1.26
 pnpm install --frozen-lockfile
-```
-
-The dev stack brings up Postgres+pgvector (5433), Zitadel (8300), versitygw
-S3 (7070), ClamAV (3310), a mock LLM (8380), and an Aspire dashboard (18888).
-Sign-in credentials and seeded tenant IDs are in `docs/dev-signing-in.md`.
-
-## Running the application
-
-Cold machine, or after wiping Docker volumes — bring up the stack, seed the
-database, apply migrations and configure Zitadel in one idempotent step:
-
-```
 bash scripts/dev-stack-up.sh
 ```
 
-Then, each in its own terminal:
+Stack-up starts the `core` and `search` Compose profiles, prepares the private object bucket,
+seeds the database, applies migrations and configures Zitadel. It is safe to rerun. A root `.env`
+is optional; the scripts do not automatically source it. For direct Compose overrides use
+`docker compose --env-file .env -f deploy/compose.dev.yml --profile core --profile search up -d`.
 
-```
-dotnet run --project backend/src/Nix.Api    # :5014
+Infrastructure ports: Postgres 5433, Versity S3 7070, RabbitMQ 5673 (management 15673),
+Zitadel 8300, OpenSearch 9201 and Aspire 18888. The mock LLM on 8380 requires the optional
+`ai` profile. The current Compose file has no ClamAV service.
+
+See [local sign-in and setup](docs/dev-signing-in.md) for generated identity configuration.
+
+## Running the application
+
+Start each process in its own terminal after stack-up:
+
+```sh
+bash scripts/dev-api.sh                     # :5014, BFF and service configuration
 bash scripts/dev-collab.sh                  # :8100
+bash scripts/dev-worker.sh                  # :8301, import/export/index/plugin-events
 pnpm --filter @nix/web dev                  # :5173
 ```
 
-Open `http://localhost:5173` and sign in as `dev@nix.localhost` /
-`NixDev-Password1!`.
+Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`
+when using the default seed settings. Generated machine-specific configuration is under
+`deploy/.zitadel/`; do not copy its IDs into documentation or source.
+
+The dev API defaults to Postgres search (`Nix__Search__OpenSearchEnabled=false`) even though
+stack-up starts OpenSearch and the worker indexes events. Enable the API flag explicitly when
+exercising OpenSearch. A running web/API pair alone does not run asynchronous jobs.
+
+## Desktop
+
+With the web stack running, use `pnpm desktop:dev`. `pnpm desktop:build` creates an unpacked
+Electron build. Packaged launches require `NIX_DESKTOP_WEB_URL` or `--web-url=<url>` pointing
+to the hosted application. This shell uses the existing web application and authentication;
+it is not a standalone offline backend or a completed native mobile client.
 
 ## Debugging (Rider)
 
-Open the repository root in Rider — that's where `Nix.slnx` and
-`pnpm-workspace.yaml` both live, and where the run configurations below are
-registered. Six ship in the repo:
-
-- **Nix Full Stack** — runs `Nix Stack Up` once, then starts `Nix.Api`,
-  `Collab` and `Web` together. Use this for a cold start or when you just
-  want everything running.
-- **Nix.Api**, **Collab**, **Web** — one service each, no stack-up step, for
-  a fast restart of just the piece you're working on.
-- **Nix Stack Up**, **Nix Migrate DB** — the setup scripts on their own.
-
-`Nix.Api`'s secrets (`ConnectionStrings:Nix`, `Nix:InternalSecret`) come from
-.NET user-secrets rather than an exported environment variable, which is what
-lets Rider's own debugger run and breakpoint it directly. On a fresh checkout
-they won't be set yet:
-
-```
-dotnet user-secrets set "ConnectionStrings:Nix" "Host=localhost;Port=5433;Database=nix;Username=nix_app;Password=nix-dev-app" --project backend/src/Nix.Api
-dotnet user-secrets set "Nix:InternalSecret" "nix-dev-internal" --project backend/src/Nix.Api
-```
+Open the repository root containing `Nix.slnx` and `pnpm-workspace.yaml`. Local run
+configurations may be present under `.idea/`, but that directory is ignored and configurations
+can contain machine-specific identity settings. The scripts above are the reproducible setup.
+For breakpoints, attach Rider to the API process started by `scripts/dev-api.sh`, or configure
+an equivalent .NET launch using the environment set by that script. Database and internal-secret
+settings alone are insufficient: BFF, access-token signing, object storage and RabbitMQ settings
+are also required. Never commit generated identity IDs or signing keys.
 
 ## Common commands
 
@@ -271,7 +284,23 @@ pnpm --filter @nix/api-client generate
 Migrations: `dotnet run --project backend/src/Nix.Migrator` with
 `NIX_MIGRATOR_CONNECTION_STRING` set.
 
-**Guard scripts** (gate CI — run before opening a PR):
-`scripts/check-layering.sh`, `scripts/check-no-controllers.sh`,
-`scripts/check-byte-array-markers.sh` (backend),
-`scripts/check-raw-design-values.sh` (frontend).
+**Go workers** (from `apps/go-workers`)
+
+```sh
+go vet ./...
+go test ./...
+go test -race ./...
+go build ./cmd/nix-worker
+```
+
+**Validation selection**
+
+Run `./scripts/changed-path-checks.sh --working-tree` first, or pass explicit changed paths.
+Follow its selected checks and [the validation guide](docs/agent-guides/workflow-and-validation.md).
+Frontend guards include raw design values, layering, text primitives and spacing roles; each
+fixture self-test runs before its guard. Broad root commands above are useful for cross-cutting work.
+Query or stress a live Nix instance through `nixctl` or its MCP server.
+
+**Operations**
+
+See [operations and recovery](docs/operations.md) for deployment entry points and backup limits.

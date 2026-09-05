@@ -280,3 +280,22 @@ export const WithInitialFocus: Story = {
     await expect(canvas.getByRole('textbox', { name: 'New name' })).toHaveFocus();
   },
 };
+
+export const ItemWorkspace: Story = {
+  args: {
+    title: 'Project plan',
+    presentation: 'workspace',
+    children: <Text as="p">A spacious item dialog that fills the screen on phones.</Text>,
+    actions: <Button>Open as page</Button>,
+  },
+};
+
+export const EditableItemWorkspace: Story = {
+  args: {
+    title: 'Project plan',
+    titleHidden: true,
+    presentation: 'workspace',
+    children: <Input aria-label="Item title" defaultValue="Project plan" className="mr-12" />,
+    actions: <Button>Open as page</Button>,
+  },
+};

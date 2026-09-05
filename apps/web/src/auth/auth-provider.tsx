@@ -1,3 +1,4 @@
+import { clearDrafts } from '../editor/draft-journal';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 
@@ -152,6 +153,18 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     };
   }, [sessionRestoreCancelled, signInFailed, signInStarted, signInSucceeded, signedOut]);
 
+  useEffect(() => {
+    const clearSession = (): void => {
+      accessTokenRef.current = null;
+      refreshRef.current = null;
+      signedOut();
+    };
+    window.addEventListener('nix:signed-out-elsewhere', clearSession);
+    return () => {
+      window.removeEventListener('nix:signed-out-elsewhere', clearSession);
+    };
+  }, [signedOut]);
+
   // Load-bearing identity: ApiClientProvider creates one client and retains these functions as its
   // token contract. They read mutable refs so renewal never requires recreating that client.
   const value = useMemo<AuthContextValue>(
@@ -171,6 +184,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       },
 
       signOut: async () => {
+        const draftsCleared =
+          typeof indexedDB === 'undefined' ||
+          (await clearDrafts().then(
+            () => true,
+            () => false,
+          ));
         try {
           await fetch('/auth/logout', {
             method: 'POST',
@@ -182,6 +201,10 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           accessTokenRef.current = null;
           refreshRef.current = null;
           signedOut();
+          if (!draftsCleared)
+            signInFailed(
+              'Signed out. Local drafts could not be cleared. Clear this site’s storage before sharing this device.',
+            );
         }
       },
 

@@ -1,4 +1,9 @@
-import { defineCommand, defineQuery, type CommandEndpoint, type QueryEndpoint } from '../endpoints.js';
+import {
+  defineCommand,
+  defineQuery,
+  type CommandEndpoint,
+  type QueryEndpoint,
+} from '../endpoints.js';
 import {
   fileDownloadCapabilitySchema,
   fileRecordSchema,

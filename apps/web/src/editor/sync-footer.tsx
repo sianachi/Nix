@@ -1,3 +1,4 @@
+import type { DraftState } from './draft-journal';
 import {
   Check,
   CloudOff,
@@ -96,8 +97,25 @@ export const PRESENTATION: Record<SyncState, Presentation> = {
   },
 };
 
-export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode {
-  const { icon, spins, term, detail, tier } = PRESENTATION[state];
+export function SyncFooter({
+  state,
+  draftState,
+}: {
+  readonly state: SyncState;
+  readonly draftState?: DraftState | undefined;
+}): ReactNode {
+  const presentation = PRESENTATION[state];
+  const { icon, spins, tier } = presentation;
+  const draftCopy =
+    draftState === 'local'
+      ? ['Saved on this device', 'Pending server confirmation. Reconnect to sync.']
+      : draftState === 'saving'
+        ? ['Saving on this device', 'Keep Nix open until the local save finishes.']
+        : draftState === 'error'
+          ? ['Local save unavailable', 'Keep this tab open until your edits sync.']
+          : null;
+  const term = draftCopy?.[0] ?? presentation.term;
+  const detail = draftCopy?.[1] ?? presentation.detail;
   const unhealthy = tier === 'unhealthy';
 
   return (
@@ -108,13 +126,13 @@ export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode 
       // this element persists across states rather than being swapped out.
       aria-live="polite"
       className={cn(
-        'flex items-baseline gap-2 border-t border-divider px-8 py-2 text-xs',
+        'flex shrink-0 items-baseline gap-2 border-t border-divider px-4 py-2 text-xs sm:px-8',
         // A surface change rather than a louder border: the band itself says "this line is
         // different now" before a single word is read.
         unhealthy && 'bg-surface',
       )}
     >
-      <span className="inline-flex shrink-0 items-center gap-1">
+      <span className="inline-flex min-w-0 flex-wrap items-center gap-1">
         {/* Decorative: no label, so the words alone carry the state for assistive technology.
             The base accent is fine on a glyph - a graphical object, not body-size text. */}
         <Icon
@@ -139,7 +157,10 @@ export function SyncFooter({ state }: { readonly state: SyncState }): ReactNode 
           as="span"
           tone="muted"
           title={detail}
-          className="min-w-0 truncate text-xs text-muted"
+          className={cn(
+            'min-w-0 text-xs text-muted',
+            unhealthy ? 'whitespace-normal sm:truncate' : 'truncate',
+          )}
         >
           {detail}
         </Text>

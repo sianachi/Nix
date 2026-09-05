@@ -222,7 +222,9 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
       const label = invitee?.displayName ?? 'the selected person';
       return mutate(
         (signal) =>
-          client.execute(coreWorkspaces.createInvitation(workspaceId, principalId, role), { signal }),
+          client.execute(coreWorkspaces.createInvitation(workspaceId, principalId, role), {
+            signal,
+          }),
         `${label} now has provisional access and can accept or decline the invitation.`,
       );
     },

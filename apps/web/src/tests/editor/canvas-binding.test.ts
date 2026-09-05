@@ -74,17 +74,26 @@ describe('the canvas binding', () => {
 
   it('isolates nested Excalidraw data from renderer mutation in both directions', () => {
     const { binding } = bound();
-    const points: [number, number][] = [[0, 0], [20, 10]];
+    const points: [number, number][] = [
+      [0, 0],
+      [20, 10],
+    ];
     binding.applyLocal([element('line', { type: 'line', points })]);
 
     points[1] = [999, 999];
     const first = binding.snapshot();
     const firstPoints = first[0]?.points as [number, number][] | undefined;
-    expect(firstPoints).toEqual([[0, 0], [20, 10]]);
+    expect(firstPoints).toEqual([
+      [0, 0],
+      [20, 10],
+    ]);
 
     if (firstPoints !== undefined) firstPoints[0] = [777, 777];
     const secondPoints = binding.snapshot()[0]?.points;
-    expect(secondPoints).toEqual([[0, 0], [20, 10]]);
+    expect(secondPoints).toEqual([
+      [0, 0],
+      [20, 10],
+    ]);
   });
 
   it('reports a remote change with the full merged scene', () => {

@@ -50,14 +50,20 @@ afterAll(() => {
   server.close();
 });
 
-async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; dir: string; done: () => Promise<void> }> {
+async function withProfile(): Promise<{
+  env: NodeJS.ProcessEnv;
+  dir: string;
+  done: () => Promise<void>;
+}> {
   const dir = await mkdtemp(join(tmpdir(), 'nixctl-views-'));
   const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: dir };
   await saveProfile('default', { apiUrl: API, token: 'nixpat_abc' }, { makeDefault: true, env });
   return { env, dir, done: () => rm(dir, { recursive: true, force: true }) };
 }
 
-async function capture(body: (json: ReturnType<typeof outputOptions>) => Promise<void>): Promise<unknown> {
+async function capture(
+  body: (json: ReturnType<typeof outputOptions>) => Promise<void>,
+): Promise<unknown> {
   const lines: string[] = [];
   const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     lines.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
@@ -102,11 +108,16 @@ describe('nixctl views get', () => {
     const { env, done } = await withProfile();
     server.use(
       http.get(`${API}/api/v1/items/:itemId/views`, () =>
-        HttpResponse.json({ code: 'items.not_found', detail: 'No item is visible.' }, { status: 404 }),
+        HttpResponse.json(
+          { code: 'items.not_found', detail: 'No item is visible.' },
+          { status: 404 },
+        ),
       ),
     );
 
-    await expect(capture((json) => getViews('default', ITEM, json, { env }))).rejects.toMatchObject({ status: 404 });
+    await expect(capture((json) => getViews('default', ITEM, json, { env }))).rejects.toMatchObject(
+      { status: 404 },
+    );
     await done();
   });
 });
@@ -150,20 +161,31 @@ describe('nixctl views set', () => {
     const file = join(dir, 'bad.json');
     await writeFile(file, JSON.stringify({ default: null }), 'utf8');
     // onUnhandledRequest:'error' would fail if it reached the network; it must not.
-    await expect(capture((json) => setViews('default', ITEM, file, json, { env }))).rejects.toThrow(/views/);
+    await expect(capture((json) => setViews('default', ITEM, file, json, { env }))).rejects.toThrow(
+      /views/,
+    );
     await done();
   });
 
   it('maps a rejected view set (422) to exit 1 with the server detail', async () => {
     const { env, dir, done } = await withProfile();
     const file = join(dir, 'views.json');
-    await writeFile(file, JSON.stringify({ views: [view('x', 'X', 'query')], default: 'x' }), 'utf8');
+    await writeFile(
+      file,
+      JSON.stringify({ views: [view('x', 'X', 'query')], default: 'x' }),
+      'utf8',
+    );
     server.use(
       http.put(`${API}/api/v1/items/:itemId/views`, () =>
-        HttpResponse.json({ code: 'views.invalid', detail: 'That view is not valid.' }, { status: 422 }),
+        HttpResponse.json(
+          { code: 'views.invalid', detail: 'That view is not valid.' },
+          { status: 422 },
+        ),
       ),
     );
-    await expect(capture((json) => setViews('default', ITEM, file, json, { env }))).rejects.toMatchObject({
+    await expect(
+      capture((json) => setViews('default', ITEM, file, json, { env })),
+    ).rejects.toMatchObject({
       status: 422,
     });
     await done();

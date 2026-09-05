@@ -110,7 +110,7 @@ describe('the graph destination', () => {
     expect(child).toHaveAttribute('aria-level', '2');
   });
 
-  it('opens the item a node stands for', async () => {
+  it('opens the item in a dialog and preserves the graph', async () => {
     stubCoreApi({ items: [ROOT, OTHER] });
     renderAt(<App />, '/graph');
 
@@ -120,6 +120,9 @@ describe('the graph destination', () => {
     await userEvent.click(within(roadmap).getByRole('button'));
 
     expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Roadmap');
+    const dialog = screen.getByRole('dialog', { name: 'Roadmap' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close item' }));
+    expect(graphTree()).toBeInTheDocument();
   });
 
   /**

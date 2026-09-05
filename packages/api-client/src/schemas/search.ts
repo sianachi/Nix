@@ -30,7 +30,9 @@ export const searchResultsSchema = z.object({
 
 export type SearchResults = z.infer<typeof searchResultsSchema>;
 
-const _hitContract = searchHitSchema satisfies z.ZodType<components['schemas']['SearchHitResponse']>;
+const _hitContract = searchHitSchema satisfies z.ZodType<
+  components['schemas']['SearchHitResponse']
+>;
 void _hitContract;
 
 const _resultsContract = searchResultsSchema satisfies z.ZodType<
