@@ -8,6 +8,7 @@ import {
   Network,
   NotebookText,
   Settings,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -135,6 +136,7 @@ const ITEMS: readonly RailItem[] = [
     group: 'workspace',
     includesChildren: true,
   },
+  { kind: 'destination', to: '/trash', label: 'Trash', icon: Trash2, group: 'utility' },
   { kind: 'action', action: 'import', label: 'Import', icon: FolderInput, group: 'utility' },
   {
     kind: 'destination',

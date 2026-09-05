@@ -84,6 +84,42 @@ const CONFIGURED_SCHEMA = {
 } as const;
 
 describe('the guided creation studio', () => {
+  it('allows select options to be edited across lines without losing Enter or spaces', async () => {
+    const user = userEvent.setup();
+    stubCoreApi();
+    renderAt(<App />, '/new/board');
+    await screen.findByRole('heading', { name: /new board/i });
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    const options = screen.getByRole('textbox', { name: 'Options' });
+    await user.clear(options);
+    await user.type(options, 'To do{Enter}In progress{Enter}Done');
+    expect(options).toHaveValue('To do\nIn progress\nDone');
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('textbox', { name: 'Options' })).toHaveValue(
+      'To do\nIn progress\nDone',
+    );
+  });
+
+  it('allows multiline form introductions, paragraph text and confirmation messages', async () => {
+    const user = userEvent.setup();
+    stubCoreApi();
+    renderAt(<App />, '/new/interactive-form');
+    await screen.findByRole('heading', { name: /new interactive form/i });
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    await user.click(screen.getByRole('button', { name: 'Add paragraph' }));
+    for (const label of ['Introduction', 'Confirmation message', 'Text']) {
+      const input = screen.getByRole('textbox', { name: label });
+      await user.clear(input);
+      await user.type(input, 'First line{Enter}Second line');
+      expect(input).toHaveValue('First line\nSecond line');
+    }
+    const help = screen.getAllByRole('textbox', { name: 'Help text' })[0];
+    if (help === undefined) throw new Error('Expected a field with help text.');
+    await user.type(help, 'A hint{Enter}More detail');
+    expect(help).toHaveValue('A hint\nMore detail');
+  });
+
   it('keeps the chosen destination visible and restores an unfinished tab draft', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [DESTINATION] });
