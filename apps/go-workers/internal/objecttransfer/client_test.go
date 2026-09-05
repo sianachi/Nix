@@ -183,3 +183,47 @@ func TestVerifiedImmutableUploadSendsTheStorageChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTransfersUseHTTP1WithInheritedHTTP2ALPN(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor != 1 {
+			t.Errorf("protocol = %s, want HTTP/1.1", r.Proto)
+		}
+		if r.Method == http.MethodPut {
+			body, err := io.ReadAll(r.Body)
+			if err != nil || string(body) != "content" {
+				t.Errorf("upload body = %q, error = %v", body, err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = io.WriteString(w, "content")
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	// A cloned default transport can retain ALPN after HTTP/2 initialization.
+	original := http.DefaultTransport
+	inherited := server.Client().Transport.(*http.Transport).Clone()
+	inherited.TLSClientConfig.NextProtos = []string{"h2", "http/1.1"}
+	http.DefaultTransport = inherited
+	defer func() { http.DefaultTransport = original; inherited.CloseIdleConnections() }()
+	client := New(time.Second, server.URL)
+	defer client.httpClient.CloseIdleConnections()
+	if err := client.Upload(context.Background(), server.URL, "text/plain", strings.NewReader("content"), 7, ""); err != nil {
+		t.Fatal(err)
+	}
+	download, err := client.Download(context.Background(), server.URL, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer download.Body.Close()
+	body, err := io.ReadAll(download.Body)
+	if err != nil || string(body) != "content" {
+		t.Fatalf("download body = %q, error = %v", body, err)
+	}
+	if inherited.TLSClientConfig.NextProtos[0] != "h2" {
+		t.Fatal("source TLS config was mutated")
+	}
+}

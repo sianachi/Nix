@@ -37,6 +37,12 @@ func New(timeout time.Duration, origins ...string) *Client {
 	transport.DisableCompression = true
 	transport.ForceAttemptHTTP2 = false
 	transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	// Keep ALPN consistent with HTTP/1-only connection idle deadlines. Clone can
+	// inherit h2 advertisement even after its HTTP/2 round-tripper is disabled.
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	transport.ResponseHeaderTimeout = timeout
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
