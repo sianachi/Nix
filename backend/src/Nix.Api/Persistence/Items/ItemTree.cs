@@ -161,6 +161,31 @@ public sealed class ItemTree : IItemTree
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<Item>> ListDeletedAsync(
+        WorkspaceId workspaceId,
+        DateTimeOffset? before,
+        Guid? beforeId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Items.Where(item =>
+            item.WorkspaceId == workspaceId && item.LifecycleState == ItemLifecycleState.Deleted);
+
+        if (before is { } cursor && beforeId is { } id)
+        {
+            query = query.Where(item => item.LastModifiedAt < cursor
+                || (item.LastModifiedAt == cursor && item.Id.Value.CompareTo(id) < 0));
+        }
+
+        return await query
+            .OrderByDescending(item => item.LastModifiedAt)
+            .ThenByDescending(item => item.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<bool> WorkspaceExistsAsync(
         WorkspaceId workspaceId,
         CancellationToken cancellationToken) =>

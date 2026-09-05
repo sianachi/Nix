@@ -45,7 +45,7 @@ describe('adding a view by hand', () => {
     await user.click(within(panel).getByRole('button', { name: 'Views' }));
 
     await user.click(await within(panel).findByRole('button', { name: /add a view/i }));
-    await user.click(within(panel).getByRole('button', { name: /^list/i }));
+    await user.selectOptions(within(panel).getByRole('combobox', { name: 'View type' }), 'list');
 
     expect(await screen.findByRole('heading', { name: /add list view/i })).toBeVisible();
     await user.click(screen.getByRole('button', { name: /continue/i }));

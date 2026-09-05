@@ -90,6 +90,15 @@ public interface IItemTree
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>Reads directly deleted items in a workspace, newest deletion first.</summary>
+    public ValueTask<IReadOnlyList<Item>> ListDeletedAsync(
+        WorkspaceId workspaceId,
+        DateTimeOffset? before,
+        Guid? beforeId,
+        int limit,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult<IReadOnlyList<Item>>([]);
+
     /// <summary>Whether a workspace exists and is visible to this session.</summary>
     /// <param name="workspaceId">The workspace.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
