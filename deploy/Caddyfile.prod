@@ -4,6 +4,11 @@
 	root * /srv/nix/web
 	encode zstd gzip
 
+	# Preserve the bucket path and signed Host header for S3 capabilities.
+	handle /{$NIX_OBJECT_STORE_BUCKET}/* {
+		reverse_proxy nix-versitygw:7070
+	}
+
 	handle /api/* {
 		reverse_proxy nix-api:8080 {
 			# cloudflared is the only public ingress. Preserve its authenticated client

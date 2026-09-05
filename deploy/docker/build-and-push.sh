@@ -11,6 +11,11 @@
 # Tags with the commit SHA, never "latest" - imagePullPolicy: IfNotPresent plus a
 # floating tag is how a cluster silently keeps running the previous build.
 set -euo pipefail
+if [ "${NIX_DEPLOY_TARGET:-compose}" != kubernetes ]; then
+  echo 'Default deployment is Docker Compose. Use deploy/compose/build.sh.' >&2
+  echo 'Registry/Kubernetes builds require an explicit NIX_DEPLOY_TARGET=kubernetes.' >&2
+  exit 2
+fi
 cd "$(git rev-parse --show-toplevel)"
 
 : "${REGISTRY:?set REGISTRY, e.g. ghcr.io/you/nix}"
