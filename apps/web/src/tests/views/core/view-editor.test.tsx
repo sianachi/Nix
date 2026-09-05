@@ -51,7 +51,7 @@ describe('the view editor', () => {
     render(<ViewEditor container={containerOf([], setViews)} open onClose={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: /add a view/i }));
-    await user.click(screen.getByRole('button', { name: /^list/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'View type' }), 'list');
 
     expect(screen.getByRole('status', { name: /current route/i })).toHaveTextContent(
       '/items/container-1/views/new/list',

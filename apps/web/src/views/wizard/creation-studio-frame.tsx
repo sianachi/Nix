@@ -1,4 +1,4 @@
-import { Button, Dialog, Icon, Text, cn, fieldLabel, focusRing } from '@nix/ui';
+import { Button, Dialog, Icon, Text, cn, focusRing } from '@nix/ui';
 import { ArrowLeft, ArrowRight, Check, Eye } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 
@@ -102,14 +102,14 @@ export function CreationStudioFrame({
           <Icon icon={ArrowLeft} size="sm" />
         </Button>
         <div className="min-w-0 flex-1">
-          <Text variant="h3" as="h1" className="truncate">
+          <Text variant="h2" as="h1" className="truncate">
             {itemId === undefined
               ? `New ${recipe.label}`
               : viewId === undefined
                 ? `Add ${recipe.label} view`
                 : `Edit ${recipe.label}`}
           </Text>
-          <Text variant="caption" tone="muted" className="truncate">
+          <Text variant="note" tone="muted" className="mt-0.5 block truncate">
             {itemId === undefined
               ? `Creating in ${destination}`
               : viewId === undefined
@@ -146,7 +146,7 @@ export function CreationStudioFrame({
                     {index < step ? <Icon icon={Check} size="sm" /> : String(index + 1)}
                   </span>
                   <span className="hidden min-w-0 lg:block">
-                    <Text variant="bodySmall" as="span" className="block">
+                    <Text variant="note" as="span" className="block">
                       {entry.label}
                     </Text>
                     <Text variant="caption" as="span" tone="muted" className="block truncate">
@@ -166,7 +166,7 @@ export function CreationStudioFrame({
             previewing ? 'hidden lg:block' : '',
           )}
         >
-          <div className="mx-auto flex max-w-2xl flex-col gap-5">
+          <div className="mx-auto flex max-w-xl flex-col gap-6">
             {children}
 
             {error === null ? null : (
@@ -224,7 +224,9 @@ export function CreationStudioFrame({
             previewing ? 'block' : 'hidden lg:block',
           )}
         >
-          <span className={fieldLabel}>Live preview</span>
+          <Text variant="note" as="div" tone="muted" className="mb-3">
+            Preview
+          </Text>
           <StudioPreview draft={draft} />
         </aside>
       </div>

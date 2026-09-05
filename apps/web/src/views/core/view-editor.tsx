@@ -1,4 +1,4 @@
-import { Button, Icon, Text } from '@nix/ui';
+import { Button, Field, Icon, Select, Text } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -220,29 +220,33 @@ export function ViewEditor({
           {adding ? 'Close view choices' : 'Add a view'}
         </Button>
         {adding ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {STRUCTURED_RECIPES.filter(
-              (recipe, index, all) =>
-                all.findIndex((candidate) => candidate.viewKind === recipe.viewKind) === index,
-            ).map((recipe) => (
-              <Button
-                key={recipe.id}
-                variant="secondary"
-                className="flex-col items-start gap-0.5 px-3 py-2 text-left"
+          <Field label="View type">
+            {(control) => (
+              <Select
+                {...control}
+                value=""
                 disabled={container.itemId === null}
-                onClick={() => {
-                  if (container.itemId !== null) {
+                onChange={(event) => {
+                  const recipe = STRUCTURED_RECIPES.find(
+                    (entry) => entry.id === event.target.value,
+                  );
+                  if (container.itemId !== null && recipe !== undefined) {
                     void navigate(`/items/${container.itemId}/views/new/${recipe.id}`);
                   }
                 }}
               >
-                <span>{recipe.label}</span>
-                <Text variant="caption" as="span" tone="muted">
-                  {recipe.detail}
-                </Text>
-              </Button>
-            ))}
-          </div>
+                <option value="">Choose a view type</option>
+                {STRUCTURED_RECIPES.filter(
+                  (recipe, index, all) =>
+                    all.findIndex((candidate) => candidate.viewKind === recipe.viewKind) === index,
+                ).map((recipe) => (
+                  <option key={recipe.id} value={recipe.id}>
+                    {recipe.label}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
         ) : null}
       </div>
     </EditorShell>

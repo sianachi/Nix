@@ -247,6 +247,8 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<RestoreItem, Item>, RestoreItemHandler>();
         services.AddScoped<IQueryHandler<GetItem, Result<Item>>, GetItemHandler>();
         services.AddScoped<IQueryHandler<ListItems, Result<IReadOnlyList<Item>>>, ListItemsHandler>();
+        services.AddScoped<IQueryHandler<ListTrash, Result<IReadOnlyList<Item>>>, ListTrashHandler>();
+        services.AddScoped<ICommandHandler<PurgeItem, ItemId>, PurgeItemHandler>();
         services.AddScoped<IQueryHandler<ItemsWithChildren, IReadOnlySet<ItemId>>, ItemsWithChildrenHandler>();
 
         services.AddScoped<IQueryHandler<GetEffectiveSchema, Result<EffectiveSchema>>, GetEffectiveSchemaHandler>();
