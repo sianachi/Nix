@@ -12,7 +12,6 @@ indent_size = 4
 
 [*.cs]
 # Style conventions enforced in build (EnforceCodeStyleInBuild)
-csharp_style_namespace_declarations = file_scoped:error
 csharp_style_prefer_primary_constructors = true:suggestion
 csharp_style_var_when_type_is_apparent = true:suggestion
 csharp_prefer_braces = true:error

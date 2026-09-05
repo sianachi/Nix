@@ -20,7 +20,7 @@
  * `view-kinds → calendar-view → container-view → view-kinds`. This file has no imports of its own,
  * so nothing that reaches it can be pulled back into a kind view through it.
  */
-export const VIEW_GUTTER = 'px-8';
+export const VIEW_GUTTER = 'px-4 sm:px-8';
 
 /**
  * The gutter, cancelled and then re-applied inside.
@@ -29,4 +29,4 @@ export const VIEW_GUTTER = 'px-8';
  * layout identical - the calendar's wide grid is the one case. Paired with {@link VIEW_GUTTER} so
  * the negative margin can never be a different number from the padding it undoes.
  */
-export const VIEW_GUTTER_BLEED = '-mx-8 px-8';
+export const VIEW_GUTTER_BLEED = '-mx-4 px-4 sm:-mx-8 sm:px-8';

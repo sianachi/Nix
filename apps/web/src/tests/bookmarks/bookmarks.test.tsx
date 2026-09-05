@@ -48,7 +48,9 @@ describe('keeping an item', () => {
     renderAt(<App />);
 
     expect(
-      await screen.findByRole('button', { name: 'Bookmark Acquisition memo' }),
+      await within(await screen.findByRole('tree', { name: 'Items' })).findByRole('button', {
+        name: 'Bookmark Acquisition memo',
+      }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Bookmark Board pack' })).toBeInTheDocument();
   });
@@ -62,28 +64,29 @@ describe('keeping an item', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    const star = await screen.findByRole('button', { name: 'Bookmark Acquisition memo' });
+    const star = await within(await screen.findByRole('tree', { name: 'Items' })).findByRole(
+      'button',
+      { name: 'Bookmark Acquisition memo' },
+    );
     expect(star).toHaveAttribute('aria-pressed', 'false');
 
     await userEvent.click(star);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Bookmark Acquisition memo' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      );
+      expect(star).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
   it('starts pressed for something already kept', async () => {
     stubCoreApi({ items: [NOTE], bookmarks: [KEPT] });
     renderAt(<App />);
+    const star = await within(await screen.findByRole('tree', { name: 'Items' })).findByRole(
+      'button',
+      { name: 'Bookmark Acquisition memo' },
+    );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Bookmark Acquisition memo' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      );
+      expect(star).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
@@ -91,7 +94,10 @@ describe('keeping an item', () => {
     stubCoreApi({ items: [NOTE], bookmarks: [KEPT] });
     renderAt(<App />);
 
-    const star = await screen.findByRole('button', { name: 'Bookmark Acquisition memo' });
+    const star = await within(await screen.findByRole('tree', { name: 'Items' })).findByRole(
+      'button',
+      { name: 'Bookmark Acquisition memo' },
+    );
     await waitFor(() => {
       expect(star).toHaveAttribute('aria-pressed', 'true');
     });
@@ -99,10 +105,7 @@ describe('keeping an item', () => {
     await userEvent.click(star);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Bookmark Acquisition memo' })).toHaveAttribute(
-        'aria-pressed',
-        'false',
-      );
+      expect(star).toHaveAttribute('aria-pressed', 'false');
     });
   });
 

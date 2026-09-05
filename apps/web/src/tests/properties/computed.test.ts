@@ -42,10 +42,7 @@ describe('computing a property from an item', () => {
   });
 
   it('leaves the stored properties exactly as they were', () => {
-    const [item] = decorateItems(
-      [owner({ price: 3 })],
-      [formula('double', '[price] * 2')],
-    );
+    const [item] = decorateItems([owner({ price: 3 })], [formula('double', '[price] * 2')]);
 
     expect(item?.properties.price).toBe(3);
   });
@@ -110,10 +107,7 @@ describe('computing a property from an item', () => {
   });
 
   it('ignores a formula property whose declaration carries no expression', () => {
-    const [item] = decorateItems(
-      [owner({ a: 1 })],
-      [property({ key: 'broken', type: 'formula' })],
-    );
+    const [item] = decorateItems([owner({ a: 1 })], [property({ key: 'broken', type: 'formula' })]);
 
     expect(item?.properties.broken).toBeUndefined();
   });
@@ -171,7 +165,10 @@ describe('the rollups the server folded', () => {
   });
 
   it('are merged even when the schema declares no formula at all', () => {
-    const [item] = decorateItems([owner({}, { tasks: 4 })], [property({ key: 'a', type: 'number' })]);
+    const [item] = decorateItems(
+      [owner({}, { tasks: 4 })],
+      [property({ key: 'a', type: 'number' })],
+    );
 
     expect(item?.properties.tasks).toBe(4);
   });

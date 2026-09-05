@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  EXCALIDRAW_ASSET_PATH,
-  initializeExcalidrawAssets,
-} from '../../lib/excalidraw-assets';
+import { EXCALIDRAW_ASSET_PATH, initializeExcalidrawAssets } from '../../lib/excalidraw-assets';
 
 describe('Excalidraw assets', () => {
   it('points Excalidraw at the Vite-hosted same-origin asset directory', () => {

@@ -83,6 +83,10 @@ export interface DialogProps {
 
   /** Layout only - width, margin. Never a restyle of the frame or the backdrop. */
   readonly className?: string;
+  /** Full-screen on phones, spacious item workspace on desktop. */
+  readonly presentation?: 'standard' | 'workspace';
+  /** The body supplies a visible heading, for example an editable item title. */
+  readonly titleHidden?: boolean;
 }
 
 export function Dialog(props: DialogProps): ReactNode {
@@ -95,6 +99,8 @@ export function Dialog(props: DialogProps): ReactNode {
     closeLabel = 'Close',
     initialFocus,
     className,
+    presentation = 'standard',
+    titleHidden = false,
   } = props;
 
   const titleId = useId();
@@ -225,19 +231,41 @@ export function Dialog(props: DialogProps): ReactNode {
         // both - which is why this is a ramp step rather than a role. It is one of exactly two:
         // the other is `<Duotone>`, whose two tones must not move for the same kind of reason.
         'backdrop:bg-neutral-900/40',
+        presentation === 'standard' &&
+          'max-sm:mb-0 max-sm:mt-auto max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none',
+        presentation === 'workspace' &&
+          'h-dvh max-h-dvh w-screen max-w-full sm:h-[90dvh] sm:w-11/12 sm:max-w-6xl',
         className,
       )}
     >
       {/* The scroll lives here rather than on the element itself so a long body scrolls inside the
           frame, and the registration marks - which sit 6px outside it - are never clipped. */}
-      <div className="flex max-h-[80vh] flex-col gap-4 overflow-y-auto p-6">
-        <div className="flex items-start gap-4">
+      <div
+        className={
+          presentation === 'workspace'
+            ? 'flex h-full min-h-0 flex-col gap-2 p-3 sm:p-6'
+            : // design-token-exempt: viewport and device safe-area constrain the mobile sheet.
+              'flex max-h-[80vh] flex-col gap-4 overflow-y-auto p-6 pb-[max(var(--spacing)*6,env(safe-area-inset-bottom))]'
+        }
+      >
+        <div
+          className={
+            titleHidden
+              ? 'absolute right-3 top-3 z-30 flex items-start gap-4'
+              : 'flex shrink-0 items-start gap-4'
+          }
+        >
           {/* h2, not a caller's choice: a modal is its own document for the duration, so its title
               starts a heading outline rather than joining the page's. */}
-          <Text id={titleId} variant="h3" as="h2" className="flex-1">
+          <Text id={titleId} variant="h3" as="h2" className={titleHidden ? 'sr-only' : 'flex-1'}>
             {title}
           </Text>
-          <Button variant="icon" aria-label={closeLabel} onClick={onClose}>
+          <Button
+            variant="icon"
+            className="max-sm:min-h-11 max-sm:min-w-11"
+            aria-label={closeLabel}
+            onClick={onClose}
+          >
             <Icon icon={X} size="sm" />
           </Button>
         </div>

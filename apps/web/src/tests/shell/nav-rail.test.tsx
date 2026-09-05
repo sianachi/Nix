@@ -314,12 +314,13 @@ describe('the navigation rail', () => {
  * the same helper, `sidebar.test.tsx` uses for the drawer.
  */
 describe('the navigation rail on a narrow screen', () => {
-  it('stays at the left edge, because nothing else in the shell reaches these destinations', async () => {
+  it('reclaims the rail space until workspace navigation is opened', async () => {
     stubViewport(false);
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
 
-    await screen.findByRole('button', { name: /show the workspace tree/i });
+    expect(screen.queryByRole('navigation', { name: /destinations/i })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     expect(within(rail()).getAllByRole('link')).toHaveLength(7);
     expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
   });

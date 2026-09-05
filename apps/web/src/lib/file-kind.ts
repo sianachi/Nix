@@ -1,10 +1,5 @@
 const INLINE_IMAGE_EXTENSIONS = new Set(['.avif', '.jpeg', '.jpg', '.png', '.webp']);
-const INLINE_IMAGE_MEDIA_TYPES = new Set([
-  'image/avif',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
+const INLINE_IMAGE_MEDIA_TYPES = new Set(['image/avif', 'image/jpeg', 'image/png', 'image/webp']);
 const INLINE_IMAGE_BYTE_CEILING = 10 * 1024 * 1024;
 
 const IMAGE_MEDIA_TYPES: Readonly<Record<string, string>> = {

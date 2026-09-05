@@ -47,6 +47,7 @@ export function BookmarkButton(props: BookmarkButtonProps): ReactNode {
       <button
         type="button"
         aria-label={label}
+        title={kept ? 'Unpin from sidebar' : 'Pin to sidebar'}
         aria-pressed={kept}
         onClick={(event) => {
           // The tree's rows open an item on click, and the editor's chrome sits inside other
@@ -73,6 +74,7 @@ export function BookmarkButton(props: BookmarkButtonProps): ReactNode {
     <Button
       variant="icon"
       aria-label={label}
+      title={kept ? 'Unpin from sidebar' : 'Pin to sidebar'}
       aria-pressed={kept}
       className={className}
       onClick={() => {

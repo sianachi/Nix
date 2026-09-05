@@ -189,9 +189,9 @@ describe('workspace management', () => {
     stubCoreApi({ workspaces: [STUB_WORKSPACE, PENDING], invitations: [PENDING_INVITATION] });
     renderAt(<App />, `/w/${PENDING.id}`);
 
-    expect(await screen.findByRole('complementary', { name: 'Workspace invitation' })).toHaveTextContent(
-      /provisional access/i,
-    );
+    expect(
+      await screen.findByRole('complementary', { name: 'Workspace invitation' }),
+    ).toHaveTextContent(/provisional access/i);
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
     await waitFor(() => {
@@ -302,14 +302,14 @@ describe('workspace management', () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Workspace name' })).toHaveValue(SHARED.name);
-    expect(await screen.findByText(/Everyone who can be invited already has access/i)).toBeVisible();
+    expect(
+      await screen.findByText(/Everyone who can be invited already has access/i),
+    ).toBeVisible();
     expect(await screen.findByRole('combobox', { name: 'Person' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Person' })).toHaveDisplayValue(
       'No people available to invite',
     );
-    expect(
-      screen.queryByText(/New Person now has provisional access/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/New Person now has provisional access/i)).not.toBeInTheDocument();
   });
 
   it('keeps a failed removal confirmation open and reports the refusal live', async () => {

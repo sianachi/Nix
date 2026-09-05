@@ -20,7 +20,10 @@ export interface SessionDeps {
  *
  * @throws When there is no such profile - the message names the fix.
  */
-export async function resolveSession(profileName: string | undefined, deps: SessionDeps = {}): Promise<Session> {
+export async function resolveSession(
+  profileName: string | undefined,
+  deps: SessionDeps = {},
+): Promise<Session> {
   const resolved = await resolveProfile(profileName, deps.env ?? process.env);
   if (resolved === null) {
     throw new Error(

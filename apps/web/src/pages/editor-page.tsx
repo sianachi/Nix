@@ -1,4 +1,4 @@
-import { Button, Icon, PaneDivider, Text, focusRing } from '@nix/ui';
+import { Button, Dialog, Icon, PaneDivider, Text, focusRing } from '@nix/ui';
 import { Download, LayoutTemplate, PanelRightClose, Save, Settings2, Upload } from 'lucide-react';
 import {
   Suspense,
@@ -397,7 +397,7 @@ interface OpenItemProps {
   readonly onCommit: () => void;
 }
 
-function OpenItem({
+export function OpenItem({
   tree,
   itemId,
   title,
@@ -409,9 +409,8 @@ function OpenItem({
   onCommit,
 }: OpenItemProps): ReactNode {
   const navigate = useNavigate();
-  // Creation goes through the tree, which is the only thing that knows how to put a new item into
-  // the store the sidebar reads and expand its parent so it is visible. The container borrows it
-  // rather than growing a second one.
+  // Creation shares the tree cache with navigation. Loading children does not expand the
+  // sidebar; only an explicit expansion there changes which descendants are visible.
   const createChild = useCallback(
     async (title: string, properties?: Record<string, unknown>): Promise<string | null> => {
       const { refusal } = await tree.create(itemId, title, 'note', properties);
@@ -457,39 +456,34 @@ function OpenItem({
   );
 
   // The body, when nothing else was chosen or when what was chosen is not a view this item has.
-  const showingDocument = active === null;
+  const [showChildren, setShowChildren] = useState(false);
+  const showingDocument = active === null && !showChildren;
 
-  return (
-    <>
-      <ItemHeader
-        tree={tree}
-        itemId={itemId}
-        title={title}
-        bodyKind={bodyKind}
-        onNavigate={onOpen}
-        onCommit={onCommit}
-      />
+  const narrow = useNarrowViewport();
+  const mobileNote =
+    narrow && showingDocument && !['canvas', 'spreadsheet', 'file'].includes(bodyKind);
+  const itemActions = (
+    <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <ViewSwitcher
+          views={views}
+          unrenderable={unrenderable}
+          activeViewId={showingDocument ? DOCUMENT_VIEW : activeId}
+          documentLabel="Document"
+          onSelect={(chosen) => {
+            setShowChildren(false);
+            selectView(chosen);
 
-      <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1 overflow-x-auto">
-          <ViewSwitcher
-            views={views}
-            unrenderable={unrenderable}
-            activeViewId={showingDocument ? DOCUMENT_VIEW : activeId}
-            documentLabel="Document"
-            onSelect={(chosen) => {
-              selectView(chosen);
+            // The deliberate click, and the only place the stored default is written. Arriving at
+            // a URL that already carries ?view= runs none of this - otherwise following somebody
+            // else's link would rewrite what this item opens as, for everybody, on behalf of the
+            // person who followed it.
+            void container.setDefaultView(chosen);
+          }}
+        />
+      </div>
 
-              // The deliberate click, and the only place the stored default is written. Arriving at
-              // a URL that already carries ?view= runs none of this - otherwise following somebody
-              // else's link would rewrite what this item opens as, for everybody, on behalf of the
-              // person who followed it.
-              void container.setDefaultView(chosen);
-            }}
-          />
-        </div>
-
-        {/* One control rather than two, and the panel it opens configures this item and nothing
+      {/* One control rather than two, and the panel it opens configures this item and nothing
             else. Somebody who wants a board wants it for the item they are looking at, and sending
             them to a settings page to say so loses their place.
 
@@ -503,85 +497,108 @@ function OpenItem({
             focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
             box where every sibling row's box already is; the label sits a further `px-2` in from
             there, which is the same relationship the switcher's own tabs have to their nav. */}
-        <div className="flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8">
-          {/* The thing you are reading is the thing you can keep. First in the row because it acts
+      <div className="flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8">
+        {/* The thing you are reading is the thing you can keep. First in the row because it acts
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
-          <BookmarkButton compact itemId={itemId} title={title} />
+        <Button
+          variant="ghost"
+          aria-pressed={showChildren}
+          onClick={() => {
+            setShowChildren((value) => !value);
+          }}
+        >
+          Children
+        </Button>
+        <BookmarkButton compact itemId={itemId} title={title} />
 
-          {/* Beside the bookmark for the reason stated above it: both act on the document rather
+        {/* Beside the bookmark for the reason stated above it: both act on the document rather
               than on the pane around it, and the two controls after them do not. */}
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            onClick={() => {
-              setExportOpen(true);
-            }}
-          >
-            <Icon icon={Download} size="sm" />
-            Export
-          </Button>
+        <Button
+          variant="ghost"
+          className="px-2 py-1 text-xs"
+          onClick={() => {
+            setExportOpen(true);
+          }}
+        >
+          <Icon icon={Download} size="sm" />
+          Export
+        </Button>
 
-          {/* Beside Export because they are the same door swinging the other way: what leaves as
+        {/* Beside Export because they are the same door swinging the other way: what leaves as
               Markdown can come back as Markdown, under the item being looked at. */}
+        <Button
+          variant="ghost"
+          className="px-2 py-1 text-xs"
+          onClick={() => {
+            setImportOpen(true);
+          }}
+        >
+          <Icon icon={Upload} size="sm" />
+          Import
+        </Button>
+
+        {canApplyTemplates ? (
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"
             onClick={() => {
-              setImportOpen(true);
+              void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
             }}
           >
-            <Icon icon={Upload} size="sm" />
-            Import
+            <Icon icon={LayoutTemplate} size="sm" />
+            Apply template
           </Button>
+        ) : null}
 
-          {canApplyTemplates ? (
-            <Button
-              variant="ghost"
-              className="px-2 py-1 text-xs"
-              onClick={() => {
-                void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
-              }}
-            >
-              <Icon icon={LayoutTemplate} size="sm" />
-              Apply template
-            </Button>
-          ) : null}
-
-          {canManageTemplates ? (
-            <Button
-              variant="ghost"
-              className="px-2 py-1 text-xs"
-              onClick={() => {
-                void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
-              }}
-            >
-              <Icon icon={Save} size="sm" />
-              Save as template
-            </Button>
-          ) : null}
-
+        {canManageTemplates ? (
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"
-            aria-expanded={panelOpen}
-            onClick={togglePanel}
+            onClick={() => {
+              void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
+            }}
           >
-            <Icon icon={Settings2} size="sm" />
-            Settings
+            <Icon icon={Save} size="sm" />
+            Save as template
           </Button>
+        ) : null}
 
-          {/* Text, not a bare X. An unlabelled cross beside a document's own title reads as
+        <Button
+          variant="ghost"
+          className="px-2 py-1 text-xs"
+          aria-expanded={panelOpen}
+          onClick={togglePanel}
+        >
+          <Icon icon={Settings2} size="sm" />
+          Settings
+        </Button>
+
+        {/* Text, not a bare X. An unlabelled cross beside a document's own title reads as
               "delete this note" to everybody who has ever seen one, and the header already has a
               text-labelled control next to it to match. */}
-          {onClose === undefined ? null : (
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
-              <Icon icon={PanelRightClose} size="sm" />
-              Close pane
-            </Button>
-          )}
-        </div>
+        {onClose === undefined ? null : (
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
+            <Icon icon={PanelRightClose} size="sm" />
+            Close pane
+          </Button>
+        )}
       </div>
+    </div>
+  );
+
+  return (
+    <>
+      <ItemHeader
+        tree={tree}
+        itemId={itemId}
+        title={title}
+        bodyKind={bodyKind}
+        onNavigate={onOpen}
+        onCommit={onCommit}
+      />
+
+      {mobileNote ? null : itemActions}
 
       <div className={`flex flex-1 ${paneClip}`}>
         <div className={paneColumn}>
@@ -608,7 +625,7 @@ function OpenItem({
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
-              <NoteEditor itemId={itemId} />
+              <NoteEditor itemId={itemId} mobileActions={itemActions} />
             )
           ) : (
             <section aria-label="Container" className={paneColumn}>
@@ -621,9 +638,19 @@ function OpenItem({
                   it a scroll container on both axes either way - what keeps the horizontal one
                   dormant is that the view inside brings its own and this can shrink to fit around
                   it. See `paneScroller`. */}
-              <PaneViewport className={paneScroller}>
-                {active.companionViewId === null || active.companionViewId === undefined ? (
-                  <ContainerView container={container} view={active} onOpen={onOpen} />
+              <PaneViewport
+                className={paneScroller}
+                scrollKey={`${itemId}:${active?.id ?? 'children'}`}
+              >
+                {active === null ||
+                showChildren ||
+                active.companionViewId === null ||
+                active.companionViewId === undefined ? (
+                  <ContainerView
+                    container={container}
+                    view={showChildren ? null : active}
+                    onOpen={onOpen}
+                  />
                 ) : (
                   <CompanionViewPair
                     key={`${itemId}:${active.id}:${active.companionViewId}`}
@@ -656,7 +683,13 @@ function OpenItem({
         </div>
 
         {panelOpen ? (
-          <ItemPanel container={container} details={details} onClose={togglePanel} />
+          narrow ? (
+            <Dialog open title="Item settings" onClose={togglePanel} presentation="workspace">
+              <ItemPanel container={container} details={details} onClose={togglePanel} />
+            </Dialog>
+          ) : (
+            <ItemPanel container={container} details={details} onClose={togglePanel} />
+          )
         ) : null}
       </div>
 
@@ -730,9 +763,9 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header className="px-4 pb-3 pt-4 sm:px-8">
+    <header className="px-4 pb-3 pt-4 pr-14 sm:px-8 sm:pr-16">
       {trail.length > 1 ? (
-        <nav aria-label="Breadcrumb" className="mb-1 flex flex-wrap items-center text-xs">
+        <nav aria-label="Breadcrumb" className="mb-1 hidden flex-wrap items-center text-xs sm:flex">
           {trail.slice(0, -1).map((ancestor) => (
             <span key={ancestor.id} className="flex items-center">
               {/* Navigable, not decorative. A trail that shows where you are and cannot take you
@@ -774,7 +807,7 @@ function ItemHeader({
         // variable - so the two together left the field that renames an item with no visible focus
         // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
         // point of the primitive.
-        className={`w-full bg-transparent font-heading text-xl uppercase sm:text-2xl ${focusRing}`}
+        className={`w-full bg-transparent font-heading text-xl sm:uppercase sm:text-2xl ${focusRing}`}
       />
     </header>
   );

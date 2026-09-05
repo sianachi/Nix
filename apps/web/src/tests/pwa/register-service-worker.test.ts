@@ -13,7 +13,13 @@ afterEach(() => {
 
 describe('the installed app lifecycle', () => {
   it('registers the same-origin worker after the page has loaded', async () => {
-    const register = vi.fn(() => Promise.resolve({}));
+    const register = vi.fn(() =>
+      Promise.resolve({
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        update: vi.fn(() => Promise.resolve()),
+      }),
+    );
     vi.stubGlobal('navigator', { serviceWorker: { register } });
 
     unregister = registerServiceWorker();
@@ -43,10 +49,7 @@ describe('the installed app lifecycle', () => {
     globalThis.dispatchEvent(new Event('load'));
 
     await vi.waitFor(() => {
-      expect(warn).toHaveBeenCalledWith(
-        'The Nix app installer could not be registered.',
-        refusal,
-      );
+      expect(warn).toHaveBeenCalledWith('The Nix app installer could not be registered.', refusal);
     });
   });
 });

@@ -12,7 +12,13 @@
  * children it made — a partial seed said plainly, never a hang or a silent stall.
  */
 
-import { isNixApiError, itemChart as charts, items, search, itemQuery as queries } from '@nix/api-client';
+import {
+  isNixApiError,
+  itemChart as charts,
+  items,
+  search,
+  itemQuery as queries,
+} from '@nix/api-client';
 // The light subpath, the same one `props set` reads: a seeded value and a typed one go through
 // one rule, so a stress corpus is made of the values the product actually stores.
 import { parseScalar } from '@nix/markdown/front-matter';
@@ -256,7 +262,9 @@ export async function stressRun(
     );
   }
   if (!Number.isInteger(options.iterations) || options.iterations < 1) {
-    throw new Error(`--iterations must be a positive integer, got '${String(options.iterations)}'.`);
+    throw new Error(
+      `--iterations must be a positive integer, got '${String(options.iterations)}'.`,
+    );
   }
 
   const session = await resolveSession(profileName, deps);

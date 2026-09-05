@@ -4,6 +4,11 @@
 
 Accepted, 2026-08-31.
 
+Implementation note, 5 September 2026: unified Go/RabbitMQ source has replaced Node Media.
+The temporary file-publication path currently bypasses upload inspection; the inspection
+guarantee below is not current behavior. See [the discrepancy record](../README.md#open-architecture-discrepancy).
+This note preserves the accepted decision and does not approve the deviation.
+
 ## Context
 
 ADR-0046 introduced separate Go import, export and indexing services that poll durable Postgres jobs

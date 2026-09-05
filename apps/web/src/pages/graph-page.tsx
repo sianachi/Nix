@@ -7,7 +7,8 @@ import {
   LoadingPanel,
   PartialNotice,
 } from '../components/states/status-panels';
-import { GraphView } from '../graph/graph-view';
+import { GraphExplorer } from '../graph/graph-explorer';
+import { useItemDialog } from '../items/item-dialog-context';
 import { useWorkspaceGraph } from '../graph/use-workspace-graph';
 import { paneScroller } from '../layout/regions';
 import { useOpenItem } from '../tabs/use-open-item';
@@ -21,9 +22,8 @@ import { useOpenItem } from '../tabs/use-open-item';
  * conclude two clusters are unconnected, which is a wrong answer rather than a missing one - so
  * whenever a flag is set this page says so above the drawing, and says which ceiling was hit.
  *
- * Opening a node goes through the same `useOpenItem` the tree and the command palette use, so a
- * node opened from here lands in the pane a reader expects and joins the tab strip like anything
- * else. The graph does not own a second idea of what is open.
+ * Opening a node presents the full item in a dialog while the graph stays mounted. Only the
+ * explicit Open as page action changes the workspace destination.
  */
 /**
  * The destination's frame: its heading, and whatever state it is in.
@@ -47,6 +47,7 @@ function GraphFrame({ children }: { readonly children: ReactNode }): ReactElemen
 export function GraphPage(): ReactElement {
   const { status, graph, error, reload } = useWorkspaceGraph();
   const { openPreview } = useOpenItem();
+  const openDialog = useItemDialog();
 
   if (status === 'loading') {
     return (
@@ -100,7 +101,7 @@ export function GraphPage(): ReactElement {
         />
       )}
 
-      <GraphView nodes={graph.nodes} links={graph.links} onOpen={openPreview} />
+      <GraphExplorer nodes={graph.nodes} links={graph.links} onOpen={openDialog ?? openPreview} />
     </GraphFrame>
   );
 }

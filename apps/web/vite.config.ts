@@ -11,6 +11,7 @@
 // The test block runs the same source through jsdom. CSS is not processed
 // during tests - component tests assert behaviour and roles, never computed
 // styles, so compiling Tailwind for them would only cost time.
+import { createHash } from 'node:crypto';
 import { cp, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -215,6 +216,46 @@ export default defineConfig({
   },
 
   plugins: [
+    {
+      name: 'nix-pwa-assets',
+      async generateBundle(_options, bundle) {
+        const assets = Object.keys(bundle)
+          .filter((name) => /^assets\/.*\.(?:js|css|woff2)$/.test(name))
+          .map((name) => `/${name}`);
+        const offline = await readFile(new URL('./public/offline.html', import.meta.url), 'utf8');
+        const worker = await readFile(
+          new URL('./public/service-worker.js', import.meta.url),
+          'utf8',
+        );
+        const version = createHash('sha256')
+          .update(JSON.stringify(assets))
+          .update(worker)
+          .update(offline)
+          .digest('hex')
+          .slice(0, 16);
+        const offlineCss = assets.find((name) => /^\/assets\/index-.*\.css$/.test(name));
+        if (!offlineCss) throw new Error('The offline screen stylesheet is missing.');
+        this.emitFile({
+          type: 'asset',
+          fileName: 'offline.html',
+          source: offline.replace('/src/app.css', offlineCss),
+        });
+        this.emitFile({
+          type: 'asset',
+          fileName: 'service-worker.js',
+          source: worker
+            .replace("'nix-pwa-dev'", JSON.stringify(`nix-pwa-${version}`))
+            .replace(
+              /const SHELL_ASSETS = \[.*?\];/s,
+              `const SHELL_ASSETS = ${JSON.stringify(['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png', offlineCss])};`,
+            )
+            .replace(
+              "const ASSETS = ['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png'];",
+              `const ASSETS = ${JSON.stringify(['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png', ...assets])};`,
+            ),
+        });
+      },
+    },
     excalidrawFontAssets(),
     {
       name: 'nix-configured-content-security-policy',

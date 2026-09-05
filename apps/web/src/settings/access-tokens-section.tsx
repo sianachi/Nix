@@ -156,8 +156,8 @@ export function AccessTokensSection(): ReactElement {
       </div>
       <Text variant="note" tone="muted">
         Tokens let a script or machine act as you, within the scopes and lifetime you choose here.
-        Every token you have issued is listed, including revoked and expired ones: this is the
-        audit of what has been able to act as your account.
+        Every token you have issued is listed, including revoked and expired ones: this is the audit
+        of what has been able to act as your account.
       </Text>
 
       {status === 'error' ? (
