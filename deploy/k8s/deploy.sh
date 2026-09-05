@@ -140,13 +140,11 @@ kubectl -n nix rollout status deployment/nix-grafana --timeout=180s
 echo "== Workloads =="
 render deploy/k8s/api.yaml | kubectl apply -f -
 render deploy/k8s/collab.yaml | kubectl apply -f -
-render deploy/k8s/media.yaml | kubectl apply -f -
 render deploy/k8s/worker.yaml | kubectl apply -f -
 render deploy/k8s/web.yaml | kubectl apply -f -
 
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
-kubectl -n nix rollout status deployment/nix-media --timeout=180s
 kubectl -n nix rollout status deployment/nix-import-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-export-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-indexer --timeout=180s

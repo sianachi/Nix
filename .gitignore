@@ -69,3 +69,7 @@ deploy/.dev-access-token-key.pem
 
 # Local ASP.NET Core data-protection key ring must never be committed.
 /deploy/.dev-data-protection/
+
+# Local Go build output, not source or a release artifact.
+/apps/go-workers/nix-worker
+/apps/go-workers/nix-worker.exe
