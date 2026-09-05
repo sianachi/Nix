@@ -60,9 +60,17 @@ try {
     throw new Error('Document import did not publish the expected note and retained attachment without omissions.');
   }
   console.log(`Document import passed; temporary root ${root}.`);
+  const children = await run(['item', 'ls', '--workspace', workspace, '--parent', root]);
+  const original = children.items?.find((item) => item.type === 'file');
+  if (!original || children.items.length !== 1) throw new Error('Import did not retain exactly one original attachment.');
+  const retained = join(directory, 'retained.txt');
+  await run(['file', 'download', original.id, '--out', retained]);
+  if (!(await readFile(source)).equals(await readFile(retained))) throw new Error('Retained attachment differs from the imported source.');
+  console.log('Retained attachment download matches the imported source.');
   for (const [format, magic] of [['nix', 'PK'], ['pdf', '%PDF-'], ['docx', 'PK']]) {
     const out = join(directory, `export.${format}`);
-    const result = await run(['export', root, '--format', format, '--scope', format === 'nix' ? 'subtree' : 'item', '--out', out]);
+    // Archive v1 cannot embed file bytes; verify the attachment separately above.
+    const result = await run(['export', root, '--format', format, '--scope', 'item', '--out', out]);
     if (result.omissions?.length || result.omitted > 0) throw new Error(`${format} export omitted content.`);
     const bytes = await readFile(out);
     if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic))) throw new Error(`${format} export has an invalid file signature.`);
