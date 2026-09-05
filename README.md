@@ -13,6 +13,27 @@ be reorganised without changing what it is.
 This overview describes committed implementation as of 5 September 2026. Runtime, export-fidelity
 and recovery verification remain separate from implementation status. See [documentation](docs/README.md).
 
+## See Nix in action
+
+[![Preview of the Nix product tour](assets/nix-product-tour-poster.png)](assets/nix-product-tour.mp4)
+
+Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
+
+## Contribute to Nix
+
+Nix is being built in the open by people who care about calm, capable tools for collaborative work.
+If you want to help make documents, structured data and team workflows fit together better, we would
+love your contribution.
+
+Start with the product direction in this README, then read the [developer documentation](docs/README.md)
+and the contributor guides in `docs/agent-guides/`. Set up the local stack with `bash scripts/dev-stack-up.sh`,
+run the services listed in [Running the application](#running-the-application), and keep changes focused.
+Before proposing a change, run the checks selected by `./scripts/changed-path-checks.sh --working-tree`.
+
+Useful places to begin are the current roadmap below, test coverage around a feature you use, and
+documentation improvements that make the project easier to understand. Please keep product claims
+grounded in observed behaviour and do not hand-edit generated API contracts or clients.
+
 ## Problems Nix is solving
 
 - **Documents and project work are split across tools.** Notes, tasks, dates, structured records and
