@@ -201,6 +201,23 @@ Infrastructure ports: Postgres 5433, Versity S3 7070, RabbitMQ 5673 (management 
 Zitadel 8300, OpenSearch 9201 and Aspire 18888. The mock LLM on 8380 requires the optional
 `ai` profile. The current Compose file has no ClamAV service.
 
+The Compose port overrides apply only to containers; the host launch scripts do not source `.env`.
+For a host-port conflict, export the application origins and ports in the shell that launches the
+processes. For example, this moves API, collaboration and web to 5015, 8101 and 5174:
+
+```sh
+export NIX_API_PORT=5015 NIX_API_ORIGIN=http://localhost:5015
+export NIX_COLLAB_PORT=8101 NIX_COLLAB_ORIGIN=http://localhost:8101
+export NIX_WEB_PORT=5174 NIX_WEB_ORIGIN=http://localhost:5174
+export NIX_OBJECT_STORE_PUBLIC_ORIGIN=http://localhost:7070
+bash deploy/seed/zitadel-configure.sh
+```
+
+Run that setup command again whenever `NIX_WEB_ORIGIN` changes so the OIDC redirect origin stays
+in sync. Then start the same four host processes below. The Vite command reads `NIX_WEB_PORT`; do
+not add an extra `--` before Vite arguments. Infrastructure ports still need their matching
+Compose overrides and dependent URLs in `.env`.
+
 See [local sign-in and setup](docs/dev-signing-in.md) for generated identity configuration.
 
 ## Running the application
@@ -208,10 +225,10 @@ See [local sign-in and setup](docs/dev-signing-in.md) for generated identity con
 Start each process in its own terminal after stack-up:
 
 ```sh
-bash scripts/dev-api.sh                     # :5014, BFF and service configuration
-bash scripts/dev-collab.sh                  # :8100
+bash scripts/dev-api.sh                     # :5014 by default, BFF and service configuration
+bash scripts/dev-collab.sh                  # :8100 by default
 bash scripts/dev-worker.sh                  # :8301, import/export/index/plugin-events
-pnpm --filter @nix/web dev                  # :5173
+pnpm --filter @nix/web dev                  # :5173 by default
 ```
 
 Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`
