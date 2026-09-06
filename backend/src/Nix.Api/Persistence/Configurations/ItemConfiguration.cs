@@ -82,7 +82,7 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             .WithMany()
             .HasForeignKey(item => new { item.TenantId, item.WorkspaceId })
             .HasPrincipalKey(workspace => new { workspace.TenantId, workspace.Id })
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<Item>()
             .WithMany()

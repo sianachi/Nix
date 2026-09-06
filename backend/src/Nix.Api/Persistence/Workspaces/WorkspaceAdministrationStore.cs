@@ -21,7 +21,9 @@ public sealed record WorkspaceSnapshot(
     bool CanManageMembers,
     bool CanLeave,
     bool CanUseDailyNotes,
-    Guid? PendingInvitationId);
+    Guid? PendingInvitationId,
+    string LifecycleState,
+    DateTimeOffset? ArchivedAt);
 
 /// <summary>One active human who can be offered workspace access.</summary>
 public sealed record WorkspaceInviteeSnapshot(
@@ -202,6 +204,75 @@ public sealed class WorkspaceAdministrationStore
             ],
             cancellationToken).ConfigureAwait(false);
         return result != Guid.Empty;
+    }
+
+    /// <summary>Archives an owner- or tenant-admin-managed workspace without changing its grants.</summary>
+    public async ValueTask<bool> ArchiveAsync(
+        WorkspaceId workspaceId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.Archive,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value), Timestamp("now", now)], cancellationToken)
+            .ConfigureAwait(false);
+        return id != Guid.Empty;
+    }
+
+    /// <summary>Restores an archived workspace to ordinary use.</summary>
+    public async ValueTask<bool> RestoreAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.Restore,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value)], cancellationToken).ConfigureAwait(false);
+        return id != Guid.Empty;
+    }
+
+    /// <summary>Starts the irreversible purge only after an authorized archive.</summary>
+    public async ValueTask<bool> BeginPurgeAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.BeginPurge,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value)], cancellationToken).ConfigureAwait(false);
+        return id != Guid.Empty;
+    }
+
+    /// <summary>Lists private workspace-owned objects after its purge has been authorized.</summary>
+    public async ValueTask<IReadOnlyList<string>> ListPurgeObjectKeysAsync(
+        WorkspaceId workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var keys = new List<string>();
+        var query = _sql.QueryAsync<string, ObjectKeyMapper>(WorkspaceAdministrationSql.PurgeObjectKeys,
+            default,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+             Uuid("workspace_id", workspaceId.Value)], cancellationToken);
+        await foreach (var key in query.ConfigureAwait(false))
+        {
+            keys.Add(key);
+        }
+        return keys;
+    }
+
+    /// <summary>Removes the workspace row after its lease-bound object cleanup has completed.</summary>
+    public async ValueTask<bool> FinalizePurgeAsync(
+        WorkspaceId workspaceId,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.FinalizePurge,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("workspace_id", workspaceId.Value),
+             Uuid("job_id", jobId)], cancellationToken).ConfigureAwait(false);
+        return id != Guid.Empty;
     }
 
     /// <summary>Lists principal and group grants visible to a workspace member or administrator.</summary>
@@ -493,7 +564,13 @@ public sealed class WorkspaceAdministrationStore
             reader.GetInt64(3), reader.GetFieldValue<DateTimeOffset>(4),
             reader.IsDBNull(5) ? null : PrincipalId.From(reader.GetGuid(5)),
             reader.GetBoolean(6), reader.GetBoolean(7), reader.GetBoolean(8),
-            reader.GetBoolean(9), reader.IsDBNull(10) ? null : reader.GetGuid(10));
+            reader.GetBoolean(9), reader.IsDBNull(10) ? null : reader.GetGuid(10),
+            reader.GetString(11), reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12));
+    }
+
+    private readonly struct ObjectKeyMapper : INixRowMapper<string>
+    {
+        public string Map(NpgsqlDataReader reader) => reader.GetString(0);
     }
 
     private readonly struct MemberMapper : INixRowMapper<WorkspaceMemberSnapshot>

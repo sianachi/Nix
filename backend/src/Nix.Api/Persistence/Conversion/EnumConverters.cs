@@ -3,6 +3,7 @@ using Nix.Domain.Authorization;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Templates;
+using Nix.Domain.Tenancy;
 
 namespace Nix.Persistence.Conversion;
 
@@ -109,6 +110,32 @@ internal static class EnumConverters
             _ => throw new InvalidOperationException(
                 $"The database holds '{text}' as an item lifecycle state, which this build does " +
                 "not recognise. Refusing to guess: the alternative is showing purged content."),
+        };
+    }
+
+    /// <summary>Maps <see cref="WorkspaceLifecycleState"/> to its lower-case name.</summary>
+    internal sealed class WorkspaceLifecycleStateConverter : ValueConverter<WorkspaceLifecycleState, string>
+    {
+        /// <summary>Initializes the converter.</summary>
+        public WorkspaceLifecycleStateConverter()
+            : base(value => ToText(value), text => FromText(text))
+        {
+        }
+
+        private static string ToText(WorkspaceLifecycleState value) => value switch
+        {
+            WorkspaceLifecycleState.Active => "active",
+            WorkspaceLifecycleState.Archived => "archived",
+            WorkspaceLifecycleState.Purging => "purging",
+            _ => throw new ArgumentOutOfRangeException(nameof(value)),
+        };
+
+        private static WorkspaceLifecycleState FromText(string value) => value switch
+        {
+            "active" => WorkspaceLifecycleState.Active,
+            "archived" => WorkspaceLifecycleState.Archived,
+            "purging" => WorkspaceLifecycleState.Purging,
+            _ => throw new ArgumentOutOfRangeException(nameof(value)),
         };
     }
 

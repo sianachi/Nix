@@ -45,8 +45,12 @@ public static class AuthorizationSql
     public const string WorkspaceRolesForPrincipal = """
         SELECT member.role
         FROM workspace_member member
+        JOIN workspace
+          ON workspace.tenant_id = member.tenant_id
+         AND workspace.workspace_id = member.workspace_id
         WHERE member.tenant_id = @tenant_id
           AND member.workspace_id = @workspace_id
+          AND workspace.lifecycle_state = 'active'
           AND member.subject_type = 'principal'
           AND member.subject_id = @principal_id
 
@@ -54,11 +58,15 @@ public static class AuthorizationSql
 
         SELECT member.role
         FROM workspace_member member
+        JOIN workspace
+          ON workspace.tenant_id = member.tenant_id
+         AND workspace.workspace_id = member.workspace_id
         JOIN group_membership membership
           ON membership.group_id = member.subject_id
          AND membership.tenant_id = member.tenant_id
         WHERE member.tenant_id = @tenant_id
           AND member.workspace_id = @workspace_id
+          AND workspace.lifecycle_state = 'active'
           AND member.subject_type = 'group'
           AND membership.principal_id = @principal_id
         """;
@@ -91,7 +99,11 @@ public static class AuthorizationSql
     public const string WorkspacesReadableByPrincipal = """
         SELECT member.workspace_id, member.role
         FROM workspace_member member
+        JOIN workspace
+          ON workspace.tenant_id = member.tenant_id
+         AND workspace.workspace_id = member.workspace_id
         WHERE member.tenant_id = @tenant_id
+          AND workspace.lifecycle_state = 'active'
           AND member.subject_type = 'principal'
           AND member.subject_id = @principal_id
 
@@ -99,10 +111,14 @@ public static class AuthorizationSql
 
         SELECT member.workspace_id, member.role
         FROM workspace_member member
+        JOIN workspace
+          ON workspace.tenant_id = member.tenant_id
+         AND workspace.workspace_id = member.workspace_id
         JOIN group_membership membership
           ON membership.group_id = member.subject_id
          AND membership.tenant_id = member.tenant_id
         WHERE member.tenant_id = @tenant_id
+          AND workspace.lifecycle_state = 'active'
           AND member.subject_type = 'group'
           AND membership.principal_id = @principal_id
         """;
@@ -123,6 +139,7 @@ public static class AuthorizationSql
         SELECT workspace.workspace_id
         FROM workspace
         WHERE workspace.tenant_id = @tenant_id
+          AND workspace.lifecycle_state = 'active'
         """;
 
     /// <summary>Whether one exact workspace belongs to the current tenant.</summary>
@@ -132,6 +149,7 @@ public static class AuthorizationSql
             FROM workspace
             WHERE workspace.tenant_id = @tenant_id
               AND workspace.workspace_id = @workspace_id
+              AND workspace.lifecycle_state = 'active'
         )
         """;
 

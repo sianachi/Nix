@@ -75,6 +75,11 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if deleted != len(payload.ObjectKeys) {
 		return nil, invalid("cleanup_capability_invalid", errors.New("Core returned an incomplete cleanup target set"))
 	}
+	if payload.OwnerKind == "workspace-purge" {
+		if err := handler.api.FinalizeWorkspacePurge(ctx); err != nil {
+			return nil, apiFailure("workspace_purge_finalize_unavailable", err)
+		}
+	}
 	return Result{OwnerKind: payload.OwnerKind, OwnerID: payload.OwnerID, Deleted: deleted}, nil
 }
 
@@ -85,7 +90,7 @@ func decodePayload(raw json.RawMessage) (Payload, error) {
 	if err := decoder.Decode(&payload); err != nil {
 		return Payload{}, err
 	}
-	if payload.OwnerKind == "" || len(payload.OwnerKind) > 80 || payload.OwnerID == "" || payload.NotBefore.IsZero() || len(payload.ObjectKeys) == 0 || len(payload.ObjectKeys) > 10_002 {
+	if payload.OwnerKind == "" || len(payload.OwnerKind) > 80 || payload.OwnerID == "" || payload.NotBefore.IsZero() || len(payload.ObjectKeys) > 10_002 {
 		return Payload{}, errors.New("cleanup payload is incomplete")
 	}
 	return payload, nil

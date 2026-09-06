@@ -129,7 +129,7 @@ describe('workspace binding under StrictMode', () => {
       expect(counts.get(STUB_WORKSPACE.id)).toBe(1);
     });
 
-    await user.click(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }));
+    await user.click(screen.getByRole('button', { name: 'Workspace menu' }));
     await user.click(within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: SHARED.name }));
     await waitFor(() => {
       expect(counts.get(SHARED.id)).toBe(1);

@@ -17,6 +17,7 @@ import { login, logout, status } from './commands/auth.ts';
 import {
   changeWorkspaceMemberRole,
   acceptWorkspaceInvitation,
+  archiveWorkspace,
   createWorkspace,
   declineWorkspaceInvitation,
   inviteWorkspaceMember,
@@ -25,8 +26,10 @@ import {
   listWorkspaceInvitees,
   listWorkspaceMembers,
   listWorkspaces,
+  purgeWorkspace,
   removeWorkspaceMember,
   renameWorkspace,
+  restoreWorkspace,
   revokeWorkspaceInvitation,
 } from './commands/workspaces.ts';
 import {
@@ -162,6 +165,30 @@ export function buildProgram(): Command {
     .action(async (workspaceId: string, name: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => renameWorkspace(flags.profile, workspaceId, name, outputOptions(flags.json)));
+    });
+  ws.command('archive <workspaceId>')
+    .description('Archive a workspace so it is out of everyday navigation.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (workspaceId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        archiveWorkspace(flags.profile, workspaceId, options.yes === true, outputOptions(flags.json)),
+      );
+    });
+  ws.command('restore <workspaceId>')
+    .description('Restore an archived workspace.')
+    .action(async (workspaceId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => restoreWorkspace(flags.profile, workspaceId, outputOptions(flags.json)));
+    });
+  ws.command('purge <workspaceId>')
+    .description('Permanently delete an archived workspace and its stored files.')
+    .option('--yes', 'confirm this irreversible operation', false)
+    .action(async (workspaceId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        purgeWorkspace(flags.profile, workspaceId, options.yes === true, outputOptions(flags.json)),
+      );
     });
   ws.command('invitations <workspaceId>')
     .description('List invitation history.')

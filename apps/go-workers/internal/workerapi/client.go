@@ -830,6 +830,10 @@ func (client *Client) GetObjectCleanupCapability(ctx context.Context, offset int
 	return &capability, nil
 }
 
+func (client *Client) FinalizeWorkspacePurge(ctx context.Context) error {
+	return client.requestJSON(ctx, http.MethodPost, "/internal/worker-executions/workspace-purge/finalize", nil, nil)
+}
+
 func (client *Client) GetDocumentImportPreview(ctx context.Context, importID string) (*DocumentImportPreview, error) {
 	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/preview"
 	var preview DocumentImportPreview

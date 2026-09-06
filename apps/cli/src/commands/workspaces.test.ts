@@ -8,6 +8,7 @@ import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
 import {
   acceptWorkspaceInvitation,
+  archiveWorkspace,
   changeWorkspaceMemberRole,
   createWorkspace,
   declineWorkspaceInvitation,
@@ -16,8 +17,10 @@ import {
   listWorkspaceInvitees,
   listWorkspaceInvitations,
   listWorkspaceMembers,
+  purgeWorkspace,
   removeWorkspaceMember,
   renameWorkspace,
+  restoreWorkspace,
   revokeWorkspaceInvitation,
 } from './workspaces.ts';
 
@@ -66,6 +69,30 @@ describe('workspace administration commands', () => {
       await capture((json) => renameWorkspace('default', WORKSPACE, 'Renamed', json, profile.deps)),
     ).toMatchObject({ name: 'Renamed' });
     expect(bodies).toEqual([{ name: 'Created' }, { name: 'Renamed' }]);
+    await profile.done();
+  });
+
+  it('archives, restores, then permanently deletes a workspace through the lifecycle endpoints', async () => {
+    const profile = await withProfile();
+    server.use(
+      http.post(`${API}/api/v1/workspaces/:workspaceId/archive`, () =>
+        HttpResponse.json(workspace('Archived', 'archived')),
+      ),
+      http.post(`${API}/api/v1/workspaces/:workspaceId/restore`, () =>
+        HttpResponse.json(workspace('Restored', 'active')),
+      ),
+      http.delete(`${API}/api/v1/workspaces/:workspaceId`, () => new HttpResponse(null, { status: 202 })),
+    );
+
+    expect(
+      await capture((json) => archiveWorkspace('default', WORKSPACE, true, json, profile.deps)),
+    ).toMatchObject({ lifecycleState: 'archived' });
+    expect(
+      await capture((json) => restoreWorkspace('default', WORKSPACE, json, profile.deps)),
+    ).toMatchObject({ lifecycleState: 'active' });
+    expect(
+      await capture((json) => purgeWorkspace('default', WORKSPACE, true, json, profile.deps)),
+    ).toEqual({ purging: true, workspaceId: WORKSPACE });
     await profile.done();
   });
 
@@ -201,6 +228,12 @@ describe('workspace administration commands', () => {
     await expect(leaveWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
       'requires --yes',
     );
+    await expect(archiveWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
+      'requires --yes',
+    );
+    await expect(purgeWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
+      'requires --yes',
+    );
   });
 });
 
@@ -228,7 +261,7 @@ async function withProfile() {
   };
 }
 
-function workspace(name: string): Record<string, unknown> {
+function workspace(name: string, lifecycleState: 'active' | 'archived' = 'active'): Record<string, unknown> {
   return {
     id: WORKSPACE,
     name,
@@ -241,6 +274,8 @@ function workspace(name: string): Record<string, unknown> {
     canLeave: false,
     canUseDailyNotes: true,
     pendingInvitationId: null,
+    lifecycleState,
+    archivedAt: lifecycleState === 'archived' ? '2026-09-06T12:00:00Z' : null,
   };
 }
 

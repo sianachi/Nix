@@ -24,7 +24,9 @@ internal sealed record WorkspaceResponse(
     bool CanManageMembers,
     bool CanLeave,
     bool CanUseDailyNotes,
-    Guid? PendingInvitationId);
+    Guid? PendingInvitationId,
+    string LifecycleState,
+    DateTimeOffset? ArchivedAt);
 
 /// <summary>A request to create a shared workspace.</summary>
 internal sealed record CreateWorkspaceRequest(string Name);

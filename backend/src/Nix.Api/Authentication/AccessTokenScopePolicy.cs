@@ -88,6 +88,14 @@ public static class AccessTokenScopePolicy
             || value.Contains("/invitations", StringComparison.OrdinalIgnoreCase)
             || value.EndsWith("/leave", StringComparison.OrdinalIgnoreCase)
             || value.EndsWith("/recover", StringComparison.OrdinalIgnoreCase)
+            // Workspace lifecycle changes the availability of the whole workspace. In particular,
+            // permanent deletion destroys its durable data, so a write-scoped automation cannot
+            // make either transition.
+            || (value.StartsWith("/api/v1/workspaces/", StringComparison.OrdinalIgnoreCase)
+                && (value.EndsWith("/archive", StringComparison.OrdinalIgnoreCase)
+                    || value.EndsWith("/restore", StringComparison.OrdinalIgnoreCase)))
+            || (HttpMethods.IsDelete(method)
+                && value.StartsWith("/api/v1/workspaces/", StringComparison.OrdinalIgnoreCase))
             // Plugin writes pin publisher trust or grant executable components access to
             // workspace data. Listing installations remains a read through the shortcut above.
             || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase))

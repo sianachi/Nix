@@ -38,6 +38,8 @@ export interface StubWorkspace {
   readonly canLeave: boolean;
   readonly canUseDailyNotes: boolean;
   readonly pendingInvitationId: string | null;
+  readonly lifecycleState: 'active' | 'archived' | 'purging';
+  readonly archivedAt: string | null;
 }
 
 export const STUB_WORKSPACE: StubWorkspace = {
@@ -52,6 +54,8 @@ export const STUB_WORKSPACE: StubWorkspace = {
   canLeave: false,
   canUseDailyNotes: true,
   pendingInvitationId: null,
+  lifecycleState: 'active',
+  archivedAt: null,
 };
 
 /** A container's views, keyed by the item that offers them. */
@@ -788,6 +792,44 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           entry.id === renamed.id ? renamed : entry,
         );
         return Promise.resolve(json(renamed));
+      }
+      if (workspaceDetail !== null && method === 'DELETE') {
+        const workspace = knownWorkspaces.find((entry) => entry.id === workspaceDetail[1]);
+        if (workspace?.lifecycleState !== 'archived') {
+          return Promise.resolve(json({ code: 'workspaces.purge_refused' }, 409));
+        }
+        knownWorkspaces = knownWorkspaces.map((entry) =>
+          entry.id === workspace.id ? { ...entry, lifecycleState: 'purging' as const } : entry,
+        );
+        return Promise.resolve(new Response(null, { status: 202 }));
+      }
+      const archiveWorkspace = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/archive$/.exec(
+        parsedUrl.pathname,
+      );
+      if (archiveWorkspace !== null && method === 'POST') {
+        const workspace = knownWorkspaces.find((entry) => entry.id === archiveWorkspace[1]);
+        if (workspace === undefined) return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        const archived = {
+          ...workspace,
+          lifecycleState: 'archived' as const,
+          archivedAt: '2026-09-06T12:00:00.000Z',
+        };
+        knownWorkspaces = knownWorkspaces.map((entry) =>
+          entry.id === archived.id ? archived : entry,
+        );
+        return Promise.resolve(json(archived));
+      }
+      const restoreWorkspace = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/restore$/.exec(
+        parsedUrl.pathname,
+      );
+      if (restoreWorkspace !== null && method === 'POST') {
+        const workspace = knownWorkspaces.find((entry) => entry.id === restoreWorkspace[1]);
+        if (workspace === undefined) return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        const restored = { ...workspace, lifecycleState: 'active' as const, archivedAt: null };
+        knownWorkspaces = knownWorkspaces.map((entry) =>
+          entry.id === restored.id ? restored : entry,
+        );
+        return Promise.resolve(json(restored));
       }
 
       const leaveWorkspace = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/leave$/.exec(

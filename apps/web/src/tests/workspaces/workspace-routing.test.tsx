@@ -21,6 +21,12 @@ const SHARED: StubWorkspace = {
   canLeave: true,
 };
 
+const ARCHIVED: StubWorkspace = {
+  ...STUB_WORKSPACE,
+  lifecycleState: 'archived',
+  archivedAt: '2026-09-06T12:00:00Z',
+};
+
 function memoryStorage(initial: Readonly<Record<string, string>> = {}): Storage {
   const values = new Map(Object.entries(initial));
   return {
@@ -53,7 +59,7 @@ describe('workspace-scoped routing', () => {
     renderAt(<App />);
 
     await user.click(
-      await screen.findByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }),
+      await screen.findByRole('button', { name: 'Workspace menu' }),
     );
 
     const menu = screen.getByRole('region', { name: 'Workspaces' });
@@ -76,7 +82,7 @@ describe('workspace-scoped routing', () => {
     renderAt(<App />, '/graph');
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeVisible();
-    expect(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute(
       'href',
       `/w/${STUB_WORKSPACE.id}/graph`,
@@ -89,13 +95,13 @@ describe('workspace-scoped routing', () => {
     stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
     const first = renderAt(<App />, '/calendar');
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeVisible();
-    expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();
     first.unmount();
 
     vi.stubGlobal('localStorage', memoryStorage({ 'nix.last-workspace-id': INACCESSIBLE_ID }));
     renderAt(<App />, '/calendar');
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeVisible();
-    expect(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();
   });
 
   it('opens an accessible deep link without passing through the legacy resolver', async () => {
@@ -103,7 +109,32 @@ describe('workspace-scoped routing', () => {
     renderAt(<App />, `/w/${SHARED_ID}/graph`);
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeVisible();
-    expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();
+  });
+
+  it('routes an account with no active workspace to recover or replace archived work', async () => {
+    stubCoreApi({ workspaces: [ARCHIVED] });
+    renderAt(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Archived workspaces' })).toBeVisible();
+    expect(screen.getByText(ARCHIVED.name)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Restore workspace' })).toBeVisible();
+  });
+
+  it('requires an archived workspace before offering permanent deletion', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [ARCHIVED] });
+    renderAt(<App />, '/workspaces/archived');
+
+    await user.click(await screen.findByRole('button', { name: 'Delete permanently' }));
+    expect(screen.getByText(/cannot be undone/i)).toBeVisible();
+    const confirmationButton = screen.getAllByRole('button', { name: 'Delete permanently' })[1];
+    if (confirmationButton === undefined) throw new Error('Permanent deletion confirmation was not shown.');
+    await user.click(confirmationButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('No archived workspaces.')).toBeVisible();
+    });
   });
 
   it('does not confirm whether an inaccessible workspace exists', async () => {
@@ -113,7 +144,7 @@ describe('workspace-scoped routing', () => {
     expect(await screen.findByRole('heading', { name: 'Workspace not found' })).toBeVisible();
     expect(screen.getByText(/unavailable or you do not have access/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: /^Workspace:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Workspace menu' })).not.toBeInTheDocument();
   });
 
   it('does not call a workspace missing when the accessible list is partial', async () => {
@@ -135,11 +166,11 @@ describe('workspace-scoped routing', () => {
     const selected = await screen.findByRole('treeitem', { name: 'Scoped note' });
     expect(selected).toHaveAttribute('aria-selected', 'true');
 
-    await user.click(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }));
+    await user.click(screen.getByRole('button', { name: 'Workspace menu' }));
     await user.click(within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: SHARED.name }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();
       expect(screen.getByRole('treeitem', { name: 'Scoped note' })).toHaveAttribute(
         'aria-selected',
         'false',

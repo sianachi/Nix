@@ -53,7 +53,7 @@ internal static class ObjectCleanupEndpoints
         if (payload is null
             || string.IsNullOrWhiteSpace(payload.OwnerKind)
             || payload.OwnerId == Guid.Empty
-            || payload.ObjectKeys.Count is < 1 or > 10_002
+            || payload.ObjectKeys.Count > 10_002
             || offset > payload.ObjectKeys.Count
             || payload.ObjectKeys.Any(key => !ObjectStorageKeys.BelongsTo(scoped.TenantId, key)))
         {

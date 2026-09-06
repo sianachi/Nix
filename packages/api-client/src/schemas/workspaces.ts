@@ -24,6 +24,8 @@ export const workspaceSchema = z.object({
   canLeave: z.boolean(),
   canUseDailyNotes: z.boolean(),
   pendingInvitationId: z.uuid().nullable(),
+  lifecycleState: z.enum(['active', 'archived', 'purging']),
+  archivedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
 export type Workspace = z.infer<typeof workspaceSchema>;

@@ -83,11 +83,12 @@ beforeEach(() => {
 });
 
 function workspaceButton(name: string): HTMLElement {
-  return screen.getByRole('button', { name: `Workspace: ${name}` });
+  void name;
+  return screen.getByRole('button', { name: 'Workspace menu' });
 }
 
 async function switchWorkspace(user: UserEvent, to: string): Promise<void> {
-  await user.click(screen.getByRole('button', { name: /^Workspace:/ }));
+  await user.click(screen.getByRole('button', { name: 'Workspace menu' }));
   await user.click(
     within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: to }),
   );
@@ -190,6 +191,21 @@ describe('workspace management', () => {
     expect(
       within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', { name: SHARED.name }),
     ).not.toBeInTheDocument();
+  });
+
+  it('archives a workspace before it can be permanently deleted', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
+    renderAt(<App />, '/settings');
+
+    await user.click(await screen.findByRole('button', { name: 'Archive workspace' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Archive workspace?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Archive workspace' }));
+
+    expect(await screen.findByRole('heading', { name: 'Archived workspaces' })).toBeVisible();
+    expect(screen.getByText(STUB_WORKSPACE.name)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Restore workspace' })).toBeVisible();
+    expect(fetchCalls().some((call) => call.url.endsWith(`/workspaces/${STUB_WORKSPACE.id}/archive`))).toBe(true);
   });
 
   it('lets the invited user accept provisional access without leaving the workspace', async () => {

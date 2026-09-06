@@ -38,6 +38,6 @@ internal sealed class WorkerJobConfiguration : IEntityTypeConfiguration<WorkerJo
         builder.HasOne<Nix.Domain.Tenancy.Workspace>().WithMany()
             .HasForeignKey(job => new { job.TenantId, job.WorkspaceId })
             .HasPrincipalKey(workspace => new { workspace.TenantId, workspace.Id })
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

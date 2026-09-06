@@ -46,6 +46,44 @@ export async function renameWorkspace(
   printResult(await session.client.execute(workspaces.renameWorkspace(workspaceId, name)), output);
 }
 
+/** Removes a workspace from everyday navigation without deleting its durable data. */
+export async function archiveWorkspace(
+  profileName: string | undefined,
+  workspaceId: string,
+  confirmed: boolean,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  assertConfirmed(confirmed);
+  const session = await resolveSession(profileName, deps);
+  printResult(await session.client.execute(workspaces.archiveWorkspace(workspaceId)), output);
+}
+
+/** Returns an archived workspace to ordinary use. */
+export async function restoreWorkspace(
+  profileName: string | undefined,
+  workspaceId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  printResult(await session.client.execute(workspaces.restoreWorkspace(workspaceId)), output);
+}
+
+/** Schedules irreversible deletion of a workspace that has already been archived. */
+export async function purgeWorkspace(
+  profileName: string | undefined,
+  workspaceId: string,
+  confirmed: boolean,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  assertConfirmed(confirmed);
+  const session = await resolveSession(profileName, deps);
+  await session.client.execute(workspaces.purgeWorkspace(workspaceId));
+  printResult({ purging: true, workspaceId }, output);
+}
+
 export async function listWorkspaceInvitations(
   profileName: string | undefined,
   workspaceId: string,
