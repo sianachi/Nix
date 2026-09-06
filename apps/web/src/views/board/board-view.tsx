@@ -6,10 +6,11 @@ import { PartialNotice } from '../../components/states/status-panels';
 import {
   UNSET_LABEL,
   UNSET_VALUE,
-  readPropertyText,
   readSelectValue,
+  readPropertyText,
   type Item,
   type PropertyDefinition,
+  type PropertyValue,
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
@@ -17,6 +18,7 @@ import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 import { useVirtualWindow } from '../core/use-virtual-window';
+import { ListCell } from '../list/list-cell';
 
 const VIRTUALIZATION_THRESHOLD = 100;
 const ESTIMATED_CARD_HEIGHT = 150;
@@ -175,6 +177,8 @@ export function BoardView(props: BoardViewProps): ReactNode {
             dragged={dragged}
             setDragged={setDragged}
             onMove={move}
+            onWrite={(itemId, propertyKey, value) =>
+              container.setProperties(itemId, { [propertyKey]: value })}
             onOpen={onOpen}
           />
         ))}
@@ -192,6 +196,7 @@ interface BoardColumnPanelProps {
   readonly dragged: string | null;
   readonly setDragged: (itemId: string | null) => void;
   readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
   readonly onOpen: (itemId: string) => void;
   readonly onCreate: (
     title: string,
@@ -210,6 +215,7 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
     dragged,
     setDragged,
     onMove,
+    onWrite,
     onOpen,
     onCreate,
     groupKey,
@@ -285,6 +291,7 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
           dragged={dragged}
           setDragged={setDragged}
           onMove={onMove}
+          onWrite={onWrite}
           onOpen={onOpen}
         />
       )}
@@ -316,6 +323,7 @@ interface BoardCardListProps {
   readonly dragged: string | null;
   readonly setDragged: (itemId: string | null) => void;
   readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
   readonly onOpen: (itemId: string) => void;
 }
 
@@ -389,6 +397,7 @@ function boardCard(
       dragging={props.dragged === item.id}
       setDragged={props.setDragged}
       onMove={props.onMove}
+      onWrite={props.onWrite}
       onOpen={props.onOpen}
       position={index + 1}
       setSize={props.items.length}
@@ -406,6 +415,7 @@ interface BoardCardProps {
   readonly dragging: boolean;
   readonly setDragged: (itemId: string | null) => void;
   readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
   readonly onOpen: (itemId: string) => void;
   readonly position: number;
   readonly setSize: number;
@@ -422,6 +432,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
     dragging,
     setDragged,
     onMove,
+    onWrite,
     onOpen,
     position,
     setSize,
@@ -435,8 +446,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
   // tells nobody anything.
   const fields = cardProperties.flatMap((candidate) => {
     const definition = schema.find((entry) => entry.key === candidate);
-    const text = readPropertyText(item, candidate);
-    return definition === undefined || text.length === 0 ? [] : [{ definition, text }];
+    return definition === undefined ? [] : [definition];
   });
 
   return (
@@ -476,18 +486,23 @@ function BoardCard(props: BoardCardProps): ReactNode {
         </div>
 
         {fields.length === 0 ? null : (
-          <dl className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             {fields.map((field) => (
-              <div key={field.definition.key} className="flex gap-2">
-                <Text variant="caption" tone="muted" as="dt">
-                  {field.definition.label}
+              <div key={field.key}>
+                <Text variant="kicker" tone="muted" as="span">
+                  {field.label}
                 </Text>
-                <Text variant="caption" as="dd">
-                  {field.text}
+                <ListCell
+                  item={item}
+                  property={field}
+                  onWrite={(value) => onWrite(item.id, field.key, value)}
+                />
+                <Text variant="caption" as="span" className="sr-only">
+                  {readPropertyText(item, field.key)}
                 </Text>
               </div>
             ))}
-          </dl>
+          </div>
         )}
 
         {/*

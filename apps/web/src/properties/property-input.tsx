@@ -67,6 +67,8 @@ export interface PropertyInputProps {
   readonly onCommit: (value: PropertyValue) => void;
 
   readonly disabled?: boolean;
+  /** Optional removal from the sequential tab order for compact summary-only surfaces. */
+  readonly tabIndex?: number;
 
   /** The server's reason for refusing this property's last write, shown verbatim. */
   readonly error?: string | null;
@@ -210,6 +212,7 @@ interface ControlProps {
   readonly 'aria-label'?: string;
   readonly 'aria-describedby': string | undefined;
   readonly 'aria-invalid': true | undefined;
+  readonly tabIndex?: number;
 }
 
 /**
@@ -270,6 +273,7 @@ function CellShell(props: ValueShellProps): ReactNode {
         'aria-label': controlName(density, item, property),
         'aria-describedby': invalid || hint !== undefined ? noteId : undefined,
         'aria-invalid': invalid ? true : undefined,
+        ...(props.tabIndex === undefined ? {} : { tabIndex: props.tabIndex }),
       })}
 
       {/* The refusal sits in the cell that caused it and nowhere else. A banner over the table
@@ -371,6 +375,7 @@ function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): R
       {(control) => (
         <Input
           {...control}
+          tabIndex={props.tabIndex}
           type={kind}
           tone={density === 'cell' ? 'plain' : 'default'}
           value={draft}
@@ -411,6 +416,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
       {(control) => (
         <select
           {...control}
+          tabIndex={props.tabIndex}
           value={current ?? UNSET_VALUE}
           required={property.required}
           disabled={disabled}
@@ -493,6 +499,7 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
       {(control) => (
         <select
           {...control}
+          tabIndex={props.tabIndex}
           value={current ?? UNSET_VALUE}
           required={property.required}
           disabled={disabled}
@@ -542,6 +549,7 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
       {(control) => (
         <select
           {...control}
+          tabIndex={props.tabIndex}
           value={current === null ? UNSET_VALUE : String(current)}
           required={property.required}
           disabled={disabled}
@@ -598,6 +606,7 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
         <label key={option} className="flex items-center gap-2 font-body text-base text-foreground">
           <input
             type="checkbox"
+            tabIndex={props.tabIndex}
             checked={current.includes(option)}
             className={cn(focusRing, disabledState)}
             onKeyDown={(event) => {
@@ -821,6 +830,7 @@ function DateValue(props: PropertyInputProps): ReactNode {
       {(control) => (
         <Input
           {...control}
+          tabIndex={props.tabIndex}
           type="date"
           tone={density === 'cell' ? 'plain' : 'default'}
           value={draft}
@@ -962,6 +972,7 @@ function ReadOnlyValue(props: PropertyInputProps & { readonly note: string }): R
       {(control) => (
         <Input
           {...control}
+          tabIndex={props.tabIndex}
           readOnly
           tone={density === 'cell' ? 'plain' : 'default'}
           value={readPropertyText(item, property.key)}
