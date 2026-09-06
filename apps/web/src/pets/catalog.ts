@@ -7,6 +7,18 @@ export const petCatalog = [
     personality: 'calm',
     description: 'Calm and thoughtful. Measured explanations and gentle encouragement.',
   },
+  {
+    appearance: 'cat',
+    name: 'Cat',
+    personality: 'concise',
+    description: 'An attentive, curious companion.',
+  },
+  {
+    appearance: 'fox',
+    name: 'Fox',
+    personality: 'playful',
+    description: 'A bright, inventive companion.',
+  },
 ] as const;
 
 export const personalityDescriptions = {

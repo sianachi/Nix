@@ -11,7 +11,8 @@ import { type StorybookConfig } from '@storybook/react-vite';
  * the browser and in a test.
  */
 const config: StorybookConfig = {
-  stories: ['../src/**/*.stories.@(ts|tsx)'],
+  stories: ['../src/**/*.stories.@(ts|tsx)', '../../../apps/web/src/pets/*.stories.tsx'],
+  staticDirs: [{ from: '../../../apps/web/public/pets', to: '/pets' }],
   addons: ['@storybook/addon-a11y', '@storybook/addon-docs', '@storybook/addon-vitest'],
   framework: {
     name: '@storybook/react-vite',

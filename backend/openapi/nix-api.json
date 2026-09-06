@@ -4569,6 +4569,36 @@
         }
       }
     },
+    "/api/v1/me/pets/runtime": {
+      "post": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "PetRuntime",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetRuntimeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/graph": {
       "get": {
         "tags": [
@@ -7577,6 +7607,25 @@
           }
         }
       },
+      "PetAction": {
+        "required": [
+          "kind",
+          "itemId",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "PetConnectionResponse": {
         "required": [
           "provider",
@@ -7596,6 +7645,118 @@
             "type": "string"
           },
           "canConnect": {
+            "type": "boolean"
+          },
+          "verificationUrl": {
+            "type": "string",
+            "default": ""
+          },
+          "userCode": {
+            "type": "string",
+            "default": ""
+          },
+          "state": {
+            "type": "string",
+            "default": "idle"
+          },
+          "messages": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PetMessage"
+            }
+          },
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PetModel"
+            }
+          },
+          "tools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PetToolCall"
+            }
+          },
+          "history": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PetHistoryEntry"
+            }
+          }
+        }
+      },
+      "PetHistoryEntry": {
+        "required": [
+          "id",
+          "title",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "PetMessage": {
+        "required": [
+          "id",
+          "role",
+          "text",
+          "actions"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetAction"
+            }
+          }
+        }
+      },
+      "PetModel": {
+        "required": [
+          "id",
+          "name",
+          "default"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "default": {
             "type": "boolean"
           }
         }
@@ -7629,6 +7790,80 @@
           },
           "instructions": {
             "type": "string"
+          }
+        }
+      },
+      "PetRuntimeRequest": {
+        "required": [
+          "operation"
+        ],
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "petId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "text": {
+            "type": "string",
+            "default": ""
+          },
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sharedText": {
+            "type": "string",
+            "default": ""
+          },
+          "model": {
+            "type": "string",
+            "default": ""
+          },
+          "workspaceAccess": {
+            "type": "boolean",
+            "default": false
+          },
+          "toolId": {
+            "type": "string",
+            "default": ""
+          },
+          "toolResult": {
+            "type": "string",
+            "default": ""
+          },
+          "toolSuccess": {
+            "type": "boolean",
+            "default": false
+          },
+          "historyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -7683,6 +7918,33 @@
           },
           "settings": {
             "$ref": "#/components/schemas/PetSettings"
+          }
+        }
+      },
+      "PetToolCall": {
+        "required": [
+          "id",
+          "arguments",
+          "status",
+          "result",
+          "claimId"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "claimId": {
+            "type": "string"
           }
         }
       },

@@ -124,6 +124,8 @@ describe('the workspaces resource', () => {
         canLeave: false,
         canUseDailyNotes: true,
         pendingInvitationId: null,
+        lifecycleState: 'active',
+        archivedAt: null,
       }),
     ).toMatchObject({ kind: 'personal', canLeave: false });
 

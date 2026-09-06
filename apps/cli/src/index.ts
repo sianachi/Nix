@@ -58,6 +58,7 @@ import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts'
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
+import { petCommand, type PetOptions } from './commands/pets.ts';
 
 interface GlobalFlags {
   readonly profile: string | undefined;
@@ -101,6 +102,25 @@ export function buildProgram(): Command {
     });
 
   const auth = program.command('auth').description('Sign in, check who you are, and sign out.');
+  program
+    .command('pet <operation>')
+    .description(
+      'Inspect or drive companions. Runtime calls require an interactive NIX_SESSION_TOKEN and --api-url; PAT permissions are not expanded.',
+    )
+    .option('--api-url <url>', 'Core origin for a short-lived interactive session token')
+    .option('--workspace <id>', 'workspace identity')
+    .option('--pet <id>', 'saved pet identity')
+    .option('--message <text>', 'message to send')
+    .option('--model <id>', 'model from pet models')
+    .option(
+      '--workspace-tools',
+      'offer workspace tools; approve requests in the Nix companion panel',
+      false,
+    )
+    .action(async (operation: string, options: PetOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => petCommand(flags.profile, operation, options, outputOptions(flags.json)));
+    });
 
   auth
     .command('login')
@@ -172,7 +192,12 @@ export function buildProgram(): Command {
     .action(async (workspaceId: string, options: ConfirmCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
-        archiveWorkspace(flags.profile, workspaceId, options.yes === true, outputOptions(flags.json)),
+        archiveWorkspace(
+          flags.profile,
+          workspaceId,
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
       );
     });
   ws.command('restore <workspaceId>')

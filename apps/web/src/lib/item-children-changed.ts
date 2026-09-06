@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
 const eventName = 'nix:item-children-changed';
-const detailSchema = z.object({ workspaceId: z.string(), parentId: z.string() });
-export function notifyItemChildrenChanged(workspaceId: string, parentId: string): void {
+const detailSchema = z.object({ workspaceId: z.string(), parentId: z.string().nullable() });
+/** A null parent requests a workspace-wide refresh after a multi-container change. */
+export function notifyItemChildrenChanged(workspaceId: string, parentId: string | null): void {
   window.dispatchEvent(new CustomEvent(eventName, { detail: { workspaceId, parentId } }));
 }
 export function onItemChildrenChanged(

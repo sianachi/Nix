@@ -46,3 +46,51 @@ export const connection = (): QueryEndpoint<PetConnection> =>
     schema: petConnectionSchema,
     cacheKey: ['me', 'pets', 'connection'],
   });
+
+export interface RuntimeInput {
+  readonly operation:
+    | 'status'
+    | 'connect'
+    | 'disconnect'
+    | 'models'
+    | 'read'
+    | 'send'
+    | 'interrupt'
+    | 'reset'
+    | 'tool_claim'
+    | 'tool_result'
+    | 'history'
+    | 'read_history'
+    | 'delete_history';
+  readonly workspaceId?: string;
+  readonly petId?: string;
+  readonly requestId?: string;
+  readonly text?: string;
+  readonly itemId?: string;
+  readonly sharedText?: string;
+  readonly model?: string;
+  readonly workspaceAccess?: boolean;
+  readonly toolId?: string;
+  readonly toolResult?: string;
+  readonly toolSuccess?: boolean;
+  readonly historyId?: string;
+}
+
+export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
+  defineCommand({
+    operation: 'pets.runtime',
+    method: 'POST',
+    path: '/api/v1/me/pets/runtime',
+    schema: petConnectionSchema,
+    body: {
+      ...input,
+      text: input.text ?? '',
+      sharedText: input.sharedText ?? '',
+      model: input.model ?? '',
+      workspaceAccess: input.workspaceAccess ?? false,
+      toolId: input.toolId ?? '',
+      toolResult: input.toolResult ?? '',
+      toolSuccess: input.toolSuccess ?? false,
+    } satisfies components['schemas']['PetRuntimeRequest'],
+    invalidates: [['me', 'pets', 'connection']],
+  });

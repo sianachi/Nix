@@ -123,6 +123,8 @@ builder.Services
         AutomaticDecompression = System.Net.DecompressionMethods.None,
     });
 builder.Services.AddSingleton<OidcMetadataClient>();
+builder.Services.AddHttpClient<PetWorkerClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler { AllowAutoRedirect = false });
 
 // UserInfo is a separate trust boundary from key discovery. Redirects are disabled so a
 // registered endpoint cannot bounce a bearer token to another origin; response bodies are read

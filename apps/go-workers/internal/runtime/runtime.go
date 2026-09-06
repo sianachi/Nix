@@ -18,6 +18,7 @@ import (
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/broker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/brokerjob"
+	"github.com/sianachi/Nix/apps/go-workers/internal/companion"
 	"github.com/sianachi/Nix/apps/go-workers/internal/config"
 	"github.com/sianachi/Nix/apps/go-workers/internal/documentimport"
 	"github.com/sianachi/Nix/apps/go-workers/internal/exportjob"
@@ -75,6 +76,16 @@ func Run(service role.Service) {
 	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	var companionHandler http.Handler
+	if settings.CompanionDataDir != "" {
+		manager, companionErr := companion.New(ctx, settings.CompanionDataDir, settings.CompanionBinary)
+		if companionErr != nil {
+			logger.Error("companion storage configuration failed")
+			os.Exit(1)
+		}
+		defer manager.Close()
+		companionHandler = manager
+	}
 	brokerClient, err := broker.New(settings.RabbitMQURL, settings.MaxMessageBytes, logger)
 	if err != nil {
 		logger.Error("broker configuration failed", "error", err)
@@ -110,6 +121,7 @@ func Run(service role.Service) {
 		IndexControl:   indexControl,
 		IndexHealth:    indexState.Snapshot,
 		Ready:          readiness.AllReady,
+		Companion:      companionHandler,
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,

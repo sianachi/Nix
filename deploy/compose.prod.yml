@@ -160,6 +160,7 @@ services:
       Logging__Console__FormatterName: json
       ConnectionStrings__Nix: ${NIX_CORE_DATABASE_URL:?set NIX_CORE_DATABASE_URL}
       Nix__InternalSecret: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      Nix__Pets__WorkerUrl: http://nix-import-worker:8301
       Nix__Collaboration__BaseUrl: http://nix-collab:8100
       Nix__RabbitMq__Uri: ${NIX_RABBITMQ_API_URL:-amqp://nix-api:${NIX_RABBITMQ_API_PASSWORD:?set NIX_RABBITMQ_API_PASSWORD}@rabbitmq:5672/%2Fnix}
       Nix__ObjectStorage__Endpoint: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT}
@@ -270,6 +271,7 @@ services:
     environment:
       TMPDIR: /var/lib/nix-worker/spool
       NIX_WORKER_ROLES: import
+      NIX_COMPANION_DATA_DIR: /var/lib/nix-worker/companion
       NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
       NIX_WORKER_API_URL: http://nix-api:8080
       NIX_WORKER_COLLAB_URL: http://nix-collab:8100
@@ -279,12 +281,14 @@ services:
       NIX_WORKER_MAX_INPUT_BYTES: "104857600"
       NIX_WORKER_MAX_LINE_BYTES: "4194304"
       NIX_WORKER_MAX_RECORDS: "100000"
+    volumes:
+      - nix-companion-data:/var/lib/nix-worker/companion
     healthcheck:
       test: ["CMD", "/nix-worker", "--healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 12
-    mem_limit: 512m
+    mem_limit: 1g
     read_only: true
     tmpfs:
       - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=256m,uid=65532,gid=65532,mode=0700"
@@ -593,6 +597,8 @@ networks:
         - subnet: 172.30.0.0/24
 
 volumes:
+  nix-companion-data:
+    name: nix-companion-data
   nix-postgres-data:
     name: nix-postgres-data
   nix-rabbitmq-data:

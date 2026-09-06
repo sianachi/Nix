@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
+import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { decorateItems, keepComputed } from '../../properties/computed';
 import {
   ContainerViewsSchema,
@@ -346,6 +347,18 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       pendingRequests.clear();
     };
   }, [load]);
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (
+          detail.workspaceId === workspaceId &&
+          (detail.parentId === null || detail.parentId === containerId)
+        )
+          void load();
+      }),
+    [load, workspaceId, containerId],
+  );
 
   const setProperties = useCallback(
     async (itemId: string, properties: Record<string, unknown>): Promise<string | null> => {

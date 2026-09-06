@@ -96,7 +96,8 @@ public sealed class AccessTokenScopePolicyTests
         ["SaveCanvasLibrary"] = Requirement.Write,
         ["GetPetSettings"] = Requirement.Read,
         ["SavePetSettings"] = Requirement.Write,
-        ["GetPetConnection"] = Requirement.Read,
+        ["GetPetConnection"] = Requirement.InteractiveOnly,
+        ["PetRuntime"] = Requirement.InteractiveOnly,
         ["CreateItem"] = Requirement.Write,
         ["CreateStructuredItem"] = Requirement.Write,
         ["SubmitPublicForm"] = Requirement.Write,
@@ -198,6 +199,8 @@ public sealed class AccessTokenScopePolicyTests
 
     [Theory]
     [InlineData("GET", "/api/v1/me/tokens")]
+    [InlineData("GET", "/api/v1/me/pets/connection")]
+    [InlineData("POST", "/api/v1/me/pets/runtime")]
     [InlineData("POST", "/api/v1/me/tokens")]
     [InlineData("DELETE", "/api/v1/me/tokens/00000000-0000-0000-0000-000000000001")]
     public void No_scope_admits_a_token_to_token_management(string method, string path)

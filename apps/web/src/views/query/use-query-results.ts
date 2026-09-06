@@ -4,9 +4,11 @@ import {
   itemQuery as coreItemQuery,
   type ItemQueryResults,
 } from '@nix/api-client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
+import { useWorkspace } from '../../workspaces/workspace-context';
+import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { readerZone } from '../core/timestamps';
 
 /**
@@ -78,32 +80,55 @@ export interface QueryResultsState {
 
 export function useQueryResults(itemId: string, viewId: string): QueryResultsState {
   const client = useApiClient();
+  const { workspaceId } = useWorkspace();
 
   const [status, setStatus] = useState<QueryResultsStatus>('loading');
   const [results, setResults] = useState<ItemQueryResults | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeLoad = useRef<AbortController | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
+    activeLoad.current?.abort();
+    const controller = new AbortController();
+    activeLoad.current = controller;
     setStatus('loading');
     setError(null);
 
     try {
       const today = readerToday();
-      const loaded = await client.query(coreItemQuery.itemQuery(itemId, viewId, today));
+      const loaded = await client.query(coreItemQuery.itemQuery(itemId, viewId, today), {
+        forceRefresh: true,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || activeLoad.current !== controller) return;
       setResults(loaded);
       setStatus('ready');
     } catch (reason) {
-      if (isCanceledError(reason)) return;
+      if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
+        return;
       setError(isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.');
       setStatus('error');
     }
   }, [client, itemId, viewId]);
 
   useEffect(() => {
+    let disposed = false;
     queueMicrotask(() => {
-      void load();
+      if (!disposed) void load();
     });
+    return () => {
+      disposed = true;
+      activeLoad.current?.abort();
+    };
   }, [load]);
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (detail.workspaceId === workspaceId) void load();
+      }),
+    [load, workspaceId],
+  );
 
   return { status, results, error, reload: load };
 }

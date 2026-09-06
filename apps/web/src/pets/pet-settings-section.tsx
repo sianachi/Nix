@@ -9,6 +9,8 @@ import { useState, type ReactElement } from 'react';
 import { newPet, petCatalog, personalityDescriptions } from './catalog';
 import { usePetSettings } from './use-pet-settings';
 import { PetAvatar } from './pet-avatar';
+import { PetConnectionPanel } from './pet-connection-panel';
+import { PetDeviceSettings } from './pet-device-settings';
 
 export function PetSettingsSection(): ReactElement {
   const state = usePetSettings();
@@ -32,22 +34,15 @@ export function PetSettingsSection(): ReactElement {
           </Button>
         </div>
       ) : null}
-      {state.connection ? (
-        <div className="flex flex-col gap-2 border border-divider p-3">
-          <Text variant="h3" as="h3">
-            ChatGPT
-          </Text>
-          <Text variant="note" tone="muted">
-            {state.connection.reason}
-          </Text>
-          <Button variant="secondary" disabled>
-            Connect ChatGPT
-          </Button>
-        </div>
+      <PetConnectionPanel />
+      {state.saved ? (
+        <PetSettingsEditor
+          initial={state.saved}
+          saving={state.saving || state.loading}
+          onSave={state.save}
+        />
       ) : null}
-      {!state.loading && state.saved ? (
-        <PetSettingsEditor initial={state.saved} saving={state.saving} onSave={state.save} />
-      ) : null}
+      <PetDeviceSettings />
     </section>
   );
 }
@@ -59,11 +54,24 @@ interface EditorProps {
 }
 
 export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): ReactElement {
+  const [previousInitial, setPreviousInitial] = useState(initial);
   const [draft, setDraft] = useState(initial.settings);
   const [selectedId, setSelectedId] = useState(
     initial.settings.activePetId ?? initial.settings.profiles[0]?.id ?? null,
   );
   const [message, setMessage] = useState<string | null>(null);
+  if (initial !== previousInitial) {
+    setPreviousInitial(initial);
+    if (JSON.stringify(draft) !== JSON.stringify(initial.settings)) {
+      setDraft(initial.settings);
+      setSelectedId(
+        initial.settings.profiles.some((profile) => profile.id === selectedId)
+          ? selectedId
+          : (initial.settings.activePetId ?? initial.settings.profiles[0]?.id ?? null),
+      );
+      setMessage(null);
+    }
+  }
   const pet = draft.profiles.find((profile) => profile.id === selectedId) ?? null;
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.settings);
 
@@ -118,6 +126,27 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
     >
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Saved pets</legend>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.enabled}
+            disabled={draft.activePetId === null}
+            onChange={(event) => {
+              change({ ...draft, enabled: event.currentTarget.checked });
+            }}
+          />
+          <Text>Show companion in my workspaces</Text>
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.narration}
+            onChange={(event) => {
+              change({ ...draft, narration: event.currentTarget.checked });
+            }}
+          />
+          <Text>Read new replies aloud while the companion is open</Text>
+        </label>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -168,7 +197,11 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
         )}
         {pet ? (
           <>
-            <PetAvatar motion={draft.motion} label={`${pet.name || 'Owl'} appearance preview`} />
+            <PetAvatar
+              appearance={pet.appearance}
+              motion={draft.motion}
+              label={`${pet.name || 'Pet'} appearance preview`}
+            />
             <Field label="Name">
               {(control) => (
                 <Input
@@ -292,8 +325,8 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
           )}
         </Field>
         <Text variant="note" tone="muted">
-          The companion and voice controls will become available when ChatGPT is connected. Saved
-          settings do not start an AI session.
+          Messages use your saved personality and instructions. Workspace changes always need your
+          approval.
         </Text>
       </fieldset>
       <div className="flex flex-wrap items-center gap-3">

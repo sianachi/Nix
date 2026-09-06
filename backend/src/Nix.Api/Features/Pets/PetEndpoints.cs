@@ -14,10 +14,26 @@ internal static class PetEndpoints
         group.MapGet("/settings", Get).WithName("GetPetSettings");
         group.MapPut("/settings", Save).WithName("SavePetSettings")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
-        group.MapGet("/connection", () => TypedResults.Ok(new PetConnectionResponse(
-            "chatgpt", "unavailable", "ChatGPT connection is not available in this build. Your pet settings can still be saved.", false)))
+        group.MapGet("/connection", Connection)
             .WithName("GetPetConnection");
+        group.MapPost("/runtime", Runtime).WithName("PetRuntime")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         return endpoints;
+    }
+
+    private static Task<Results<Ok<PetConnectionResponse>, ProblemHttpResult>> Connection(
+        HttpContext context, [FromServices] PetWorkerClient worker) => Runtime(new("status"), context, worker);
+
+    private static async Task<Results<Ok<PetConnectionResponse>, ProblemHttpResult>> Runtime(
+        PetRuntimeRequest request, HttpContext context, [FromServices] PetWorkerClient worker)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var result = await worker.ExecuteAsync(request, context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<PetConnectionResponse>, ProblemHttpResult>>(
+            value => TypedResults.Ok(value),
+            error => TypedResults.Problem(ApiProblem.Create(context,
+                error.Code == "pets.not_found" ? 404 : error.Code == "pets.invalid_request" ? 422 : 503,
+                error.Code, "Companion request failed", error.Message)));
     }
 
     private static async Task<Ok<PetSettingsResponse>> Get(HttpContext context, [FromServices] NixDispatcher dispatcher) =>

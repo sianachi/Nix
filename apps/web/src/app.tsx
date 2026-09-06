@@ -23,6 +23,7 @@ import { AppShell } from './shell/app-shell';
 import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-gate';
 import { ArchivedWorkspacesPage } from './workspaces/archived-workspaces-page';
 import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
+import { PetCompanion } from './pets/pet-companion';
 
 // Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
 // reference material - every ramp step, every type scale, every rhythm demo - and nobody working
@@ -78,7 +79,10 @@ export function App(): ReactElement {
                     path="/w/:workspaceId"
                     element={
                       <WorkspaceGate>
-                        <AppShell />
+                        <>
+                          <AppShell />
+                          <PetCompanion />
+                        </>
                       </WorkspaceGate>
                     }
                   >
