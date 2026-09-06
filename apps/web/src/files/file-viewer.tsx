@@ -3,6 +3,7 @@ import { Button, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { findBuiltInFileViewer } from '../plugins/built-in-file-viewers';
 
 export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const client = useApiClient();
@@ -10,6 +11,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const [preview, setPreview] = useState<{
     readonly versionId: string;
     readonly url: string | null;
+    readonly source: string | null;
     readonly failed: boolean;
   } | null>(null);
   const [error, setError] = useState<{ readonly itemId: string; readonly message: string } | null>(
@@ -23,6 +25,11 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const currentVersionId = visibleRecord?.current.id;
   const currentPreviewable = visibleRecord?.current.previewable ?? false;
   const currentMediaType = visibleRecord?.current.mediaType ?? '';
+  const currentFileName = visibleRecord?.current.fileName ?? '';
+  const currentViewer =
+    visibleRecord === null
+      ? null
+      : findBuiltInFileViewer({ fileName: currentFileName, mediaType: currentMediaType });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,26 +51,40 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   }, [client, itemId]);
 
   useEffect(() => {
-    if (!currentPreviewable || currentVersionId === undefined) return;
+    if ((!currentPreviewable && currentViewer === null) || currentVersionId === undefined) return;
     const versionId = currentVersionId;
     const controller = new AbortController();
     let url: string | null = null;
     void fileResources
       .fetchFileContent(client, itemId, undefined, true, controller.signal)
-      .then(({ blob }) => {
+      .then(async ({ blob }) => {
+        if (currentViewer !== null) {
+          setPreview({ versionId, url: null, source: await blob.text(), failed: false });
+          return;
+        }
         url = URL.createObjectURL(blob);
-        setPreview({ versionId, url, failed: false });
+        setPreview({ versionId, url, source: null, failed: false });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setPreview({ versionId, url: null, failed: true });
+        if (!controller.signal.aborted)
+          setPreview({ versionId, url: null, source: null, failed: true });
       });
     return () => {
       controller.abort();
       if (url !== null) URL.revokeObjectURL(url);
     };
-  }, [client, currentPreviewable, currentVersionId, itemId]);
+  }, [
+    client,
+    currentFileName,
+    currentMediaType,
+    currentPreviewable,
+    currentVersionId,
+    currentViewer,
+    itemId,
+  ]);
 
   const currentPreview = preview?.versionId === currentVersionId ? preview : null;
+  const Viewer = currentViewer?.Component;
 
   async function download(versionId?: string): Promise<void> {
     setDownloading(true);
@@ -137,8 +158,12 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
   const file = visibleRecord.current;
   return (
     <section aria-label="File" className="flex flex-1 flex-col gap-4 overflow-y-auto p-8">
-      {currentPreview?.url === null ||
-      currentPreview?.url === undefined ? null : currentMediaType === 'application/pdf' ? (
+      {Viewer !== undefined &&
+      currentPreview?.source !== null &&
+      currentPreview?.source !== undefined ? (
+        <Viewer key={currentVersionId} fileName={file.fileName} source={currentPreview.source} />
+      ) : currentPreview?.url === null ||
+        currentPreview?.url === undefined ? null : currentMediaType === 'application/pdf' ? (
         <iframe
           title={file.fileName}
           src={currentPreview.url}
@@ -151,7 +176,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
           className="max-h-screen max-w-full self-start rounded-md object-contain"
         />
       ) : null}
-      {file.previewable && currentPreview === null ? (
+      {(file.previewable || Viewer !== undefined) && currentPreview === null ? (
         <Text variant="note" tone="muted" role="status">
           Loading the authorized preview…
         </Text>

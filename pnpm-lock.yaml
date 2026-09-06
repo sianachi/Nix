@@ -193,6 +193,9 @@ importers:
       luxon:
         specifier: ^3.7.2
         version: 3.7.2
+      mermaid:
+        specifier: ^11.17.2
+        version: 11.17.2
       react:
         specifier: ^19.2.8
         version: 19.2.8
