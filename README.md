@@ -90,6 +90,13 @@ grounded in observed behaviour and do not hand-edit generated API contracts or c
   validated template tree.
 - Revocable, opaque Interactive Form links. Sanitized public forms turn responses into ordinary child
   items without exposing the workspace or existing responses.
+- ChatGPT companions with account-scoped character, personality, response-length and instruction
+  settings; device-code connection, model selection, per-workspace conversations, saved history,
+  browser dictation, and optional spoken replies.
+- Explicitly approved companion workspace tools for searching, reading, creating, appending to,
+  renaming, moving, trashing, restoring and updating items. Reads and writes stay behind Core's
+  permissions, every proposed action is shown in Nix first, and uncertain results are reported for
+  inspection rather than claimed as complete.
 
 ### Access, portability and operations
 
@@ -212,9 +219,16 @@ seeds the database, applies migrations and configures Zitadel. It is safe to rer
 is optional; the scripts do not automatically source it. For direct Compose overrides use
 `docker compose --env-file .env -f deploy/compose.dev.yml --profile core --profile search up -d`.
 
+To exercise the local mock AI provider as well, start its optional profile after the stack is up:
+
+```sh
+docker compose -f deploy/compose.dev.yml --profile ai up -d
+```
+
 Infrastructure ports: Postgres 5433, Versity S3 7070, RabbitMQ 5673 (management 15673),
 Zitadel 8300, OpenSearch 9201 and Aspire 18888. The mock LLM on 8380 requires the optional
-`ai` profile. The current Compose file has no ClamAV service.
+`ai` profile; it returns a static completion for local companion development and is not a provider
+connection. The current Compose file has no ClamAV service.
 
 The Compose port overrides apply only to containers; the host launch scripts do not source `.env`.
 For a host-port conflict, export the application origins and ports in the shell that launches the
@@ -253,6 +267,14 @@ when using the default seed settings. Generated machine-specific configuration i
 The dev API defaults to Postgres search (`Nix__Search__OpenSearchEnabled=false`) even though
 stack-up starts OpenSearch and the worker indexes events. Enable the API flag explicitly when
 exercising OpenSearch. A running web/API pair alone does not run asynchronous jobs.
+
+The companion is available from the workspace UI after it is enabled under Settings. Connect a
+ChatGPT account from the companion settings before starting a conversation. The local Go worker
+owns the provider session and bounded private companion state; Core mediates all browser requests.
+The CLI also exposes the same runtime through `nixctl pet <operation>`, using a short-lived
+interactive session token rather than expanding personal-access-token permissions. Pass
+`--workspace-tools` only when you want the companion to propose Nix workspace actions; each action
+still requires approval in the companion panel.
 
 ## Debugging (Rider)
 
