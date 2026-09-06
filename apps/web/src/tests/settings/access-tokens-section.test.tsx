@@ -17,6 +17,12 @@ beforeEach(() => {
   signedIn();
 });
 
+async function renderTokens(): Promise<void> {
+  renderAt(<App />, '/settings');
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('tab', { name: 'Access tokens' }));
+}
+
 /** Expiries a century out and a decade past, so no test hinges on the machine's clock. */
 const liveToken: StubAccessToken = {
   id: '11111111-aaaa-4aaa-8aaa-111111111111',
@@ -51,7 +57,7 @@ const expiredToken: StubAccessToken = {
 describe('the token list', () => {
   it('renders live, revoked and expired tokens with their status, keeping dead ones visible', async () => {
     stubCoreApi({ accessTokens: [liveToken, revokedToken, expiredToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     // Every token has a row, dead or not: the list is an audit.
     expect(await screen.findByText('ci deploy')).toBeInTheDocument();
@@ -65,7 +71,7 @@ describe('the token list', () => {
 
   it('says "never" for a token that has not been used, rather than leaving the cell blank', async () => {
     stubCoreApi({ accessTokens: [liveToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByText('ci deploy');
     expect(screen.getByText('never')).toBeInTheDocument();
@@ -73,7 +79,7 @@ describe('the token list', () => {
 
   it('offers Revoke only on live tokens - a dead token has nothing left to end', async () => {
     stubCoreApi({ accessTokens: [liveToken, revokedToken, expiredToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByText('ci deploy');
     expect(screen.getByRole('button', { name: 'Revoke ci deploy' })).toBeInTheDocument();
@@ -94,7 +100,7 @@ describe('creating a token', () => {
   it('shows the minted secret exactly once, with a copy affordance, and refreshes the list on dismissal', async () => {
     const user = userEvent.setup();
     stubCoreApi({ accessTokens: [] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await fillAndSubmit(user);
@@ -115,7 +121,7 @@ describe('creating a token', () => {
   it('refuses to submit until an expiry is chosen - a default lifetime is a decision the person never made', async () => {
     const user = userEvent.setup();
     stubCoreApi({ accessTokens: [] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await user.click(screen.getByRole('button', { name: 'Create token' }));
@@ -137,7 +143,7 @@ describe('creating a token', () => {
         detail: 'You already hold 25 live tokens; revoke one first.',
       },
     });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await fillAndSubmit(user);
@@ -158,7 +164,7 @@ describe('creating a token', () => {
         detail: 'A scope named "root" is not one this API grants.',
       },
     });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await fillAndSubmit(user);
@@ -174,7 +180,7 @@ describe('revoking a token', () => {
   it('asks for confirmation, sends the DELETE, and then shows the row as revoked', async () => {
     const user = userEvent.setup();
     stubCoreApi({ accessTokens: [liveToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByText('ci deploy');
     await user.click(screen.getByRole('button', { name: 'Revoke ci deploy' }));
@@ -206,7 +212,7 @@ describe('revoking a token', () => {
   it('keeps the confirmation open and offers a way out that revokes nothing', async () => {
     const user = userEvent.setup();
     stubCoreApi({ accessTokens: [liveToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByText('ci deploy');
     await user.click(screen.getByRole('button', { name: 'Revoke ci deploy' }));
@@ -221,7 +227,7 @@ describe('revoking a token', () => {
 describe("the token list's own states", () => {
   it('renders a failed load as an error with a retry, not as an empty list', async () => {
     stubCoreApi({ tokensFail: true });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     const alert = await screen.findByRole('heading', { name: /your tokens could not be loaded/i });
     expect(alert).toBeInTheDocument();
@@ -230,7 +236,7 @@ describe("the token list's own states", () => {
 
   it('says the list is empty only once the answer has arrived and the answer was none', async () => {
     stubCoreApi({ accessTokens: [] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     const empty = await screen.findByText(/you have no access tokens/i);
     expect(empty).toBeInTheDocument();
@@ -240,7 +246,7 @@ describe("the token list's own states", () => {
 describe('the tokens table shape', () => {
   it('names its columns so every stated fact has a header', async () => {
     stubCoreApi({ accessTokens: [liveToken] });
-    renderAt(<App />, '/settings');
+    await renderTokens();
 
     await screen.findByText('ci deploy');
     const table = screen.getByRole('table', { name: /your personal access tokens/i });
