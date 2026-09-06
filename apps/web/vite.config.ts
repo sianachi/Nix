@@ -161,6 +161,10 @@ export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
 const objectStorePublicOrigin = parseObjectStorePublicOrigin(
   process.env.NIX_OBJECT_STORE_PUBLIC_ORIGIN ?? 'http://localhost:7070',
 );
+const apiOrigin =
+  process.env.NIX_API_ORIGIN ?? `http://localhost:${process.env.NIX_API_PORT ?? '5014'}`;
+const collaborationOrigin =
+  process.env.NIX_COLLAB_ORIGIN ?? `http://localhost:${process.env.NIX_COLLAB_PORT ?? '8100'}`;
 const browserPolicy = contentSecurityPolicy(objectStorePublicOrigin);
 // The React plugin injects a development-only inline preamble. Production and static preview keep
 // the hash-only policy; the dev server is local tooling and must permit that preamble to run.
@@ -178,6 +182,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: Number(process.env.NIX_WEB_PORT ?? 5173),
     headers: { 'Content-Security-Policy': developmentBrowserPolicy },
     // The app consumes workspace packages as source. In the local browser this can cause the
     // React Refresh wrapper for a package module to run before its HTML preamble, preventing
@@ -189,11 +194,11 @@ export default defineConfig({
     // travels in the Authorization header either way, but same-origin is the shape production has.
     proxy: {
       '/api': {
-        target: 'http://localhost:5014',
+        target: apiOrigin,
         changeOrigin: true,
       },
       '/auth': {
-        target: 'http://localhost:5014',
+        target: apiOrigin,
         changeOrigin: true,
       },
 
@@ -201,7 +206,7 @@ export default defineConfig({
       // prefix is stripped because the service's own routes are '/documents/...' - it does not
       // know or care that the browser reaches it under a path.
       '/collab': {
-        target: 'http://localhost:8100',
+        target: collaborationOrigin,
         changeOrigin: true,
         // The editor reaches the service over a WebSocket; without this the proxy
         // answers the upgrade itself and the socket never opens.
