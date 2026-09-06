@@ -88,7 +88,7 @@ describe('the shell', () => {
 
     await screen.findByRole('button', { name: /show the workspace tree/i });
     expect(screen.getByRole('banner')).toHaveClass('min-w-0', 'px-2');
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveClass('min-w-0', 'w-full');
+    expect(screen.getByRole('button', { name: /^Workspace:/ })).toHaveClass('min-w-0', 'w-full');
     expect(screen.getByRole('button', { name: 'Search' })).toHaveClass('shrink-0', 'px-2');
   });
 
@@ -236,7 +236,7 @@ describe('the profile menu', () => {
     stubCoreApi();
     renderAt(<App />);
 
-    await user.click(await screen.findByRole('button', { name: /test person/i }));
+    await user.click(await screen.findByRole('button', { name: 'Test Person' }));
 
     expect(screen.getByRole('menuitem', { name: /sign out/i })).toBeInTheDocument();
   });
