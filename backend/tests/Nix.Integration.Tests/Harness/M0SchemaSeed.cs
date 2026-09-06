@@ -195,6 +195,12 @@ internal static class M0SchemaSeed
             INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
             VALUES ({tenant}, {item}, {item}, 1, 1);
 
+            -- One private companion document per principal for the generic isolation theories.
+            INSERT INTO pet_preferences (principal_id, tenant_id, settings, revision)
+            VALUES ({principal}, {tenant}, jsonb_build_object(
+                'enabled', false, 'activePetId', NULL, 'motion', 'system',
+                'narration', false, 'profiles', jsonb_build_array()), 1);
+
             -- One library per principal, and the seeded principal gets theirs. Present so the
             -- isolation theories have a row to see and a row to try to relabel; the contents are
             -- opaque to Core, so an empty array says as much as anything else would.

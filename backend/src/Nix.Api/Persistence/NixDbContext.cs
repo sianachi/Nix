@@ -292,6 +292,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ItemLinkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
+        modelBuilder.ApplyConfiguration(new PetPreferencesConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
         modelBuilder.ApplyConfiguration(new PersonalAccessTokenConfiguration());

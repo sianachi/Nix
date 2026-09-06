@@ -5,12 +5,14 @@ import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
+import { PetSettingsSection } from '../pets/pet-settings-section';
 
-type SettingsTab = 'workspace' | 'editor' | 'access-tokens';
+type SettingsTab = 'workspace' | 'editor' | 'pets' | 'access-tokens';
 
 const settingsTabs = [
   { id: 'workspace', label: 'Workspace', closable: false },
   { id: 'editor', label: 'Editor', closable: false },
+  { id: 'pets', label: 'Pets', closable: false },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
 ] as const;
 
@@ -51,6 +53,7 @@ export function SettingsPage(): ReactElement {
       >
         {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
         {activeTab === 'editor' ? <EditorPreferencesSection /> : null}
+        {activeTab === 'pets' ? <PetSettingsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
       </main>
     </div>

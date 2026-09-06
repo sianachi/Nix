@@ -23,6 +23,7 @@ using Nix.Features.Graph;
 using Nix.Features.Identity;
 using Nix.Features.Internal;
 using Nix.Features.Items;
+using Nix.Features.Pets;
 using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Recurrence;
@@ -198,6 +199,9 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemSearch>(provider => provider.GetRequiredService<ItemSearch>());
         services.AddScoped<IItemLinks, ItemLinks>();
         services.AddScoped<ICanvasLibraryStore, CanvasLibraryStore>();
+        services.AddScoped<IPetPreferencesStore, PetPreferencesStore>();
+        services.AddScoped<IQueryHandler<GetPetSettings, PetSettingsResponse>, GetPetSettingsHandler>();
+        services.AddScoped<ICommandHandler<SavePetSettings, PetSettingsResponse>, SavePetSettingsHandler>();
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
         services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
         services.AddScoped<IRecurrenceCandidates, RecurrenceCandidateReader>();
