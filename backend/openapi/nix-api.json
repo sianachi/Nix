@@ -4501,6 +4501,74 @@
         }
       }
     },
+    "/api/v1/me/pets/settings": {
+      "get": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "GetPetSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "SavePetSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePetSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/pets/connection": {
+      "get": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "GetPetConnection",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/graph": {
       "get": {
         "tags": [
@@ -7509,6 +7577,115 @@
           }
         }
       },
+      "PetConnectionResponse": {
+        "required": [
+          "provider",
+          "status",
+          "reason",
+          "canConnect"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "canConnect": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PetProfile": {
+        "required": [
+          "id",
+          "name",
+          "appearance",
+          "personality",
+          "responseLength",
+          "instructions"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "appearance": {
+            "type": "string"
+          },
+          "personality": {
+            "type": "string"
+          },
+          "responseLength": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          }
+        }
+      },
+      "PetSettings": {
+        "required": [
+          "enabled",
+          "activePetId",
+          "motion",
+          "narration",
+          "profiles"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "activePetId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "motion": {
+            "type": "string"
+          },
+          "narration": {
+            "type": "boolean"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetProfile"
+            }
+          }
+        }
+      },
+      "PetSettingsResponse": {
+        "required": [
+          "revision",
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/PetSettings"
+          }
+        }
+      },
       "PluginComponentRegistrationRequest": {
         "required": [
           "publisherId",
@@ -8258,6 +8435,26 @@
         "properties": {
           "items": {
             "$ref": "#/components/schemas/JsonArray"
+          }
+        }
+      },
+      "SavePetSettingsRequest": {
+        "required": [
+          "expectedRevision",
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/PetSettings"
           }
         }
       },
@@ -10302,6 +10499,9 @@
     },
     {
       "name": "Search"
+    },
+    {
+      "name": "Pets"
     },
     {
       "name": "Graph"

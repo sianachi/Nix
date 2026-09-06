@@ -1142,6 +1142,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/pets/settings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPetSettings'];
+    put: operations['SavePetSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/pets/connection': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPetConnection'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -1996,6 +2028,34 @@ export interface components {
       /** Format: date-time */
       completedAt: null | string;
     };
+    PetConnectionResponse: {
+      provider: string;
+      status: string;
+      reason: string;
+      canConnect: boolean;
+    };
+    PetProfile: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      appearance: string;
+      personality: string;
+      responseLength: string;
+      instructions: string;
+    };
+    PetSettings: {
+      enabled: boolean;
+      /** Format: uuid */
+      activePetId: null | string;
+      motion: string;
+      narration: boolean;
+      profiles: components['schemas']['PetProfile'][];
+    };
+    PetSettingsResponse: {
+      /** Format: int64 */
+      revision: number | string;
+      settings: components['schemas']['PetSettings'];
+    };
     PluginComponentRegistrationRequest: {
       publisherId: string;
       id: string;
@@ -2172,6 +2232,11 @@ export interface components {
     };
     SaveCanvasLibraryRequest: {
       items: components['schemas']['JsonArray'];
+    };
+    SavePetSettingsRequest: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      settings: components['schemas']['PetSettings'];
     };
     SearchHitResponse: {
       /** Format: uuid */
@@ -5959,6 +6024,70 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetPetSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetSettingsResponse'];
+        };
+      };
+    };
+  };
+  SavePetSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SavePetSettingsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetSettingsResponse'];
+        };
+      };
+    };
+  };
+  GetPetConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetConnectionResponse'];
         };
       };
     };
