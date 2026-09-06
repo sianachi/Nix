@@ -7,6 +7,7 @@ import {
   readPropertyText,
   type Item,
   type PropertyDefinition,
+  type PropertyValue,
   type View,
 } from '../core/container-model';
 import { CoverImage } from './cover-image';
@@ -17,6 +18,7 @@ import type { ViewRendererProps } from '../core/view-kinds';
 import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 import { useVirtualWindow } from '../core/use-virtual-window';
+import { ListCell } from '../list/list-cell';
 
 const VIRTUALIZATION_THRESHOLD = 100;
 const GALLERY_ROW_GAP = 12;
@@ -200,6 +202,8 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
         secondary={secondary}
         schema={schema}
         onOpen={onOpen}
+        onWrite={(itemId, propertyKey, value) =>
+          container.setProperties(itemId, { [propertyKey]: value })}
       />
 
       <CreateItemControl
@@ -219,10 +223,11 @@ interface GalleryGridProps {
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
 }
 
 function GalleryGrid(props: GalleryGridProps): ReactNode {
-  const { items, label, cover, size, secondary, schema, onOpen } = props;
+  const { items, label, cover, size, secondary, schema, onOpen, onWrite } = props;
   const [failedCovers, setFailedCovers] = useState<ReadonlySet<string>>(() => new Set());
 
   const card = (item: Item, index: number, virtualIndex?: number): ReactNode => {
@@ -237,6 +242,7 @@ function GalleryGrid(props: GalleryGridProps): ReactNode {
         secondary={secondary}
         schema={schema}
         onOpen={onOpen}
+        onWrite={onWrite}
         coverFailed={failedCovers.has(failureKey)}
         onCoverFailure={() => {
           setFailedCovers((current) => new Set(current).add(failureKey));
@@ -418,6 +424,7 @@ interface GalleryCardProps {
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
   readonly coverFailed: boolean;
   readonly onCoverFailure: () => void;
   readonly position: number;
@@ -433,6 +440,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     secondary,
     schema,
     onOpen,
+    onWrite,
     coverFailed,
     onCoverFailure,
     position,
@@ -444,8 +452,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
   // of blank labels tells nobody anything.
   const fields = secondary.flatMap((key) => {
     const definition = schema.find((entry) => entry.key === key);
-    const text = readPropertyText(item, key);
-    return definition === undefined || text.length === 0 ? [] : [{ definition, text }];
+    return definition === undefined ? [] : [definition];
   });
 
   return (
@@ -508,18 +515,23 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
       ) : null}
 
       {fields.length === 0 ? null : (
-        <dl className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1">
           {fields.map((field) => (
-            <div key={field.definition.key} className="flex gap-2">
-              <Text variant="caption" tone="muted" as="dt">
-                {field.definition.label}
+            <div key={field.key}>
+              <Text variant="kicker" tone="muted" as="span">
+                {field.label}
               </Text>
-              <Text variant="caption" as="dd">
-                {field.text}
+              <ListCell
+                item={item}
+                property={field}
+                onWrite={(value) => onWrite(item.id, field.key, value)}
+              />
+              <Text variant="caption" as="span" className="sr-only">
+                {readPropertyText(item, field.key)}
               </Text>
             </div>
           ))}
-        </dl>
+        </div>
       )}
     </li>
   );

@@ -5,10 +5,11 @@ import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import {
   readDateValue,
-  readPropertyText,
   type ContainerViews,
   type EffectiveSchema,
   type Item,
+  type PropertyDefinition,
+  type PropertyValue,
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
@@ -32,6 +33,7 @@ import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from '../
 import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
+import { ListCell } from '../list/list-cell';
 
 /**
  * A container's children on a month grid, placed by the view's date property.
@@ -252,6 +254,10 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // The first configured column that is neither the title nor the date: what a card can usefully
   // say about itself in the two centimetres a day cell affords.
   const secondaryKey = view.columns.find((key) => key !== dateProperty && key !== 'title') ?? null;
+  const secondaryProperty =
+    secondaryKey === null
+      ? null
+      : (container.schema?.properties.find((property) => property.key === secondaryKey) ?? null);
 
   function moveTo(itemId: string, value: string | null): void {
     void container.setProperties(itemId, { [dateProperty]: value });
@@ -265,6 +271,9 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     setDragged,
     moveTo,
     secondaryKey,
+    secondaryProperty,
+    onWrite: (itemId: string, propertyKey: string, value: PropertyValue) =>
+      container.setProperties(itemId, { [propertyKey]: value }),
     onCreate: container.create,
     dateProperty,
   };
@@ -558,6 +567,8 @@ interface CardContext {
   readonly setDragged: (itemId: string | null) => void;
   readonly moveTo: (itemId: string, value: string | null) => void;
   readonly secondaryKey: string | null;
+  readonly secondaryProperty: PropertyDefinition | null;
+  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
   readonly onCreate: (
     title: string,
     properties?: Record<string, unknown>,
@@ -666,9 +677,7 @@ interface ItemCardProps {
 
 function ItemCard(props: ItemCardProps): ReactNode {
   const { item } = props;
-  const { onOpen, setRescheduling, setDragged, secondaryKey } = props.card;
-
-  const secondary = secondaryKey === null ? '' : readPropertyText(item, secondaryKey);
+  const { onOpen, setRescheduling, setDragged, secondaryProperty, onWrite } = props.card;
 
   return (
     <div
@@ -699,10 +708,18 @@ function ItemCard(props: ItemCardProps): ReactNode {
           <span className="truncate">{item.title || 'Untitled'}</span>
         </Button>
 
-        {secondary === '' ? null : (
-          <Text variant="caption" as="span" tone="muted" className="truncate">
-            {secondary}
-          </Text>
+        {secondaryProperty === null ? null : (
+          <div className="min-w-0">
+            <Text variant="kicker" tone="muted" as="span">
+              {secondaryProperty.label}
+            </Text>
+            <ListCell
+              item={item}
+              property={secondaryProperty}
+              tabIndex={-1}
+              onWrite={(value) => onWrite(item.id, secondaryProperty.key, value)}
+            />
+          </div>
         )}
       </div>
 

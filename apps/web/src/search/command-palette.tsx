@@ -185,7 +185,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     // for a hover tint is the point and for a scrim is the defect: on the dark ground it turned the
     // page behind this panel into a milky haze instead of dimming it. `<Dialog>` settled the same
     // question the same way.
-    <div className="fixed inset-0 z-30 flex items-start justify-center bg-neutral-900/40 px-4 pt-[12vh]">
+    <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-neutral-900/40 px-4 py-4 sm:pt-[12vh]">
       {/* The backdrop closes on click, which is what everybody tries first. It is not the only
           way out: Escape works, and the close is also reachable by keyboard from the field. */}
       <button
@@ -199,7 +199,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
         role="dialog"
         aria-modal="true"
         aria-label="Search and commands"
-        className="relative flex w-full max-w-[680px] flex-col rounded-lg bg-background shadow-lg"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[680px] min-w-0 flex-col overflow-hidden rounded-lg bg-background shadow-lg"
       >
         <div
           className={[
@@ -255,7 +255,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
                     ? 'Searching…'
                     : `Nothing matches “${needle}”.`
           }
-          className="max-h-[50vh] overflow-y-auto"
+          className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
         />
 
         {/*

@@ -32,6 +32,7 @@ export interface ListCellProps {
   /** Optional lifted refusal state, retained when virtualization unmounts this cell. */
   readonly refusal?: string | null;
   readonly onRefusalChange?: (refusal: string | null) => void;
+  readonly tabIndex?: number;
 }
 
 export function ListCell({
@@ -40,6 +41,7 @@ export function ListCell({
   onWrite,
   refusal: controlledRefusal,
   onRefusalChange,
+  tabIndex,
 }: ListCellProps): ReactNode {
   const [localRefusal, setLocalRefusal] = useState<string | null>(null);
   const refusal = onRefusalChange === undefined ? localRefusal : (controlledRefusal ?? null);
@@ -51,6 +53,7 @@ export function ListCell({
       property={property}
       density="cell"
       error={refusal}
+      {...(tabIndex === undefined ? {} : { tabIndex })}
       onCommit={(value) => {
         // Cleared before the attempt rather than only replaced after it: leaving the last refusal
         // on screen while the next write is in flight says the new value has already failed.
