@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useEffect, type ReactNode } from 'react';
 import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router';
@@ -129,7 +129,8 @@ describe('workspace binding under StrictMode', () => {
       expect(counts.get(STUB_WORKSPACE.id)).toBe(1);
     });
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Workspace' }), SHARED.id);
+    await user.click(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }));
+    await user.click(within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: SHARED.name }));
     await waitFor(() => {
       expect(counts.get(SHARED.id)).toBe(1);
     });

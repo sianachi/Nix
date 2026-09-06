@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
@@ -82,6 +82,17 @@ beforeEach(() => {
   signedIn();
 });
 
+function workspaceButton(name: string): HTMLElement {
+  return screen.getByRole('button', { name: `Workspace: ${name}` });
+}
+
+async function switchWorkspace(user: UserEvent, to: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: /^Workspace:/ }));
+  await user.click(
+    within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: to }),
+  );
+}
+
 describe('workspace management', () => {
   it('uses server-decided row capabilities for protected owner controls', async () => {
     stubCoreApi({ members });
@@ -159,9 +170,7 @@ describe('workspace management', () => {
           (call) => call.method === 'POST' && call.url.endsWith('/api/v1/workspaces'),
         ),
       ).toHaveLength(1);
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'Project Atlas',
-      );
+      expect(workspaceButton('Project Atlas')).toBeVisible();
     });
   });
 
@@ -175,12 +184,11 @@ describe('workspace management', () => {
     await user.click(within(confirmation).getByRole('button', { name: 'Leave workspace' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(STUB_WORKSPACE.id);
+      expect(workspaceButton(STUB_WORKSPACE.name)).toBeVisible();
     });
+    await user.click(workspaceButton(STUB_WORKSPACE.name));
     expect(
-      within(screen.getByRole('combobox', { name: 'Workspace' })).queryByRole('option', {
-        name: SHARED.name,
-      }),
+      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', { name: SHARED.name }),
     ).not.toBeInTheDocument();
   });
 
@@ -199,7 +207,7 @@ describe('workspace management', () => {
         screen.queryByRole('complementary', { name: 'Workspace invitation' }),
       ).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(PENDING.id);
+    expect(workspaceButton(PENDING.name)).toBeVisible();
   });
 
   it('lets the invited user decline and removes the provisional workspace', async () => {
@@ -210,12 +218,11 @@ describe('workspace management', () => {
     await user.click(await screen.findByRole('button', { name: 'Decline' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(STUB_WORKSPACE.id);
+      expect(workspaceButton(STUB_WORKSPACE.name)).toBeVisible();
     });
+    await user.click(workspaceButton(STUB_WORKSPACE.name));
     expect(
-      within(screen.getByRole('combobox', { name: 'Workspace' })).queryByRole('option', {
-        name: PENDING.name,
-      }),
+      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', { name: PENDING.name }),
     ).not.toBeInTheDocument();
   });
 
@@ -233,7 +240,7 @@ describe('workspace management', () => {
     expect(dialog).toBeVisible();
     expect(leave).toHaveFocus();
     expect(await screen.findByRole('alert')).toHaveTextContent('The workspace could not be left.');
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(SHARED.id);
+    expect(workspaceButton(SHARED.name)).toBeVisible();
   });
 
   it('renders a permission-filtered workspace without management controls', async () => {
@@ -292,10 +299,10 @@ describe('workspace management', () => {
     await user.click(screen.getByRole('button', { name: 'Remove Working editor' }));
     expect(await screen.findByRole('dialog', { name: 'Remove Working editor?' })).toBeVisible();
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Workspace' }), SHARED.id);
+    await switchWorkspace(user, SHARED.name);
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(SHARED.id);
+      expect(workspaceButton(SHARED.name)).toBeVisible();
     });
     expect(
       screen.queryByRole('dialog', { name: 'Remove Working editor?' }),
@@ -337,9 +344,7 @@ describe('workspace management', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'Local project',
-      );
+      expect(workspaceButton('Local project')).toBeVisible();
     });
     await waitFor(() => {
       expect(document.body).toHaveTextContent(/list may be incomplete/i);
@@ -386,9 +391,7 @@ describe('workspace management', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'New local project',
-      );
+      expect(workspaceButton('New local project')).toBeVisible();
     });
 
     refresh.finish?.(
@@ -398,9 +401,7 @@ describe('workspace management', () => {
       }),
     );
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'New local project',
-      );
+      expect(workspaceButton('New local project')).toBeVisible();
     });
   });
 
@@ -443,12 +444,10 @@ describe('workspace management', () => {
       }),
     );
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'Locally renamed',
-      );
+      expect(workspaceButton('Locally renamed')).toBeVisible();
     });
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Workspace' }), SHARED.id);
+    await switchWorkspace(user, SHARED.name);
     await user.click(await screen.findByRole('link', { name: 'Settings' }));
     await user.click(await screen.findByRole('button', { name: 'Leave workspace' }));
     await user.click(
@@ -477,9 +476,7 @@ describe('workspace management', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveDisplayValue(
-        'Authoritative workspace',
-      );
+      expect(workspaceButton('Authoritative workspace')).toBeVisible();
     });
     await user.click(screen.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByText(/cannot manage its members/i)).toBeVisible();

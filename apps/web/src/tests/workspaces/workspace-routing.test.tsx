@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,12 +47,36 @@ beforeEach(() => {
 });
 
 describe('workspace-scoped routing', () => {
+  it('lists each accessible workspace with direct open and management routes', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
+    renderAt(<App />);
+
+    await user.click(
+      await screen.findByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }),
+    );
+
+    const menu = screen.getByRole('region', { name: 'Workspaces' });
+    expect(within(menu).getByRole('link', { name: SHARED.name })).toHaveAttribute(
+      'href',
+      `/w/${SHARED.id}`,
+    );
+    expect(within(menu).getByRole('link', { name: `Manage ${SHARED.name}` })).toHaveAttribute(
+      'href',
+      `/w/${SHARED.id}/settings`,
+    );
+    expect(within(menu).getByRole('link', { name: 'Create a workspace' })).toHaveAttribute(
+      'href',
+      `/w/${STUB_WORKSPACE.id}/settings`,
+    );
+  });
+
   it('opens the personal workspace from a legacy route when no accessible workspace was remembered', async () => {
     stubCoreApi({ workspaces: [SHARED, STUB_WORKSPACE] });
     renderAt(<App />, '/graph');
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(STUB_WORKSPACE.id);
+    expect(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute(
       'href',
       `/w/${STUB_WORKSPACE.id}/graph`,
@@ -65,13 +89,13 @@ describe('workspace-scoped routing', () => {
     stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
     const first = renderAt(<App />, '/calendar');
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(SHARED_ID);
+    expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
     first.unmount();
 
     vi.stubGlobal('localStorage', memoryStorage({ 'nix.last-workspace-id': INACCESSIBLE_ID }));
     renderAt(<App />, '/calendar');
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(STUB_WORKSPACE.id);
+    expect(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` })).toBeVisible();
   });
 
   it('opens an accessible deep link without passing through the legacy resolver', async () => {
@@ -79,7 +103,7 @@ describe('workspace-scoped routing', () => {
     renderAt(<App />, `/w/${SHARED_ID}/graph`);
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(SHARED_ID);
+    expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
   });
 
   it('does not confirm whether an inaccessible workspace exists', async () => {
@@ -89,7 +113,7 @@ describe('workspace-scoped routing', () => {
     expect(await screen.findByRole('heading', { name: 'Workspace not found' })).toBeVisible();
     expect(screen.getByText(/unavailable or you do not have access/i)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Switch workspace' })).toBeVisible();
-    expect(screen.queryByRole('combobox', { name: 'Workspace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Workspace:/ })).not.toBeInTheDocument();
   });
 
   it('does not call a workspace missing when the accessible list is partial', async () => {
@@ -111,10 +135,11 @@ describe('workspace-scoped routing', () => {
     const selected = await screen.findByRole('treeitem', { name: 'Scoped note' });
     expect(selected).toHaveAttribute('aria-selected', 'true');
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Workspace' }), SHARED_ID);
+    await user.click(screen.getByRole('button', { name: `Workspace: ${STUB_WORKSPACE.name}` }));
+    await user.click(within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: SHARED.name }));
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Workspace' })).toHaveValue(SHARED_ID);
+      expect(screen.getByRole('button', { name: `Workspace: ${SHARED.name}` })).toBeVisible();
       expect(screen.getByRole('treeitem', { name: 'Scoped note' })).toHaveAttribute(
         'aria-selected',
         'false',
