@@ -3,6 +3,7 @@ using System;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Nix.Persistence;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Nix.Persistence.Migrations.Generated
 {
     [DbContext(typeof(NixDbContext))]
-    partial class NixDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260906154554_PetPreferences")]
+    partial class PetPreferences
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2208,10 +2211,6 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
 
-                    b.Property<DateTimeOffset?>("ArchivedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_at");
-
                     b.Property<int>("CoalesceWindowMinutes")
                         .HasColumnType("integer")
                         .HasColumnName("coalesce_window_min");
@@ -2219,13 +2218,6 @@ namespace Nix.Persistence.Migrations.Generated
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<string>("LifecycleState")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("active")
-                        .HasColumnName("lifecycle_state");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -2258,10 +2250,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .IsDescending(false, true, true)
                         .HasDatabaseName("ix_workspace_list");
 
-                    b.ToTable("workspace", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_workspace_lifecycle_state", "lifecycle_state IN ('active', 'archived', 'purging')");
-                        });
+                    b.ToTable("workspace", (string)null);
                 });
 
             modelBuilder.Entity("Nix.Domain.Views.PublicFormLink", b =>
@@ -2721,7 +2710,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "WorkspaceId")
                         .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -2811,7 +2800,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "WorkspaceId")
                         .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -3051,7 +3040,7 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "WorkspaceId")
                         .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 #pragma warning restore 612, 618
         }

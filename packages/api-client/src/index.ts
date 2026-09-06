@@ -221,6 +221,19 @@ export type {
  */
 export * as accessTokens from './resources/access-tokens.js';
 export * as principal from './resources/principal.js';
+export * as pets from './resources/pets.js';
+export {
+  petProfileSchema,
+  petSettingsSchema,
+  petSettingsResponseSchema,
+  petConnectionSchema,
+} from './schemas/pets.js';
+export type {
+  PetProfile,
+  PetSettings,
+  PetSettingsResponse,
+  PetConnection,
+} from './schemas/pets.js';
 export * as bookmarks from './resources/bookmarks.js';
 export * as items from './resources/items.js';
 export * as workspaces from './resources/workspaces.js';

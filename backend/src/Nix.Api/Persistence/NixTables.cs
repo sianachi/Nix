@@ -83,6 +83,9 @@ public static class NixTables
     /// <summary>A principal's personal set of reusable Excalidraw shapes.</summary>
     public const string CanvasLibrary = "canvas_library";
 
+    /// <summary>A principal's private companion configurations.</summary>
+    public const string PetPreferences = "pet_preferences";
+
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
@@ -152,6 +155,7 @@ public static class NixTables
         ItemLink,
         ItemSearch,
         CanvasLibrary,
+        PetPreferences,
         Bookmark,
         PublicFormLink,
         PersonalAccessToken,
@@ -282,6 +286,7 @@ public static class NixTables
             // A principal's own library, read and written by Core alone - nothing else ever
             // touches it.
             [CanvasLibrary] = FullDml,
+            [PetPreferences] = FullDml,
 
             // Revoked, never deleted: the rows are the audit of what has been able to act as a
             // principal, and an application that can erase that record can erase evidence.
