@@ -18,13 +18,18 @@ beforeEach(() => {
 });
 
 describe('reaching the settings screen', () => {
-  it('renders both sections at its own address, so the screen is linkable', async () => {
+  it('groups settings into named tabs at its own address', async () => {
     renderAt(<App />, '/settings');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
-    expect(await screen.findByRole('heading', { level: 2, name: 'Workspace' })).toBeVisible();
-    expect(await screen.findByRole('heading', { level: 2, name: 'Access tokens' })).toBeVisible();
+    expect(screen.getByRole('tablist', { name: 'Settings sections' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Workspace' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { level: 2, name: /workspace/i })).toBeVisible();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Editor' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Access tokens' })).not.toBeInTheDocument();
   });
 
   it('is reachable from the profile menu as a real link', async () => {
