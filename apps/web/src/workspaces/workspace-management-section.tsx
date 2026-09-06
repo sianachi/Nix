@@ -10,6 +10,20 @@ import { useWorkspaceAdministration } from './use-workspace-administration';
 
 type AssignableRole = 'owner' | 'editor' | 'viewer';
 
+function formatBytes(value: number | string): string {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${String(value)} bytes`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let amount = bytes;
+  let unit = 'bytes';
+  for (const nextUnit of units) {
+    amount /= 1024;
+    unit = nextUnit;
+    if (amount < 1024 || nextUnit === units[units.length - 1]) break;
+  }
+  return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${unit}`;
+}
+
 export function WorkspaceManagementSection(): ReactNode {
   const client = useApiClient();
   const navigate = useNavigate();
@@ -71,16 +85,33 @@ export function WorkspaceManagementSection(): ReactNode {
     <section
       aria-labelledby="workspace-management-heading"
       aria-busy={administration.working || creating}
-      className="flex flex-col gap-4"
+      className="flex max-w-4xl flex-col gap-6"
     >
-      <div>
+      <div className="flex flex-col gap-2">
         <Text id="workspace-management-heading" variant="h3" as="h2">
-          Workspace
+          {workspace.name}
         </Text>
         <Text variant="note" tone="muted">
-          This workspace is {workspace.kind}. Access and available actions are decided by Core.
+          {workspace.kind === 'shared' ? 'Shared workspace' : 'Personal workspace'}
+          {' · '}
+          Created {new Date(workspace.createdAt).toLocaleDateString()}
         </Text>
       </div>
+
+      <Blueprint className="grid gap-4 p-4 sm:grid-cols-3">
+        <div>
+          <Text variant="kicker">Workspace type</Text>
+          <Text className="mt-1">{workspace.kind === 'shared' ? 'Shared' : 'Personal'}</Text>
+        </div>
+        <div>
+          <Text variant="kicker">Version history</Text>
+          <Text className="mt-1">{workspace.versionRetentionDays} days</Text>
+        </div>
+        <div>
+          <Text variant="kicker">Storage allowance</Text>
+          <Text className="mt-1">{formatBytes(workspace.storageQuotaBytes)}</Text>
+        </div>
+      </Blueprint>
 
       {administration.mutationError === null ? null : (
         <Text role="alert" tone="muted">
@@ -410,17 +441,32 @@ export function WorkspaceManagementSection(): ReactNode {
         </>
       )}
 
-      {workspace.canLeave ? (
-        <Button
-          variant="secondary"
-          disabled={administration.working}
-          onClick={() => {
-            setConfirmation({ kind: 'leave' });
-          }}
-        >
-          Leave workspace
-        </Button>
-      ) : null}
+      <Blueprint className="flex flex-col gap-3 border border-divider p-4">
+        <div>
+          <Text variant="h4" as="h3">
+            Workspace access
+          </Text>
+          <Text variant="note" tone="muted" className="mt-1 max-w-xl">
+            Leaving removes your access and takes this workspace out of your workspace switcher.
+            The workspace and its content stay available to its other members.
+          </Text>
+        </div>
+        {workspace.canLeave ? (
+          <Button
+            variant="secondary"
+            disabled={administration.working}
+            onClick={() => {
+              setConfirmation({ kind: 'leave' });
+            }}
+          >
+            Leave workspace
+          </Button>
+        ) : (
+          <Text variant="note" tone="muted">
+            You cannot leave this workspace.
+          </Text>
+        )}
+      </Blueprint>
 
       <Dialog
         open={confirmation !== null}
