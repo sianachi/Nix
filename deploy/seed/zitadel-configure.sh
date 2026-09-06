@@ -43,6 +43,7 @@ dev_email="${NIX_ZITADEL_DEV_EMAIL:-dev@nix.localhost}"
 template_boot_username="${NIX_ZITADEL_TEMPLATE_BOOT_USERNAME:-template-boot@nix.localhost}"
 template_boot_name="${NIX_ZITADEL_TEMPLATE_BOOT_NAME:-Nix Template Boot}"
 rotate_template_boot_key="${NIX_ZITADEL_ROTATE_TEMPLATE_BOOT_KEY:-false}"
+template_boot_key_expiration="${NIX_ZITADEL_TEMPLATE_BOOT_KEY_EXPIRATION:-2299-12-31T23:59:59Z}"
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -371,7 +372,8 @@ else
     "$template_boot_rotation_journal" \
     "$template_boot_user_id" \
     "$existing_key_id"
-  key_response="$(api POST "/v2/users/$template_boot_user_id/keys" '{}')"
+  key_response="$(api POST "/v2/users/$template_boot_user_id/keys" \
+    "$(jq -nc --arg expiration "$template_boot_key_expiration" '{expirationDate:$expiration}')")"
   key_content="$(jq -r '.keyContent // empty' <<<"$key_response")"
   if [ -z "$key_content" ]; then
     echo "zitadel-configure: Zitadel did not return the new service-account key" >&2
@@ -404,7 +406,7 @@ NIX_OIDC_CLIENT_ID=$client_id
 NIX_OIDC_PROJECT_ID=$project_id
 NIX_TEMPLATE_BOOT_SERVICE_USER_ID=$template_boot_user_id
 NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE=$template_boot_key_file
-NIX_TEMPLATE_BOOT_OIDC_SCOPE=openid urn:zitadel:iam:org:project:id:$project_id:aud
+NIX_TEMPLATE_BOOT_OIDC_SCOPE="openid urn:zitadel:iam:org:project:id:$project_id:aud"
 NIX_OIDC_REDIRECT_URI=$web_origin/auth/callback
 NIX_OIDC_POST_LOGOUT_REDIRECT_URI=$web_origin
 NIX_DEV_USERNAME=$dev_username
