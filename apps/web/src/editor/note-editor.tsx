@@ -54,6 +54,7 @@ import { SlashMenu } from './slash-menu';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
+import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -213,6 +214,13 @@ const styledExtensions = nixEditingExtensions.map((extension) => {
       },
     });
   }
+
+  if (extension.name === 'codeBlock')
+    return extension.extend({
+      addNodeView() {
+        return ReactNodeViewRenderer(MermaidCodeBlockView);
+      },
+    });
 
   if (extension.name === 'columnEditing') {
     return extension.configure({

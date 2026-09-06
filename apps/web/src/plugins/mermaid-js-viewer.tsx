@@ -1,5 +1,11 @@
 import mermaid from 'mermaid';
-import { useEffect, useId, useState, type ReactElement } from 'react';
+import {
+  useEffect,
+  useId,
+  useState,
+  type ReactElement,
+} from 'react';
+import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react';
 
 import type { FileViewerPlugin } from './file-viewer-registry';
 
@@ -22,7 +28,7 @@ interface MermaidState {
   readonly error: string | null;
 }
 
-function MermaidViewer({
+export function MermaidViewer({
   fileName,
   source,
 }: {
@@ -75,6 +81,25 @@ function MermaidViewer({
         </details>
       )}
     </section>
+  );
+}
+
+export function MermaidCodeBlockView({ node }: ReactNodeViewProps): ReactElement {
+  const language = typeof node.attrs.language === 'string' ? node.attrs.language : '';
+  const source = node.textContent;
+
+  if (!/^mermaid$/iu.test(language.trim())) {
+    return <NodeViewWrapper><NodeViewContent /></NodeViewWrapper>;
+  }
+
+  return (
+    <NodeViewWrapper>
+      <MermaidViewer fileName="Mermaid code block" source={source} />
+      <details className="mt-3">
+        <summary>Show Mermaid source</summary>
+        <NodeViewContent className="mt-2 overflow-auto rounded-md bg-surface p-4 font-mono text-sm" />
+      </details>
+    </NodeViewWrapper>
   );
 }
 
