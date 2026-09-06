@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,8 @@ import { ApiClientProvider } from '../../../api/api-client-provider';
 import { useContainer } from '../../../views/core/use-container';
 import { WorkspaceProvider } from '../../../workspaces/workspace-context';
 import { item, STUB_WORKSPACE } from '../../api-stub';
+import { notifyItemChildrenChanged } from '../../../lib/item-children-changed';
+import { useQueryResults } from '../../../views/query/use-query-results';
 
 const getAccessToken = (): Promise<string> => Promise.resolve('token');
 
@@ -83,6 +85,45 @@ describe('container loading', () => {
     vi.unstubAllGlobals();
   });
 
+  it('refreshes shared view data after an external item change, scoped to the workspace', async () => {
+    const parentId = 'a1000000-0000-4000-8000-000000000020';
+    let title = 'Before pet update';
+    let status = 'Todo';
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const payload = url.endsWith('/schema')
+        ? { properties: [], declared: [], inherit: true }
+        : url.endsWith('/views')
+          ? { views: [], unrenderable: [], default: 'document' }
+          : {
+              items: [
+                item({
+                  id: 'a1000000-0000-4000-8000-000000000010',
+                  parentId,
+                  title,
+                  properties: { title, status },
+                }),
+              ],
+              nextCursor: null,
+            };
+      return Promise.resolve(new Response(JSON.stringify(payload)));
+    });
+    const { result, unmount } = renderHook(() => useContainer(parentId), { wrapper: Wrapper });
+    await waitFor(() => { expect(result.current.status).toBe('ready'); });
+    const calls = fetchMock.mock.calls.length;
+    act(() => { notifyItemChildrenChanged('another-workspace', parentId); });
+    expect(fetchMock.mock.calls).toHaveLength(calls);
+    title = 'After pet update';
+    status = 'Done';
+    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId); });
+    await waitFor(() => { expect(result.current.children[0]?.title).toBe(title); });
+    expect(result.current.children[0]?.properties.status).toBe('Done');
+    unmount();
+    const afterUnmount = fetchMock.mock.calls.length;
+    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId); });
+    expect(fetchMock.mock.calls).toHaveLength(afterUnmount);
+  });
+
   it('cancels an unfinished page walk when its consumer unmounts', async () => {
     const { unmount } = renderHook(() => useContainer('a1000000-0000-4000-8000-000000000020'), {
       wrapper: Wrapper,
@@ -101,6 +142,49 @@ describe('container loading', () => {
     expect(signal?.aborted).toBe(false);
     unmount();
     expect(signal?.aborted).toBe(true);
+  });
+
+  it('refreshes saved-query results after a pet mutation and unsubscribes on unmount', async () => {
+    const itemId = 'a1000000-0000-4000-8000-000000000020';
+    let title = 'Before';
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            itemId,
+            viewId: 'query',
+            today: '2026-09-06',
+            limit: 100,
+            truncated: false,
+            results: [
+              {
+                id: itemId,
+                workspaceId: STUB_WORKSPACE.id,
+                containerId: null,
+                containerTitle: null,
+                title,
+                type: 'note',
+                properties: { title },
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const { result, unmount } = renderHook(() => useQueryResults(itemId, 'query'), {
+      wrapper: Wrapper,
+    });
+    await waitFor(() => { expect(result.current.results?.results[0]?.title).toBe('Before'); });
+    const calls = fetchMock.mock.calls.length;
+    act(() => { notifyItemChildrenChanged('another-workspace', null); });
+    expect(fetchMock.mock.calls).toHaveLength(calls);
+    title = 'After';
+    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, null); });
+    await waitFor(() => { expect(result.current.results?.results[0]?.title).toBe('After'); });
+    unmount();
+    const finalCalls = fetchMock.mock.calls.length;
+    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, null); });
+    expect(fetchMock.mock.calls).toHaveLength(finalCalls);
   });
 
   it('reports a parsed API shape that fails the container boundary as partial telemetry', async () => {

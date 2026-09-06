@@ -39,13 +39,12 @@ export function usePetSettings(): PetSettingsState {
       setLoading(true);
       setError(null);
       try {
-        const [settings, status] = await Promise.all([
-          client.query(pets.settings(), { signal, forceRefresh: true }),
-          client.query(pets.connection(), { signal, forceRefresh: true }),
-        ]);
+        const settings = await client.query(pets.settings(), { signal, forceRefresh: true });
         if (signal.aborted) return;
-        setSaved(settings);
-        setConnection(status);
+        setSaved((current) =>
+          current === null || settings.revision >= current.revision ? settings : current,
+        );
+        setConnection(null);
       } catch (cause) {
         if (signal.aborted || isCanceledError(cause)) return;
         setError('Pet settings could not be loaded. Check your connection and try again.');
@@ -59,11 +58,16 @@ export function usePetSettings(): PetSettingsState {
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
+    const changed = () => {
+      if (!controller.signal.aborted) void load(controller.signal);
+    };
+    window.addEventListener('nix-pet-settings-changed', changed);
     queueMicrotask(() => {
       if (!controller.signal.aborted) void load(controller.signal);
     });
     return () => {
       controller.abort();
+      window.removeEventListener('nix-pet-settings-changed', changed);
     };
   }, [load]);
 
@@ -80,6 +84,7 @@ export function usePetSettings(): PetSettingsState {
       });
       if (controller.signal.aborted) return false;
       setSaved(response);
+      window.dispatchEvent(new Event('nix-pet-settings-changed'));
       return true;
     } catch (cause) {
       if (controller.signal.aborted || isCanceledError(cause)) return false;

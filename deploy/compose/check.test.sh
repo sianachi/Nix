@@ -17,6 +17,11 @@ assert c['volumes']['nix-caddy-data']['name']=='nix-caddy-data'
 assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
+assert s['nix-api']['environment']['Nix__Pets__WorkerUrl'] == 'http://nix-import-worker:8301'
+assert s['nix-import-worker']['environment']['NIX_COMPANION_DATA_DIR'] == '/var/lib/nix-worker/companion'
+assert any(v.get('source') == 'nix-companion-data' for v in s['nix-import-worker']['volumes'])
+assert not s['nix-import-worker'].get('ports')
+assert not any('companion' in name or 'codex' in name for name in s)
 assert not s['nix-versitygw'].get('ports')
 assert set(s['docker-socket-proxy']['networks']) == {'docker-logs'}
 assert set(s['alloy']['networks']) == {'docker-logs', 'observability'}

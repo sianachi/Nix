@@ -24,7 +24,7 @@ describe('pet boundary schemas', () => {
   it('rejects duplicate identities, unknown designs, and dangling active pets', () => {
     expect(petSettingsSchema.safeParse({ ...settings, profiles: [pet, pet] }).success).toBe(false);
     expect(
-      petSettingsSchema.safeParse({ ...settings, profiles: [{ ...pet, appearance: 'fox' }] })
+      petSettingsSchema.safeParse({ ...settings, profiles: [{ ...pet, appearance: 'unknown' }] })
         .success,
     ).toBe(false);
     expect(petSettingsSchema.safeParse({ ...settings, profiles: [] }).success).toBe(false);
@@ -32,13 +32,22 @@ describe('pet boundary schemas', () => {
       petSettingsSchema.safeParse({ ...settings, activePetId: null, enabled: true }).success,
     ).toBe(false);
   });
-  it('cannot turn an unsupported provider response into a connected account', () => {
+  it('accepts connected accounts and rejects untrusted sign-in destinations', () => {
     expect(
       petConnectionSchema.safeParse({
         provider: 'chatgpt',
         status: 'connected',
         reason: '',
+        canConnect: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      petConnectionSchema.safeParse({
+        provider: 'chatgpt',
+        status: 'connecting',
+        reason: '',
         canConnect: true,
+        verificationUrl: 'https://attacker.example/login',
       }).success,
     ).toBe(false);
   });

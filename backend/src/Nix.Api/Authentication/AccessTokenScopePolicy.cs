@@ -55,7 +55,11 @@ public static class AccessTokenScopePolicy
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
-        if (path.StartsWithSegments("/api/v1/me/tokens", StringComparison.OrdinalIgnoreCase))
+        // Linked ChatGPT credentials and their usage are an interactive-user boundary, not a
+        // capability implicitly delegated by a Nix personal access token.
+        if (path.StartsWithSegments("/api/v1/me/tokens", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/v1/me/pets/runtime", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/v1/me/pets/connection", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.InteractiveOnly;
         }

@@ -40,6 +40,7 @@ type Dependencies struct {
 	IndexControl   IndexControl
 	IndexHealth    func() indexer.Health
 	Ready          func() bool
+	Companion      http.Handler
 }
 
 type Server struct {
@@ -60,6 +61,9 @@ func NewForRole(service role.Service, deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /readyz", server.ready)
+	if deps.Companion != nil {
+		mux.Handle("POST /v1/companion", server.requireInternal(deps.Companion))
+	}
 	if service == role.All || service == role.Import {
 		mux.Handle("POST /v1/import/ndjson", server.requireInternal(http.HandlerFunc(server.importNDJSON)))
 		mux.Handle("POST /v1/import/document", server.requireInternal(http.HandlerFunc(server.importDocument)))

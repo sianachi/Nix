@@ -9,6 +9,8 @@ import (
 )
 
 type Settings struct {
+	CompanionDataDir     string
+	CompanionBinary      string
 	Address              string
 	InternalSecret       string
 	MaxInputBytes        int64
@@ -97,6 +99,8 @@ func Load(getenv func(string) string) (Settings, error) {
 		return Settings{}, fmt.Errorf("NIX_PLUGIN_MAX_HOST_CALLS: %w", err)
 	}
 	settings := Settings{
+		CompanionDataDir:     getenv("NIX_COMPANION_DATA_DIR"),
+		CompanionBinary:      valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
 		Address:              valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:       getenv("NIX_WORKER_INTERNAL_SECRET"),
 		MaxInputBytes:        maxInputBytes,

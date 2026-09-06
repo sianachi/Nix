@@ -299,9 +299,11 @@ export function useWorkspaceTree(): WorkspaceTree {
   useEffect(
     () =>
       onItemChildrenChanged((detail) => {
-        if (detail.workspaceId === workspaceId) void expand(detail.parentId);
+        if (detail.workspaceId !== workspaceId) return;
+        if (detail.parentId === null) void load();
+        else void expand(detail.parentId);
       }),
-    [expand, workspaceId],
+    [expand, load, workspaceId],
   );
 
   const toggle = useCallback(

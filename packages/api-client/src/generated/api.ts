@@ -1174,6 +1174,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/pets/runtime': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['PetRuntime'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -2028,11 +2044,42 @@ export interface components {
       /** Format: date-time */
       completedAt: null | string;
     };
+    PetAction: {
+      kind: string;
+      itemId: string;
+      title: string;
+    };
     PetConnectionResponse: {
       provider: string;
       status: string;
       reason: string;
       canConnect: boolean;
+      /** @default  */
+      verificationUrl: string;
+      /** @default  */
+      userCode: string;
+      /** @default idle */
+      state: string;
+      messages?: null | components['schemas']['PetMessage'][];
+      models?: null | components['schemas']['PetModel'][];
+      tools?: null | components['schemas']['PetToolCall'][];
+      history?: null | components['schemas']['PetHistoryEntry'][];
+    };
+    PetHistoryEntry: {
+      id: string;
+      title: string;
+      createdAt: string;
+    };
+    PetMessage: {
+      id: string;
+      role: string;
+      text: string;
+      actions: components['schemas']['PetAction'][];
+    };
+    PetModel: {
+      id: string;
+      name: string;
+      default: boolean;
     };
     PetProfile: {
       /** Format: uuid */
@@ -2042,6 +2089,33 @@ export interface components {
       personality: string;
       responseLength: string;
       instructions: string;
+    };
+    PetRuntimeRequest: {
+      operation: string;
+      /** Format: uuid */
+      workspaceId?: null | string;
+      /** Format: uuid */
+      petId?: null | string;
+      /** Format: uuid */
+      requestId?: null | string;
+      /** @default  */
+      text: string;
+      /** Format: uuid */
+      itemId?: null | string;
+      /** @default  */
+      sharedText: string;
+      /** @default  */
+      model: string;
+      /** @default false */
+      workspaceAccess: boolean;
+      /** @default  */
+      toolId: string;
+      /** @default  */
+      toolResult: string;
+      /** @default false */
+      toolSuccess: boolean;
+      /** Format: uuid */
+      historyId?: null | string;
     };
     PetSettings: {
       enabled: boolean;
@@ -2055,6 +2129,13 @@ export interface components {
       /** Format: int64 */
       revision: number | string;
       settings: components['schemas']['PetSettings'];
+    };
+    PetToolCall: {
+      id: string;
+      arguments: string;
+      status: string;
+      result: string;
+      claimId: string;
     };
     PluginComponentRegistrationRequest: {
       publisherId: string;
@@ -6080,6 +6161,30 @@ export interface operations {
       cookie?: never;
     };
     requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+    };
+  };
+  PetRuntime: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PetRuntimeRequest'];
+      };
+    };
     responses: {
       /** @description OK */
       200: {

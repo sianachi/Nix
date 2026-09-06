@@ -47,8 +47,8 @@ describe('the workspace template library', () => {
     renderAt(<App />, '/templates');
 
     expect(await screen.findByRole('heading', { name: 'Templates' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Kanban' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Weekly planning' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Kanban' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Weekly planning' })).toBeVisible();
     expect(
       await screen.findByRole('img', {
         name: 'Weekly planning template preview, Weekly planning view',

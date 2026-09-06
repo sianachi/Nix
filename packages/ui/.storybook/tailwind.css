@@ -14,6 +14,7 @@
 
 /* The component sources Tailwind scans for class names. */
 @source '../src';
+@source '../../../apps/web/src/pets';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

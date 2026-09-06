@@ -233,6 +233,8 @@ export type {
   PetSettings,
   PetSettingsResponse,
   PetConnection,
+  PetAction,
+  PetMessage,
 } from './schemas/pets.js';
 export * as bookmarks from './resources/bookmarks.js';
 export * as items from './resources/items.js';
@@ -300,3 +302,11 @@ export {
   exportSchema,
   exportStatusSchema,
 } from './schemas/exports.js';
+export {
+  runWorkspaceTool,
+  workspaceToolSchema,
+  WorkspaceToolRefusal,
+  type CompanionBodies,
+} from './companion-tools.js';
+export * as companionBodies from './resources/companion-bodies.js';
+export type { PetToolCall } from './schemas/pets.js';
