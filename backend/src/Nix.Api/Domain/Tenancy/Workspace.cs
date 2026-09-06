@@ -40,4 +40,10 @@ public sealed class Workspace
 
     /// <summary>Gets when the workspace was created.</summary>
     public required DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>Gets whether the workspace is active, archived, or being permanently purged.</summary>
+    public required WorkspaceLifecycleState LifecycleState { get; init; }
+
+    /// <summary>Gets when the workspace was archived, when applicable.</summary>
+    public DateTimeOffset? ArchivedAt { get; init; }
 }

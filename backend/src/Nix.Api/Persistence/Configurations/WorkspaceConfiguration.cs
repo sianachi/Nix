@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Nix.Domain.Identity;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Conversion;
 
 namespace Nix.Persistence.Configurations;
 
@@ -19,7 +20,11 @@ internal sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspac
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.ToTable(NixTables.Workspace);
+        builder.ToTable(
+            NixTables.Workspace,
+            table => table.HasCheckConstraint(
+                "CK_workspace_lifecycle_state",
+                "lifecycle_state IN ('active', 'archived', 'purging')"));
 
         builder.HasKey(workspace => workspace.Id);
         builder.Property(workspace => workspace.Id).HasColumnName("workspace_id");
@@ -32,6 +37,12 @@ internal sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspac
         builder.Property(workspace => workspace.CoalesceWindowMinutes).HasColumnName("coalesce_window_min");
         builder.Property(workspace => workspace.StorageQuotaBytes).HasColumnName("storage_quota_bytes");
         builder.Property(workspace => workspace.CreatedAt).HasColumnName("created_at").IsRequired();
+        builder.Property(workspace => workspace.LifecycleState)
+            .HasColumnName("lifecycle_state")
+            .HasConversion(new EnumConverters.WorkspaceLifecycleStateConverter())
+            .HasDefaultValue(WorkspaceLifecycleState.Active)
+            .IsRequired();
+        builder.Property(workspace => workspace.ArchivedAt).HasColumnName("archived_at");
 
         // The target of every composite tenant-scoped reference to a workspace.
         builder.HasAlternateKey(workspace => new { workspace.TenantId, workspace.Id });

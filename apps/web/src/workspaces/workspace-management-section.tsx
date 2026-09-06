@@ -39,6 +39,7 @@ export function WorkspaceManagementSection(): ReactNode {
   const [confirmation, setConfirmation] = useState<
     | { readonly kind: 'remove'; readonly principalId: string; readonly name: string }
     | { readonly kind: 'leave' }
+    | { readonly kind: 'archive' }
     | null
   >(null);
   const createRequest = useRef<AbortController | null>(null);
@@ -468,10 +469,37 @@ export function WorkspaceManagementSection(): ReactNode {
         )}
       </Blueprint>
 
+      {workspace.canRename ? (
+        <Blueprint className="flex flex-col gap-3 border border-divider p-4">
+          <div>
+            <Text variant="h4" as="h3">
+              Archive workspace
+            </Text>
+            <Text variant="note" tone="muted" className="mt-1 max-w-xl">
+              Archiving hides this workspace from everyday navigation without removing its members
+              or content. You can restore it from Archived workspaces.
+            </Text>
+          </div>
+          <Button
+            variant="secondary"
+            disabled={administration.working}
+            onClick={() => {
+              setConfirmation({ kind: 'archive' });
+            }}
+          >
+            Archive workspace
+          </Button>
+        </Blueprint>
+      ) : null}
+
       <Dialog
         open={confirmation !== null}
         title={
-          confirmation?.kind === 'remove' ? `Remove ${confirmation.name}?` : 'Leave workspace?'
+          confirmation?.kind === 'remove'
+            ? `Remove ${confirmation.name}?`
+            : confirmation?.kind === 'archive'
+              ? 'Archive workspace?'
+              : 'Leave workspace?'
         }
         onClose={() => {
           if (!administration.working) setConfirmation(null);
@@ -503,10 +531,22 @@ export function WorkspaceManagementSection(): ReactNode {
                     setConfirmation(null);
                     void navigate('/');
                   });
+                  return;
+                }
+                if (confirmation?.kind === 'archive') {
+                  void administration.archive().then((archived) => {
+                    if (!archived) return;
+                    setConfirmation(null);
+                    void navigate('/workspaces/archived');
+                  });
                 }
               }}
             >
-              {confirmation?.kind === 'remove' ? 'Remove member' : 'Leave workspace'}
+              {confirmation?.kind === 'remove'
+                ? 'Remove member'
+                : confirmation?.kind === 'archive'
+                  ? 'Archive workspace'
+                  : 'Leave workspace'}
             </Button>
           </>
         }
@@ -514,7 +554,9 @@ export function WorkspaceManagementSection(): ReactNode {
         <Text>
           {confirmation?.kind === 'remove'
             ? `${confirmation.name} will lose access to this workspace.`
-            : `You will lose access to ${workspace.name}.`}
+            : confirmation?.kind === 'archive'
+              ? `${workspace.name} will be hidden from everyday navigation. You can restore it from Archived workspaces.`
+              : `You will lose access to ${workspace.name}.`}
         </Text>
       </Dialog>
     </section>

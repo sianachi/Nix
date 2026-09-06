@@ -2,7 +2,7 @@ import { useSessionStore } from '../auth/session-store';
 import { readLastLocation } from '../pwa/last-location';
 import { Button } from '@nix/ui';
 import type { ReactNode } from 'react';
-import { Navigate, useLocation, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router';
 
 import {
   EmptyPanel,
@@ -74,17 +74,19 @@ export function LegacyWorkspaceRedirect(): ReactNode {
     subject && location.pathname === '/' && location.search === '' && location.hash === ''
       ? readLastLocation(
           subject,
-          state.workspaces.map((workspace) => workspace.id),
+          state.workspaces.filter((workspace) => workspace.lifecycleState === 'active').map((workspace) => workspace.id),
         )
       : null;
   if (saved) return <Navigate replace to={saved} />;
 
   const remembered = readLastWorkspaceId();
-  const rememberedWorkspace = state.workspaces.find((workspace) => workspace.id === remembered);
+  const activeWorkspaces = state.workspaces.filter((workspace) => workspace.lifecycleState === 'active');
+  if (activeWorkspaces.length === 0) return <Navigate replace to="/workspaces/archived" />;
+  const rememberedWorkspace = activeWorkspaces.find((workspace) => workspace.id === remembered);
   const selected =
     rememberedWorkspace ??
-    state.workspaces.find((workspace) => workspace.kind === 'personal') ??
-    state.workspaces[0];
+    activeWorkspaces.find((workspace) => workspace.kind === 'personal') ??
+    activeWorkspaces[0];
   if (selected === undefined) return null;
 
   const suffix = location.pathname === '/' ? '' : location.pathname;
@@ -170,6 +172,22 @@ export function WorkspaceGate({ children }: { readonly children: ReactNode }): R
               </Button>
             )
           }
+        />
+      </WorkspaceStateFrame>
+    );
+  }
+
+  if (current.lifecycleState !== 'active') {
+    return (
+      <WorkspaceStateFrame>
+        <ErrorPanel
+          title={current.lifecycleState === 'purging' ? 'Workspace is being deleted' : 'Workspace is archived'}
+          detail={
+            current.lifecycleState === 'purging'
+              ? 'This workspace is being permanently deleted and cannot be opened.'
+              : 'Restore this workspace from Archived workspaces before opening it.'
+          }
+          action={<Link to="/workspaces/archived"><Button variant="secondary">Archived workspaces</Button></Link>}
         />
       </WorkspaceStateFrame>
     );

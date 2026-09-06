@@ -89,6 +89,30 @@ export const renameWorkspace = (workspaceId: string, name: string): CommandEndpo
     schema: workspaceSchema,
     invalidates: [workspaceListKey, ['workspaces', workspaceId]],
   });
+export const archiveWorkspace = (workspaceId: string): CommandEndpoint<Workspace> =>
+  defineCommand({
+    operation: 'workspaces.archive',
+    method: 'POST',
+    path: `/api/v1/workspaces/${workspaceId}/archive`,
+    schema: workspaceSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId]],
+  });
+export const restoreWorkspace = (workspaceId: string): CommandEndpoint<Workspace> =>
+  defineCommand({
+    operation: 'workspaces.restore',
+    method: 'POST',
+    path: `/api/v1/workspaces/${workspaceId}/restore`,
+    schema: workspaceSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId]],
+  });
+export const purgeWorkspace = (workspaceId: string): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'workspaces.purge',
+    method: 'DELETE',
+    path: `/api/v1/workspaces/${workspaceId}`,
+    schema: noContentSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId]],
+  });
 export const listMembers = (workspaceId: string): PagedQueryEndpoint<WorkspaceMember> =>
   definePagedQuery({
     operation: 'workspaces.members.list',

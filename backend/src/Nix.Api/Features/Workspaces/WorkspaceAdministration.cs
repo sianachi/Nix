@@ -94,6 +94,15 @@ internal static class WorkspaceAdministrationErrors
     internal static NixError RecoveryForbidden() => new(
         "workspaces.recovery_forbidden",
         "Only a tenant administrator can recover an accessible workspace.");
+    internal static NixError ArchiveRefused() => new(
+        "workspaces.archive_refused",
+        "Only an owner or tenant administrator can archive an active workspace.");
+    internal static NixError RestoreRefused() => new(
+        "workspaces.restore_refused",
+        "Only an owner or tenant administrator can restore an archived workspace.");
+    internal static NixError PurgeRefused() => new(
+        "workspaces.purge_refused",
+        "Only an owner or tenant administrator can permanently delete an archived workspace.");
 }
 
 internal static class WorkspaceAdministrationMapping

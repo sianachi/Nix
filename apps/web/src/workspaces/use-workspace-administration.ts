@@ -40,6 +40,7 @@ export interface WorkspaceAdministration {
   ) => Promise<boolean>;
   readonly removeMember: (principalId: string) => Promise<boolean>;
   readonly leave: () => Promise<boolean>;
+  readonly archive: () => Promise<boolean>;
 }
 
 export function useWorkspaceAdministration(): WorkspaceAdministration {
@@ -255,6 +256,17 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
       );
       if (left) reloadWorkspaces();
       return left;
+    },
+    archive: async () => {
+      let archived = workspace;
+      const saved = await mutate(async (signal) => {
+        archived = await client.execute(coreWorkspaces.archiveWorkspace(workspaceId), { signal });
+      }, 'Workspace archived.');
+      if (saved) {
+        workspaceUpdated(archived);
+        reloadWorkspaces();
+      }
+      return saved;
     },
   };
 }

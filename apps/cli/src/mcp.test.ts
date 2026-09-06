@@ -152,6 +152,8 @@ function workspace(): Record<string, unknown> {
     canLeave: false,
     canUseDailyNotes: true,
     pendingInvitationId: null,
+    lifecycleState: 'active',
+    archivedAt: null,
   };
 }
 

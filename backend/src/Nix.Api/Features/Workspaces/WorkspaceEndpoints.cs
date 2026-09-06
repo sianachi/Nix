@@ -61,6 +61,26 @@ internal static class WorkspaceEndpoints
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
+        workspaces.MapPost("/{workspaceId:guid}/archive", ArchiveWorkspaceEndpoint.Handle)
+            .WithName("ArchiveWorkspace")
+            .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapPost("/{workspaceId:guid}/restore", RestoreWorkspaceEndpoint.Handle)
+            .WithName("RestoreWorkspace")
+            .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapDelete("/{workspaceId:guid}", PurgeWorkspaceEndpoint.Handle)
+            .WithName("PurgeWorkspace")
+            .WithSummary("Permanently delete an archived workspace")
+            .Produces(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
         workspaces.MapPatch("/{workspaceId:guid}", RenameWorkspaceEndpoint.Handle)
             .WithName("RenameWorkspace")
             .Produces<WorkspaceResponse>(StatusCodes.Status200OK)
@@ -144,7 +164,7 @@ internal static class WorkspaceEndpoints
         row.Id.Value, row.Name, row.VersionRetentionDays, row.StorageQuotaBytes, row.CreatedAt,
         row.PersonalOwnerPrincipalId is null ? "shared" : "personal",
         row.CanRename, row.CanManageMembers, row.CanLeave, row.CanUseDailyNotes,
-        row.PendingInvitationId);
+        row.PendingInvitationId, row.LifecycleState, row.ArchivedAt);
 
     internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext context, NixError error)
     {
@@ -245,5 +265,44 @@ internal static class RenameWorkspaceEndpoint
         return result.Match<Results<Ok<WorkspaceResponse>, ProblemHttpResult>>(
             row => TypedResults.Ok(WorkspaceEndpoints.ToResponse(row)),
             error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class ArchiveWorkspaceEndpoint
+{
+    internal static async Task<Results<Ok<WorkspaceResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<ArchiveWorkspace, WorkspaceSnapshot>(
+            new ArchiveWorkspace(WorkspaceId.From(workspaceId)), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<WorkspaceResponse>, ProblemHttpResult>>(
+            row => TypedResults.Ok(WorkspaceEndpoints.ToResponse(row)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class RestoreWorkspaceEndpoint
+{
+    internal static async Task<Results<Ok<WorkspaceResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<RestoreWorkspace, WorkspaceSnapshot>(
+            new RestoreWorkspace(WorkspaceId.From(workspaceId)), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<WorkspaceResponse>, ProblemHttpResult>>(
+            row => TypedResults.Ok(WorkspaceEndpoints.ToResponse(row)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class PurgeWorkspaceEndpoint
+{
+    internal static async Task<Results<Accepted, ProblemHttpResult>> Handle(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<PurgeWorkspace, bool>(
+            new PurgeWorkspace(WorkspaceId.From(workspaceId)), context.RequestAborted).ConfigureAwait(false);
+        return result.IsSuccess
+            ? TypedResults.Accepted(new Uri($"/api/v1/workspaces/{workspaceId:D}", UriKind.Relative))
+            : TypedResults.Problem(WorkspaceEndpoints.Problem(context, result.Error));
     }
 }

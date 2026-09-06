@@ -1,5 +1,5 @@
 import { Icon, Text, focusRing } from '@nix/ui';
-import { Check, ChevronDown, Plus, Settings } from 'lucide-react';
+import { Archive, Check, ChevronDown, Plus, Settings } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -12,6 +12,8 @@ import { useWorkspace } from './workspace-context';
  */
 export function WorkspaceSwitcher(): ReactNode {
   const { workspace, workspaces, listStatus, listWarning, reload } = useWorkspace();
+  const activeWorkspaces = workspaces.filter((entry) => entry.lifecycleState === 'active');
+  const archivedCount = workspaces.filter((entry) => entry.lifecycleState === 'archived').length;
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -41,7 +43,7 @@ export function WorkspaceSwitcher(): ReactNode {
     <div ref={containerRef} className="relative flex min-w-0 flex-1">
       <button
         type="button"
-        aria-label={`Workspace: ${workspace.name}`}
+        aria-label="Workspace menu"
         aria-controls={panelId}
         aria-expanded={open}
         onClick={() => {
@@ -67,7 +69,7 @@ export function WorkspaceSwitcher(): ReactNode {
           </div>
 
           <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
-            {workspaces.map((entry) => (
+            {activeWorkspaces.map((entry) => (
               <li key={entry.id} className="flex items-center gap-1 px-1">
                 <Link
                   to={`/w/${entry.id}`}
@@ -111,6 +113,19 @@ export function WorkspaceSwitcher(): ReactNode {
                 Try again
               </button>
             </div>
+          ) : null}
+
+          {archivedCount > 0 ? (
+            <Link
+              to="/workspaces/archived"
+              onClick={() => {
+                setOpen(false);
+              }}
+              className="flex items-center gap-2 border-t border-divider px-3 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={Archive} size="sm" />
+              Archived workspaces ({archivedCount})
+            </Link>
           ) : null}
 
           <Link

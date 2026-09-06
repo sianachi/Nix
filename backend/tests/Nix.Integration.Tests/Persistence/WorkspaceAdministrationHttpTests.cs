@@ -138,6 +138,41 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
         Assert.Equal("workspaces.not_found", await ProblemCodeAsync(daily));
     }
 
+    [Fact]
+    public async Task Workspace_lifecycle_requires_archive_before_scheduling_permanent_deletion()
+    {
+        var ownerJwt = await JwtAsync(Owner);
+
+        var refused = await SendAsync(HttpMethod.Delete, $"/api/v1/workspaces/{PersonalWorkspace:D}", ownerJwt);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("workspaces.purge_refused", await ProblemCodeAsync(refused));
+
+        var archived = await SendAsync(
+            HttpMethod.Post, $"/api/v1/workspaces/{PersonalWorkspace:D}/archive", ownerJwt);
+        Assert.Equal(HttpStatusCode.OK, archived.StatusCode);
+        using (var document = JsonDocument.Parse(await archived.Content.ReadAsStringAsync(Cancellation)))
+        {
+            Assert.Equal("archived", document.RootElement.GetProperty("lifecycleState").GetString());
+            Assert.False(document.RootElement.GetProperty("archivedAt").ValueKind == JsonValueKind.Null);
+        }
+
+        var restored = await SendAsync(
+            HttpMethod.Post, $"/api/v1/workspaces/{PersonalWorkspace:D}/restore", ownerJwt);
+        Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+        using (var document = JsonDocument.Parse(await restored.Content.ReadAsStringAsync(Cancellation)))
+        {
+            Assert.Equal("active", document.RootElement.GetProperty("lifecycleState").GetString());
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("archivedAt").ValueKind);
+        }
+
+        var archivedAgain = await SendAsync(
+            HttpMethod.Post, $"/api/v1/workspaces/{PersonalWorkspace:D}/archive", ownerJwt);
+        Assert.Equal(HttpStatusCode.OK, archivedAgain.StatusCode);
+
+        var purging = await SendAsync(HttpMethod.Delete, $"/api/v1/workspaces/{PersonalWorkspace:D}", ownerJwt);
+        Assert.Equal(HttpStatusCode.Accepted, purging.StatusCode);
+    }
+
     private async Task<string> JwtAsync(Guid principalId)
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);

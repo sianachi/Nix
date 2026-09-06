@@ -42,7 +42,7 @@ internal sealed class WorkspaceInvitationConfiguration : IEntityTypeConfiguratio
             .WithMany()
             .HasForeignKey(invitation => new { invitation.TenantId, invitation.WorkspaceId })
             .HasPrincipalKey(workspace => new { workspace.TenantId, workspace.Id })
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Principal>()
             .WithMany()
             .HasForeignKey(invitation => new { invitation.TenantId, invitation.InvitedByPrincipalId })

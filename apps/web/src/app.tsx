@@ -21,6 +21,7 @@ import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { RequireSession } from './shell/require-session';
 import { AppShell } from './shell/app-shell';
 import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-gate';
+import { ArchivedWorkspacesPage } from './workspaces/archived-workspaces-page';
 import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
 
 // Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
@@ -72,6 +73,7 @@ export function App(): ReactElement {
 
               <Route element={<RequireSession />}>
                 <Route element={<AccessibleWorkspacesProvider />}>
+                  <Route path="/workspaces/archived" element={<ArchivedWorkspacesPage />} />
                   <Route
                     path="/w/:workspaceId"
                     element={

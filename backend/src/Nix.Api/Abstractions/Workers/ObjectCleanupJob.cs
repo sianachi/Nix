@@ -30,7 +30,7 @@ public static class ObjectCleanupJobs
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerKind);
         ArgumentNullException.ThrowIfNull(objectKeys);
         var keys = objectKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        if (keys.Length is < 1 or > 10_002 || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 1024))
+        if (keys.Length > 10_002 || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 1024))
         {
             throw new ArgumentException("Object cleanup targets are invalid.", nameof(objectKeys));
         }

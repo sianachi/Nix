@@ -24,7 +24,8 @@ public static class WorkspaceAdministrationSql
             WHERE p.tenant_id = @tenant_id AND p.principal_id = @principal_id
         ), candidates AS MATERIALIZED (
             SELECT w.workspace_id, w.name, w.version_retention_days,
-                   w.storage_quota_bytes, w.created_at, w.personal_owner_principal_id
+                   w.storage_quota_bytes, w.created_at, w.personal_owner_principal_id,
+                   w.lifecycle_state, w.archived_at
             FROM workspace w
             CROSS JOIN caller c
             WHERE w.tenant_id = @tenant_id
@@ -80,7 +81,7 @@ public static class WorkspaceAdministrationSql
                        AND owner_principal.kind = 'user' AND owner_principal.status = 'active') = 1)
                ) AS can_leave,
                COALESCE(r.personal_owner_principal_id = @principal_id, false) AS can_use_daily_notes,
-               pending.invitation_id
+               pending.invitation_id, r.lifecycle_state, r.archived_at
         FROM reachable r CROSS JOIN caller c
         LEFT JOIN LATERAL (
             SELECT invitation.invitation_id
@@ -133,7 +134,7 @@ public static class WorkspaceAdministrationSql
                        AND owners.subject_type = 'principal' AND owners.role = 'owner'
                        AND p.kind = 'user' AND p.status = 'active') = 1)),
                COALESCE(w.personal_owner_principal_id = @principal_id, false),
-               pending.invitation_id
+               pending.invitation_id, w.lifecycle_state, w.archived_at
         FROM workspace w CROSS JOIN caller c CROSS JOIN held h
         LEFT JOIN LATERAL (
             SELECT invitation.invitation_id
@@ -191,6 +192,134 @@ public static class WorkspaceAdministrationSql
                                WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
                                  AND gm.principal_id = @principal_id)))))
         RETURNING workspace_id
+        """;
+
+    /// <summary>Archives a workspace only for an owner or tenant administrator.</summary>
+    public const string Archive = """
+        UPDATE workspace w
+        SET lifecycle_state = 'archived', archived_at = @now
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND w.lifecycle_state = 'active'
+          AND (EXISTS (SELECT 1 FROM workspace_member wm
+                      WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                        AND wm.role = 'owner'
+                        AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                          OR (wm.subject_type = 'group' AND EXISTS (
+                              SELECT 1 FROM group_membership gm
+                              WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                AND gm.principal_id = @principal_id))))
+               OR EXISTS (SELECT 1 FROM tenant_role tr
+                          WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                            AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                              OR (tr.subject_type = 'group' AND EXISTS (
+                                  SELECT 1 FROM group_membership gm
+                                  WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                    AND gm.principal_id = @principal_id)))))
+        RETURNING w.workspace_id
+        """;
+
+    /// <summary>Restores an archived workspace only for an owner or tenant administrator.</summary>
+    public const string Restore = """
+        UPDATE workspace w
+        SET lifecycle_state = 'active', archived_at = NULL
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND w.lifecycle_state = 'archived'
+          AND (EXISTS (SELECT 1 FROM workspace_member wm
+                      WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                        AND wm.role = 'owner'
+                        AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                          OR (wm.subject_type = 'group' AND EXISTS (
+                              SELECT 1 FROM group_membership gm
+                              WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                AND gm.principal_id = @principal_id))))
+               OR EXISTS (SELECT 1 FROM tenant_role tr
+                          WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                            AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                              OR (tr.subject_type = 'group' AND EXISTS (
+                                  SELECT 1 FROM group_membership gm
+                                  WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                    AND gm.principal_id = @principal_id)))))
+        RETURNING w.workspace_id
+        """;
+
+    /// <summary>Irreversibly closes an archived workspace to ordinary use before cleanup starts.</summary>
+    public const string BeginPurge = """
+        UPDATE workspace w
+        SET lifecycle_state = 'purging'
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND w.lifecycle_state = 'archived'
+          AND (EXISTS (SELECT 1 FROM workspace_member wm
+                      WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                        AND wm.role = 'owner'
+                        AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                          OR (wm.subject_type = 'group' AND EXISTS (
+                              SELECT 1 FROM group_membership gm
+                              WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                AND gm.principal_id = @principal_id))))
+               OR EXISTS (SELECT 1 FROM tenant_role tr
+                          WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                            AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                              OR (tr.subject_type = 'group' AND EXISTS (
+                                  SELECT 1 FROM group_membership gm
+                                  WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                    AND gm.principal_id = @principal_id)))))
+        RETURNING w.workspace_id
+        """;
+
+    /// <summary>Reads the private object keys that belong exclusively to a workspace being purged.</summary>
+    public const string PurgeObjectKeys = """
+        WITH authorized AS MATERIALIZED (
+            SELECT w.workspace_id
+            FROM workspace w
+            WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+              AND w.lifecycle_state = 'purging'
+              AND (EXISTS (SELECT 1 FROM workspace_member wm
+                          WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                            AND wm.role = 'owner'
+                            AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                              OR (wm.subject_type = 'group' AND EXISTS (
+                                  SELECT 1 FROM group_membership gm
+                                  WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                    AND gm.principal_id = @principal_id))))
+                   OR EXISTS (SELECT 1 FROM tenant_role tr
+                              WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                                AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                                  OR (tr.subject_type = 'group' AND EXISTS (
+                                      SELECT 1 FROM group_membership gm
+                                      WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                        AND gm.principal_id = @principal_id)))))
+        )
+        SELECT version.object_key
+        FROM file_version version CROSS JOIN authorized
+        WHERE version.tenant_id = @tenant_id AND version.workspace_id = authorized.workspace_id
+        UNION
+        SELECT upload.object_key
+        FROM file_upload upload CROSS JOIN authorized
+        WHERE upload.tenant_id = @tenant_id AND upload.workspace_id = authorized.workspace_id
+        UNION
+        SELECT 'imports/plans/' || @tenant_id::text || '/' || document_import.import_id::text || '.json'
+        FROM document_import CROSS JOIN authorized
+        WHERE document_import.tenant_id = @tenant_id
+          AND document_import.workspace_id = authorized.workspace_id
+        ORDER BY 1
+        """;
+
+    /// <summary>Deletes a purged workspace only from its live cleanup job.</summary>
+    public const string FinalizePurge = """
+        WITH purge_job AS MATERIALIZED (
+            SELECT job.job_id
+            FROM worker_job job
+            WHERE job.tenant_id = @tenant_id AND job.job_id = @job_id
+              AND job.kind = 'object.cleanup' AND job.status = 'running'
+              AND job.workspace_id = @workspace_id
+        ), deleted AS (
+            DELETE FROM workspace w
+            USING purge_job
+            WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+              AND w.lifecycle_state = 'purging'
+            RETURNING w.workspace_id
+        )
+        SELECT workspace_id FROM deleted
         """;
 
     /// <summary>Lists principal and group grants; only direct principal grants are mutable.</summary>

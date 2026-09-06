@@ -34,7 +34,9 @@ public static class WorkerExecutionFenceSecuritySql
                    AND actor.principal_id = job.actor_id
                  WHERE job.job_id = p_job_id
                    AND job.tenant_id = p_tenant_id
-                   AND job.workspace_id IS NOT DISTINCT FROM p_workspace_id
+                   AND (job.workspace_id IS NOT DISTINCT FROM p_workspace_id
+                     OR (job.kind = 'object.cleanup' AND job.workspace_id IS NULL
+                       AND p_expected_kind = 'object.cleanup'))
                    AND job.actor_id = p_actor_id
                    AND job.kind::text = p_expected_kind
                    AND job.status = 'running'
