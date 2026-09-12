@@ -19,7 +19,7 @@ https://github.com/user-attachments/assets/b91aa29d-66a0-4730-9e3f-f8ce5f9f93f9
 
 Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
 
-## Contribute to Nix
+## Contributing
 
 Nix is being built in the open by people who care about calm, capable tools for collaborative work.
 If you want to help make documents, structured data and team workflows fit together better, we would
@@ -27,14 +27,14 @@ love your contribution.
 
 Start with the product direction in this README, then read the [developer documentation](docs/README.md)
 and the contributor guides in `docs/agent-guides/`. Set up the local stack with `bash scripts/dev-stack-up.sh`,
-run the services listed in [Running the application](#running-the-application), and keep changes focused.
+run the services listed in [Usage](#usage), and keep changes focused.
 Before proposing a change, run the checks selected by `./scripts/changed-path-checks.sh --working-tree`.
 
 Useful places to begin are the current roadmap below, test coverage around a feature you use, and
 documentation improvements that make the project easier to understand. Please keep product claims
 grounded in observed behaviour and do not hand-edit generated API contracts or clients.
 
-## Problems Nix is solving
+## Motivation
 
 - **Documents and project work are split across tools.** Notes, tasks, dates, structured records and
   links usually live in separate applications. Nix keeps them in one composable item tree.
@@ -204,7 +204,7 @@ Use the [Compose deployment runbook](deploy/README.md) for immutable builds, mig
 storage, rollback and mandatory import/export verification. Kubernetes tooling is retained but is
 not part of the default release workflow.
 
-## Getting started
+## Quick Start
 
 Install Docker, mise and the pinned toolchain, then bootstrap packages and infrastructure:
 
@@ -249,7 +249,7 @@ Compose overrides and dependent URLs in `.env`.
 
 See [local sign-in and setup](docs/dev-signing-in.md) for generated identity configuration.
 
-## Running the application
+## Usage
 
 Start each process in its own terminal after stack-up:
 
