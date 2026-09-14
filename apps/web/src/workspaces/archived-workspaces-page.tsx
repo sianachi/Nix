@@ -50,7 +50,9 @@ export function ArchivedWorkspacesPage(): ReactNode {
     }
   }
 
-  async function createWorkspace(event: SyntheticEvent<HTMLFormElement, SubmitEvent>): Promise<void> {
+  async function createWorkspace(
+    event: SyntheticEvent<HTMLFormElement, SubmitEvent>,
+  ): Promise<void> {
     event.preventDefault();
     const name = newWorkspaceName.trim();
     if (name.length === 0) return;
@@ -74,7 +76,11 @@ export function ArchivedWorkspacesPage(): ReactNode {
       <ErrorPanel
         title="Archived workspaces could not be loaded"
         detail={error ?? 'Try again.'}
-        action={<Button variant="secondary" onClick={reload}>Try again</Button>}
+        action={
+          <Button variant="secondary" onClick={reload}>
+            Try again
+          </Button>
+        }
       />
     );
   }
@@ -83,12 +89,17 @@ export function ArchivedWorkspacesPage(): ReactNode {
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-6 p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <Text variant="h2" as="h1">Archived workspaces</Text>
+          <Text variant="h2" as="h1">
+            Archived workspaces
+          </Text>
           <Text variant="note" tone="muted" className="mt-1 max-w-2xl">
-            Archived workspaces are out of everyday navigation. Restore one to make it available again.
+            Archived workspaces are out of everyday navigation. Restore one to make it available
+            again.
           </Text>
         </div>
-        <Link to="/" className="text-sm text-accent-text underline">Back to workspaces</Link>
+        <Link to="/" className="text-sm text-accent-text underline">
+          Back to workspaces
+        </Link>
       </div>
 
       {mutationError === null ? null : <Text role="alert">{mutationError}</Text>}
@@ -128,7 +139,10 @@ export function ArchivedWorkspacesPage(): ReactNode {
               <div className="min-w-0 flex-1">
                 <Text>{workspace.name}</Text>
                 <Text variant="note" tone="muted">
-                  Archived {workspace.archivedAt ? new Date(workspace.archivedAt).toLocaleDateString() : 'recently'}
+                  Archived{' '}
+                  {workspace.archivedAt
+                    ? new Date(workspace.archivedAt).toLocaleDateString()
+                    : 'recently'}
                 </Text>
               </div>
               <Button
@@ -150,7 +164,8 @@ export function ArchivedWorkspacesPage(): ReactNode {
               {confirmation === workspace.id ? (
                 <div className="w-full border-t border-divider pt-3">
                   <Text variant="note" tone="muted">
-                    This permanently deletes the workspace, its content, and its stored files. It cannot be undone.
+                    This permanently deletes the workspace, its content, and its stored files. It
+                    cannot be undone.
                   </Text>
                   <div className="mt-3 flex gap-2">
                     <Button

@@ -203,7 +203,8 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
         schema={schema}
         onOpen={onOpen}
         onWrite={(itemId, propertyKey, value) =>
-          container.setProperties(itemId, { [propertyKey]: value })}
+          container.setProperties(itemId, { [propertyKey]: value })
+        }
       />
 
       <CreateItemControl
@@ -223,7 +224,11 @@ interface GalleryGridProps {
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
-  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
 }
 
 function GalleryGrid(props: GalleryGridProps): ReactNode {
@@ -424,7 +429,11 @@ interface GalleryCardProps {
   readonly secondary: readonly string[];
   readonly schema: readonly PropertyDefinition[];
   readonly onOpen: (itemId: string) => void;
-  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
   readonly coverFailed: boolean;
   readonly onCoverFailure: () => void;
   readonly position: number;

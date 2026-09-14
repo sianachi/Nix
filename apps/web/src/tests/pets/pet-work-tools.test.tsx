@@ -172,7 +172,9 @@ describe('companion work approvals', () => {
       { wrapper: MemoryRouter },
     );
     await userEvent.click(screen.getByRole('button', { name: 'Approve request' }));
-    await waitFor(() => { expect(client.execute).toHaveBeenCalledTimes(2); });
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(2);
+    });
     expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
       body: {
         toolSuccess: false,

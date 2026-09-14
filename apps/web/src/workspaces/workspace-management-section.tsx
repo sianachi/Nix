@@ -448,8 +448,8 @@ export function WorkspaceManagementSection(): ReactNode {
             Workspace access
           </Text>
           <Text variant="note" tone="muted" className="mt-1 max-w-xl">
-            Leaving removes your access and takes this workspace out of your workspace switcher.
-            The workspace and its content stay available to its other members.
+            Leaving removes your access and takes this workspace out of your workspace switcher. The
+            workspace and its content stay available to its other members.
           </Text>
         </div>
         {workspace.canLeave ? (

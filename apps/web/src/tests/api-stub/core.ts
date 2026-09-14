@@ -808,7 +808,8 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       );
       if (archiveWorkspace !== null && method === 'POST') {
         const workspace = knownWorkspaces.find((entry) => entry.id === archiveWorkspace[1]);
-        if (workspace === undefined) return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        if (workspace === undefined)
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
         const archived = {
           ...workspace,
           lifecycleState: 'archived' as const,
@@ -824,7 +825,8 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       );
       if (restoreWorkspace !== null && method === 'POST') {
         const workspace = knownWorkspaces.find((entry) => entry.id === restoreWorkspace[1]);
-        if (workspace === undefined) return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        if (workspace === undefined)
+          return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
         const restored = { ...workspace, lifecycleState: 'active' as const, archivedAt: null };
         knownWorkspaces = knownWorkspaces.map((entry) =>
           entry.id === restored.id ? restored : entry,
