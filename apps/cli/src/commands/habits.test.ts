@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { outputOptions } from '../output.ts';
 import { checkIn, setHabit, setHabitStatus } from './habits.ts';
+
+import { resolveSession } from './shared.ts';
+
+vi.mock('./shared.ts', () => ({
+  resolveSession: vi.fn(() => {
+    throw new Error('Validation must not open a session.');
+  }),
+}));
+
+afterEach(() => {
+  expect(resolveSession).not.toHaveBeenCalled();
+  vi.clearAllMocks();
+});
 
 const ITEM = '11111111-1111-4111-8111-111111111111';
 const OUTPUT = outputOptions(true, { isTTY: false });

@@ -65,6 +65,7 @@ export async function setHabit(
   }
   if (options.timezone.trim() === '') throw new Error('--timezone cannot be empty.');
   const startDate = parseDay(options.startDate, '--start-date');
+  const target = parseTarget(options.target);
   const weekdays = parseWeekdays(options.weekdays);
   if (options.frequency === 'weekly' && weekdays.length === 0) {
     throw new Error('--weekdays is required for a weekly habit.');
@@ -79,7 +80,7 @@ export async function setHabit(
       weekdays,
       timezone: options.timezone,
       startDate,
-      target: parseTarget(options.target),
+      target,
       unit: options.unit,
     }),
   );
