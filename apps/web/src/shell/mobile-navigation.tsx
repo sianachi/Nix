@@ -1,4 +1,4 @@
-import { Icon, Text, focusRing } from '@nix/ui';
+import { Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
@@ -42,7 +42,10 @@ export function MobileNavigation({
       </NavLink>
       <button
         type="button"
-        className={`${control} ml-2 flex-none rounded-full bg-accent-fill px-4 text-background hover:bg-accent-fill-hover`}
+        className={cn(
+          control,
+          'ml-2 flex-none rounded-full bg-accent-fill px-4 text-background hover:bg-accent-fill-hover',
+        )}
         disabled={creating}
         onClick={onCreate}
       >
