@@ -1,4 +1,5 @@
-import { Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
+import { useNarrowViewport } from '../layout/viewport';
+import { Dialog, Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
 import { search, type SearchHit } from '@nix/api-client';
 import { FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -53,14 +54,16 @@ const MINIMUM_QUERY = 3;
 
 export interface CommandPaletteProps {
   readonly open: boolean;
+  readonly preserveQuery?: boolean;
   readonly commands: readonly PaletteCommand[];
   readonly onSelectItem: (itemId: string) => void;
   readonly onClose: () => void;
 }
 
 export function CommandPalette(props: CommandPaletteProps): ReactNode {
-  const { open, commands, onSelectItem, onClose } = props;
+  const { open, commands, onSelectItem, onClose, preserveQuery = false } = props;
   const client = useApiClient();
+  const narrow = useNarrowViewport();
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -75,14 +78,16 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   // cascades a second render for something the close already knew, and reopening has to start
   // fresh rather than showing the last search's results as though they were current.
   const close = useCallback((): void => {
-    setQuery('');
-    setAnswer(null);
+    if (!preserveQuery) {
+      setQuery('');
+      setAnswer(null);
+    }
     onClose();
 
     // After `onClose`, so the palette has been asked to unmount before focus moves back.
     returnFocusTo.current?.focus();
     returnFocusTo.current = null;
-  }, [onClose]);
+  }, [onClose, preserveQuery]);
 
   const needle = query.trim();
 
@@ -108,6 +113,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
           const parsed = await client.query(search.searchItems(needle, RESULT_LIMIT), {
             signal: controller.signal,
           });
+          if (controller.signal.aborted) return;
           setAnswer({
             query: needle,
             hits: parsed.results,
@@ -179,124 +185,118 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     return null;
   }
 
+  const panel = (
+    <div
+      role={narrow ? undefined : 'dialog'}
+      aria-modal={narrow ? undefined : true}
+      aria-label="Search and commands"
+      className="relative max-sm:h-full max-sm:max-h-full max-sm:rounded-none flex max-h-[calc(100dvh-2rem)] w-full max-w-[680px] min-w-0 flex-col overflow-hidden rounded-lg bg-background shadow-lg"
+    >
+      <div
+        className={[
+          'flex items-center gap-3 px-5',
+          options.length === 0 ? '' : 'border-b border-divider',
+        ].join(' ')}
+      >
+        <Icon icon={Search} size="md" />
+
+        <Input
+          ref={inputRef}
+          tone="plain"
+          role="combobox"
+          aria-expanded={listbox.expanded}
+          aria-autocomplete="list"
+          autoComplete="off"
+          aria-controls={listbox.id}
+          aria-activedescendant={listbox.activeOptionId}
+          aria-label="Search items or run a command"
+          placeholder="Search or run a command"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              // The innermost layer's Escape wins - see `workspace-sidebar.tsx`'s `CreateMenu`
+              // for the full reasoning. This is reachable while the off-canvas drawer is open,
+              // since the header stays interactive by design, so without stopping here Escape
+              // would close both in one keystroke.
+              event.stopPropagation();
+              close();
+              return;
+            }
+
+            listbox.onKeyDown(event);
+          }}
+          className="h-[var(--control-lg)] text-lg"
+        />
+      </div>
+
+      <Listbox
+        label="Commands and items"
+        options={options}
+        controller={listbox}
+        emptyMessage={
+          current?.failed === true
+            ? 'The search could not be run just now. Check your connection and try again.'
+            : needle.length === 0
+              ? 'Type to search this workspace, or to find a command.'
+              : needle.length < MINIMUM_QUERY
+                ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
+                : searching
+                  ? 'Searching…'
+                  : `Nothing matches “${needle}”.`
+        }
+        className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
+      />
+
+      {/*
+          One line under the list, carrying whichever of these applies. `role="status"` because all
+          three arrive without the person doing anything, and the mounted-empty region is what makes
+          the announcement reliable.
+        */}
+      <div role="status" className="empty:hidden">
+        {searching ? (
+          <Text as="p" variant="caption" tone="muted" className="border-t border-divider px-4 py-2">
+            Searching…
+          </Text>
+        ) : current?.truncated === true ? (
+          <Text as="p" variant="caption" tone="muted" className="border-t border-divider px-4 py-2">
+            Showing the first {hits.length} items. Type more to narrow it down.
+          </Text>
+        ) : current !== null && hits.length === 0 && matched.length > 0 ? (
+          // The palette found a command but no document, and the reason may be timing rather than
+          // absence: text inside documents becomes searchable when the document is saved. Said
+          // here for the same reason the backlinks panel says it.
+          <Text as="p" variant="caption" tone="muted" className="border-t border-divider px-4 py-2">
+            No items matched. Text inside a document becomes searchable once it has been saved.
+          </Text>
+        ) : null}
+      </div>
+    </div>
+  );
+  if (narrow)
+    return (
+      <Dialog
+        open
+        title="Search and commands"
+        closeLabel="Close search"
+        onClose={close}
+        initialFocus={inputRef}
+        presentation="workspace"
+      >
+        {panel}
+      </Dialog>
+    );
   return (
-    // The scrim is a fixed dark step rather than an ink wash, and it is the one place in this file
-    // that does not follow the ground. A wash of `--color-foreground` inverts with the theme, which
-    // for a hover tint is the point and for a scrim is the defect: on the dark ground it turned the
-    // page behind this panel into a milky haze instead of dimming it. `<Dialog>` settled the same
-    // question the same way.
     <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-neutral-900/40 px-4 py-4 sm:pt-[12vh]">
-      {/* The backdrop closes on click, which is what everybody tries first. It is not the only
-          way out: Escape works, and the close is also reachable by keyboard from the field. */}
       <button
         type="button"
         aria-label="Close search"
         onClick={close}
         className="absolute inset-0 cursor-default"
       />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search and commands"
-        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[680px] min-w-0 flex-col overflow-hidden rounded-lg bg-background shadow-lg"
-      >
-        <div
-          className={[
-            'flex items-center gap-3 px-5',
-            options.length === 0 ? '' : 'border-b border-divider',
-          ].join(' ')}
-        >
-          <Icon icon={Search} size="md" />
-          <Input
-            ref={inputRef}
-            tone="plain"
-            role="combobox"
-            aria-expanded={listbox.expanded}
-            aria-autocomplete="list"
-            autoComplete="off"
-            aria-controls={listbox.id}
-            aria-activedescendant={listbox.activeOptionId}
-            aria-label="Search items or run a command"
-            placeholder="Search or run a command"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                // The innermost layer's Escape wins - see `workspace-sidebar.tsx`'s `CreateMenu`
-                // for the full reasoning. This is reachable while the off-canvas drawer is open,
-                // since the header stays interactive by design, so without stopping here Escape
-                // would close both in one keystroke.
-                event.stopPropagation();
-                close();
-                return;
-              }
-
-              listbox.onKeyDown(event);
-            }}
-            className="h-[var(--control-lg)] text-lg"
-          />
-        </div>
-
-        <Listbox
-          label="Commands and items"
-          options={options}
-          controller={listbox}
-          emptyMessage={
-            current?.failed === true
-              ? 'The search could not be run just now. Check your connection and try again.'
-              : needle.length === 0
-                ? 'Type to search this workspace, or to find a command.'
-                : needle.length < MINIMUM_QUERY
-                  ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
-                  : searching
-                    ? 'Searching…'
-                    : `Nothing matches “${needle}”.`
-          }
-          className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
-        />
-
-        {/*
-          One line under the list, carrying whichever of these applies. `role="status"` because all
-          three arrive without the person doing anything, and the mounted-empty region is what makes
-          the announcement reliable.
-        */}
-        <div role="status" className="empty:hidden">
-          {searching ? (
-            <Text
-              as="p"
-              variant="caption"
-              tone="muted"
-              className="border-t border-divider px-4 py-2"
-            >
-              Searching…
-            </Text>
-          ) : current?.truncated === true ? (
-            <Text
-              as="p"
-              variant="caption"
-              tone="muted"
-              className="border-t border-divider px-4 py-2"
-            >
-              Showing the first {hits.length} items. Type more to narrow it down.
-            </Text>
-          ) : current !== null && hits.length === 0 && matched.length > 0 ? (
-            // The palette found a command but no document, and the reason may be timing rather than
-            // absence: text inside documents becomes searchable when the document is saved. Said
-            // here for the same reason the backlinks panel says it.
-            <Text
-              as="p"
-              variant="caption"
-              tone="muted"
-              className="border-t border-divider px-4 py-2"
-            >
-              No items matched. Text inside a document becomes searchable once it has been saved.
-            </Text>
-          ) : null}
-        </div>
-      </div>
+      {panel}
     </div>
   );
 }

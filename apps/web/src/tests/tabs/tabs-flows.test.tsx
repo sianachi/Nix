@@ -451,8 +451,8 @@ describe('moving a tab between panes', () => {
     stubCoreApi({ items: [ALPHA, BRAVO] });
     renderAt(<App />, `/?item=${ALPHA.id}&item2=${BRAVO.id}`);
 
-    const tab = await screen.findByRole('tab', { name: 'Alpha' });
-    expect(tab).not.toHaveAttribute('draggable');
+    await screen.findByRole('textbox', { name: 'Note title' });
+    expect(screen.queryByRole('tab', { name: 'Alpha' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /Move active tab.*to another pane/ })).toBeNull();
     expect(screen.getByText('One more pane in this link opens on a wider screen.')).toBeVisible();
   });

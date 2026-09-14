@@ -81,3 +81,32 @@ it('offers timeline rescheduling without requiring a horizontal grid', async () 
     }),
   ).toBeInTheDocument();
 });
+
+it('browses board columns individually and keeps unassigned cards reachable', async () => {
+  const status = {
+    key: 'status',
+    label: 'Status',
+    type: 'select' as const,
+    options: ['Todo', 'Done'],
+    required: false,
+  };
+  const container = aContainer({
+    schema: { properties: [status], declared: [status], inherit: true },
+    children: [
+      item({ ...note, properties: { status: 'Todo' } }),
+      item({ id: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', title: 'Unassigned idea' }),
+    ],
+  });
+  renderAt(
+    <ContainerView
+      container={container}
+      view={aView({ kind: 'board', groupBy: 'status' })}
+      onOpen={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('region', { name: 'Todo' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Done' })).not.toBeInTheDocument();
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Board column' }), 'unset');
+  expect(screen.getByRole('button', { name: 'Unassigned idea' })).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Todo' })).not.toBeInTheDocument();
+});

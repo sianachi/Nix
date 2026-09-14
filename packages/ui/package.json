@@ -20,6 +20,7 @@
     "test-storybook": "vitest run --config vitest.storybook.config.ts"
   },
   "dependencies": {
+    "@ionic/core": "9.0.3",
     "@nix/design-tokens": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

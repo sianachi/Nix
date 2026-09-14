@@ -42,12 +42,14 @@ export function MobileNavigation({
       </NavLink>
       <button
         type="button"
-        className={`${control} text-accent`}
+        className={`${control} ml-2 flex-none rounded-full bg-accent-fill px-4 text-background hover:bg-accent-fill-hover`}
         disabled={creating}
         onClick={onCreate}
       >
-        <Icon icon={Plus} size="sm" />
-        <Text variant="caption">{creating ? 'Creating…' : 'New note'}</Text>
+        <Icon icon={Plus} size="sm" className="text-background" />
+        <Text variant="caption" className="text-background">
+          {creating ? 'Creating…' : 'New note'}
+        </Text>
       </button>
     </nav>
   );

@@ -64,8 +64,8 @@ export interface CreateOutcome {
  * to trust what it was about to claim happened. Before this existed, both calls were fire-and-
  * forget: the caller set state claiming success in the same breath as the request, with the
  * request's own failure only reaching the tree's foot-of-sidebar error, never the caller that had
- * already told somebody the opposite. `rename` and `move` do not follow this pattern yet - both
- * still return `Promise<void>` - which is a real inconsistency, left alone here as a separate,
+ * already told somebody the opposite. `rename` does not follow this pattern yet - it
+ * still returns `Promise<void>` - which is a real inconsistency, left alone here as a separate,
  * later change rather than folded into this one.
  */
 export interface MutationOutcome {
@@ -150,7 +150,11 @@ export interface WorkspaceTree {
     readonly publishInteractiveFormViewId: string | null;
   }) => Promise<CreateOutcome & { readonly publicUrl?: string | null }>;
   readonly rename: (itemId: string, title: string) => Promise<void>;
-  readonly move: (itemId: string, parentId: string | null, afterId: string | null) => Promise<void>;
+  readonly move: (
+    itemId: string,
+    parentId: string | null,
+    afterId: string | null,
+  ) => Promise<MutationOutcome>;
   readonly remove: (itemId: string) => Promise<MutationOutcome>;
   readonly restore: (itemId: string) => Promise<MutationOutcome>;
   readonly reload: () => Promise<void>;
@@ -552,17 +556,23 @@ export function useWorkspaceTree(): WorkspaceTree {
   );
 
   const move = useCallback(
-    async (itemId: string, parentId: string | null, afterId: string | null): Promise<void> => {
+    async (
+      itemId: string,
+      parentId: string | null,
+      afterId: string | null,
+    ): Promise<MutationOutcome> => {
       const controller = new AbortController();
       activeRequests.current.add(controller);
       setIsSaving(true);
+      let confirmed = false;
       try {
         const moved = toItem(
           await client.execute(coreItems.moveItem(workspaceId, itemId, { parentId, afterId }), {
             signal: controller.signal,
           }),
         );
-        if (controller.signal.aborted || !mounted.current) return;
+        confirmed = true;
+        if (controller.signal.aborted || !mounted.current) return { refusal: null };
         setItems((current) => current.map((item) => (item.id === itemId ? moved : item)));
 
         // The destination's order changed for every sibling, not just the moved item, so its
@@ -571,14 +581,24 @@ export function useWorkspaceTree(): WorkspaceTree {
         if (requestCanCommit(controller.signal, mounted.current)) {
           absorb(parentId, siblings);
         }
+        return { refusal: null };
       } catch (reason) {
-        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
-          setError(
-            isNixApiError(reason) && reason.code === 'items.move_would_create_cycle'
-              ? 'An item cannot be moved inside itself.'
-              : apiFailure(reason, 'The item could not be moved.'),
-          );
+        if (confirmed) {
+          if (mounted.current)
+            setError('The item moved, but the destination could not be refreshed.');
+          return { refusal: null };
         }
+        const refusal =
+          isNixApiError(reason) && reason.code === 'items.move_would_create_cycle'
+            ? 'An item cannot be moved inside itself.'
+            : apiFailure(
+                reason,
+                'The move could not be confirmed. Check the workspace before retrying.',
+              );
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+          setError(refusal);
+        }
+        return { refusal };
       } finally {
         activeRequests.current.delete(controller);
         if (mounted.current) setIsSaving(false);
