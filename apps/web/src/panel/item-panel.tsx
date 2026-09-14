@@ -1,4 +1,4 @@
-import { Icon, Segmented, Text, focusRing } from '@nix/ui';
+import { Icon, Segmented, Text, cn, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -42,9 +42,15 @@ export interface ItemPanelProps {
   readonly details: ItemProperties;
 
   readonly onClose: () => void;
+  readonly overlay?: boolean;
 }
 
-export function ItemPanel({ container, details, onClose }: ItemPanelProps): ReactNode {
+export function ItemPanel({
+  container,
+  details,
+  onClose,
+  overlay = false,
+}: ItemPanelProps): ReactNode {
   const [pane, setPane] = useState<Pane>('details');
 
   return (
@@ -55,7 +61,11 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
     // for the same reason.
     <aside
       aria-label="Item settings"
-      className={`flex ${settingsPanelWidth} max-sm:w-full max-sm:min-h-0 max-sm:flex-1 max-sm:shrink shrink-0 flex-col overflow-hidden bg-surface`}
+      className={cn(
+        'flex shrink-0 flex-col overflow-hidden bg-surface',
+        settingsPanelWidth,
+        overlay && 'min-h-0 w-full flex-1 shrink',
+      )}
     >
       <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <Segmented
@@ -70,7 +80,7 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
           type="button"
           aria-label="Hide the settings panel"
           onClick={onClose}
-          className={`flex size-7 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+          className={`flex size-7 max-xl:min-h-11 max-xl:min-w-11 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
         >
           <Icon icon={PanelRightClose} size="sm" />
         </button>

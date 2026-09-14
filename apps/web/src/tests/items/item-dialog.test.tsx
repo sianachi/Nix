@@ -4,6 +4,7 @@ import { beforeEach, expect, it } from 'vitest';
 import { App } from '../../app';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
+import { aView } from '../view-fixture';
 import { stubViewport } from '../stub-viewport';
 
 beforeEach(() => {
@@ -22,11 +23,13 @@ it('opens a child over its parent and closes back to the same view', async () =>
     title: 'Plan',
     parentId: root.id,
   });
-  stubCoreApi({ items: [root, child] });
+  stubCoreApi({
+    items: [root, child],
+    views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
+  });
   const user = userEvent.setup();
-  renderAt(<App />, `/?item=${root.id}`);
+  renderAt(<App />, `/?item=${root.id}&view=view-1`);
   await screen.findByRole('textbox', { name: 'Note title' });
-  await user.click(screen.getByRole('button', { name: 'Children' }));
   await user.click(
     await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
       name: 'Plan',

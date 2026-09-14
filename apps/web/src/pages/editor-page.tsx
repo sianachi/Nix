@@ -30,7 +30,7 @@ import {
   paneColumn,
   paneScroller,
 } from '../layout/regions';
-import { useMediaQuery, useNarrowViewport } from '../layout/viewport';
+import { useMediaQuery, useNarrowViewport, useOverlayDetails } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
@@ -438,7 +438,10 @@ export function OpenItem({
   // Remembered the way the tree's own collapse is, and for the same reason: somebody who closed it
   // wanted the width back, and finding it open again would make the control feel like it had not
   // worked.
-  const [panelOpen, setPanelOpen] = useState(() => !narrow && readPanelOpen(browserStorage()));
+  const overlayDetails = useOverlayDetails();
+  const [inlinePanelOpen, setInlinePanelOpen] = useState(() => readPanelOpen(browserStorage()));
+  const [overlayPanelOpen, setOverlayPanelOpen] = useState(false);
+  const panelOpen = overlayDetails ? overlayPanelOpen : inlinePanelOpen;
 
   // The dialog is mounted only while it is open, so an export that was never started costs nothing
   // and a closed one keeps no half-chosen format from last time.
@@ -450,8 +453,12 @@ export function OpenItem({
   const paneIndex = usePaneIndex();
 
   function togglePanel(): void {
-    setPanelOpen((current) => {
-      if (!narrow) storePanelOpen(browserStorage(), !current);
+    if (overlayDetails) {
+      setOverlayPanelOpen((current) => !current);
+      return;
+    }
+    setInlinePanelOpen((current) => {
+      storePanelOpen(browserStorage(), !current);
       return !current;
     });
   }
@@ -472,10 +479,8 @@ export function OpenItem({
   );
 
   // The body, when nothing else was chosen or when what was chosen is not a view this item has.
+  // Existing shared links to the old children shortcut still open their list.
   const showChildren = activeId === '__children__';
-  function setShowChildren(show: boolean): void {
-    selectView(show ? '__children__' : DOCUMENT_VIEW);
-  }
   const showingDocument = active === null && !showChildren;
 
   const itemActions = (
@@ -522,15 +527,6 @@ export function OpenItem({
         {/* The thing you are reading is the thing you can keep. First in the row because it acts
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
-        <Button
-          variant="ghost"
-          aria-pressed={showChildren}
-          onClick={() => {
-            setShowChildren(!showChildren);
-          }}
-        >
-          Children
-        </Button>
         <BookmarkButton compact itemId={itemId} title={title} />
         {narrow ? (
           <Button
@@ -547,7 +543,7 @@ export function OpenItem({
               than on the pane around it, and the two controls after them do not. */}
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           onClick={() => {
             setExportOpen(true);
           }}
@@ -560,7 +556,7 @@ export function OpenItem({
               Markdown can come back as Markdown, under the item being looked at. */}
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           onClick={() => {
             setImportOpen(true);
           }}
@@ -572,7 +568,7 @@ export function OpenItem({
         {canApplyTemplates ? (
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
             }}
@@ -585,7 +581,7 @@ export function OpenItem({
         {canManageTemplates ? (
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
             }}
@@ -597,7 +593,7 @@ export function OpenItem({
 
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           aria-expanded={panelOpen}
           onClick={togglePanel}
         >
@@ -609,7 +605,7 @@ export function OpenItem({
               "delete this note" to everybody who has ever seen one, and the header already has a
               text-labelled control next to it to match. */}
         {onClose === undefined ? null : (
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
+          <Button variant="ghost" className="max-xl:min-h-11 px-2 py-1 text-xs" onClick={onClose}>
             <Icon icon={PanelRightClose} size="sm" />
             Close pane
           </Button>
@@ -647,16 +643,6 @@ export function OpenItem({
           <Button
             variant="ghost"
             className="min-h-11 flex-1"
-            aria-pressed={!showingDocument}
-            onClick={() => {
-              setShowChildren(true);
-            }}
-          >
-            Children
-          </Button>
-          <Button
-            variant="ghost"
-            className="min-h-11 flex-1"
             aria-expanded={panelOpen}
             onClick={togglePanel}
           >
@@ -676,7 +662,7 @@ export function OpenItem({
       ) : (
         itemActions
       )}
-      {narrow && !showingDocument && views.length > 0 ? (
+      {narrow && views.length > 0 ? (
         <ViewSwitcher
           views={views}
           unrenderable={unrenderable}
@@ -790,9 +776,15 @@ export function OpenItem({
         </div>
 
         {panelOpen ? (
-          narrow ? (
-            <Dialog open title="Item details" onClose={togglePanel} presentation="workspace">
-              <ItemPanel container={container} details={details} onClose={togglePanel} />
+          overlayDetails ? (
+            <Dialog
+              open
+              title="Item details"
+              onClose={togglePanel}
+              presentation="workspace"
+              className="sm:max-w-xl"
+            >
+              <ItemPanel container={container} details={details} onClose={togglePanel} overlay />
             </Dialog>
           ) : (
             <ItemPanel container={container} details={details} onClose={togglePanel} />

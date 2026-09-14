@@ -24,7 +24,7 @@ import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
 import { NavRail } from './nav-rail';
-import { useNarrowViewport } from '../layout/viewport';
+import { useDrawerNavigation } from '../layout/viewport';
 import { useSidebar } from '../layout/use-sidebar';
 import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 import { useTemplates } from '../templates/use-templates';
@@ -91,7 +91,7 @@ export function AppShell(): ReactNode {
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
-  const narrow = useNarrowViewport();
+  const narrow = useDrawerNavigation();
   const keyboardVisible = useMobileKeyboard(narrow);
   const templateLibrary = useTemplates();
 

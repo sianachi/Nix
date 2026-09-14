@@ -9,7 +9,7 @@
  *   fixed   | resizable,     | one to three, split by     | fixed width,
  *   width,  | collapsible,   | the address, each owning   | toggled per
  *   always  | a drawer below | one vertical scroller      | reader
- *           | `sm`           |                            |
+ *           | `lg`           |                            |
  *
  * `shell/app-shell.tsx` composes them and owns the viewport: exactly one element
  * is `h-dvh`, exactly one clips, and each pane owns exactly one scroller. **The
@@ -141,38 +141,17 @@ export const SIDEBAR_MAXIMUM_WIDTH = 480;
  */
 export const settingsPanelWidth = 'w-[340px] max-w-full';
 
-/**
- * The narrowest window this shell will lay two panes out in.
- *
- * Not a guess. The tree takes `SIDEBAR_DEFAULT_WIDTH` and the settings panel `settingsPanelWidth`,
- * and neither narrows yet - so on a 768px window a second pane is already sharing about 460px with
- * the first. Below that the honest thing is to refuse the split rather than draw two columns of
- * six-character prose, which is what a phone would otherwise get the day somebody pastes a
- * two-pane link into a message - and ADR-0026's whole premise is that these links get pasted.
- *
- * A window query rather than a container query on purpose: what is being decided is whether the
- * *shell* can hold another region, which is a question about the window. Narrowing the tree and
- * the panel is the responsive goal's work, and this number moves when that lands.
- *
- * This constant is why the two widths above are in this file. It reasons about both while owning
- * neither, and used to restate them in prose - a third copy of each, in a comment no compiler and
- * no guard could keep honest.
- */
-export const NARROWEST_FOR_TWO_PANES = 768;
+/** Two document panes need room beyond the workspace sidebar. */
+export const NARROWEST_FOR_TWO_PANES = 1280;
 
-/**
- * The window width at which the tree stops being a drawer and becomes a fixed column.
- *
- * Tailwind's own `sm` breakpoint - the cutoff this codebase already reaches for whenever a layout
- * changes shape on a phone (`gallery-view.tsx`'s `sm:grid-cols-2`, `timeline-view.tsx`'s
- * `sm:min-w-[12rem]`). There are no custom breakpoint tokens in `packages/design-tokens`, so this
- * uses the number Tailwind's utilities already use rather than inventing a second one.
- *
- * It sits beside `NARROWEST_FOR_TWO_PANES` so a reader can see at once that 640 and 768 answer
- * different questions - "can the tree sit beside the content" and "is there room for a second
- * pane" - rather than being two guesses at one threshold.
- */
-export const WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR = '(min-width: 640px)';
+/** Phone-only arrangements follow Tailwind's sm breakpoint. */
+export const WIDE_ENOUGH_FOR_NON_PHONE_LAYOUT = '(min-width: 640px)';
 
-/** Tailwind's <c>lg</c> breakpoint: the point at which companion views may sit side by side. */
-export const WIDE_ENOUGH_FOR_COMPANION_BESIDE = '(min-width: 1024px)';
+/** Portrait tablets use a drawer; landscape layouts can keep the workspace beside the page. */
+export const WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR = '(min-width: 1024px)';
+
+/** Details overlay the page until the sidebar, document and panel all have room. */
+export const WIDE_ENOUGH_FOR_INLINE_DETAILS = '(min-width: 1280px)';
+
+/** Companion views need the same document width as independent panes. */
+export const WIDE_ENOUGH_FOR_COMPANION_BESIDE = WIDE_ENOUGH_FOR_INLINE_DETAILS;

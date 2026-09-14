@@ -1,4 +1,4 @@
-import { useNarrowViewport } from '../layout/viewport';
+import { useDrawerNavigation } from '../layout/viewport';
 import { Dialog, Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
 import { search, type SearchHit } from '@nix/api-client';
 import { FileText, Search } from 'lucide-react';
@@ -63,7 +63,7 @@ export interface CommandPaletteProps {
 export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const { open, commands, onSelectItem, onClose, preserveQuery = false } = props;
   const client = useApiClient();
-  const narrow = useNarrowViewport();
+  const narrow = useDrawerNavigation();
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);

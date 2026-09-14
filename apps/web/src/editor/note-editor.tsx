@@ -1,7 +1,7 @@
 import { PaneViewport } from '../layout/pane-viewport';
 import type { DraftState } from './draft-journal';
 import { MobileNoteToolbar } from './mobile-note-toolbar';
-import { useNarrowViewport } from '../layout/viewport';
+import { useDrawerNavigation } from '../layout/viewport';
 import { nixEditingExtensions, readWidth } from '@nix/editor-schema';
 import { files as fileResources, items as coreItems, type NixClient } from '@nix/api-client';
 import { Icon, Text } from '@nix/ui';
@@ -382,7 +382,7 @@ export function NoteEditor({
   onSync,
   mobileActions,
 }: NoteEditorProps): ReactNode {
-  const narrow = useNarrowViewport();
+  const narrow = useDrawerNavigation();
   const { getAccessToken } = useAuth();
   const client = useApiClient();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -855,7 +855,7 @@ export function NoteEditor({
 
             <PaneViewport
               scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:py-6"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
             >
               {dropActive ? (
                 <Text

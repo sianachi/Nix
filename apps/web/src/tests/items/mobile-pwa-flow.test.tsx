@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { App } from '../../app';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
+import { aView } from '../view-fixture';
 import { stubViewport } from '../stub-viewport';
 
 const root = item({
@@ -20,11 +21,14 @@ beforeEach(() => {
   signedIn();
   stubViewport(false);
 });
-it('opens children as pages and Back restores the parent children view', async () => {
-  stubCoreApi({ items: [root, child] });
+it('opens list items as pages and Back restores the parent list view', async () => {
+  stubCoreApi({
+    items: [root, child],
+    views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
+  });
   renderAt(<App />, `/?item=${root.id}`);
   await screen.findByRole('textbox', { name: 'Note title' });
-  await userEvent.click(screen.getByRole('button', { name: 'Children' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'List' }));
   await userEvent.click(
     await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
       name: 'Plan',
@@ -40,7 +44,10 @@ it('opens children as pages and Back restores the parent children view', async (
   ).toBeInTheDocument();
 });
 it('keeps a dismissed capture title and creates in the selected destination', async () => {
-  stubCoreApi({ items: [root, child] });
+  stubCoreApi({
+    items: [root, child],
+    views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
+  });
   renderAt(<App />, `/?item=${root.id}`);
   await screen.findByRole('textbox', { name: 'Note title' });
   await userEvent.click(screen.getByRole('button', { name: 'New note' }));
@@ -60,7 +67,7 @@ it('keeps a dismissed capture title and creates in the selected destination', as
     expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Captured idea');
   });
   await userEvent.click(screen.getByRole('button', { name: 'Project' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Children' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'List' }));
   expect(
     await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
       name: 'Captured idea',
@@ -68,7 +75,10 @@ it('keeps a dismissed capture title and creates in the selected destination', as
   ).toBeInTheDocument();
 });
 it('provides one-level browsing and access to the full workspace tree', async () => {
-  stubCoreApi({ items: [root, child] });
+  stubCoreApi({
+    items: [root, child],
+    views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
+  });
   renderAt(<App />, `/?item=${root.id}`);
   await screen.findByRole('textbox', { name: 'Note title' });
   await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));

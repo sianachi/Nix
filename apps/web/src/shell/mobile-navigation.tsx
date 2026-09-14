@@ -18,7 +18,7 @@ export function MobileNavigation({
   readonly onSearch: () => void;
   readonly onCreate: () => void;
 }): ReactNode {
-  const control = `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md px-2 py-2 text-muted hover:bg-surface ${focusRing}`;
+  const control = `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2 rounded-md px-2 py-2 text-muted hover:bg-surface ${focusRing}`;
   return (
     // design-token-exempt: device safe-area inset keeps navigation above the home indicator.
     <nav
