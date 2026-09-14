@@ -16,6 +16,10 @@ const tracker = {
   unit: 'pages',
   checkIns: [],
   weeks: [],
+  status: 'active' as const,
+  occurrences: null,
+  progress: null,
+  months: null,
 };
 
 describe('habit chart widgets', () => {

@@ -350,7 +350,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
               <Text key={item.id} variant="bodySmall">
                 {item.title}: {progress?.currentStreak ?? 0} day current streak,{' '}
                 {progress?.bestStreak ?? 0} day best,{' '}
-                {progress === undefined ? 0 : Math.round(progress.completionRate * 100)}% complete (
+                {Math.round((progress?.completionRate ?? 0) * 100)}% complete (
                 {progress?.completed ?? 0}/{progress?.planned ?? 0})
               </Text>
             );

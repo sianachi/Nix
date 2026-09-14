@@ -97,6 +97,9 @@ describe('habit tracker user flows', () => {
       checkIns: [{ id: 'check-1', occurredOn: '2026-03-16', completed: false, quantity: 1 }],
       weeks: [{ weekStart: '2026-03-16', planned: 7, completed: 0, quantity: 1 }],
       status: 'active',
+      occurrences: null,
+      progress: null,
+      months: null,
     };
     saveHabit.mockResolvedValue(null);
     saveCheckIn.mockResolvedValue(null);
