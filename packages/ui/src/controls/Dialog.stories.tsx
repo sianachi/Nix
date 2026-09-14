@@ -299,3 +299,18 @@ export const EditableItemWorkspace: Story = {
     actions: <Button>Open as page</Button>,
   },
 };
+
+/** Phone sheets share the native dialog focus boundary and Nix's existing tokens. */
+export const MobileActionSheet: Story = {
+  args: {
+    title: 'Item actions',
+    swipeToClose: true,
+    children: (
+      <div className="flex flex-col gap-2">
+        <Button variant="ghost">Export</Button>
+        <Button variant="ghost">Import</Button>
+      </div>
+    ),
+  },
+  parameters: { viewport: { defaultViewport: 'mobile1' } },
+};

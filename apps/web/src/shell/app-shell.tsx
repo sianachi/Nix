@@ -1,3 +1,5 @@
+import { MobileNoteCapture } from '../items/mobile-note-capture';
+import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
 import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
@@ -22,7 +24,7 @@ import { useOpenItem } from '../tabs/use-open-item';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
 import { NavRail } from './nav-rail';
-import { useNarrowViewport } from '../layout/viewport';
+import { useDrawerNavigation } from '../layout/viewport';
 import { useSidebar } from '../layout/use-sidebar';
 import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 import { useTemplates } from '../templates/use-templates';
@@ -81,7 +83,7 @@ export function AppShell(): ReactNode {
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
   useRememberLocation(workspaceId);
-  const [creating, setCreating] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
@@ -89,7 +91,8 @@ export function AppShell(): ReactNode {
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
   const announcement = useAnnouncement();
-  const narrow = useNarrowViewport();
+  const narrow = useDrawerNavigation();
+  const keyboardVisible = useMobileKeyboard(narrow);
   const templateLibrary = useTemplates();
 
   // The shelf is loaded once, here, because four places read it at the same time - this page's
@@ -322,17 +325,18 @@ export function AppShell(): ReactNode {
         ) : null}
 
         <div className={`flex flex-1 flex-col ${paneClip}`}>
-          <ShellHeader
-            sidebarVisible={sidebar.visible}
-            sidebarToggleRef={sidebarToggleRef}
-            workspaceId={workspaceId}
-            principal={principal}
-            onToggleSidebar={sidebar.toggle}
-            onOpenSearch={() => {
-              setSearchOpen(true);
-            }}
-          />
-
+          <div hidden={keyboardVisible}>
+            <ShellHeader
+              sidebarVisible={sidebar.visible}
+              sidebarToggleRef={sidebarToggleRef}
+              workspaceId={workspaceId}
+              principal={principal}
+              onToggleSidebar={sidebar.toggle}
+              onOpenSearch={() => {
+                setSearchOpen(true);
+              }}
+            />
+          </div>
           <WorkspaceInvitationNotice />
 
           {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
@@ -342,6 +346,7 @@ export function AppShell(): ReactNode {
               back. */}
           <div className={`relative flex flex-1 ${paneClip}`}>
             <ShellSidebar
+              key={workspaceId}
               narrow={narrow}
               sidebar={sidebar}
               tree={tree}
@@ -400,36 +405,32 @@ export function AppShell(): ReactNode {
         </div>
       </div>
 
-      <PwaControls />
-      {narrow ? (
+      <PwaControls compact={keyboardVisible} />
+      {narrow && !keyboardVisible ? (
         <MobileNavigation
           workspaceId={workspaceId}
           treeOpen={sidebar.visible}
-          creating={creating}
+          creating={tree.isCreating}
           onTree={sidebar.toggle}
           onSearch={() => {
             setSearchOpen(true);
           }}
           onCreate={() => {
-            if (creating) return;
-            setCreating(true);
-            void tree
-              .create(null, 'Untitled note')
-              .then((outcome) => {
-                if (outcome.id !== null) {
-                  if (sidebar.visible) sidebar.toggle();
-                  openPreview(outcome.id);
-                } else announce(outcome.refusal ?? 'That could not be created.');
-              })
-              .catch(() => {
-                announce('The note could not be created. Try again.');
-              })
-              .finally(() => {
-                setCreating(false);
-              });
+            if (sidebar.visible) sidebar.toggle();
+            setCaptureOpen(true);
           }}
         />
       ) : null}
+
+      <MobileNoteCapture
+        key={`capture:${workspaceId}`}
+        open={captureOpen}
+        tree={tree}
+        onClose={() => {
+          setCaptureOpen(false);
+        }}
+        onCreated={openPreview}
+      />
 
       {workspaceImportOpen ? (
         <ImportDialog
@@ -448,6 +449,8 @@ export function AppShell(): ReactNode {
       ) : null}
 
       <CommandPalette
+        key={workspaceId}
+        preserveQuery={narrow}
         open={searchOpen}
         commands={builtInCommands({
           // Built here rather than inside the palette, because the shell is what holds each of

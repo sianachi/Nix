@@ -119,7 +119,7 @@ function renderSidebar(tree: WorkspaceTree, selectedId: string | null = null): v
 describe('moving an item from the keyboard', () => {
   it('moves it above the sibling before it', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('Second');
@@ -133,7 +133,7 @@ describe('moving an item from the keyboard', () => {
 
   it('moves it below the sibling after it', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('First');
@@ -146,7 +146,7 @@ describe('moving an item from the keyboard', () => {
 
   it('puts it inside the sibling above when indented', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('Second');
@@ -161,7 +161,7 @@ describe('moving an item from the keyboard', () => {
 
   it('does not indent the first of its siblings, which has nothing to go inside', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('First');
@@ -172,7 +172,7 @@ describe('moving an item from the keyboard', () => {
 
   it('does not move the last of its siblings further down', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('Third');
@@ -183,7 +183,7 @@ describe('moving an item from the keyboard', () => {
 
   it('leaves an unmodified arrow key alone', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     renderSidebar(treeOf(move));
 
     focusRow('Second');
@@ -198,7 +198,7 @@ describe('moving an item from the keyboard', () => {
 describe('moving an item to the workspace root', () => {
   it('offers one direct action for a nested item', async () => {
     const user = userEvent.setup();
-    const move = vi.fn(() => Promise.resolve());
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
     const parent = { ...ROOT_A, hasChildren: true };
     const child = { ...ROOT_C, parentId: parent.id, title: 'Nested' };
 

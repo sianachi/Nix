@@ -30,6 +30,7 @@ export interface ContainerViewProps {
 export function ContainerView({ container, view, onOpen }: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
+  const open = narrow ? onOpen : (openDialog ?? onOpen);
   const [grid, setGrid] = useState(false);
   if (narrow && view?.kind === 'sheet')
     return (
@@ -44,13 +45,13 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
           {grid ? 'Browse records' : 'Show spreadsheet grid'}
         </Button>
         {grid ? (
-          renderContent(container, view, openDialog ?? onOpen)
+          renderContent(container, view, open)
         ) : (
-          <ListView container={container} view={view} onOpen={openDialog ?? onOpen} />
+          <ListView container={container} view={view} onOpen={open} />
         )}
       </div>
     );
-  return <div className={VIEW_GUTTER}>{renderContent(container, view, openDialog ?? onOpen)}</div>;
+  return <div className={VIEW_GUTTER}>{renderContent(container, view, open)}</div>;
 }
 
 function renderContent(

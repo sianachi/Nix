@@ -1,4 +1,4 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Dialog } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 import { useMobileToolbarPreference } from './mobile-toolbar-preference';
@@ -14,8 +14,6 @@ export function MobileNoteToolbar({
   readonly actions?: ReactNode;
 }): ReactNode {
   const visibility = useMobileToolbarPreference((state) => state.visibility);
-  const setVisibility = useMobileToolbarPreference((state) => state.setVisibility);
-  const saved = useMobileToolbarPreference((state) => state.saved);
   const [hidden, setHidden] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -59,7 +57,7 @@ export function MobileNoteToolbar({
     };
   }, []);
   const collapsed = visibility === 'while-writing' && hidden;
-  const [section, setSection] = useState<'formatting' | 'item'>('formatting');
+  const [actionsOpen, setActionsOpen] = useState(false);
   return (
     // design-token-exempt: keyboard inset is measured from the runtime visual viewport; safe-area is supplied by the device.
     <div
@@ -77,54 +75,49 @@ export function MobileNoteToolbar({
         </Button>
       ) : (
         <>
-          {!saved ? (
-            <Text as="p" variant="caption">
-              Preference applies to this session; browser storage is unavailable.
-            </Text>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-1">
-            <Button
-              variant="ghost"
-              aria-pressed={section === 'formatting'}
-              onClick={() => {
-                setSection('formatting');
-              }}
+          <div className="flex items-center gap-1">
+            <div
+              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
+              aria-label="Formatting actions"
             >
-              Formatting
-            </Button>
+              {formatting}
+            </div>
             {actions ? (
               <Button
                 variant="ghost"
-                aria-pressed={section === 'item'}
                 onClick={() => {
-                  setSection('item');
+                  setActionsOpen(true);
                 }}
               >
                 Item
               </Button>
             ) : null}
-            <label className="ml-auto flex items-center gap-1 px-2 py-1">
-              <input
-                type="checkbox"
-                checked={visibility === 'while-writing'}
-                onChange={(event) => {
-                  setVisibility(event.target.checked ? 'while-writing' : 'always');
-                  setHidden(false);
+            {editor ? (
+              <Button
+                variant="ghost"
+                className="min-h-11 shrink-0"
+                onClick={() => {
+                  editor.commands.blur();
                 }}
-              />
-              <Text as="span" variant="caption">
-                Hide while writing
-              </Text>
-            </label>
-          </div>
-          <div
-            className="overflow-x-auto overscroll-x-contain"
-            aria-label={section === 'formatting' ? 'Formatting actions' : 'Item actions'}
-          >
-            {section === 'formatting' ? formatting : actions}
+              >
+                Done
+              </Button>
+            ) : null}
           </div>
         </>
       )}
+      {actionsOpen ? (
+        <Dialog
+          open
+          swipeToClose
+          title="Item actions"
+          onClose={() => {
+            setActionsOpen(false);
+          }}
+        >
+          {actions}
+        </Dialog>
+      ) : null}
     </div>
   );
 }

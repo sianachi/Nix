@@ -1,52 +1,54 @@
 import type { Editor } from '@tiptap/core';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { MobileNoteToolbar } from '../../editor/mobile-note-toolbar';
+import { useMobileToolbarPreference } from '../../editor/mobile-toolbar-preference';
+import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
 
-it('switches between formatting and item actions without stacking them', async () => {
-  const user = userEvent.setup();
+beforeEach(() => {
+  useMobileToolbarPreference.setState({ visibility: 'always', saved: true });
+});
+it('opens item actions in a separate sheet', async () => {
   render(
     <MobileNoteToolbar formatting={<button>Bold</button>} actions={<button>Children</button>} />,
   );
-  expect(screen.getByRole('button', { name: 'Bold' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Children' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Item' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Item' }));
+  expect(screen.getByRole('dialog', { name: 'Item actions' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Children' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Bold' })).not.toBeInTheDocument();
 });
-
-it('remembers the visibility choice across toolbar mounts', async () => {
-  const user = userEvent.setup();
-  const view = render(<MobileNoteToolbar formatting={<button>Bold</button>} />);
-  await user.click(screen.getByRole('checkbox', { name: 'Hide while writing' }));
-  view.unmount();
-  render(<MobileNoteToolbar formatting={<button>Bold</button>} />);
-  expect(screen.getByRole('checkbox', { name: 'Hide while writing' })).toBeChecked();
-  await user.click(screen.getByRole('checkbox', { name: 'Hide while writing' }));
+it('keeps visibility preferences in settings, outside the writing toolbar', async () => {
+  render(
+    <>
+      <EditorPreferencesSection />
+      <MobileNoteToolbar formatting={<button>Bold</button>} />
+    </>,
+  );
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Hide mobile tools while writing' }));
+  expect(useMobileToolbarPreference.getState().visibility).toBe('while-writing');
 });
-
-it('hides on typing and lets the user reveal the tools', async () => {
+it('hides on typing, reveals on demand, and releases its subscription', async () => {
+  useMobileToolbarPreference.setState({ visibility: 'while-writing' });
   const listeners = new Set<() => void>();
+  const blur = vi.fn();
   const editor = {
     isFocused: true,
-    on: (_event: string, listener: () => void) => {
-      listeners.add(listener);
-    },
-    off: (_event: string, listener: () => void) => {
-      listeners.delete(listener);
-    },
+    commands: { blur },
+    on: (_: string, listener: () => void) => listeners.add(listener),
+    off: (_: string, listener: () => void) => listeners.delete(listener),
   } as unknown as Editor;
-  const user = userEvent.setup();
-  render(<MobileNoteToolbar formatting={<button>Bold</button>} editor={editor} />);
-  await user.click(screen.getByRole('checkbox', { name: 'Hide while writing' }));
+  const view = render(<MobileNoteToolbar formatting={<button>Bold</button>} editor={editor} />);
   act(() => {
     listeners.forEach((listener) => {
       listener();
     });
   });
   expect(screen.queryByRole('button', { name: 'Bold' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Show writing tools' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Show writing tools' }));
   expect(screen.getByRole('button', { name: 'Bold' })).toBeInTheDocument();
-  await user.click(screen.getByRole('checkbox', { name: 'Hide while writing' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(blur).toHaveBeenCalledOnce();
+  view.unmount();
+  expect(listeners.size).toBe(0);
 });

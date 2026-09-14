@@ -1,5 +1,15 @@
+import { MobileItemMove } from '../items/mobile-item-move';
 import { Button, Dialog, Icon, PaneDivider, Text, focusRing } from '@nix/ui';
-import { Download, LayoutTemplate, PanelRightClose, Save, Settings2, Upload } from 'lucide-react';
+import {
+  ArrowLeft,
+  MoreHorizontal,
+  Download,
+  LayoutTemplate,
+  PanelRightClose,
+  Save,
+  Settings2,
+  Upload,
+} from 'lucide-react';
 import {
   Suspense,
   lazy,
@@ -10,7 +20,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useNavigate, useOutletContext } from 'react-router';
+import { useLocation, useNavigate, useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../shell/shell-context';
 import { PaneViewport } from '../layout/pane-viewport';
@@ -20,7 +30,7 @@ import {
   paneColumn,
   paneScroller,
 } from '../layout/regions';
-import { useMediaQuery, useNarrowViewport } from '../layout/viewport';
+import { useMediaQuery, useNarrowViewport, useOverlayDetails } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
 import { SheetEditor } from '../views/sheet/sheet-editor';
 
@@ -252,6 +262,7 @@ function PaneContents({
 }: PaneContentsProps): ReactNode {
   const { openPreview } = useOpenItem();
   const tabPinned = useTabStore((state) => state.tabPinned);
+  const narrow = useNarrowViewport();
   const orientation = useTabOrientationStore((state) => state.orientation);
   const item = tree.find(pane.itemId);
 
@@ -275,17 +286,19 @@ function PaneContents({
         {/* Mounted here rather than inside `OpenItem`, and above the not-found branch below: an
             item resolving, forbidden, or failed must not take the rest of the strip down with it,
             or a person could not click back to a tab that is perfectly fine. */}
-        <DocumentTabStrip
-          paneIndex={pane.index}
-          tree={tree}
-          activeItemId={pane.itemId}
-          visiblePanes={visiblePanes}
-          draggedTab={draggedTab}
-          onTabDragStarted={onTabDragStarted}
-          onTabDragEnded={onTabDragEnded}
-          onMoveTab={onMoveTab}
-          onClosePane={onClose}
-        />
+        {!narrow ? (
+          <DocumentTabStrip
+            paneIndex={pane.index}
+            tree={tree}
+            activeItemId={pane.itemId}
+            visiblePanes={visiblePanes}
+            draggedTab={draggedTab}
+            onTabDragStarted={onTabDragStarted}
+            onTabDragEnded={onTabDragEnded}
+            onMoveTab={onMoveTab}
+            onClosePane={onClose}
+          />
+        ) : null}
 
         <div className={paneColumn}>
           {hiddenPanes > 0 ? (
@@ -409,6 +422,7 @@ export function OpenItem({
   onCommit,
 }: OpenItemProps): ReactNode {
   const navigate = useNavigate();
+  const narrow = useNarrowViewport();
   // Creation shares the tree cache with navigation. Loading children does not expand the
   // sidebar; only an explicit expansion there changes which descendants are visible.
   const createChild = useCallback(
@@ -424,17 +438,26 @@ export function OpenItem({
   // Remembered the way the tree's own collapse is, and for the same reason: somebody who closed it
   // wanted the width back, and finding it open again would make the control feel like it had not
   // worked.
-  const [panelOpen, setPanelOpen] = useState(() => readPanelOpen(browserStorage()));
+  const overlayDetails = useOverlayDetails();
+  const [inlinePanelOpen, setInlinePanelOpen] = useState(() => readPanelOpen(browserStorage()));
+  const [overlayPanelOpen, setOverlayPanelOpen] = useState(false);
+  const panelOpen = overlayDetails ? overlayPanelOpen : inlinePanelOpen;
 
   // The dialog is mounted only while it is open, so an export that was never started costs nothing
   // and a closed one keeps no half-chosen format from last time.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const paneIndex = usePaneIndex();
 
   function togglePanel(): void {
-    setPanelOpen((current) => {
+    if (overlayDetails) {
+      setOverlayPanelOpen((current) => !current);
+      return;
+    }
+    setInlinePanelOpen((current) => {
       storePanelOpen(browserStorage(), !current);
       return !current;
     });
@@ -456,12 +479,10 @@ export function OpenItem({
   );
 
   // The body, when nothing else was chosen or when what was chosen is not a view this item has.
-  const [showChildren, setShowChildren] = useState(false);
+  // Existing shared links to the old children shortcut still open their list.
+  const showChildren = activeId === '__children__';
   const showingDocument = active === null && !showChildren;
 
-  const narrow = useNarrowViewport();
-  const mobileNote =
-    narrow && showingDocument && !['canvas', 'spreadsheet', 'file'].includes(bodyKind);
   const itemActions = (
     <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1 overflow-x-auto">
@@ -471,7 +492,6 @@ export function OpenItem({
           activeViewId={showingDocument ? DOCUMENT_VIEW : activeId}
           documentLabel="Document"
           onSelect={(chosen) => {
-            setShowChildren(false);
             selectView(chosen);
 
             // The deliberate click, and the only place the stored default is written. Arriving at
@@ -497,26 +517,33 @@ export function OpenItem({
             focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
             box where every sibling row's box already is; the label sits a further `px-2` in from
             there, which is the same relationship the switcher's own tabs have to their nav. */}
-      <div className="flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8">
+      <div
+        className={
+          narrow
+            ? 'grid grid-cols-2 gap-2 [&>button]:min-h-11'
+            : 'flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8'
+        }
+      >
         {/* The thing you are reading is the thing you can keep. First in the row because it acts
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
-        <Button
-          variant="ghost"
-          aria-pressed={showChildren}
-          onClick={() => {
-            setShowChildren((value) => !value);
-          }}
-        >
-          Children
-        </Button>
         <BookmarkButton compact itemId={itemId} title={title} />
+        {narrow ? (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setMoveOpen(true);
+            }}
+          >
+            Move item
+          </Button>
+        ) : null}
 
         {/* Beside the bookmark for the reason stated above it: both act on the document rather
               than on the pane around it, and the two controls after them do not. */}
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           onClick={() => {
             setExportOpen(true);
           }}
@@ -529,7 +556,7 @@ export function OpenItem({
               Markdown can come back as Markdown, under the item being looked at. */}
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           onClick={() => {
             setImportOpen(true);
           }}
@@ -541,7 +568,7 @@ export function OpenItem({
         {canApplyTemplates ? (
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
             }}
@@ -554,7 +581,7 @@ export function OpenItem({
         {canManageTemplates ? (
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
             }}
@@ -566,7 +593,7 @@ export function OpenItem({
 
         <Button
           variant="ghost"
-          className="px-2 py-1 text-xs"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
           aria-expanded={panelOpen}
           onClick={togglePanel}
         >
@@ -578,7 +605,7 @@ export function OpenItem({
               "delete this note" to everybody who has ever seen one, and the header already has a
               text-labelled control next to it to match. */}
         {onClose === undefined ? null : (
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
+          <Button variant="ghost" className="max-xl:min-h-11 px-2 py-1 text-xs" onClick={onClose}>
             <Icon icon={PanelRightClose} size="sm" />
             Close pane
           </Button>
@@ -598,7 +625,73 @@ export function OpenItem({
         onCommit={onCommit}
       />
 
-      {mobileNote ? null : itemActions}
+      {narrow ? (
+        <nav
+          aria-label="Item sections"
+          className="flex shrink-0 items-center gap-1 border-b border-divider px-3 pb-2"
+        >
+          <Button
+            variant="ghost"
+            className="min-h-11 flex-1"
+            aria-pressed={showingDocument}
+            onClick={() => {
+              selectView(DOCUMENT_VIEW);
+            }}
+          >
+            Body
+          </Button>
+          <Button
+            variant="ghost"
+            className="min-h-11 flex-1"
+            aria-expanded={panelOpen}
+            onClick={togglePanel}
+          >
+            Details
+          </Button>
+          <Button
+            variant="icon"
+            className="min-h-11 min-w-11"
+            aria-label="Item actions"
+            onClick={() => {
+              setActionsOpen(true);
+            }}
+          >
+            <Icon icon={MoreHorizontal} size="sm" />
+          </Button>
+        </nav>
+      ) : (
+        itemActions
+      )}
+      {narrow && views.length > 0 ? (
+        <ViewSwitcher
+          views={views}
+          unrenderable={unrenderable}
+          activeViewId={showChildren ? '' : activeId}
+          documentLabel="Body"
+          onSelect={(chosen) => {
+            selectView(chosen);
+          }}
+        />
+      ) : null}
+      {actionsOpen ? (
+        <Dialog
+          open
+          swipeToClose
+          title="Item actions"
+          onClose={() => {
+            setActionsOpen(false);
+          }}
+        >
+          <div
+            onClickCapture={(event) => {
+              if (event.target instanceof Element && event.target.closest('button'))
+                setActionsOpen(false);
+            }}
+          >
+            {itemActions}
+          </div>
+        </Dialog>
+      ) : null}
 
       <div className={`flex flex-1 ${paneClip}`}>
         <div className={paneColumn}>
@@ -625,7 +718,7 @@ export function OpenItem({
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
-              <NoteEditor itemId={itemId} mobileActions={itemActions} />
+              <NoteEditor itemId={itemId} />
             )
           ) : (
             <section aria-label="Container" className={paneColumn}>
@@ -683,9 +776,15 @@ export function OpenItem({
         </div>
 
         {panelOpen ? (
-          narrow ? (
-            <Dialog open title="Item settings" onClose={togglePanel} presentation="workspace">
-              <ItemPanel container={container} details={details} onClose={togglePanel} />
+          overlayDetails ? (
+            <Dialog
+              open
+              title="Item details"
+              onClose={togglePanel}
+              presentation="workspace"
+              className="sm:max-w-xl"
+            >
+              <ItemPanel container={container} details={details} onClose={togglePanel} overlay />
             </Dialog>
           ) : (
             <ItemPanel container={container} details={details} onClose={togglePanel} />
@@ -693,6 +792,15 @@ export function OpenItem({
         ) : null}
       </div>
 
+      {moveOpen ? (
+        <MobileItemMove
+          itemId={itemId}
+          tree={tree}
+          onClose={() => {
+            setMoveOpen(false);
+          }}
+        />
+      ) : null}
       {exportOpen ? (
         <ExportDialog
           open
@@ -744,7 +852,11 @@ function ItemHeader({
   onNavigate,
   onCommit,
 }: ItemHeaderProps): ReactNode {
+  const narrow = useNarrowViewport();
   const trail = tree.breadcrumbs(itemId);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const parent = trail.at(-2);
   // Keyed on the item by its caller, so the draft is rebuilt rather than carried. A title held in
   // state and not reset is the classic mirrored-prop bug: navigating from one note to another would
   // leave the previous note's name in the field, and the next blur would save it onto the new one.
@@ -763,8 +875,36 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header className="px-4 pb-3 pt-4 pr-14 sm:px-8 sm:pr-16">
-      {trail.length > 1 ? (
+    <header className="px-4 pb-3 pt-2 sm:pt-4 sm:px-8 sm:pr-16">
+      {narrow ? (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            className="min-h-11"
+            onClick={() => {
+              if (location.key !== 'default') void navigate(-1);
+              else if (parent) onNavigate(parent.id);
+              else void navigate(location.pathname, { replace: true });
+            }}
+          >
+            <Icon icon={ArrowLeft} size="sm" /> Back
+          </Button>
+          {parent ? (
+            <Button
+              variant="ghost"
+              className="min-h-11 min-w-0"
+              onClick={() => {
+                onNavigate(parent.id);
+              }}
+            >
+              <Text as="span" variant="caption" className="truncate">
+                {parent.title || 'Untitled'}
+              </Text>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {!narrow && trail.length > 1 ? (
         <nav aria-label="Breadcrumb" className="mb-1 hidden flex-wrap items-center text-xs sm:flex">
           {trail.slice(0, -1).map((ancestor) => (
             <span key={ancestor.id} className="flex items-center">

@@ -23,7 +23,7 @@ function subscribeInstall(listener: () => void): () => void {
   };
 }
 
-export function PwaControls(): ReactNode {
+export function PwaControls({ compact = false }: { readonly compact?: boolean }): ReactNode {
   const waiting = useSyncExternalStore(subscribeToWorker, getWaitingWorker, () => null);
   const prompt = useSyncExternalStore(
     subscribeInstall,
@@ -100,7 +100,7 @@ export function PwaControls(): ReactNode {
   }
   return (
     <>
-      {offline || waiting || (!installed && !dismissed) ? (
+      {offline || waiting || (!compact && !installed && !dismissed) ? (
         <aside
           aria-label="App status"
           className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-divider bg-background px-3 py-1"

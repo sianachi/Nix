@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -434,6 +434,7 @@ describe('the workspace tree, as a drawer on a narrow screen', () => {
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
     await user.click(await screen.findByRole('button', { name: /new item in/i }));
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
@@ -476,7 +477,10 @@ describe('the workspace tree, as a drawer on a narrow screen', () => {
     await user.click(await screen.findByRole('button', { name: /^search/i }));
     expect(screen.getByRole('dialog', { name: /search/i })).toBeInTheDocument();
 
-    await user.keyboard('{Escape}');
+    fireEvent(
+      screen.getByRole('dialog', { name: /search/i }),
+      new Event('cancel', { cancelable: true }),
+    );
 
     expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
