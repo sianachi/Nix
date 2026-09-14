@@ -454,7 +454,9 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {
-            await RawSql.ExecuteAsync(connection, transaction: null, sql);
+            // Bulk fixture setup can exceed the default 30 seconds on shared CI runners.
+            // Keep the measured runtime queries on their normal timeout.
+            await RawSql.ExecuteAsync(connection, transaction: null, sql, commandTimeoutSeconds: 120);
         }
     }
 
