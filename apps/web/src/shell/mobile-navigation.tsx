@@ -1,4 +1,4 @@
-import { Icon, Text, focusRing } from '@nix/ui';
+import { Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
@@ -18,7 +18,7 @@ export function MobileNavigation({
   readonly onSearch: () => void;
   readonly onCreate: () => void;
 }): ReactNode {
-  const control = `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md px-2 py-2 text-muted hover:bg-surface ${focusRing}`;
+  const control = `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2 rounded-md px-2 py-2 text-muted hover:bg-surface ${focusRing}`;
   return (
     // design-token-exempt: device safe-area inset keeps navigation above the home indicator.
     <nav
@@ -42,12 +42,17 @@ export function MobileNavigation({
       </NavLink>
       <button
         type="button"
-        className={`${control} text-accent`}
+        className={cn(
+          control,
+          'ml-2 flex-none rounded-full bg-accent-fill px-4 text-background hover:bg-accent-fill-hover',
+        )}
         disabled={creating}
         onClick={onCreate}
       >
-        <Icon icon={Plus} size="sm" />
-        <Text variant="caption">{creating ? 'Creating…' : 'New note'}</Text>
+        <Icon icon={Plus} size="sm" className="text-background" />
+        <Text variant="caption" className="text-background">
+          {creating ? 'Creating…' : 'New note'}
+        </Text>
       </button>
     </nav>
   );

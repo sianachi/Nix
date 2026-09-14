@@ -1,3 +1,4 @@
+import { useSheetGesture } from './use-sheet-gesture';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 
@@ -87,6 +88,8 @@ export interface DialogProps {
   readonly presentation?: 'standard' | 'workspace';
   /** The body supplies a visible heading, for example an editable item title. */
   readonly titleHidden?: boolean;
+  /** Opt in only when the caller can safely handle a swipe dismissal request. */
+  readonly swipeToClose?: boolean;
 }
 
 export function Dialog(props: DialogProps): ReactNode {
@@ -101,11 +104,44 @@ export function Dialog(props: DialogProps): ReactNode {
     className,
     presentation = 'standard',
     titleHidden = false,
+    swipeToClose = false,
   } = props;
 
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const handleRef = useRef<HTMLButtonElement>(null);
+  useSheetGesture(
+    dialogRef,
+    handleRef,
+    open && swipeToClose && presentation === 'standard',
+    onClose,
+  );
   const invokerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const element = dialogRef.current;
+    const viewport = window.visualViewport;
+    if (!open || !element || !viewport) return;
+    const measure = (): void => {
+      // Runtime viewport geometry keeps sheets above the software keyboard, including iOS.
+      element.style.setProperty(
+        '--sheet-keyboard-inset',
+        `${String(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop))}px`,
+      );
+      element.style.setProperty('--sheet-viewport-height', `${String(viewport.height)}px`);
+      element.style.setProperty('--sheet-viewport-top', `${String(viewport.offsetTop)}px`);
+    };
+    measure();
+    viewport.addEventListener('resize', measure);
+    viewport.addEventListener('scroll', measure);
+    return () => {
+      viewport.removeEventListener('resize', measure);
+      viewport.removeEventListener('scroll', measure);
+      element.style.removeProperty('--sheet-keyboard-inset');
+      element.style.removeProperty('--sheet-viewport-height');
+      element.style.removeProperty('--sheet-viewport-top');
+    };
+  }, [open]);
 
   useEffect(() => {
     const element = dialogRef.current;
@@ -232,18 +268,32 @@ export function Dialog(props: DialogProps): ReactNode {
         // the other is `<Duotone>`, whose two tones must not move for the same kind of reason.
         'backdrop:bg-neutral-900/40',
         presentation === 'standard' &&
-          'max-sm:mb-0 max-sm:mt-auto max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none',
+          // design-token-exempt: runtime keyboard and visual viewport geometry.
+          'max-sm:mb-[var(--sheet-keyboard-inset,0%)] max-sm:max-h-[var(--sheet-viewport-height,100dvh)] max-sm:mt-auto max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none',
         presentation === 'workspace' &&
-          'h-dvh max-h-dvh w-screen max-w-full sm:h-[90dvh] sm:w-11/12 sm:max-w-6xl',
+          // design-token-exempt: runtime keyboard and visual viewport geometry.
+          'h-dvh max-h-dvh w-screen max-w-full max-sm:h-[var(--sheet-viewport-height,100dvh)] max-sm:mt-[var(--sheet-viewport-top,0%)] max-sm:mb-auto sm:h-[90dvh] sm:w-11/12 sm:max-w-6xl',
         className,
       )}
     >
+      {swipeToClose && presentation === 'standard' ? (
+        <button
+          ref={handleRef}
+          type="button"
+          aria-label="Dismiss sheet"
+          onClick={onClose}
+          className="flex min-h-11 w-full touch-none items-center justify-center rounded-t-md focus-visible:outline-2 focus-visible:outline-accent sm:hidden"
+        >
+          <span aria-hidden="true" className="h-1 w-10 rounded-full bg-divider" />
+        </button>
+      ) : null}
       {/* The scroll lives here rather than on the element itself so a long body scrolls inside the
           frame, and the registration marks - which sit 6px outside it - are never clipped. */}
       <div
         className={
           presentation === 'workspace'
-            ? 'flex h-full min-h-0 flex-col gap-2 p-3 sm:p-6'
+            ? // design-token-exempt: device safe areas protect full-screen mobile dialog controls.
+              'flex h-full min-h-0 flex-col gap-2 p-3 pt-[max(var(--spacing)*3,env(safe-area-inset-top))] pb-[max(var(--spacing)*3,env(safe-area-inset-bottom))] sm:p-6'
             : // design-token-exempt: viewport and device safe-area constrain the mobile sheet.
               'flex max-h-[80vh] flex-col gap-4 overflow-y-auto p-6 pb-[max(var(--spacing)*6,env(safe-area-inset-bottom))]'
         }

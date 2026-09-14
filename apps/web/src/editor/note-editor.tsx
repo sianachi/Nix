@@ -1,6 +1,7 @@
+import { PaneViewport } from '../layout/pane-viewport';
 import type { DraftState } from './draft-journal';
 import { MobileNoteToolbar } from './mobile-note-toolbar';
-import { useNarrowViewport } from '../layout/viewport';
+import { useDrawerNavigation } from '../layout/viewport';
 import { nixEditingExtensions, readWidth } from '@nix/editor-schema';
 import { files as fileResources, items as coreItems, type NixClient } from '@nix/api-client';
 import { Icon, Text } from '@nix/ui';
@@ -381,7 +382,7 @@ export function NoteEditor({
   onSync,
   mobileActions,
 }: NoteEditorProps): ReactNode {
-  const narrow = useNarrowViewport();
+  const narrow = useDrawerNavigation();
   const { getAccessToken } = useAuth();
   const client = useApiClient();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -785,8 +786,9 @@ export function NoteEditor({
   }, [awareness, doc]);
 
   const formatting = (
-    <div className="flex items-center justify-between pr-8">
+    <div className="flex items-center justify-between sm:pr-8">
       <EditorToolbar
+        compact={narrow}
         editor={editor}
         onInsertItem={(kind) => {
           if (uploadingFilesRef.current > 0) return;
@@ -851,7 +853,10 @@ export function NoteEditor({
               </Text>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-32 pt-6 sm:px-8 sm:py-6">
+            <PaneViewport
+              scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
+            >
               {dropActive ? (
                 <Text
                   variant="note"
@@ -948,7 +953,7 @@ export function NoteEditor({
               />
               {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
               <BubbleMenu editor={editor} />
-            </div>
+            </PaneViewport>
 
             {itemRequest !== null && workspaceId !== undefined ? (
               <ItemInsertDialog

@@ -1,3 +1,5 @@
+import { Button } from '@nix/ui';
+import { MobileWorkspaceBrowser } from '../items/mobile-workspace-browser';
 import { focusPane } from '../panes/pane-params';
 import type { OpenItemControl } from '../tabs/use-open-item';
 import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
@@ -8,7 +10,7 @@ import { SidebarDrawer } from '../layout/sidebar-drawer';
 import type { Sidebar } from '../layout/use-sidebar';
 import { WorkspaceSidebar } from '../items/workspace-sidebar';
 import type { TreeItem, WorkspaceTree } from '../items/use-workspace-tree';
-import { useRef, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 
 export interface ShellSidebarProps {
   readonly narrow: boolean;
@@ -48,6 +50,8 @@ export function ShellSidebar({
   treeRegionRef,
   sidebarToggleRef,
 }: ShellSidebarProps): ReactNode {
+  const [browseParent, setBrowseParent] = useState<string | null>(null);
+  const [fullTree, setFullTree] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   function closeDrawerAfter<Args extends readonly string[]>(
@@ -92,22 +96,45 @@ export function ShellSidebar({
     <>
       {!sidebar.visible ? null : narrow ? (
         <SidebarDrawer onClose={closeDrawer}>
-          <WorkspaceSidebar
-            tree={tree}
-            selectedId={selectedId}
-            onSelect={closeDrawerAfter(openItem.openPreview)}
-            onOpenBeside={closeDrawerAfter(openItem.openBeside)}
-            onOpenPinned={closeDrawerAfter(openItem.openPinned)}
-            canOpenBeside={openItem.canOpenBeside}
-            besideRefusal={openItem.besideRefusal}
-            onDeleteItem={onDeleteItem}
-            onStartStructured={onStartStructured}
-            templates={templates}
-            templateStatus={templateStatus}
-            onStartTemplate={onStartTemplate}
-            onBrowseTemplates={onBrowseTemplates}
-            treeRegionRef={treeRegionRef}
-          />
+          {!fullTree ? (
+            <MobileWorkspaceBrowser
+              tree={tree}
+              parentId={browseParent}
+              onParent={setBrowseParent}
+              onOpen={closeDrawerAfter(openItem.openPreview)}
+              onTree={() => {
+                setFullTree(true);
+              }}
+            />
+          ) : (
+            <div className="flex min-h-0 w-full flex-col">
+              <Button
+                variant="ghost"
+                className="min-h-11 shrink-0"
+                onClick={() => {
+                  setFullTree(false);
+                }}
+              >
+                Back to browse
+              </Button>
+              <WorkspaceSidebar
+                tree={tree}
+                selectedId={selectedId}
+                onSelect={closeDrawerAfter(openItem.openPreview)}
+                onOpenBeside={closeDrawerAfter(openItem.openBeside)}
+                onOpenPinned={closeDrawerAfter(openItem.openPinned)}
+                canOpenBeside={openItem.canOpenBeside}
+                besideRefusal={openItem.besideRefusal}
+                onDeleteItem={onDeleteItem}
+                onStartStructured={onStartStructured}
+                templates={templates}
+                templateStatus={templateStatus}
+                onStartTemplate={onStartTemplate}
+                onBrowseTemplates={onBrowseTemplates}
+                treeRegionRef={treeRegionRef}
+              />
+            </div>
+          )}
         </SidebarDrawer>
       ) : (
         <>

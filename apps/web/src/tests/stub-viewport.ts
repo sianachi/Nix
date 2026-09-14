@@ -9,14 +9,17 @@
  * whichever width a test wants, it calls this itself, in the test that wants it - the same way
  * `pane-state.test.tsx`'s own `panesAt` always has.
  */
-export function stubViewport(wide: boolean): void {
+export function stubViewport(wide: boolean | number): void {
   if (typeof globalThis.window === 'undefined') {
     return;
   }
 
   globalThis.matchMedia = (query: string): MediaQueryList =>
     ({
-      matches: wide,
+      matches:
+        typeof wide === 'boolean'
+          ? wide
+          : wide >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0),
       media: query,
       onchange: null,
       addEventListener: () => undefined,
