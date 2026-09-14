@@ -65,6 +65,7 @@ describe('drawing any view', () => {
       'calendar',
       'form',
       'gallery',
+      'habit_tracker',
       'interactive_form',
       'list',
       'query',
@@ -80,6 +81,13 @@ describe('drawing any view', () => {
     expect(drawn.svg).toContain('width="480"');
     expect(drawn.width).toBe(480);
     expect(drawn.height).toBeGreaterThan(0);
+  });
+
+  it('labels habit tracker exports that do not include interactive history', () => {
+    const drawn = draw('habit_tracker', [row('Read')]);
+
+    expect(drawn.svg).toContain('Read');
+    expect(drawn.notes.join(' ')).toContain('check-in history');
   });
 
   it('escapes what came out of a document, so one title cannot break the picture', () => {

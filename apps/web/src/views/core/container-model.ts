@@ -156,6 +156,19 @@ export const ViewSchema = z.object({
   sortBy: z.string().nullable(),
   sortDescending: z.boolean(),
 
+  /** Embedded habit progress charts, persisted with a habit tracker view. */
+  habitWidgets: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.enum(['completion', 'quantity', 'heatmap']),
+        habitId: z.uuid(),
+        from: z.iso.date(),
+        to: z.iso.date(),
+      }),
+    )
+    .default([]),
+
   /**
    * The per-kind grain: a calendar's `month`, `week` or `day`; a timeline's `week`, `month` or
    * `quarter`.
@@ -240,12 +253,22 @@ type ParsedView = z.infer<typeof ViewSchema>;
 /** New layout/form fields are optional in drafts; parsed server views always receive null defaults. */
 export type View = Omit<
   ParsedView,
-  'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+  | 'habitWidgets'
+  | 'companionViewId'
+  | 'companionPlacement'
+  | 'interactiveForm'
+  | 'measure'
+  | 'measureProperty'
 > &
   Partial<
     Pick<
       ParsedView,
-      'companionViewId' | 'companionPlacement' | 'interactiveForm' | 'measure' | 'measureProperty'
+      | 'habitWidgets'
+      | 'companionViewId'
+      | 'companionPlacement'
+      | 'interactiveForm'
+      | 'measure'
+      | 'measureProperty'
     >
   >;
 
@@ -256,6 +279,7 @@ export function toViewRequest(view: View): ParsedView {
     columns: [...view.columns],
     groupOrder: [...view.groupOrder],
     filters: [...view.filters],
+    habitWidgets: view.habitWidgets ?? [],
     companionViewId: view.companionViewId ?? null,
     companionPlacement: view.companionPlacement ?? null,
     interactiveForm: view.interactiveForm ?? null,

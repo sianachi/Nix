@@ -66,6 +66,24 @@ public static class ViewDefinitionRules
                     + $"use '{GalleryCardSizes.Small}', '{GalleryCardSizes.Medium}' or '{GalleryCardSizes.Large}'.";
             }
 
+            if (!view.HabitWidgets.IsDefaultOrEmpty)
+            {
+                if (view.HabitWidgets.Length > 12)
+                {
+                    return "A view may contain at most 12 habit charts.";
+                }
+                var widgetIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var widget in view.HabitWidgets)
+                {
+                    if (widget is null || string.IsNullOrWhiteSpace(widget.Id) || widget.Id.Length > 128 || !widgetIds.Add(widget.Id)
+                        || widget.Kind is not ("completion" or "quantity" or "heatmap") || widget.HabitId == Guid.Empty
+                        || widget.To < widget.From || widget.To.DayNumber - widget.From.DayNumber >= 366)
+                    {
+                        return "Habit charts need unique identifiers, a supported chart type, a habit, and an ordered range of at most 366 days.";
+                    }
+                }
+            }
+
             if (!view.Filters.IsDefaultOrEmpty)
             {
                 if (view.Filters.Length > MaximumFilters)
