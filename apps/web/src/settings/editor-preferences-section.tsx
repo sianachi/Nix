@@ -1,3 +1,4 @@
+import { useMobileToolbarPreference } from '../editor/mobile-toolbar-preference';
 import { Field, Select, Text } from '@nix/ui';
 import type { ChangeEvent, ReactElement } from 'react';
 
@@ -11,6 +12,7 @@ const modeGuidance = {
 } as const;
 
 export function EditorPreferencesSection(): ReactElement {
+  const toolbar = useMobileToolbarPreference();
   const mode = useKeyboardModeStore((state) => state.mode);
   const persistence = useKeyboardModeStore((state) => state.persistence);
   const keyboardModeSelected = useKeyboardModeStore((state) => state.keyboardModeSelected);
@@ -57,6 +59,23 @@ export function EditorPreferencesSection(): ReactElement {
           </Select>
         )}
       </Field>
+      <label className="flex min-h-11 items-center gap-3">
+        <input
+          type="checkbox"
+          checked={toolbar.visibility === 'while-writing'}
+          onChange={(event) => {
+            toolbar.setVisibility(event.target.checked ? 'while-writing' : 'always');
+          }}
+        />
+        <Text as="span" variant="bodySmall">
+          Hide mobile tools while writing
+        </Text>
+      </label>
+      {!toolbar.saved ? (
+        <Text as="p" variant="note" role="alert">
+          The mobile toolbar preference applies to this session; browser storage is unavailable.
+        </Text>
+      ) : null}
     </section>
   );
 }

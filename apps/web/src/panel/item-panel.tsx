@@ -55,7 +55,7 @@ export function ItemPanel({ container, details, onClose }: ItemPanelProps): Reac
     // for the same reason.
     <aside
       aria-label="Item settings"
-      className={`flex ${settingsPanelWidth} shrink-0 flex-col overflow-hidden bg-surface`}
+      className={`flex ${settingsPanelWidth} max-sm:w-full max-sm:min-h-0 max-sm:flex-1 max-sm:shrink shrink-0 flex-col overflow-hidden bg-surface`}
     >
       <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <Segmented

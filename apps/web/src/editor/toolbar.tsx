@@ -1,4 +1,4 @@
-import { Button } from '@nix/ui';
+import { Button, Dialog } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
@@ -75,6 +75,7 @@ const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
 
 export interface ToolbarProps {
   readonly editor: Editor;
+  readonly compact?: boolean;
 
   /** Opens the editor-owned image form without making this toolbar own modal state. */
   readonly onInsertImage: () => void;
@@ -97,6 +98,7 @@ export interface ToolbarProps {
 
 export function EditorToolbar({
   editor,
+  compact = false,
   onInsertImage,
   onInsertItem,
   onPageBreak,
@@ -104,6 +106,7 @@ export function EditorToolbar({
   onUndo,
   onRedo,
 }: ToolbarProps): ReactNode {
+  const [moreOpen, setMoreOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
@@ -362,6 +365,107 @@ export function EditorToolbar({
     },
   ];
 
+  if (compact) {
+    const more = [
+      ...blocks,
+      ...lists,
+      ...marks.filter((control) => !['bold', 'italic'].includes(control.id)),
+      ...inserts,
+      ...history,
+      ...(inColumns ? columns : []),
+      ...(inTable ? table : []),
+    ];
+    return (
+      <div role="toolbar" aria-label="Formatting" className="flex w-max items-center gap-1">
+        <Group controls={marks.filter((control) => ['bold', 'italic'].includes(control.id))} />
+        <Group controls={lists.filter((control) => control.id === 'bulletList')} />
+        <Button
+          variant="ghost"
+          className="min-h-11"
+          onClick={() => {
+            setMoreOpen(true);
+          }}
+        >
+          More
+        </Button>
+        {moreOpen ? (
+          <Dialog
+            open
+            swipeToClose
+            title="Writing tools"
+            onClose={() => {
+              setMoreOpen(false);
+            }}
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {more.map((control) => (
+                <Button
+                  key={control.id}
+                  variant="ghost"
+                  className="min-h-11 justify-start"
+                  disabled={control.enabled === false}
+                  aria-pressed={control.active}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    control.run();
+                  }}
+                >
+                  <Icon icon={control.icon} size="sm" />
+                  {control.label}
+                </Button>
+              ))}
+              {onInsertItem ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onInsertItem('attachment');
+                    }}
+                  >
+                    Attachment
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onInsertItem('embed');
+                    }}
+                  >
+                    Embed note
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onInsertItem('subpage');
+                    }}
+                  >
+                    New subpage
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    disabled={editor.state.selection.$from.depth > 1}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      onPageBreak?.();
+                    }}
+                  >
+                    Page break
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </Dialog>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div
       role="toolbar"
@@ -497,7 +601,7 @@ function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
       disabled={disabled}
       onClick={control.run}
       className={[
-        'flex size-7 items-center justify-center rounded-sm',
+        'flex size-7 max-sm:min-h-11 max-sm:min-w-11 items-center justify-center rounded-sm',
         'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         disabled
           ? 'cursor-not-allowed text-muted opacity-40'

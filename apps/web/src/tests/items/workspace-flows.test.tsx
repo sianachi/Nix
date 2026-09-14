@@ -147,6 +147,7 @@ describe('opening an item beside another', () => {
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
     await screen.findByRole('button', { name: 'Engineering' });
 
     // `'narrow'` is a fact about this viewport, true of every row at once - unlike the pane limit
@@ -306,6 +307,7 @@ describe('deleting an item', () => {
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
+    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /delete engineering/i }));
     expect(await screen.findByRole('status')).toBeInTheDocument();

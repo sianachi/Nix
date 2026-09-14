@@ -1,4 +1,5 @@
-import { Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { useNarrowViewport } from '../../layout/viewport';
+import { Field, Select, Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -63,6 +64,8 @@ export function BoardView(props: BoardViewProps): ReactNode {
   // The one piece of genuinely view-local state on this screen: which card the pointer is
   // currently holding. It describes a gesture in progress, not the document, so it is right here
   // and not in the URL or in a store.
+  const narrow = useNarrowViewport();
+  const [mobileColumn, setMobileColumn] = useState<string | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
 
   // Whether the board can be drawn at all is resolved before the chrome so the chrome can report
@@ -126,6 +129,11 @@ export function BoardView(props: BoardViewProps): ReactNode {
     { value: null, label: UNSET_LABEL, items: buckets.get(null) ?? [] },
   ];
 
+  const columnId = (column: BoardColumn): string =>
+    column.value === null ? 'unset' : `value:${column.value}`;
+  const selectedColumn = columns.find((column) => columnId(column) === mobileColumn) ?? columns[0];
+  const visibleColumns = narrow && selectedColumn ? [selectedColumn] : columns;
+
   const placed = new Set<string | null>([...chosen, null]);
   const hidden = [...buckets].filter(([value]) => !placed.has(value)).flatMap(([, items]) => items);
 
@@ -161,8 +169,27 @@ export function BoardView(props: BoardViewProps): ReactNode {
         />
       )}
 
+      {narrow && selectedColumn ? (
+        <Field label="Board column">
+          {(control) => (
+            <Select
+              {...control}
+              value={columnId(selectedColumn)}
+              onChange={(event) => {
+                setMobileColumn(event.target.value);
+              }}
+            >
+              {columns.map((column) => (
+                <option key={columnId(column)} value={columnId(column)}>
+                  {column.label} ({column.items.length})
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      ) : null}
       <div className="flex min-h-0 flex-col items-stretch gap-3 pb-2 sm:flex-row sm:items-start sm:overflow-x-auto">
-        {columns.map((column) => (
+        {visibleColumns.map((column) => (
           <BoardColumnPanel
             onCreate={container.create}
             groupKey={key}
