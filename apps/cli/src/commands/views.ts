@@ -89,3 +89,14 @@ function parseViewsFile(text: string, path: string): SetViewsRequestContract {
   }
   return parsed as SetViewsRequestContract;
 }
+
+/** Reads persisted view configuration, including embedded widget settings. */
+export async function inspectViews(
+  profileName: string | undefined,
+  itemId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  printResult(await session.client.query(views.containerViewConfigurations(itemId)), output);
+}

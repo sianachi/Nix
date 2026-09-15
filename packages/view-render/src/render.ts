@@ -13,6 +13,17 @@ import {
 } from './kinds.js';
 import { document } from './svg.js';
 
+function drawHabitTracker(request: RenderRequest): Drawing {
+  const drawing = drawList(request);
+  return {
+    ...drawing,
+    notes: [
+      'A habit tracker is exported as its item list; check-in history and the interactive progress grid are not included.',
+      ...drawing.notes,
+    ],
+  };
+}
+
 /**
  * A view, drawn.
  *
@@ -32,6 +43,7 @@ const DRAWERS: Readonly<Record<string, (request: RenderRequest) => Drawing>> = {
   form: drawForm,
   interactive_form: drawInteractiveForm,
   query: drawQuery,
+  habit_tracker: drawHabitTracker,
 };
 
 export const DRAWN_VIEW_KINDS: readonly string[] = Object.keys(DRAWERS);

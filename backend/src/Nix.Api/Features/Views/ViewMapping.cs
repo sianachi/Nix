@@ -34,7 +34,8 @@ internal static class ViewMapping
             view.CompanionPlacement,
             ToContract(view.InteractiveForm),
             view.Measure,
-            view.MeasureProperty);
+            view.MeasureProperty,
+            view.HabitWidgets.IsDefaultOrEmpty ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetContract(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))]);
     }
 
     /// <summary>
@@ -84,7 +85,8 @@ internal static class ViewMapping
                     view.CompanionPlacement,
                     ToDomain(view.InteractiveForm),
                     view.Measure,
-                    view.MeasureProperty));
+                    view.MeasureProperty,
+                    view.HabitWidgets is null ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetDefinition(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))]));
         }
 
         views = mapped.ToImmutable();

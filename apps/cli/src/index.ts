@@ -43,7 +43,7 @@ import {
 } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import { runQuery } from './commands/query.ts';
-import { getViews, setViews } from './commands/views.ts';
+import { getViews, inspectViews, setViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
 import {
   clearRecurrence,
@@ -59,6 +59,7 @@ import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
 import { petCommand, type PetOptions } from './commands/pets.ts';
+import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
 
 interface GlobalFlags {
   readonly profile: string | undefined;
@@ -425,6 +426,14 @@ export function buildProgram(): Command {
     });
 
   viewsCmd
+    .command('inspect <itemId>')
+    .description('Read the saved view configuration, including embedded widgets.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => inspectViews(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  viewsCmd
     .command('set <itemId>')
     .description("Replace a container's view set from a JSON file.")
     .requiredOption('--file <path>', 'a JSON object { "views": [...], "default": <id|null> }')
@@ -545,6 +554,79 @@ export function buildProgram(): Command {
           outputOptions(flags.json),
         ),
       );
+    });
+
+  const habit = program.command('habit').description('Configure and record a habit tracker.');
+
+  habit
+    .command('set <habitId>')
+    .description('Set a habit schedule and target.')
+    .requiredOption('--frequency <frequency>', 'daily or weekly')
+    .option('--weekdays <days>', 'weekly days as numbers 0 (Sunday) through 6 (Saturday)')
+    .requiredOption('--timezone <iana>', 'IANA timezone, for example Europe/London')
+    .requiredOption('--start-date <yyyy-mm-dd>', 'first scheduled day')
+    .requiredOption('--target <number>', 'target quantity per scheduled day')
+    .requiredOption('--unit <unit>', 'unit label, for example minutes or glasses')
+    .action(
+      async (
+        habitId: string,
+        options: {
+          frequency: string;
+          weekdays?: string;
+          timezone: string;
+          startDate: string;
+          target: string;
+          unit: string;
+        },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => setHabit(flags.profile, habitId, options, outputOptions(flags.json)));
+      },
+    );
+
+  habit
+    .command('status <habitId> <status>')
+    .description('Set active, paused, or archived; recorded history is retained.')
+    .action(async (habitId: string, status: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setHabitStatus(flags.profile, habitId, status, outputOptions(flags.json)));
+    });
+
+  habit
+    .command('get <habitId>')
+    .description('Read habit settings, check-ins, and weekly progress for a date window.')
+    .requiredOption('--from <yyyy-mm-dd>', 'first day to include')
+    .requiredOption('--to <yyyy-mm-dd>', 'last day to include')
+    .action(async (habitId: string, options: { from: string; to: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readHabit(flags.profile, habitId, options, outputOptions(flags.json)));
+    });
+
+  habit
+    .command('check-in <habitId>')
+    .description('Record or update one scheduled day.')
+    .requiredOption('--on <yyyy-mm-dd>', 'scheduled day')
+    .option('--quantity <number>', 'quantity completed on that day')
+    .option('--completed', 'mark the day complete', true)
+    .action(
+      async (
+        habitId: string,
+        options: { on: string; quantity?: string; completed: boolean },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => checkIn(flags.profile, habitId, options, outputOptions(flags.json)));
+      },
+    );
+
+  habit
+    .command('undo <habitId>')
+    .description('Remove the check-in for one scheduled day.')
+    .requiredOption('--on <yyyy-mm-dd>', 'scheduled day')
+    .action(async (habitId: string, options: { on: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => undoCheckIn(flags.profile, habitId, options.on, outputOptions(flags.json)));
     });
 
   program

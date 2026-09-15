@@ -262,6 +262,11 @@ public static class ViewDefinitionsJson
                 entry[InteractiveFormKey] = JsonSerializer.SerializeToNode(view.InteractiveForm, WebJson);
             }
 
+            if (!view.HabitWidgets.IsDefaultOrEmpty)
+            {
+                entry["habitWidgets"] = JsonSerializer.SerializeToNode(view.HabitWidgets, WebJson);
+            }
+
             stored.Add(entry);
         }
 
@@ -337,7 +342,20 @@ public static class ViewDefinitionsJson
             ReadString(view[CompanionPlacementKey]),
             ReadInteractiveForm(view[InteractiveFormKey]),
             ReadMeasure(view[MeasureKey]),
-            ReadString(view[MeasurePropertyKey]));
+            ReadString(view[MeasurePropertyKey]),
+            ReadHabitWidgets(view["habitWidgets"]));
+    }
+
+    private static ImmutableArray<HabitWidgetDefinition> ReadHabitWidgets(JsonNode? node)
+    {
+        try
+        {
+            return node?.Deserialize<ImmutableArray<HabitWidgetDefinition>>(WebJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     private static InteractiveFormDefinition? ReadInteractiveForm(JsonNode? node)

@@ -58,9 +58,7 @@ describe('workspace-scoped routing', () => {
     stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
     renderAt(<App />);
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Workspace menu' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Workspace menu' }));
 
     const menu = screen.getByRole('region', { name: 'Workspaces' });
     expect(within(menu).getByRole('link', { name: SHARED.name })).toHaveAttribute(
@@ -129,7 +127,8 @@ describe('workspace-scoped routing', () => {
     await user.click(await screen.findByRole('button', { name: 'Delete permanently' }));
     expect(screen.getByText(/cannot be undone/i)).toBeVisible();
     const confirmationButton = screen.getAllByRole('button', { name: 'Delete permanently' })[1];
-    if (confirmationButton === undefined) throw new Error('Permanent deletion confirmation was not shown.');
+    if (confirmationButton === undefined)
+      throw new Error('Permanent deletion confirmation was not shown.');
     await user.click(confirmationButton);
 
     await waitFor(() => {
@@ -167,7 +166,11 @@ describe('workspace-scoped routing', () => {
     expect(selected).toHaveAttribute('aria-selected', 'true');
 
     await user.click(screen.getByRole('button', { name: 'Workspace menu' }));
-    await user.click(within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', { name: SHARED.name }));
+    await user.click(
+      within(screen.getByRole('region', { name: 'Workspaces' })).getByRole('link', {
+        name: SHARED.name,
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Workspace menu' })).toBeVisible();

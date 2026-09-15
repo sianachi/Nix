@@ -106,6 +106,9 @@ public enum ViewKind
     /// </para>
     /// </remarks>
     Chart = 9,
+
+    /// <summary>Habit children arranged by local date with recorded progress.</summary>
+    HabitTracker = 10,
 }
 
 /// <summary>
@@ -161,6 +164,7 @@ public static class ViewKinds
     public static readonly ImmutableArray<ViewKindDescriptor> All =
     [
         new ViewKindDescriptor(ViewKind.List, "list", Requirement: null),
+        new ViewKindDescriptor(ViewKind.HabitTracker, "habit_tracker", Requirement: null),
 
         new ViewKindDescriptor(
             ViewKind.Board,
@@ -471,7 +475,8 @@ public sealed record ViewDefinition(
     // across the children in each bucket. Null and an unrecognised value both mean `count`, which
     // is what a chart with nothing configured draws and the only measure that always has an answer.
     string? Measure = null,
-    string? MeasureProperty = null)
+    string? MeasureProperty = null,
+    ImmutableArray<HabitWidgetDefinition> HabitWidgets = default)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.
@@ -504,3 +509,6 @@ public sealed record ViewDefinition(
             && requirement.Accepts(property.Type);
     }
 }
+
+/// <summary>A saved habit chart and its inclusive local-date range.</summary>
+public sealed record HabitWidgetDefinition(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);

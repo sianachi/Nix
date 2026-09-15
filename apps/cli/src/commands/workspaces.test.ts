@@ -81,7 +81,10 @@ describe('workspace administration commands', () => {
       http.post(`${API}/api/v1/workspaces/:workspaceId/restore`, () =>
         HttpResponse.json(workspace('Restored', 'active')),
       ),
-      http.delete(`${API}/api/v1/workspaces/:workspaceId`, () => new HttpResponse(null, { status: 202 })),
+      http.delete(
+        `${API}/api/v1/workspaces/:workspaceId`,
+        () => new HttpResponse(null, { status: 202 }),
+      ),
     );
 
     expect(
@@ -228,9 +231,9 @@ describe('workspace administration commands', () => {
     await expect(leaveWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
       'requires --yes',
     );
-    await expect(archiveWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
-      'requires --yes',
-    );
+    await expect(
+      archiveWorkspace(undefined, WORKSPACE, false, outputOptions(true)),
+    ).rejects.toThrow('requires --yes');
     await expect(purgeWorkspace(undefined, WORKSPACE, false, outputOptions(true))).rejects.toThrow(
       'requires --yes',
     );
@@ -261,7 +264,10 @@ async function withProfile() {
   };
 }
 
-function workspace(name: string, lifecycleState: 'active' | 'archived' = 'active'): Record<string, unknown> {
+function workspace(
+  name: string,
+  lifecycleState: 'active' | 'archived' = 'active',
+): Record<string, unknown> {
   return {
     id: WORKSPACE,
     name,

@@ -29,7 +29,9 @@ describe('reaching the settings screen', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('tab', { name: 'Editor' }));
     expect(await screen.findByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
-    expect(screen.queryByRole('heading', { level: 2, name: 'Access tokens' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { level: 2, name: 'Access tokens' }),
+    ).not.toBeInTheDocument();
   });
 
   it('is reachable from the profile menu as a real link', async () => {

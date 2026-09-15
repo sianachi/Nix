@@ -1,10 +1,5 @@
 import mermaid from 'mermaid';
-import {
-  useEffect,
-  useId,
-  useState,
-  type ReactElement,
-} from 'react';
+import { useEffect, useId, useState, type ReactElement } from 'react';
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react';
 
 import type { FileViewerPlugin } from './file-viewer-registry';
@@ -89,7 +84,11 @@ export function MermaidCodeBlockView({ node }: ReactNodeViewProps): ReactElement
   const source = node.textContent;
 
   if (!/^mermaid$/iu.test(language.trim())) {
-    return <NodeViewWrapper><NodeViewContent /></NodeViewWrapper>;
+    return (
+      <NodeViewWrapper>
+        <NodeViewContent />
+      </NodeViewWrapper>
+    );
   }
 
   return (

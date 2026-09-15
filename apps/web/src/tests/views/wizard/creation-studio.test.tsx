@@ -192,6 +192,7 @@ describe('the guided creation studio', () => {
       interactiveForm: null,
       measure: null,
       measureProperty: null,
+      habitWidgets: [],
     });
     const primary = aView({
       id: 'delivery-board',
@@ -205,6 +206,7 @@ describe('the guided creation studio', () => {
       interactiveForm: null,
       measure: null,
       measureProperty: null,
+      habitWidgets: [],
     });
     stubCoreApi({
       items: [DESTINATION],

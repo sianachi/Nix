@@ -25,6 +25,7 @@ import { ListView } from '../list/list-view';
 import { QueryView } from '../query/query-view';
 import { SpreadsheetView } from '../spreadsheet/spreadsheet-view';
 import { TimelineView } from '../timeline/timeline-view';
+import { HabitTrackerView } from '../habit-tracker/habit-tracker-view';
 import type { ContainerData } from './use-container';
 
 /**
@@ -466,6 +467,16 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         fallback: DEFAULT_CHART_MEASURE,
       },
     ],
+  },
+  {
+    kind: 'habit_tracker',
+    label: 'Habit tracker',
+    icon: ClipboardList,
+    render: (props) => (
+      <HabitTrackerView key={`${props.container.itemId ?? 'root'}:${props.view.id}`} {...props} />
+    ),
+    configures: [],
+    chooses: [],
   },
 ];
 

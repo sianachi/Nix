@@ -987,12 +987,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -1264,6 +1264,54 @@ export interface paths {
      * @description Idempotent: completing an already-completed occurrence succeeds without writing anything a second time. Fails with 'recurrence.not_recurring' when the item carries no rule, 'recurrence.no_anchor' when it has no due date to anchor to, 'recurrence.unreadable_rule' when the stored rule cannot be read, and 'recurrence.not_an_occurrence' when the named day is not one the series lands on.
      */
     post: operations['CompleteRecurrenceOccurrence'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/habit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetHabitTracker'];
+    put: operations['SetHabitSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/habit/check-ins/{occurredOn}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SetHabitCheckIn'];
+    post?: never;
+    delete: operations['DeleteHabitCheckIn'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/habit/status': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SetHabitStatus'];
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1952,6 +2000,112 @@ export interface components {
       parentId: null | string;
       type: string;
       title: null | string;
+    };
+    HabitCheckInRequest: {
+      completed: boolean;
+      /** Format: double */
+      quantity: null | number | string;
+    };
+    HabitCheckInResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: date */
+      occurredOn: string;
+      completed: boolean;
+      /** Format: double */
+      quantity: null | number | string;
+    };
+    HabitMonthSummary: {
+      month: string;
+      /** Format: int32 */
+      planned: number | string;
+      /** Format: int32 */
+      completed: number | string;
+      /** Format: double */
+      quantity: number | string;
+    };
+    HabitOccurrence: {
+      /** Format: date */
+      date: string;
+      scheduled: boolean;
+      state: string;
+      /** Format: double */
+      target: number | string;
+      unit: string;
+      /** Format: double */
+      quantity: null | number | string;
+      completed: boolean;
+    };
+    HabitProgress: {
+      /** Format: int32 */
+      currentStreak: number | string;
+      /** Format: int32 */
+      bestStreak: number | string;
+      /** Format: int32 */
+      planned: number | string;
+      /** Format: int32 */
+      completed: number | string;
+      /** Format: double */
+      completionRate: number | string;
+      /** Format: double */
+      quantity: number | string;
+    };
+    HabitSettingsRequest: {
+      frequency: string;
+      weekdays: null | (number | string)[];
+      timezone: string;
+      /** Format: date */
+      startDate: string;
+      /** Format: double */
+      target: number | string;
+      unit: string;
+    };
+    HabitStatusRequest: {
+      status: string;
+    };
+    HabitStatusResponse: {
+      /** Format: uuid */
+      habitId: string;
+      status: string;
+    };
+    HabitTrackerResponse: {
+      /** Format: uuid */
+      habitId: string;
+      frequency: string;
+      weekdays: (number | string)[];
+      timezone: string;
+      /** Format: date */
+      startDate: string;
+      /** Format: double */
+      target: number | string;
+      unit: string;
+      checkIns: components['schemas']['HabitCheckInResponse'][];
+      weeks: components['schemas']['HabitWeekSummary'][];
+      /** @default active */
+      status: string;
+      occurrences?: null | components['schemas']['HabitOccurrence'][];
+      progress?: null | components['schemas']['HabitProgress'];
+      months?: null | components['schemas']['HabitMonthSummary'][];
+    };
+    HabitWeekSummary: {
+      /** Format: date */
+      weekStart: string;
+      /** Format: int32 */
+      planned: number | string;
+      /** Format: int32 */
+      completed: number | string;
+      /** Format: double */
+      quantity: number | string;
+    };
+    HabitWidgetContract: {
+      id: string;
+      kind: string;
+      /** Format: uuid */
+      habitId: string;
+      /** Format: date */
+      from: string;
+      /** Format: date */
+      to: string;
     };
     HealthCheckResponse: {
       name: string;
@@ -2657,6 +2811,7 @@ export interface components {
       interactiveForm: null | components['schemas']['InteractiveFormContract'];
       measure?: null | string;
       measureProperty?: null | string;
+      habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
     };
     ViewResponse: {
       id: string;
@@ -2678,6 +2833,7 @@ export interface components {
       interactiveForm: null | components['schemas']['InteractiveFormContract'];
       measure: null | string;
       measureProperty: null | string;
+      habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -6359,6 +6515,257 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetHabitTracker: {
+    parameters: {
+      query?: {
+        from?: string;
+        to?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HabitTrackerResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetHabitSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['HabitSettingsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HabitTrackerResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetHabitCheckIn: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        occurredOn: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['HabitCheckInRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HabitCheckInResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  DeleteHabitCheckIn: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        occurredOn: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetHabitStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['HabitStatusRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HabitStatusResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

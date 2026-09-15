@@ -109,18 +109,28 @@ describe('container loading', () => {
       return Promise.resolve(new Response(JSON.stringify(payload)));
     });
     const { result, unmount } = renderHook(() => useContainer(parentId), { wrapper: Wrapper });
-    await waitFor(() => { expect(result.current.status).toBe('ready'); });
+    await waitFor(() => {
+      expect(result.current.status).toBe('ready');
+    });
     const calls = fetchMock.mock.calls.length;
-    act(() => { notifyItemChildrenChanged('another-workspace', parentId); });
+    act(() => {
+      notifyItemChildrenChanged('another-workspace', parentId);
+    });
     expect(fetchMock.mock.calls).toHaveLength(calls);
     title = 'After pet update';
     status = 'Done';
-    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId); });
-    await waitFor(() => { expect(result.current.children[0]?.title).toBe(title); });
+    act(() => {
+      notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId);
+    });
+    await waitFor(() => {
+      expect(result.current.children[0]?.title).toBe(title);
+    });
     expect(result.current.children[0]?.properties.status).toBe('Done');
     unmount();
     const afterUnmount = fetchMock.mock.calls.length;
-    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId); });
+    act(() => {
+      notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId);
+    });
     expect(fetchMock.mock.calls).toHaveLength(afterUnmount);
   });
 
@@ -174,16 +184,26 @@ describe('container loading', () => {
     const { result, unmount } = renderHook(() => useQueryResults(itemId, 'query'), {
       wrapper: Wrapper,
     });
-    await waitFor(() => { expect(result.current.results?.results[0]?.title).toBe('Before'); });
+    await waitFor(() => {
+      expect(result.current.results?.results[0]?.title).toBe('Before');
+    });
     const calls = fetchMock.mock.calls.length;
-    act(() => { notifyItemChildrenChanged('another-workspace', null); });
+    act(() => {
+      notifyItemChildrenChanged('another-workspace', null);
+    });
     expect(fetchMock.mock.calls).toHaveLength(calls);
     title = 'After';
-    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, null); });
-    await waitFor(() => { expect(result.current.results?.results[0]?.title).toBe('After'); });
+    act(() => {
+      notifyItemChildrenChanged(STUB_WORKSPACE.id, null);
+    });
+    await waitFor(() => {
+      expect(result.current.results?.results[0]?.title).toBe('After');
+    });
     unmount();
     const finalCalls = fetchMock.mock.calls.length;
-    act(() => { notifyItemChildrenChanged(STUB_WORKSPACE.id, null); });
+    act(() => {
+      notifyItemChildrenChanged(STUB_WORKSPACE.id, null);
+    });
     expect(fetchMock.mock.calls).toHaveLength(finalCalls);
   });
 

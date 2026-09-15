@@ -189,7 +189,9 @@ describe('workspace management', () => {
     });
     await user.click(workspaceButton(STUB_WORKSPACE.name));
     expect(
-      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', { name: SHARED.name }),
+      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', {
+        name: SHARED.name,
+      }),
     ).not.toBeInTheDocument();
   });
 
@@ -205,7 +207,9 @@ describe('workspace management', () => {
     expect(await screen.findByRole('heading', { name: 'Archived workspaces' })).toBeVisible();
     expect(screen.getByText(STUB_WORKSPACE.name)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Restore workspace' })).toBeVisible();
-    expect(fetchCalls().some((call) => call.url.endsWith(`/workspaces/${STUB_WORKSPACE.id}/archive`))).toBe(true);
+    expect(
+      fetchCalls().some((call) => call.url.endsWith(`/workspaces/${STUB_WORKSPACE.id}/archive`)),
+    ).toBe(true);
   });
 
   it('lets the invited user accept provisional access without leaving the workspace', async () => {
@@ -238,7 +242,9 @@ describe('workspace management', () => {
     });
     await user.click(workspaceButton(STUB_WORKSPACE.name));
     expect(
-      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', { name: PENDING.name }),
+      within(screen.getByRole('region', { name: 'Workspaces' })).queryByRole('link', {
+        name: PENDING.name,
+      }),
     ).not.toBeInTheDocument();
   });
 

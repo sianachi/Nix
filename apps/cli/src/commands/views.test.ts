@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { getViews, setViews } from './views.ts';
+import { getViews, inspectViews, setViews } from './views.ts';
 
 const API = 'http://nix.test';
 const ITEM = '11111111-1111-4111-8111-111111111111';
@@ -189,5 +189,29 @@ describe('nixctl views set', () => {
       status: 422,
     });
     await done();
+  });
+});
+
+describe('nixctl views inspect', () => {
+  it('retains persisted widget configuration in its output', async () => {
+    const { env, done } = await withProfile();
+    const habitWidgets = [
+      { id: 'progress', kind: 'completion', habitId: ITEM, from: '2026-09-01', to: '2026-09-14' },
+    ];
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId/views`, () =>
+        HttpResponse.json({
+          views: [{ ...view('habits', 'Habits', 'habit_tracker'), habitWidgets }],
+          unrenderable: [],
+          default: 'habits',
+        }),
+      ),
+    );
+    try {
+      const printed = await capture((json) => inspectViews('default', ITEM, json, { env }));
+      expect(printed).toMatchObject({ views: [{ habitWidgets }] });
+    } finally {
+      await done();
+    }
   });
 });
