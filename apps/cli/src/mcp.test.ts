@@ -28,6 +28,11 @@ describe('nixctl mcp workspace tools', () => {
         'decline_workspace_invitation',
         'revoke_workspace_invitation',
         'list_workspace_members',
+        'set_habit',
+        'set_habit_status',
+        'read_habit',
+        'check_in_habit',
+        'undo_habit_check_in',
         'change_workspace_member_role',
         'remove_workspace_member',
         'leave_workspace',
@@ -39,6 +44,71 @@ describe('nixctl mcp workspace tools', () => {
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('exposes habit writes through the authenticated API session', async () => {
+    const habitId = '11111111-1111-4111-8111-111111111111';
+    const requests: { method: string; url: string; body: unknown }[] = [];
+    const connected = await connect('owner', (url, init) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({
+            accessToken: 'jwt-owner',
+            tokenType: 'Bearer',
+            expiresInSeconds: 600,
+          }),
+        );
+      }
+      requests.push({
+        method: init?.method ?? 'GET',
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      });
+      return Promise.resolve(
+        Response.json({
+          id: '22222222-2222-4222-8222-222222222222',
+          occurredOn: '2026-09-14',
+          completed: true,
+          quantity: 2,
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Response.json({
+          accessToken: 'jwt-owner',
+          tokenType: 'Bearer',
+          expiresInSeconds: 600,
+        });
+      }
+      requests.push({
+        method: init?.method ?? 'GET',
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      });
+      return Response.json({
+        id: '22222222-2222-4222-8222-222222222222',
+        occurredOn: '2026-09-14',
+        completed: true,
+        quantity: 2,
+      });
+    });
+    try {
+      const result = await connected.client.callTool({
+        name: 'check_in_habit',
+        arguments: { habitId, occurredOn: '2026-09-14', completed: true, quantity: 2 },
+      });
+      expect(result.isError, JSON.stringify(result)).not.toBe(true);
+      expect(requests).toEqual([
+        {
+          method: 'PUT',
+          url: `http://nix.test/api/v1/items/${habitId}/habit/check-ins/2026-09-14`,
+          body: { completed: true, quantity: 2 },
+        },
+      ]);
     } finally {
       await connected.close();
     }

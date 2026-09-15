@@ -74,13 +74,17 @@ export function LegacyWorkspaceRedirect(): ReactNode {
     subject && location.pathname === '/' && location.search === '' && location.hash === ''
       ? readLastLocation(
           subject,
-          state.workspaces.filter((workspace) => workspace.lifecycleState === 'active').map((workspace) => workspace.id),
+          state.workspaces
+            .filter((workspace) => workspace.lifecycleState === 'active')
+            .map((workspace) => workspace.id),
         )
       : null;
   if (saved) return <Navigate replace to={saved} />;
 
   const remembered = readLastWorkspaceId();
-  const activeWorkspaces = state.workspaces.filter((workspace) => workspace.lifecycleState === 'active');
+  const activeWorkspaces = state.workspaces.filter(
+    (workspace) => workspace.lifecycleState === 'active',
+  );
   if (activeWorkspaces.length === 0) return <Navigate replace to="/workspaces/archived" />;
   const rememberedWorkspace = activeWorkspaces.find((workspace) => workspace.id === remembered);
   const selected =
@@ -181,13 +185,21 @@ export function WorkspaceGate({ children }: { readonly children: ReactNode }): R
     return (
       <WorkspaceStateFrame>
         <ErrorPanel
-          title={current.lifecycleState === 'purging' ? 'Workspace is being deleted' : 'Workspace is archived'}
+          title={
+            current.lifecycleState === 'purging'
+              ? 'Workspace is being deleted'
+              : 'Workspace is archived'
+          }
           detail={
             current.lifecycleState === 'purging'
               ? 'This workspace is being permanently deleted and cannot be opened.'
               : 'Restore this workspace from Archived workspaces before opening it.'
           }
-          action={<Link to="/workspaces/archived"><Button variant="secondary">Archived workspaces</Button></Link>}
+          action={
+            <Link to="/workspaces/archived">
+              <Button variant="secondary">Archived workspaces</Button>
+            </Link>
+          }
         />
       </WorkspaceStateFrame>
     );

@@ -20,6 +20,7 @@ using Nix.Features.Canvas;
 using Nix.Features.Charts;
 using Nix.Features.CurrentUser;
 using Nix.Features.Graph;
+using Nix.Features.Habits;
 using Nix.Features.Identity;
 using Nix.Features.Internal;
 using Nix.Features.Items;
@@ -38,6 +39,7 @@ using Nix.Persistence.Bookmarks;
 using Nix.Persistence.Calendar;
 using Nix.Persistence.Content;
 using Nix.Persistence.Graph;
+using Nix.Persistence.Habits;
 using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
@@ -172,6 +174,12 @@ public static class NixPersistenceServiceCollectionExtensions
         // Scoped, like everything else here: a store reads the scope's tenant and shares the
         // context's transaction, so it belongs to one unit of work and one tenant.
         services.AddScoped<IItemTree, ItemTree>();
+        services.AddScoped<IHabitLock, HabitLock>();
+        services.AddScoped<ICommandHandler<SetHabitSettings, HabitTrackerResponse>, HabitTrackerHandler>();
+        services.AddScoped<IQueryHandler<ReadHabitTracker, Result<HabitTrackerResponse>>, HabitTrackerHandler>();
+        services.AddScoped<ICommandHandler<SetHabitCheckIn, HabitCheckInResponse>, HabitTrackerHandler>();
+        services.AddScoped<ICommandHandler<UndoHabitCheckIn, ItemId>, HabitTrackerHandler>();
+        services.AddScoped<ICommandHandler<SetHabitStatus, HabitStatusResponse>, HabitTrackerHandler>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
         services.AddScoped<IBrowserSessions, BrowserSessionStore>();
         services.AddScoped<PersonalWorkspaceProvisioner>();

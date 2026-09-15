@@ -2,7 +2,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { files, workspaces } from '@nix/api-client';
+import { files, habits, workspaces } from '@nix/api-client';
 import { downloadFileValue, uploadFileValue } from './commands/files.ts';
 import { runImport } from './commands/import.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
@@ -177,6 +177,85 @@ export async function createWorkspaceMcpServer(
             ...(cursor === undefined ? {} : { cursor }),
           }),
         ),
+      ),
+  );
+
+  server.registerTool(
+    'set_habit',
+    {
+      description: 'Set a habit schedule and target for an item the current principal may edit.',
+      inputSchema: {
+        habitId: identifier,
+        frequency: z.enum(['daily', 'weekly']),
+        weekdays: z.array(z.number().int().min(0).max(6)).default([]),
+        timezone: z.string().trim().min(1),
+        startDate: z.iso.date(),
+        target: z.number().positive(),
+        unit: z.string().trim().min(1),
+      },
+    },
+    ({ habitId, frequency, weekdays, timezone, startDate, target, unit }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          habits.setHabit(habitId, { frequency, weekdays, timezone, startDate, target, unit }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'set_habit_status',
+    {
+      description: 'Pause, resume, archive, or restore a habit while retaining its history.',
+      inputSchema: { habitId: identifier, status: z.enum(['active', 'paused', 'archived']) },
+    },
+    ({ habitId, status }) =>
+      toolResult(async () =>
+        (await session()).client.execute(habits.setStatus(habitId, { status })),
+      ),
+  );
+
+  server.registerTool(
+    'read_habit',
+    {
+      description: 'Read habit settings, check-ins, and weekly progress for a date window.',
+      inputSchema: {
+        habitId: identifier,
+        from: z.iso.date(),
+        to: z.iso.date(),
+      },
+    },
+    ({ habitId, from, to }) =>
+      toolResult(async () => (await session()).client.query(habits.readHabit(habitId, from, to))),
+  );
+
+  server.registerTool(
+    'check_in_habit',
+    {
+      description: 'Record or update one scheduled day for a habit.',
+      inputSchema: {
+        habitId: identifier,
+        occurredOn: z.iso.date(),
+        completed: z.boolean().default(true),
+        quantity: z.number().min(0).nullable().default(null),
+      },
+    },
+    ({ habitId, occurredOn, completed, quantity }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          habits.checkIn(habitId, occurredOn, { completed, quantity }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'undo_habit_check_in',
+    {
+      description: 'Remove the check-in for one scheduled day.',
+      inputSchema: { habitId: identifier, occurredOn: z.iso.date() },
+    },
+    ({ habitId, occurredOn }) =>
+      toolResult(async () =>
+        (await session()).client.execute(habits.undoCheckIn(habitId, occurredOn)),
       ),
   );
 

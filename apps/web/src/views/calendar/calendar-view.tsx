@@ -568,7 +568,11 @@ interface CardContext {
   readonly moveTo: (itemId: string, value: string | null) => void;
   readonly secondaryKey: string | null;
   readonly secondaryProperty: PropertyDefinition | null;
-  readonly onWrite: (itemId: string, propertyKey: string, value: PropertyValue) => Promise<string | null>;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
   readonly onCreate: (
     title: string,
     properties?: Record<string, unknown>,

@@ -310,3 +310,18 @@ export {
 } from './companion-tools.js';
 export * as companionBodies from './resources/companion-bodies.js';
 export type { PetToolCall } from './schemas/pets.js';
+
+export * as habits from './resources/habits.js';
+export {
+  habitSettingsSchema,
+  habitCheckInSchema,
+  habitWeekSummarySchema,
+  habitTrackerSchema,
+  habitStatusResponseSchema,
+  type HabitSettings,
+  type HabitCheckIn,
+  type HabitWeekSummary,
+  type HabitTracker,
+  type HabitStatusResponse,
+} from './schemas/habits.js';
+export type { SetHabitInput, HabitCheckInInput, SetHabitStatusInput } from './resources/habits.js';

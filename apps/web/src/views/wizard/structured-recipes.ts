@@ -15,7 +15,8 @@ export type StructuredRecipeId =
   | 'form'
   | 'interactive-form'
   | 'query'
-  | 'list';
+  | 'list'
+  | 'habit-tracker';
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
@@ -152,6 +153,16 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
       { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
       { key: 'owner', label: 'Owner', type: 'text', options: [], required: false },
     ],
+  },
+  {
+    id: 'habit-tracker',
+    label: 'Habit tracker',
+    detail: 'Track daily or weekday habits with a simple weekly check-in grid.',
+    menu: 'structured',
+    viewKind: 'habit_tracker',
+    defaultTitle: 'Untitled habit tracker',
+    defaultViewName: 'Habits',
+    properties: [],
   },
 ];
 

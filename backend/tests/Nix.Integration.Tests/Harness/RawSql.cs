@@ -20,13 +20,19 @@ internal static class RawSql
     /// <param name="connection">An open connection.</param>
     /// <param name="transaction">The enclosing transaction, or <see langword="null"/>.</param>
     /// <param name="sql">The statement.</param>
+    /// <param name="commandTimeoutSeconds">Optional bounded allowance for bulk fixture setup.</param>
     /// <returns>Rows affected.</returns>
     public static async Task<int> ExecuteAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
-        string sql)
+        string sql,
+        int? commandTimeoutSeconds = null)
     {
         var command = Create(connection, transaction, sql);
+        if (commandTimeoutSeconds is { } timeout)
+        {
+            command.CommandTimeout = timeout;
+        }
         await using (command.ConfigureAwait(false))
         {
             return await command.ExecuteNonQueryAsync();
