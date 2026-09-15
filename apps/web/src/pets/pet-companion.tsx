@@ -8,7 +8,7 @@ import {
   type PetSettings,
 } from '@nix/api-client';
 import { Button, Text, focusRing } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
@@ -18,6 +18,8 @@ import { usePetVoice } from './use-pet-voice';
 import {
   readConversationModel,
   readDevicePreference,
+  readPetPosition,
+  writePetPosition,
   writeConversationModel,
 } from './device-preferences';
 import { readActionReceipt, writeActionReceipt } from './action-receipts';
@@ -53,11 +55,21 @@ function Companion({
 }) {
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
+  const [openAnchor, setOpenAnchor] = useState<CSSProperties | null>(null);
   const launcher = useRef<HTMLButtonElement | null>(null);
   const [placement, setPlacement] = useState(() => readDevicePreference('placement'));
+  const [position, setPosition] = useState(() => readPetPosition());
+  const drag = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
   useEffect(() => {
     const changed = () => {
       setPlacement(readDevicePreference('placement'));
+      setPosition(readPetPosition());
     };
     window.addEventListener('nix-pet-device-changed', changed);
     return () => {
@@ -67,7 +79,14 @@ function Companion({
   return (
     <aside
       aria-label={`${pet.name} companion`}
-      className={`fixed bottom-4 z-40 flex max-w-full flex-col gap-2 p-2 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}
+      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
+      style={
+        position
+          ? open && openAnchor
+            ? openAnchor
+            : { left: position.x, top: position.y }
+          : undefined
+      }
     >
       {open ? (
         <Conversation
@@ -76,13 +95,15 @@ function Companion({
           settings={settings}
           onClose={() => {
             setOpen(false);
-            launcher.current?.focus();
+            setOpenAnchor(null);
+            requestAnimationFrame(() => launcher.current?.focus());
           }}
         />
       ) : null}
       <Button
         ref={launcher}
         variant="ghost"
+        className={`h-auto touch-none p-1 ${open ? 'hidden' : ''}`}
         aria-expanded={open}
         aria-label={open ? `Close ${pet.name}` : `Talk with ${pet.name}`}
         onMouseEnter={() => {
@@ -91,9 +112,68 @@ function Companion({
         onMouseLeave={() => {
           setHover(false);
         }}
-        onClick={() => {
-          setOpen(!open);
+        onClick={(event) => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          const nextOpen = !open;
+          if (nextOpen && position) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setOpenAnchor(
+              rect.top > window.innerHeight / 2
+                ? {
+                    bottom: Math.max(8, window.innerHeight - rect.bottom),
+                    ...(rect.left > window.innerWidth / 2
+                      ? { right: Math.max(8, window.innerWidth - rect.right) }
+                      : { left: Math.max(8, rect.left) }),
+                  }
+                : null,
+            );
+          } else {
+            setOpenAnchor(null);
+          }
+          setOpen(nextOpen);
         }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          drag.current = {
+            pointerId: event.pointerId,
+            offsetX: event.clientX - rect.left,
+            offsetY: event.clientY - rect.top,
+            moved: false,
+          };
+          if (typeof event.currentTarget.setPointerCapture === 'function')
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const active = drag.current;
+          if (active?.pointerId !== event.pointerId) return;
+          const moved = active.moved || Math.hypot(event.movementX, event.movementY) > 2;
+          active.moved = moved;
+          if (!moved) return;
+          suppressClick.current = true;
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = Math.min(
+            Math.max(8, event.clientX - active.offsetX),
+            window.innerWidth - rect.width - 8,
+          );
+          const y = Math.min(
+            Math.max(8, event.clientY - active.offsetY),
+            window.innerHeight - rect.height - 8,
+          );
+          const next = { x, y };
+          setPosition(next);
+          writePetPosition(next);
+        }}
+        onPointerUp={(event) => {
+          if (drag.current?.pointerId === event.pointerId) drag.current = null;
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
+        title="Drag to move companion"
       >
         <PetAvatar
           appearance={pet.appearance}
@@ -332,7 +412,7 @@ function Conversation({
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="size-12 shrink-0 overflow-hidden">
+          <div className="size-14 shrink-0 overflow-visible">
             <div className="origin-top-left scale-50">
               <PetAvatar
                 appearance={pet.appearance}
