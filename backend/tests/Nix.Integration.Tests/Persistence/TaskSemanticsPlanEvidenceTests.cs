@@ -395,6 +395,10 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
                    'active', NULL, {{betaPrincipal}}, {{betaPrincipal}}, now(), now()
             FROM generate_series(1, {{BetaItems}}) AS n;
 
+            -- Refresh the item statistics before closure foreign-key probes use the new corpus.
+            -- Respawn leaves the previous fixture's planner statistics behind.
+            ANALYZE item;
+
             INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
             SELECT id, id, tenant_id, workspace_id, 0
             FROM item
