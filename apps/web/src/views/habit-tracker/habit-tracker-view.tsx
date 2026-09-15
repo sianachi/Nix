@@ -133,8 +133,8 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
   });
 
   return (
-    <section className="flex min-w-0 flex-col gap-5" aria-labelledby="habit-tracker-title">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <section className="flex min-w-0 flex-col gap-6" aria-labelledby="habit-tracker-title">
+      <header className="flex flex-col gap-4 border-b border-divider pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Text as="h2" variant="h2" id="habit-tracker-title">
             {todayOnly
@@ -151,7 +151,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
               : `${window.from} to ${window.to}`}
           </Text>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <Button
             variant="secondary"
             aria-pressed={todayOnly}
@@ -297,9 +297,12 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           }
         />
       ) : habits.length > 0 ? (
-        <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-max border-collapse" aria-label="Weekly habit check-ins">
-            <thead>
+        <div className="min-w-0">
+          <table
+            className="block w-full border-collapse md:table"
+            aria-label="Weekly habit check-ins"
+          >
+            <thead className="hidden md:table-header-group">
               <tr>
                 <th scope="col" className="p-2 text-left">
                   <Text variant="caption">Habit</Text>
@@ -315,7 +318,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="block space-y-4 md:table-row-group md:space-y-0">
               {habits.map((item) => (
                 <HabitRow
                   key={item.id}
@@ -336,26 +339,33 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           </table>
         </div>
       ) : null}
-      <Text variant="bodySmall" tone="muted">
+      <Text variant="bodySmall" tone="muted" className="sr-only">
         Progress is calculated from saved check-ins. Select a habit name to open its details.
       </Text>
       {habits.length > 0 ? (
         <div
-          className="flex flex-col gap-3 border-t border-divider pt-3"
+          className="grid gap-3 border-t border-divider pt-4 sm:grid-cols-2 xl:grid-cols-3"
           aria-label="Habit progress"
         >
           {habits.map((item) => {
             const progress = item.tracker.progress;
             return (
-              <Text key={item.id} variant="bodySmall">
-                {item.title}: {progress?.currentStreak ?? 0} day current streak,{' '}
-                {progress?.bestStreak ?? 0} day best,{' '}
-                {Math.round((progress?.completionRate ?? 0) * 100)}% complete (
-                {progress?.completed ?? 0}/{progress?.planned ?? 0})
-              </Text>
+              <div key={item.id} className="rounded-lg bg-surface-raised p-3">
+                <Text variant="bodySmall" className="font-medium">
+                  {item.title}
+                </Text>
+                <Text variant="caption" tone="muted">
+                  {progress?.currentStreak ?? 0} day streak · {progress?.bestStreak ?? 0} best ·{' '}
+                  {Math.round((progress?.completionRate ?? 0) * 100)}% complete
+                </Text>
+              </div>
             );
           })}
-          <Text variant="bodySmall" tone="muted">
+          <Text
+            variant="bodySmall"
+            tone="muted"
+            className="self-center sm:col-span-2 xl:col-span-3"
+          >
             Overall:{' '}
             {(() => {
               const planned = habits.reduce(
@@ -500,77 +510,95 @@ function HabitRow({
   const occurrenceMap = new Map((tracker.occurrences ?? []).map((entry) => [entry.date, entry]));
   const lifecycle = tracker.status;
   return (
-    <tr className="border-t border-divider">
-      <th scope="row" className="p-2 text-left">
-        <Button
-          variant="ghost"
-          className="max-w-48 truncate"
-          onClick={() => {
-            onOpen(itemId);
-          }}
-        >
-          {title || 'Untitled habit'}
-        </Button>
-        <Text variant="caption" tone="muted">
-          {tracker.target} {tracker.unit}
-        </Text>
-        <Button variant="ghost" onClick={onEdit}>
-          Edit schedule
-        </Button>
-        <Text variant="caption" tone="muted">
-          Status: {lifecycle}
-        </Text>
-        {lifecycle !== 'archived' ? (
-          <Button
-            variant="ghost"
-            disabled={statusPending}
-            onClick={() => {
-              setStatusPending(true);
-              void onStatus(itemId, lifecycle === 'paused' ? 'active' : 'paused').then((result) => {
-                setMessage(result);
-                setStatusPending(false);
-              });
-            }}
+    <tr className="block overflow-hidden rounded-lg border border-divider bg-surface md:table-row md:rounded-none md:border-0">
+      <th
+        scope="row"
+        className="block p-4 text-left align-top md:table-cell md:w-64 md:border-t md:border-divider md:p-3"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <Button
+              variant="ghost"
+              className="max-w-full justify-start truncate px-0 text-left text-lg font-semibold"
+              aria-label={`Open ${title || 'Untitled habit'}`}
+              onClick={() => {
+                onOpen(itemId);
+              }}
+            >
+              {title || 'Untitled habit'}
+            </Button>
+            <Text variant="caption" tone="muted">
+              Goal: {tracker.target} {tracker.unit}
+            </Text>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+              <Text variant="caption" tone="muted">
+                {tracker.progress?.currentStreak ?? 0} day streak
+              </Text>
+              <Text variant="caption" tone="muted">
+                {Math.round((tracker.progress?.completionRate ?? 0) * 100)}% complete
+              </Text>
+            </div>
+          </div>
+          <Text
+            variant="caption"
+            tone="muted"
+            className="rounded-full border border-divider px-2 py-1 capitalize"
           >
-            {statusPending ? 'Saving' : lifecycle === 'paused' ? 'Resume' : 'Pause'}
-          </Button>
-        ) : null}
-        {lifecycle !== 'archived' ? (
-          <Button
-            variant="ghost"
-            disabled={statusPending}
-            onClick={() => {
-              setStatusPending(true);
-              void onStatus(itemId, 'archived').then((result) => {
-                setMessage(result);
-                setStatusPending(false);
-              });
-            }}
-          >
-            Archive
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            disabled={statusPending}
-            onClick={() => {
-              setStatusPending(true);
-              void onStatus(itemId, 'active').then((result) => {
-                setMessage(result);
-                setStatusPending(false);
-              });
-            }}
-          >
-            Restore
-          </Button>
-        )}
+            {lifecycle}
+          </Text>
+        </div>
+        <details className="mt-3">
+          <summary className="w-fit cursor-pointer rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+            Habit options
+          </summary>
+          <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md bg-surface-raised p-2 md:flex-col md:items-stretch">
+            <Text variant="caption" tone="muted" className="px-2 capitalize">
+              Status: {lifecycle}
+            </Text>
+            <Button variant="ghost" onClick={onEdit}>
+              Edit schedule
+            </Button>
+            {lifecycle !== 'archived' ? (
+              <Button
+                variant="ghost"
+                disabled={statusPending}
+                onClick={() => {
+                  setStatusPending(true);
+                  void onStatus(itemId, lifecycle === 'paused' ? 'active' : 'paused').then(
+                    (result) => {
+                      setMessage(result);
+                      setStatusPending(false);
+                    },
+                  );
+                }}
+              >
+                {statusPending ? 'Saving' : lifecycle === 'paused' ? 'Resume' : 'Pause'}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              disabled={statusPending}
+              onClick={() => {
+                setStatusPending(true);
+                void onStatus(itemId, lifecycle === 'archived' ? 'active' : 'archived').then(
+                  (result) => {
+                    setMessage(result);
+                    setStatusPending(false);
+                  },
+                );
+              }}
+            >
+              {lifecycle === 'archived' ? 'Restore' : 'Archive'}
+            </Button>
+          </div>
+        </details>
         {message ? (
           <Text variant="note" role="alert">
             {message}
           </Text>
         ) : null}
       </th>
-      {days.map((day) => {
+      {days.map((day, dayIndex) => {
         const entry = checkIns.get(day);
         const occurrence = occurrenceMap.get(day);
         const scheduled =
@@ -614,13 +642,24 @@ function HabitRow({
           setMessage(refusal);
         };
         return (
-          <td key={day} className="p-2 text-center">
+          <td
+            key={day}
+            className="block border-t border-divider p-3 text-left align-middle md:table-cell md:p-2 md:text-center"
+          >
+            <div className="mb-2 flex items-baseline justify-between md:hidden">
+              <Text variant="bodySmall" className="font-medium">
+                {days.length === 1 ? 'Today' : WEEKDAYS[dayIndex]}
+              </Text>
+              <Text variant="caption" tone="muted">
+                {day}
+              </Text>
+            </div>
             {scheduled || hasEntry ? (
-              <div className="flex flex-col items-center gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 md:justify-center">
                 {measured ? (
                   <Input
                     aria-label={`${title}, ${day}, quantity`}
-                    className="w-20"
+                    className="w-24"
                     type="number"
                     min="0"
                     step="any"
@@ -642,7 +681,11 @@ function HabitRow({
                 >
                   {pending.has(key) ? 'Saving' : measured ? 'Save' : checked ? 'Done' : 'Check in'}
                 </Button>
-                <Text variant="caption" tone="muted">
+                <Text
+                  variant="caption"
+                  tone="muted"
+                  className="inline-flex items-center gap-1 capitalize"
+                >
                   <span aria-hidden="true">
                     {stateLabel === 'completed' ? (
                       <CheckCircle2 size={14} />
@@ -653,7 +696,7 @@ function HabitRow({
                     ) : (
                       <Circle size={14} />
                     )}
-                  </span>{' '}
+                  </span>
                   {stateLabel}
                 </Text>
                 {measured && hasEntry ? (
