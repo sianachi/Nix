@@ -2,6 +2,7 @@ import { Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { PetProfile, PetSettings } from '@nix/api-client';
 import atlas from './owl-atlas.json';
+import eyeOfRaAtlas from './eye-of-ra-atlas.json';
 
 export const petAnimationStates = [
   'idle',
@@ -30,6 +31,8 @@ export function PetAvatar({
 }): ReactElement {
   return appearance === 'owl' ? (
     <OwlAvatar state={state} motion={motion} label={label} />
+  ) : appearance === 'eye-of-ra' ? (
+    <AtlasAvatar atlas={eyeOfRaAtlas} state={state} motion={motion} label={label} />
   ) : (
     <svg
       viewBox="0 0 100 100"
@@ -72,6 +75,128 @@ export function PetAvatar({
         <path d="M88 29V39M88 45V47" className="stroke-foreground" strokeWidth="3" />
       ) : null}
     </svg>
+  );
+}
+
+interface SpriteAtlas {
+  readonly source: string;
+  readonly columns: number;
+  readonly cellWidth: number;
+  readonly cellHeight: number;
+  readonly imageWidth: number;
+  readonly imageHeight: number;
+  readonly frameDurationMs: number;
+  readonly stateRows: Readonly<Record<PetAnimationState, number>>;
+  readonly frameCounts: readonly number[];
+}
+
+function AtlasAvatar({
+  atlas: spriteAtlas,
+  state,
+  motion,
+  label,
+}: {
+  readonly atlas: SpriteAtlas;
+  readonly state: PetAnimationState;
+  readonly motion: PetSettings['motion'];
+  readonly label: string;
+}): ReactElement {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const element = canvas.current;
+    const context = element?.getContext('2d');
+    if (!element || !context) return;
+    const picture = new Image();
+    const reduced = globalThis.matchMedia('(prefers-reduced-motion: reduce)');
+    let disposed = false;
+    let loaded = false;
+    let inViewport = true;
+    let frameRequest = 0;
+    let epoch = 0;
+    let previous = -1;
+    const row = spriteAtlas.stateRows[state];
+    const frameCount = spriteAtlas.frameCounts[row] ?? spriteAtlas.columns;
+    const idleFrames = [0, 0, 0, 0, 1, 2, 3, 4, 5];
+    const moving = () => motion !== 'reduced' && (motion !== 'system' || !reduced.matches);
+    function draw(frame: number): void {
+      if (!context || !element || !loaded || frame === previous) return;
+      previous = frame;
+      context.clearRect(0, 0, element.width, element.height);
+      context.drawImage(
+        picture,
+        frame * spriteAtlas.cellWidth,
+        row * spriteAtlas.cellHeight,
+        spriteAtlas.cellWidth,
+        spriteAtlas.cellHeight,
+        0,
+        0,
+        element.width,
+        element.height,
+      );
+    }
+    function tick(now: number): void {
+      if (disposed || !loaded || document.hidden || !inViewport || !moving()) return;
+      if (epoch === 0) epoch = now;
+      const step = Math.floor((now - epoch) / spriteAtlas.frameDurationMs);
+      draw(state === 'idle' ? (idleFrames[step % idleFrames.length] ?? 0) : step % frameCount);
+      frameRequest = requestAnimationFrame(tick);
+    }
+    function sync(): void {
+      cancelAnimationFrame(frameRequest);
+      epoch = 0;
+      previous = -1;
+      draw(0);
+      if (loaded && !disposed && !document.hidden && inViewport && moving())
+        frameRequest = requestAnimationFrame(tick);
+    }
+    picture.onload = () => {
+      if (disposed) return;
+      if (
+        picture.naturalWidth !== spriteAtlas.imageWidth ||
+        picture.naturalHeight !== spriteAtlas.imageHeight
+      ) {
+        setFailed(true);
+        return;
+      }
+      loaded = true;
+      sync();
+    };
+    picture.onerror = () => {
+      if (!disposed) setFailed(true);
+    };
+    picture.src = `/pets/${spriteAtlas.source}`;
+    const observer =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            inViewport = entries.some((entry) => entry.isIntersecting);
+            sync();
+          });
+    observer?.observe(element);
+    document.addEventListener('visibilitychange', sync);
+    reduced.addEventListener('change', sync);
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frameRequest);
+      observer?.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+      reduced.removeEventListener('change', sync);
+      picture.onload = null;
+      picture.onerror = null;
+    };
+  }, [motion, spriteAtlas, state]);
+  return failed ? (
+    <Text variant="note">Eye of Ra preview unavailable</Text>
+  ) : (
+    <canvas
+      ref={canvas}
+      width={spriteAtlas.cellWidth}
+      height={spriteAtlas.cellHeight}
+      role="img"
+      aria-label={label}
+      className="size-24 shrink-0 object-contain"
+    />
   );
 }
 
