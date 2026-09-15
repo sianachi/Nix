@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import atlas from '../../pets/owl-atlas.json';
+import eyeOfRaAtlas from '../../pets/eye-of-ra-atlas.json';
 import { petAnimationStates } from '../../pets/pet-avatar';
 
 describe('owl atlas geometry', () => {
@@ -17,6 +18,18 @@ describe('owl atlas geometry', () => {
       expect(top + height).toBeLessThanOrEqual(atlas.rowStarts[row + 1] ?? atlas.imageHeight);
       expect(baseline).toBeGreaterThan(0);
       expect(baseline).toBeLessThanOrEqual(height);
+    }
+  });
+});
+
+describe('Eye of Ra atlas geometry', () => {
+  it('uses the v2 grid and maps every runtime state to a populated animation row', () => {
+    expect(eyeOfRaAtlas.version).toBe(2);
+    expect(eyeOfRaAtlas.columns * eyeOfRaAtlas.cellWidth).toBe(eyeOfRaAtlas.imageWidth);
+    expect(eyeOfRaAtlas.rows * eyeOfRaAtlas.cellHeight).toBe(eyeOfRaAtlas.imageHeight);
+    expect(Object.keys(eyeOfRaAtlas.stateRows)).toEqual(petAnimationStates);
+    for (const row of Object.values(eyeOfRaAtlas.stateRows)) {
+      expect(eyeOfRaAtlas.frameCounts[row]).toBeGreaterThan(0);
     }
   });
 });
