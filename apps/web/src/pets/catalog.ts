@@ -19,6 +19,12 @@ export const petCatalog = [
     personality: 'playful',
     description: 'A bright, inventive companion.',
   },
+  {
+    appearance: 'eye-of-ra',
+    name: 'Eye of Ra',
+    personality: 'encouraging',
+    description: 'A watchful golden falcon companion with steady, practical guidance.',
+  },
 ] as const;
 
 export const personalityDescriptions = {

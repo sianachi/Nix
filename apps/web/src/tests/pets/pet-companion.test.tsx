@@ -48,9 +48,53 @@ const connected = {
 describe('companion workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      clear: () => {
+        stored.clear();
+      },
+      getItem: (key: string) => stored.get(key) ?? null,
+      removeItem: (key: string) => {
+        stored.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        stored.set(key, value);
+      },
+    });
     sessionStorage.clear();
     client.execute.mockResolvedValue(connected);
     client.query.mockResolvedValue(connected);
+  });
+
+  it('opens upward when a moved companion is near the bottom of the screen', async () => {
+    localStorage.setItem('nix.pet.position', JSON.stringify({ x: 24, y: 700 }));
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    const launcher = screen.getByRole('button', { name: 'Talk with Cat' });
+    vi.spyOn(launcher, 'getBoundingClientRect').mockReturnValue({
+      bottom: 760,
+      height: 60,
+      left: 24,
+      right: 84,
+      top: 700,
+      width: 60,
+      x: 24,
+      y: 700,
+      toJSON: () => ({}),
+    });
+
+    await userEvent.click(launcher);
+
+    const companion = screen.getByRole('complementary', { name: 'Cat companion' });
+    expect(companion).toHaveStyle({
+      bottom: `${String(window.innerHeight - 760)}px`,
+      left: '24px',
+    });
+    expect(companion.style.top).toBe('');
+    expect(screen.getByRole('button', { name: 'Close Cat' })).toHaveClass('hidden');
   });
 
   it('sends only explicitly entered text and scopes the conversation', async () => {

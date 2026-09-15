@@ -197,6 +197,7 @@ describe('habit tracker user flows', () => {
 
   it('pauses an active habit and exposes its status', async () => {
     mount();
+    fireEvent.click(screen.getByText('Habit options'));
     expect(screen.getByText('Status: active')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
     await waitFor(() => {
