@@ -31,6 +31,7 @@ public sealed class PetSettingsTests
         Assert.False(PetSettingsValidation.IsValid(Settings with { Profiles = [Owl with { Appearance = "unknown" }] }));
         Assert.True(PetSettingsValidation.IsValid(Settings with { Profiles = [Owl with { Appearance = "fox" }] }));
         Assert.True(PetSettingsValidation.IsValid(Settings with { Profiles = [Owl with { Appearance = "cat" }] }));
+        Assert.True(PetSettingsValidation.IsValid(Settings with { Profiles = [Owl with { Appearance = "eye-of-ra" }] }));
         Assert.False(PetSettingsValidation.IsValid(Settings with { Profiles = [Owl with { Instructions = new string('a', 2001) }] }));
         Assert.False(PetSettingsValidation.IsValid(Settings with { ActivePetId = Guid.NewGuid() }));
         Assert.False(PetSettingsValidation.IsValid(Settings with { Enabled = true, ActivePetId = null }));

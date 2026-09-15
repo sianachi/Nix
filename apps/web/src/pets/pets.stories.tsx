@@ -14,7 +14,7 @@ export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 export const AnimationStates = {
   render: (): ReactElement => (
     <div className="grid grid-cols-3 gap-4">
-      {(['owl', 'cat', 'fox'] as const).flatMap((appearance) =>
+      {(['owl', 'cat', 'fox', 'eye-of-ra'] as const).flatMap((appearance) =>
         petAnimationStates.map((state) => (
           <div key={`${appearance}:${state}`} className="flex flex-col items-center gap-2">
             <PetAvatar
