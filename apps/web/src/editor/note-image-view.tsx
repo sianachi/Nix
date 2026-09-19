@@ -1,6 +1,7 @@
 import { files as fileResources } from '@nix/api-client';
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { NoteImageSize } from './note-image-size';
 
 import { useApiClient } from '../api/api-client-provider';
 import { proseClasses } from './prose';
@@ -15,10 +16,15 @@ export function NoteImageView(props: ReactNodeViewProps): ReactNode {
     readonly fileItemId?: unknown;
     readonly src?: unknown;
     readonly alt?: unknown;
+    readonly width?: unknown;
   };
   const fileItemId =
     typeof attrs.fileItemId === 'string' && attrs.fileItemId.length > 0 ? attrs.fileItemId : null;
   const source = typeof attrs.src === 'string' ? attrs.src : '';
+  const width =
+    typeof attrs.width === 'number' && Number.isFinite(attrs.width) && attrs.width > 0
+      ? attrs.width
+      : undefined;
   const alt = typeof attrs.alt === 'string' ? attrs.alt : '';
   const [preview, setPreview] = useState<{
     readonly itemId: string;
@@ -49,9 +55,11 @@ export function NoteImageView(props: ReactNodeViewProps): ReactNode {
   const current = preview?.itemId === fileItemId ? preview : null;
   return (
     <NodeViewWrapper as="figure" contentEditable={false} className="m-0">
-      {fileItemId === null ? <img src={source} alt={alt} className={proseClasses.image} /> : null}
+      {fileItemId === null ? (
+        <img src={source} alt={alt} width={width} className={proseClasses.image} />
+      ) : null}
       {fileItemId !== null && current?.url !== null && current?.url !== undefined ? (
-        <img src={current.url} alt={alt} className={proseClasses.image} />
+        <img src={current.url} alt={alt} width={width} className={proseClasses.image} />
       ) : null}
       {fileItemId !== null && current === null ? (
         <span className="text-muted" role="status">
@@ -62,6 +70,14 @@ export function NoteImageView(props: ReactNodeViewProps): ReactNode {
         <span className="text-muted" role="alert">
           This image is unavailable.
         </span>
+      ) : null}
+      {props.editor.isEditable && props.selected ? (
+        <NoteImageSize
+          width={width}
+          onChange={(next) => {
+            props.updateAttributes({ width: next ?? null, height: null });
+          }}
+        />
       ) : null}
     </NodeViewWrapper>
   );

@@ -3,16 +3,19 @@ package exporter
 import (
 	"archive/zip"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
+	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
 
-const docxContentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>`
+const docxContentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>`
 const docxRootRelationships = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
 const docxDocumentRelationships = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>`
 const docxStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="44"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="28"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="24"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="360"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="360"/></w:pPr></w:style></w:styles>`
@@ -23,7 +26,7 @@ func writeDOCX(output io.Writer, next RecordSource, limits stream.Limits, report
 	entries := []struct{ name, body string }{
 		{"[Content_Types].xml", docxContentTypes},
 		{"_rels/.rels", docxRootRelationships},
-		{"word/_rels/document.xml.rels", docxDocumentRelationships},
+
 		{"word/styles.xml", docxStyles},
 		{"word/numbering.xml", docxNumberingXML()},
 	}
@@ -32,11 +35,18 @@ func writeDOCX(output io.Writer, next RecordSource, limits stream.Limits, report
 			return err
 		}
 	}
-	document, err := createZipEntry(archive, "word/document.xml")
+	document, err := worktemp.Create("nix-export-docx-*")
 	if err != nil {
 		return err
 	}
-	if _, err := io.WriteString(document, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>`); err != nil {
+	defer func() { document.Close(); os.Remove(document.Name()) }()
+	var media []struct {
+		name string
+		data []byte
+	}
+	imageID := 0
+	relationships := strings.TrimSuffix(docxDocumentRelationships, "</Relationships>")
+	if _, err := io.WriteString(document, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>`); err != nil {
 		return err
 	}
 	records := 0
@@ -49,7 +59,36 @@ func writeDOCX(output io.Writer, next RecordSource, limits stream.Limits, report
 		if err := writeDOCXParagraph(document, title, docxParagraph{style: "Title", pageBreakBefore: records > 1}); err != nil {
 			return err
 		}
-		return writeDOCXMarkdown(document, record.Body)
+		// Flush each note's prose and images without retaining image bytes across records.
+		if err := writeDOCXMarkdownImages(document, record, func(raster stream.Image, alt string) error {
+			imageID++
+			name := fmt.Sprintf("media/image%d.%s", imageID, raster.Format)
+			rel := fmt.Sprintf("rImage%d", imageID)
+			relationships += `<Relationship Id="` + rel + `" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="` + name + `"/>`
+			media = append(media, struct {
+				name string
+				data []byte
+			}{name, raster.Data})
+			return writeDOCXImage(document, raster, alt, rel, imageID)
+		}); err != nil {
+			return err
+		}
+		for _, image := range media {
+			entry, err := createZipEntry(archive, "word/"+image.name)
+			if err != nil {
+				return err
+			}
+			if _, err := entry.Write(image.data); err != nil {
+				return err
+			}
+		}
+		media = nil
+		if stat, err := document.Stat(); err != nil {
+			return err
+		} else if stat.Size() > limits.MaxBytes {
+			return stream.ErrLimitExceeded
+		}
+		return nil
 	}, limited)
 	if err != nil {
 		return err
@@ -58,6 +97,19 @@ func writeDOCX(output io.Writer, next RecordSource, limits stream.Limits, report
 		return errors.New("cannot export an empty DOCX")
 	}
 	if _, err := io.WriteString(document, `<w:sectPr/></w:body></w:document>`); err != nil {
+		return err
+	}
+	if _, err := document.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	entry, err := createZipEntry(archive, "word/document.xml")
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(entry, document); err != nil {
+		return err
+	}
+	if err := writeZipEntry(archive, "word/_rels/document.xml.rels", []byte(relationships+"</Relationships>"), limits); err != nil {
 		return err
 	}
 	if err := archive.Close(); err != nil {
@@ -560,4 +612,39 @@ func splitTableRow(line string) []string {
 	}
 	cells = append(cells, strings.TrimSpace(unescapeMarkdown(line[start:])))
 	return cells
+}
+
+func writeDOCXMarkdownImages(output io.Writer, record stream.Record, embed func(stream.Image, string) error) error {
+	// Images are block nodes. Keep intervening Markdown together so tables and lists still parse.
+	var pending strings.Builder
+	flush := func() error { err := writeDOCXMarkdown(output, pending.String()); pending.Reset(); return err }
+	for _, line := range strings.Split(record.Body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if alt, target, ok := blockImage(trimmed); ok {
+			if raster := recordImage(record, target); ok && raster != nil {
+				if pending.Len() > 0 {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+				if err := embed(*raster, unescapeMarkdown(alt)); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		pending.WriteString(line)
+		pending.WriteByte('\n')
+	}
+	if pending.Len() > 0 {
+		return flush()
+	}
+	return nil
+}
+
+func writeDOCXImage(output io.Writer, raster stream.Image, alt, rel string, id int) error {
+	width, height := imageSize(raster, 468, 648)
+	cx, cy := int64(width*12700), int64(height*12700)
+	_, err := fmt.Fprintf(output, `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Image %d" descr="%s"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="%d" name="Image %d"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`, cx, cy, id, id, html.EscapeString(alt), id, id, rel, cx, cy)
+	return err
 }

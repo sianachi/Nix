@@ -989,6 +989,23 @@ func (client *Client) GetExportSource(ctx context.Context, exportID string) (*Ex
 	return &source, nil
 }
 
+type ExportImage struct {
+	URL        string    `json:"url"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	MediaType  string    `json:"mediaType"`
+	ByteLength int64     `json:"byteLength"`
+	SHA256     string    `json:"sha256"`
+}
+
+func (client *Client) GetExportImage(ctx context.Context, exportID, itemID string) (*ExportImage, error) {
+	path := "/internal/worker-executions/exports/" + url.PathEscape(exportID) + "/images/" + url.PathEscape(itemID)
+	var result ExportImage
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (client *Client) GetExportDestination(ctx context.Context, exportID string, byteLength int64, sha256 string) (*ExportDestination, error) {
 	query := url.Values{}
 	query.Set("byteLength", fmt.Sprint(byteLength))

@@ -6,8 +6,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
+using Nix.Abstractions.Files;
 using Nix.Abstractions.Workers;
 using Nix.Authentication;
+using Nix.Domain.Files;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
@@ -117,6 +119,23 @@ public sealed class ExportHttpTests : IAsyncLifetime
         await using var scope = _fixture.Application.CreateUnscopedScope();
         var dispatch = scope.ServiceProvider.GetRequiredService<WorkerDispatchStore>();
         Assert.NotNull(await dispatch.ClaimJobAsync(exportId, execution, 60, Cancellation));
+
+        var imageId = await CreateImageAsync();
+        using var image = await InternalAsync(HttpMethod.Get,
+            $"/internal/worker-executions/exports/{exportId:D}/images/{imageId:D}", exportId, execution);
+        image.EnsureSuccessStatusCode();
+        using (var imageBody = JsonDocument.Parse(await image.Content.ReadAsStringAsync(Cancellation)))
+        {
+            Assert.Equal("image/png", imageBody.RootElement.GetProperty("mediaType").GetString());
+            Assert.Equal(12, imageBody.RootElement.GetProperty("byteLength").GetInt64());
+            Assert.Contains("X-Amz-Signature", imageBody.RootElement.GetProperty("url").GetString(), StringComparison.Ordinal);
+        }
+        using var foreignImage = await InternalAsync(HttpMethod.Get,
+            $"/internal/worker-executions/exports/{exportId:D}/images/{M0SchemaSeed.Beta.ItemId:D}", exportId, execution);
+        Assert.Equal(HttpStatusCode.NotFound, foreignImage.StatusCode);
+        using var staleImage = await InternalAsync(HttpMethod.Get,
+            $"/internal/worker-executions/exports/{exportId:D}/images/{imageId:D}", exportId, "stale-execution");
+        Assert.Equal(HttpStatusCode.Conflict, staleImage.StatusCode);
 
         using var source = await InternalAsync(
             HttpMethod.Get,
@@ -362,6 +381,21 @@ public sealed class ExportHttpTests : IAsyncLifetime
             });
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Equal("exports.idempotency_conflict", await ProblemCodeAsync(conflict));
+    }
+
+    private async Task<Guid> CreateImageAsync()
+    {
+        await using var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var files = work.Resolve<IFileStore>();
+        var upload = Assert.IsType<FileUploadRecord>(await files.BeginAsync(
+            new BeginFileUpload(WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId), null, null,
+                "figure.png", "image/png", 12, "export-image"), Cancellation));
+        Assert.NotNull(await files.QueueInspectionAsync(FileUploadId.From(upload.Id), Cancellation));
+        var file = Assert.IsType<FileRecord>(await files.CompleteAsync(
+            new CompleteFileUpload(FileUploadId.From(upload.Id), "image/png", 12, new string('a', 64),
+                Previewable: true, PixelWidth: 4, PixelHeight: 2), Cancellation));
+        await work.CommitAsync(Cancellation);
+        return file.ItemId;
     }
 
     private async Task<Guid> CreateItemAsync(string title, Guid parentId)

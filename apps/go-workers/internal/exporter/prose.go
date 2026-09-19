@@ -42,6 +42,9 @@ const (
 	attrLabel
 	attrHref
 	attrAlign
+	attrFileID
+	attrWidth
+	attrHeight
 )
 
 const (
@@ -71,6 +74,9 @@ const (
 )
 
 type proseAttrs struct {
+	fileID      string
+	width       int
+	height      int
 	level       int
 	start       int
 	toggleLevel int
@@ -675,10 +681,14 @@ func (parser *proseDecoder) attributes(attributes *proseAttrs, depth int) error 
 			err = parser.stringAttribute(attributes, attrHref, &attributes.href)
 		case "align":
 			err = parser.stringAttribute(attributes, attrAlign, &attributes.align)
-		case "width", "height":
-			var nonNull bool
-			nonNull, err = parser.nonNullValue(depth + 1)
-			attributes.dimensions = attributes.dimensions || nonNull
+		case "fileItemId":
+			err = parser.stringAttribute(attributes, attrFileID, &attributes.fileID)
+		case "width":
+			err = parser.integerAttribute(attributes, attrWidth, &attributes.width, true)
+			attributes.dimensions = attributes.dimensions || attributes.width != 0
+		case "height":
+			err = parser.integerAttribute(attributes, attrHeight, &attributes.height, true)
+			attributes.dimensions = attributes.dimensions || attributes.height != 0
 		case "target", "rel", "class":
 			var nonNull bool
 			nonNull, err = parser.nonNullValue(depth + 1)

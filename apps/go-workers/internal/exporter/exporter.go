@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"archive/zip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,7 +81,7 @@ func writeMarkdown(output io.Writer, next RecordSource, limits stream.Limits, re
 		if _, err := io.WriteString(limited, "# "+title+"\n\n"); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(limited, strings.TrimSpace(sanitizeText(record.Body))); err != nil {
+		if _, err := io.WriteString(limited, strings.TrimSpace(sanitizeText(markdownImages(record)))); err != nil {
 			return err
 		}
 		_, err := io.WriteString(limited, "\n\n")
@@ -219,4 +220,12 @@ func nullable(value string) any {
 		return nil
 	}
 	return value
+}
+
+func markdownImages(record stream.Record) string {
+	replacements := make([]string, 0, len(record.Images)*2)
+	for _, raster := range record.Images {
+		replacements = append(replacements, raster.Source, "data:image/"+raster.Format+";base64,"+base64.StdEncoding.EncodeToString(raster.Data))
+	}
+	return strings.NewReplacer(replacements...).Replace(record.Body)
 }

@@ -1,10 +1,13 @@
 package exportjob
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +29,14 @@ func TestHandlerObtainsLeaseBoundCapabilitiesAndPublishesAnImmutableExport(t *te
 	bundleStream := `{"format":"nix-archive","formatVersion":1,"schemaVersion":3,"exportedAt":"2026-08-31T00:00:00Z","root":"` + root + `","rootEffectiveSchema":null,"includesDeleted":false,"items":[{"id":"` + root + `","parentId":null,"seq":"1","title":"Title","type":"note"}],"omitted":[{"id":null,"parentId":"` + root + `","reason":"hidden","detail":"A child was unavailable."}],"loss":[{"itemId":"` + root + `","kind":"canvas","detail":"Canvas vectors were flattened."}]}` + "\n" +
 		`{"id":"` + root + `","parentId":null,"workspaceId":"workspace","type":"note","title":"Title","seq":"1","lifecycleState":"active","createdAt":"2026-08-31T00:00:00Z","updatedAt":"2026-08-31T00:00:00Z","properties":{},"schema":null,"views":null,"viewRows":[],"viewRowsTruncated":false,"body":{"schemaVersion":2,"prosemirror":{"type":"doc","content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Plan"}]},{"type":"paragraph","content":[{"type":"text","text":"Read "},{"type":"text","text":"carefully","marks":[{"type":"bold"}]},{"type":"image","attrs":{"src":"https://objects.example/diagram.png","alt":"Diagram","width":640,"height":480}}]},{"type":"details","content":[{"type":"detailsSummary","content":[{"type":"text","text":"More"}]},{"type":"detailsContent","content":[{"type":"paragraph","content":[{"type":"text","text":"Expanded"}]}]}]}]}}}` + "\n" +
 		`{"end":true,"items":1}` + "\n"
+	const imageID = "11111111-1111-4111-8111-111111111111"
+	var imageBytes bytes.Buffer
+	if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 4, 2))); err != nil {
+		t.Fatal(err)
+	}
+	imageDigest := sha256.Sum256(imageBytes.Bytes())
+	bundleStream = strings.Replace(bundleStream, `"content":[{"type":"heading"`, `"content":[{"type":"image","attrs":{"fileItemId":"`+imageID+`","alt":"Uploaded diagram","width":240}},{"type":"heading"`, 1)
+
 	uploaded := make(chan []byte, 1)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -51,6 +62,15 @@ func TestHandlerObtainsLeaseBoundCapabilitiesAndPublishesAnImmutableExport(t *te
 				"uploadUrl": server.URL + "/result", "readUrl": server.URL + "/result",
 				"deleteUrl": server.URL + "/result", "capabilityExpiresAt": time.Now().Add(time.Minute),
 			})
+		case "/internal/worker-executions/exports/" + jobID + "/images/" + imageID:
+			assertWorkerRequest(t, request, jobID, executionID)
+			writeJSON(t, response, map[string]any{"url": server.URL + "/image", "expiresAt": time.Now().Add(time.Minute), "mediaType": "image/png", "byteLength": imageBytes.Len(), "sha256": hex.EncodeToString(imageDigest[:])})
+		case "/image":
+			if request.Header.Get("Authorization") != "" || request.Header.Get("X-Nix-Internal-Secret") != "" {
+				t.Fatal("credentials leaked to image capability")
+			}
+			_, _ = response.Write(imageBytes.Bytes())
+
 		case "/result":
 			if request.Header.Get("Authorization") != "" || request.Header.Get("X-Nix-Internal-Secret") != "" {
 				t.Fatal("Collaboration credentials leaked to the object capability")
@@ -88,13 +108,13 @@ func TestHandlerObtainsLeaseBoundCapabilitiesAndPublishesAnImmutableExport(t *te
 	if result.ItemCount != 1 || result.AttemptID == "" || result.Format != "pdf" || result.ObjectKey == "" || len(output) < 5 || string(output[:5]) != "%PDF-" {
 		t.Fatalf("result = %#v, output bytes = %d", result, len(output))
 	}
-	for _, expected := range []string{
-		"(Plan) Tj",
-	} {
-		if !strings.Contains(string(output), expected) {
-			t.Fatalf("exported PDF omitted %q", expected)
-		}
+	if !bytes.Contains(output, []byte("/Subtype /Image")) {
+		t.Fatal("uploaded image is absent from PDF")
 	}
+	if !bytes.Contains(output, []byte("/FontFile2")) {
+		t.Fatal("exported PDF does not contain an embedded font")
+	}
+
 	if !contains(result.Loss, "canvas: Canvas vectors were flattened.") ||
 		!contains(result.Loss, "Images are linked or described rather than embedded in the converted document.") ||
 		!contains(result.Omissions, "hidden: A child was unavailable.") {
