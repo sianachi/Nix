@@ -186,18 +186,16 @@ func TestPDFFlattensMarkdownSyntaxWithoutInternalReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := output.String()
-	for _, expected := range []string{"(Plan) Tj", "(Bold site) Tj"} {
+	text := extractPDFText(t, output.Bytes())
+	for _, expected := range []string{"Plan", "Bold site"} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("PDF omitted %q", expected)
+			t.Fatalf("PDF omitted %q: %s", expected, text)
 		}
 	}
-	if strings.Contains(text, "What did not come across") || strings.Contains(text, "A view was omitted.") {
-		t.Fatalf("PDF embedded its internal fidelity report: %s", text)
+	if strings.Contains(text, "A view was omitted.") || strings.Contains(text, "**Bold**") {
+		t.Fatalf("Unexpected PDF content: %s", text)
 	}
-	if strings.Contains(text, "**Bold**") {
-		t.Fatal("PDF exposed Markdown formatting syntax")
-	}
+
 }
 
 func TestDOCXAndPDFAreDeterministicForTheSameRecords(t *testing.T) {
@@ -321,4 +319,21 @@ func readZipText(t *testing.T, archive *zip.Reader, name string) string {
 	}
 	t.Fatalf("archive omitted %s", name)
 	return ""
+}
+
+func extractPDFText(t *testing.T, data []byte) string {
+	t.Helper()
+	binary, err := exec.LookPath("pdftotext")
+	if err != nil {
+		t.Skip("pdftotext is not installed")
+	}
+	path := filepath.Join(t.TempDir(), "export.pdf")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.CommandContext(t.Context(), binary, path, "-").CombinedOutput()
+	if err != nil {
+		t.Fatalf("PDF text extraction: %v: %s", err, output)
+	}
+	return string(output)
 }

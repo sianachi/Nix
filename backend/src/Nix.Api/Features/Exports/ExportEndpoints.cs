@@ -3,11 +3,13 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
+using Nix.Abstractions.Files;
 using Nix.Abstractions.Workers;
 using Nix.Authentication;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
 using Nix.Errors;
+using Nix.Features.Files;
 using Nix.Http;
 using Nix.Persistence.ObjectStorage;
 
@@ -61,6 +63,7 @@ internal static class ExportEndpoints
         var exports = group.MapGroup("/exports/{jobId:guid}");
         exports.MapGet("", GetWorkerSource);
         exports.MapGet("/destination", GetWorkerDestination);
+        exports.MapGet("/images/{itemId:guid}", GetWorkerImage);
     }
 
     private static ExportFormatCatalogResponse Formats(
@@ -309,6 +312,46 @@ internal static class ExportEndpoints
             source,
             bearer,
             clock.GetUtcNow().Add(SelfIssuedTokenService.WorkerExecutionLifetime)));
+    }
+
+    private static async Task<IResult> GetWorkerImage(
+        Guid jobId,
+        Guid itemId,
+        HttpContext context,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session,
+        [FromServices] IWorkerDispatchStore dispatch,
+        [FromServices] IFileStore files,
+        [FromServices] IItemTree tree,
+        [FromServices] S3CapabilitySigner signer)
+    {
+        var execution = await ExactExecution(jobId, context, dispatch).ConfigureAwait(false);
+        var scoped = session.Current
+            ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
+        var job = await jobs.GetAsync(scoped.TenantId, scoped.PrincipalId, jobId, context.RequestAborted).ConfigureAwait(false);
+        if (execution is null || !signer.IsConfigured || job is null
+            || !TryReadState(job, out var payload, out _) || job.Status != "running"
+            || payload.Format is not ("pdf" or "docx" or "markdown"))
+        {
+            return Problem(context, 409, "exports.execution_refused", "Export execution refused", "The image request no longer owns a running export.");
+        }
+        // Both queries run under the execution actor's RLS context. References may point to
+        // sibling files, but cannot grant access outside the export workspace or actor's rights.
+        var file = await tree.FindAsync(ItemId.From(itemId), context.RequestAborted).ConfigureAwait(false);
+        if (file is null || file.WorkspaceId.Value != payload.WorkspaceId)
+        {
+            return Problem(context, 404, "exports.image_unavailable", "Image unavailable", "The image is not available to this export.");
+        }
+        var image = await files.AuthorizeDownloadAsync(ItemId.From(itemId), null, context.RequestAborted).ConfigureAwait(false);
+        if (image is null || !image.Previewable || image.ByteLength is <= 0 or > 10 * 1024 * 1024
+            || image.MediaType is not ("image/png" or "image/jpeg" or "image/webp"))
+        {
+            return Problem(context, 404, "exports.image_unavailable", "Image unavailable", "The image is not a supported preview.");
+        }
+        var capability = signer.Get(image.ObjectKey);
+        return TypedResults.Ok(new FileDownloadCapabilityResponse(
+            capability.Url, capability.ExpiresAt, image.FileName, image.MediaType,
+            image.ByteLength, image.Sha256, Inline: true, Unscanned: true, NoSniff: true));
     }
 
     private static async Task<IResult> GetWorkerDestination(

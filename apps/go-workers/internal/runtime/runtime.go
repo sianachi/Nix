@@ -310,7 +310,7 @@ func advertiseExportFormats(ctx context.Context, client *broker.Client, instance
 		{Format: "nix", Label: "Archive", Extension: "nix", MediaType: "application/vnd.nix.archive+zip", Lossless: true, DeclaredLoss: []string{}},
 		{Format: "markdown", Label: "Markdown", Extension: "md", MediaType: "text/markdown; charset=utf-8", DeclaredLoss: []string{"Views and interactive metadata are represented as text."}},
 		{Format: "docx", Label: "Word", Extension: "docx", MediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", DeclaredLoss: []string{"Interactive workspace behavior is flattened into a document.", "Links outside HTTP, HTTPS, email, and Nix are flattened to visible labels."}},
-		{Format: "pdf", Label: "PDF", Extension: "pdf", MediaType: "application/pdf", DeclaredLoss: []string{"Interactive workspace behavior is flattened into fixed pages.", "Link destinations are printed as labels rather than interactive PDF annotations.", "Characters outside printable ASCII are replaced by the built-in PDF font."}},
+		{Format: "pdf", Label: "PDF", Extension: "pdf", MediaType: "application/pdf", DeclaredLoss: []string{"Interactive workspace behavior is flattened into fixed pages.", "Characters not supported by the embedded PDF font are replaced.", "Complex layouts and unsupported formatting may be simplified."}},
 	}
 	publish := func() {
 		if !isReady() {

@@ -10,7 +10,18 @@ import (
 
 var ErrLimitExceeded = errors.New("stream limit exceeded")
 
+// Image contains validated raster bytes for one converted note, never a capability URL.
+type Image struct {
+	Source      string
+	Data        []byte
+	Format      string
+	Width       int
+	PixelWidth  int
+	PixelHeight int
+}
+
 type Record struct {
+	Images     []Image        `json:"-"`
 	ID         string         `json:"id"`
 	ParentID   string         `json:"parentId,omitempty"`
 	Title      string         `json:"title"`

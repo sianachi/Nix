@@ -119,7 +119,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	} else {
 		writeErr = exporter.WriteStreamWithReport(
 			format,
-			recordSource(ctx, input, format, handler.limits.MaxLine, &projectionLoss),
+			recordSource(ctx, input, format, handler.limits.MaxLine, &projectionLoss, handler.imageLoader(ctx, job.ID)),
 			io.MultiWriter(file, digest),
 			handler.limits,
 			func() []string {
@@ -253,7 +253,7 @@ func cancellableBundles(ctx context.Context, input *nixarchive.BundleStream) fun
 	}
 }
 
-func recordSource(ctx context.Context, input *nixarchive.BundleStream, format string, maximumBodyBytes int, losses *[]string) exporter.RecordSource {
+func recordSource(ctx context.Context, input *nixarchive.BundleStream, format string, maximumBodyBytes int, losses *[]string, loaders ...exporter.ImageLoader) exporter.RecordSource {
 	return func() (stream.Record, bool, error) {
 		if err := ctx.Err(); err != nil {
 			return stream.Record{}, false, err
@@ -265,18 +265,28 @@ func recordSource(ctx context.Context, input *nixarchive.BundleStream, format st
 		if !ok {
 			return stream.Record{}, false, nil
 		}
-		body, observed, err := exporter.ProjectBody(bundle.Body, true, maximumBodyBytes)
+		var body string
+		var observed []string
+		var images []stream.Image
+		if len(loaders) > 0 {
+			body, images, observed, err = exporter.ProjectBodyWithImages(bundle.Body, maximumBodyBytes, loaders[0])
+		} else {
+			body, observed, err = exporter.ProjectBody(bundle.Body, true, maximumBodyBytes)
+		}
 		if err != nil {
 			return stream.Record{}, false, err
 		}
 		for _, loss := range observed {
 			appendUnique(losses, loss)
 		}
-		if format != "markdown" && strings.Contains(body, "![") {
+		if format != "markdown" && strings.Count(body, "![") > len(images) {
 			appendUnique(losses, "Images are linked or described rather than embedded in the converted document.")
 		}
 		if format != "markdown" && strings.Contains(body, "<details") {
 			appendUnique(losses, "Collapsible sections were expanded into always-visible document content.")
+		}
+		if format == "markdown" && len(images) > 0 {
+			appendUnique(losses, "Embedded images use data URLs, which some Markdown readers do not display; saved image widths are not preserved.")
 		}
 		if format == "markdown" && strings.Contains(body, "<!-- nix-page-break -->") {
 			appendUnique(losses, "Explicit page breaks are represented by markers in Markdown; page layout is not preserved.")
@@ -285,12 +295,54 @@ func recordSource(ctx context.Context, input *nixarchive.BundleStream, format st
 			appendUnique(losses, "Title control characters or line breaks were removed in the converted document.")
 		}
 		if format == "pdf" && (exporter.PDFTextRequiresSubstitution(bundle.Title) || exporter.PDFTextRequiresSubstitution(body)) {
-			appendUnique(losses, "Characters outside printable ASCII were replaced in the PDF output.")
+			appendUnique(losses, "Characters not supported by the embedded PDF font were replaced in the PDF output.")
 		}
 		return stream.Record{
 			ID: bundle.ID, ParentID: pointerValue(bundle.ParentID), Title: bundle.Title,
-			Body: body, Properties: bundle.Properties,
+			Body: body, Properties: bundle.Properties, Images: images,
 		}, true, nil
+	}
+}
+
+func (handler *Handler) imageLoader(ctx context.Context, jobID string) exporter.ImageLoader {
+	remaining := int64(64 << 20)
+	requests := 0
+	return func(fileID string) ([]byte, error) {
+		if !validGUID(fileID) {
+			return nil, errors.New("invalid image identifier")
+		}
+		requests++
+		if requests > 256 || remaining <= 0 {
+			return nil, stream.ErrLimitExceeded
+		}
+		capability, err := handler.api.GetExportImage(ctx, jobID, fileID)
+		if err != nil {
+			return nil, err
+		}
+		if capability.ByteLength <= 0 || capability.ByteLength > min(10<<20, remaining) || !capability.ExpiresAt.After(time.Now()) {
+			return nil, stream.ErrLimitExceeded
+		}
+		remaining -= capability.ByteLength
+		download, err := handler.destination.Download(ctx, capability.URL, capability.ByteLength)
+		if err != nil {
+			return nil, err
+		}
+		// Forced bounded allocation: document encoders require a complete validated raster.
+		data, readErr := io.ReadAll(download.Body)
+		closeErr := download.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if int64(len(data)) != capability.ByteLength {
+			return nil, errors.New("image length mismatch")
+		}
+		if err := objecttransfer.VerifyDigest(download.Digest, capability.SHA256); err != nil {
+			return nil, err
+		}
+		return data, nil
 	}
 }
 
