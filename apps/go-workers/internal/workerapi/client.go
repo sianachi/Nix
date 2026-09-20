@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -1034,13 +1035,13 @@ func (client *Client) CompleteTemplateImportFileBatch(ctx context.Context, impor
 	}
 	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/files/complete"
 	var result struct {
-		ImportID  string `json:"importId"`
-		Completed bool   `json:"completed"`
+		ImportID             string   `json:"importId"`
+		CompletedTransferIDs []string `json:"completedTransferIds"`
 	}
 	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
 		return err
 	}
-	if result.ImportID != importID || !result.Completed {
+	if result.ImportID != importID || !slices.Equal(result.CompletedTransferIDs, transferIDs) {
 		return errors.New("worker API rejected template import file completion")
 	}
 	return nil
@@ -1098,13 +1099,13 @@ func (client *Client) CompleteDocumentImportFileBatch(ctx context.Context, impor
 	}
 	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/file-versions/complete"
 	var result struct {
-		ImportID  string `json:"importId"`
-		Completed bool   `json:"completed"`
+		ImportID             string   `json:"importId"`
+		CompletedTransferIDs []string `json:"completedTransferIds"`
 	}
 	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
 		return err
 	}
-	if result.ImportID != importID || !result.Completed {
+	if result.ImportID != importID || !slices.Equal(result.CompletedTransferIDs, transferIDs) {
 		return errors.New("worker API rejected document import file completion")
 	}
 	return nil

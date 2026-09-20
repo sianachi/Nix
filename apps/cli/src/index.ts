@@ -55,10 +55,15 @@ import {
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
+import {
+  cancelDocumentImport,
+  commitDocumentImport,
+  getDocumentImport,
+} from './commands/document-import.ts';
 import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts';
 import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
-import { outputOptions, printError, ExitCode } from './output.ts';
+import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
 import { petCommand, type PetOptions } from './commands/pets.ts';
 import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
@@ -1131,20 +1136,62 @@ export function buildProgram(): Command {
     .requiredOption('--workspace <id>', 'the workspace to import into')
     .option('--parent <id>', 'the container to import under (default: workspace root)')
     .option('--dry-run', 'print the mapping report without creating anything', false)
-    .action(async (path: string, options: ImportCliOptions, command: Command) => {
+    .option('--no-wait', 'return a resumable receipt after the preview is queued')
+    .action(
+      async (path: string, options: ImportCliOptions & { wait?: boolean }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          runImport(
+            flags.profile,
+            {
+              path,
+              workspaceId: options.workspace,
+              parentId: options.parent,
+              dryRun: options.dryRun === true,
+              noWait: options.wait === false,
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  const documentImport = program
+    .command('document-import')
+    .description('Inspect and resume durable document imports.');
+  documentImport
+    .command('get <importId>')
+    .description('Read durable document import state.')
+    .action(async (importId: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
-      await run(() =>
-        runImport(
-          flags.profile,
-          {
-            path,
-            workspaceId: options.workspace,
-            parentId: options.parent,
-            dryRun: options.dryRun === true,
-          },
+      await run(async () => {
+        printResult(await getDocumentImport(flags.profile, importId), outputOptions(flags.json));
+      });
+    });
+  documentImport
+    .command('commit <importId>')
+    .description('Commit a preview-ready document import.')
+    .option('--no-wait', 'return a resumable receipt while the import commits')
+    .action(async (importId: string, options: { wait?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        printResult(
+          await commitDocumentImport(flags.profile, importId, options.wait !== false),
           outputOptions(flags.json),
-        ),
-      );
+        );
+      });
+    });
+  documentImport
+    .command('cancel <importId>')
+    .description('Cancel a durable document import.')
+    .option('--yes', 'confirm cancellation of this import', false)
+    .action(async (importId: string, options: { yes?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      if (options.yes !== true)
+        throw new Error('Pass --yes to confirm cancellation of this import.');
+      await run(async () => {
+        printResult(await cancelDocumentImport(flags.profile, importId), outputOptions(flags.json));
+      });
     });
 
   const file = program

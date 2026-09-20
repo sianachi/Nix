@@ -208,6 +208,48 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     }
 
     [Fact]
+    public async Task Archive_file_history_stage_replay_returns_existing_mappings_across_unit_of_work()
+    {
+        DocumentImportRecord operation;
+        StageDocumentImport request;
+        DocumentImportStageRecord original;
+        await using (var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation))
+        {
+            var prepared = await CommitQueuedAsync(work, "nix", "replay-history.nix", 8);
+            operation = prepared.Operation;
+            var note = new ImportEnvelopePlan("note", null, 0, "History", "note", null, null, null,
+                "active", true, null);
+            var file = new ImportEnvelopePlan("asset", "note", 0, "asset.bin", "file", null, null, null,
+                "active", false, null);
+            var histories = new[]
+            {
+                new ImportFileVersionPlan("asset", 1, "asset.bin", "application/octet-stream", 4,
+                    new string('c', 64), false, null, null),
+                new ImportFileVersionPlan("asset", 2, "asset.bin", "application/octet-stream", 7,
+                    new string('d', 64), false, null, null),
+            };
+            request = new StageDocumentImport(DocumentImportId.From(operation.Id), new string('b', 64),
+                prepared.SourceDigest, [note, file], histories);
+            original = Assert.IsType<DocumentImportStageRecord>(await prepared.Store.StageAsync(request, Cancellation));
+            Assert.Collection(original.FileVersions!,
+                first => Assert.Equal(1, first.TargetVersion),
+                second => Assert.Equal(2, second.TargetVersion));
+            await work.CommitAsync(Cancellation);
+        }
+
+        await using var replayWork = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var replay = Assert.IsType<DocumentImportStageRecord>(await replayWork.Resolve<IDocumentImportStore>()
+            .StageAsync(request, Cancellation));
+        Assert.Equal(original.Items.OrderBy(value => value.SourceId), replay.Items.OrderBy(value => value.SourceId));
+        Assert.Equal(original.FileVersions!.OrderBy(value => value.TransferId),
+            replay.FileVersions!.OrderBy(value => value.TransferId));
+        var fileTargetId = ItemId.From(original.Items.Single(value => value.SourceId == "asset").TargetItemId);
+        Assert.Equal(2, await replayWork.DbContext.FileVersions.CountAsync(value => value.ItemId == fileTargetId, Cancellation));
+        Assert.Equal(2, await replayWork.DbContext.DocumentImportFileVersions.CountAsync(
+            value => value.ImportId == DocumentImportId.From(operation.Id), Cancellation));
+    }
+
+    [Fact]
     public async Task A_plan_cannot_substitute_or_omit_the_declared_source_file()
     {
         await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

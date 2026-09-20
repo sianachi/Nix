@@ -241,7 +241,7 @@ func TestArchiveFileVersionsUploadVerifyAndAcknowledgePerVersion(t *testing.T) {
 				t.Fatalf("expected per-version durable ack, got %v", body.TransferIDs)
 			}
 			completed = append(completed, body.TransferIDs...)
-			_ = json.NewEncoder(response).Encode(map[string]any{"importId": testImportID, "completed": true})
+			_ = json.NewEncoder(response).Encode(map[string]any{"importId": testImportID, "completedTransferIds": body.TransferIDs})
 		case strings.HasPrefix(request.URL.Path, "/objects/") && request.Method == http.MethodPut:
 			transferID := strings.TrimPrefix(request.URL.Path, "/objects/")
 			if request.Header.Get("If-None-Match") != "*" {

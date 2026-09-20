@@ -1413,19 +1413,26 @@ public sealed class DocumentImportStore(
             .Where(value => value.TenantId == context.TenantId && value.ImportId == operation.Id)
             .OrderBy(value => value.SourceId)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var fileMappings = await database.DocumentImportFileVersions.AsNoTracking()
+            .Where(value => value.TenantId == context.TenantId && value.ImportId == operation.Id)
+            .Join(database.FileVersions.AsNoTracking(), transfer => new { transfer.TenantId, transfer.FileVersionId },
+                version => new { version.TenantId, FileVersionId = version.Id },
+                (transfer, version) => new
+                {
+                    transfer.TransferId,
+                    transfer.SourceItemId,
+                    TargetItemId = transfer.TargetItemId,
+                    version.Version,
+                })
+            .OrderBy(value => value.TransferId).ToArrayAsync(cancellationToken).ConfigureAwait(false);
         return mappings.Count == 0
             ? null
             : new DocumentImportStageRecord(
                 operation.Id.Value,
                 rootId.Value,
                 mappings.Select(ToMapping).ToArray(),
-                await database.DocumentImportFileVersions.AsNoTracking()
-                    .Where(value => value.TenantId == context.TenantId && value.ImportId == operation.Id)
-                    .Join(database.FileVersions.AsNoTracking(), transfer => new { transfer.TenantId, transfer.FileVersionId },
-                        version => new { version.TenantId, FileVersionId = version.Id },
-                        (transfer, version) => new DocumentImportFileVersionMapping(
-                            transfer.TransferId, transfer.SourceItemId, transfer.TargetItemId.Value, version.Version))
-                    .OrderBy(value => value.TransferId).ToArrayAsync(cancellationToken).ConfigureAwait(false));
+                fileMappings.Select(value => new DocumentImportFileVersionMapping(
+                    value.TransferId, value.SourceItemId, value.TargetItemId!.Value, value.Version)).ToArray());
     }
 
     private async ValueTask RebuildClosureAsync(
