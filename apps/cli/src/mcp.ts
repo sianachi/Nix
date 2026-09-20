@@ -14,6 +14,11 @@ import {
 import { downloadFileValue, uploadFileValue } from './commands/files.ts';
 import { runImport } from './commands/import.ts';
 import {
+  cancelDocumentImportFromSession,
+  commitDocumentImportFromSession,
+  getDocumentImportFromSession,
+} from './commands/document-import.ts';
+import {
   executeTemplateApply,
   executeTemplateArchiveCommit,
   executeTemplateArchiveExport,
@@ -494,14 +499,21 @@ export async function createWorkspaceMcpServer(
         path: z.string().min(1),
         parentId: identifier.optional(),
         preview: z.boolean().default(false),
+        wait: z.boolean().default(true),
       },
     },
-    ({ workspaceId, path, parentId, preview }) =>
+    ({ workspaceId, path, parentId, preview, wait }) =>
       toolResult(async () => {
         let result: unknown;
         await runImport(
           options.profileName,
-          { workspaceId, path, dryRun: preview, ...(parentId === undefined ? {} : { parentId }) },
+          {
+            workspaceId,
+            path,
+            dryRun: preview,
+            noWait: !wait,
+            ...(parentId === undefined ? {} : { parentId }),
+          },
           { json: true, isTty: false },
           options.sessionDeps ?? {},
           {
@@ -509,10 +521,43 @@ export async function createWorkspaceMcpServer(
               result = value;
             },
             setExitCode: false,
+            onDocumentImportStarted: () => undefined,
           },
         );
         return result;
       }),
+  );
+
+  server.registerTool(
+    'get_document_import',
+    {
+      description: 'Read durable state for a document import.',
+      inputSchema: { importId: identifier },
+    },
+    ({ importId }) =>
+      toolResult(async () => getDocumentImportFromSession(await session(), importId)),
+  );
+
+  server.registerTool(
+    'commit_document_import',
+    {
+      description: 'Commit a preview-ready document import, optionally returning before completion.',
+      inputSchema: { importId: identifier, wait: z.boolean().default(true) },
+    },
+    ({ importId, wait }) =>
+      toolResult(async () =>
+        commitDocumentImportFromSession(await session(), importId, wait),
+      ),
+  );
+
+  server.registerTool(
+    'cancel_document_import',
+    {
+      description: 'Cancel a document import after explicit confirmation.',
+      inputSchema: { importId: identifier, confirm: z.literal(true) },
+    },
+    ({ importId }) =>
+      toolResult(async () => cancelDocumentImportFromSession(await session(), importId)),
   );
 
   server.registerTool(

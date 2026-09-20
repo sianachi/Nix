@@ -46,6 +46,9 @@ describe('nixctl mcp workspace tools', () => {
         'list_workspace_assignable_principals',
         'leave_workspace',
         'import_document',
+        'get_document_import',
+        'commit_document_import',
+        'cancel_document_import',
         'upload_file',
         'replace_file',
         'list_file_versions',
@@ -402,6 +405,91 @@ describe('nixctl mcp workspace tools', () => {
       });
       expect(oversizedCursor.isError).toBe(true);
       expect(unconfirmed.isError).toBe(true);
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('routes document import recovery through Core and requires explicit cancel confirmation', async () => {
+    const importId = 'a1111111-1111-4111-8111-111111111111';
+    const operationId = 'a2222222-2222-4222-8222-222222222222';
+    const calls: string[] = [];
+    const fetchMock: FetchImpl = async (url, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 });
+      }
+      if (url.endsWith(`/api/v1/imports/${importId}`) && (init?.method ?? 'GET') === 'GET') {
+        return Response.json({
+          id: importId,
+          workspaceId: WORKSPACE,
+          uploadId: 'a3333333-3333-4333-8333-333333333333',
+          parentId: null,
+          format: 'txt',
+          title: 'notes',
+          status: 'preview_ready',
+          previewOperationId: operationId,
+          commitOperationId: null,
+          itemCount: 1,
+          assetCount: 0,
+          loss: [],
+          omissions: [],
+          rootItemId: null,
+          failureCode: null,
+          expiresAt: '2026-09-01T01:00:00Z',
+          completedAt: null,
+        });
+      }
+      if (url.endsWith(`/api/v1/imports/${importId}/commit`)) {
+        return Response.json({
+          id: operationId,
+          kind: 'import.commit',
+          status: 'queued',
+          result: null,
+          errorCode: null,
+          errorDetail: null,
+          attempts: 0,
+          cancellationRequested: false,
+          createdAt: '2026-09-01T00:00:00Z',
+          completedAt: null,
+        }, { status: 202 });
+      }
+      if (url.endsWith(`/api/v1/imports/${importId}`) && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
+      return unexpectedRequest();
+    };
+    vi.stubGlobal('fetch', fetchMock);
+    const connected = await connect('owner', fetchMock);
+    try {
+      const state = await connected.client.callTool({
+        name: 'get_document_import',
+        arguments: { importId },
+      });
+      const receipt = await connected.client.callTool({
+        name: 'commit_document_import',
+        arguments: { importId, wait: false },
+      });
+      const unconfirmed = await connected.client.callTool({
+        name: 'cancel_document_import',
+        arguments: { importId },
+      });
+      const cancelled = await connected.client.callTool({
+        name: 'cancel_document_import',
+        arguments: { importId, confirm: true },
+      });
+      expect(state.isError, JSON.stringify({ state, calls })).not.toBe(true);
+      expect(JSON.stringify(state.content)).toContain('preview_ready');
+      expect(receipt.isError).not.toBe(true);
+      expect(JSON.stringify(receipt.content)).toContain(operationId);
+      expect(unconfirmed.isError).toBe(true);
+      expect(cancelled.isError).not.toBe(true);
+      expect(calls.slice(1).map((call) => call.replace(API, ''))).toEqual([
+        `GET /api/v1/imports/${importId}`,
+        `POST /api/v1/imports/${importId}/commit`,
+        `DELETE /api/v1/imports/${importId}`,
+      ]);
+      expect(JSON.stringify({ state, receipt, cancelled })).not.toContain('uploadUrl');
     } finally {
       await connected.close();
     }
