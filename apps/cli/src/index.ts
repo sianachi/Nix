@@ -55,7 +55,11 @@ import {
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
-import { cancelDocumentImport, commitDocumentImport, getDocumentImport } from './commands/document-import.ts';
+import {
+  cancelDocumentImport,
+  commitDocumentImport,
+  getDocumentImport,
+} from './commands/document-import.ts';
 import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts';
 import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
@@ -1133,22 +1137,24 @@ export function buildProgram(): Command {
     .option('--parent <id>', 'the container to import under (default: workspace root)')
     .option('--dry-run', 'print the mapping report without creating anything', false)
     .option('--no-wait', 'return a resumable receipt after the preview is queued')
-    .action(async (path: string, options: ImportCliOptions & { wait?: boolean }, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() =>
-        runImport(
-          flags.profile,
-          {
-            path,
-            workspaceId: options.workspace,
-            parentId: options.parent,
-            dryRun: options.dryRun === true,
-            noWait: options.wait === false,
-          },
-          outputOptions(flags.json),
-        ),
-      );
-    });
+    .action(
+      async (path: string, options: ImportCliOptions & { wait?: boolean }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          runImport(
+            flags.profile,
+            {
+              path,
+              workspaceId: options.workspace,
+              parentId: options.parent,
+              dryRun: options.dryRun === true,
+              noWait: options.wait === false,
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
 
   const documentImport = program
     .command('document-import')
@@ -1181,7 +1187,8 @@ export function buildProgram(): Command {
     .option('--yes', 'confirm cancellation of this import', false)
     .action(async (importId: string, options: { yes?: boolean }, command: Command) => {
       const flags = globalFlags(command);
-      if (options.yes !== true) throw new Error('Pass --yes to confirm cancellation of this import.');
+      if (options.yes !== true)
+        throw new Error('Pass --yes to confirm cancellation of this import.');
       await run(async () => {
         printResult(await cancelDocumentImport(flags.profile, importId), outputOptions(flags.json));
       });

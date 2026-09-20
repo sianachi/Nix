@@ -417,7 +417,11 @@ describe('nixctl mcp workspace tools', () => {
     const fetchMock: FetchImpl = async (url, init) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
       if (url.endsWith('/public/v1/auth/token')) {
-        return Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 });
+        return Response.json({
+          accessToken: 'jwt-owner',
+          tokenType: 'Bearer',
+          expiresInSeconds: 600,
+        });
       }
       if (url.endsWith(`/api/v1/imports/${importId}`) && (init?.method ?? 'GET') === 'GET') {
         return Response.json({
@@ -441,18 +445,21 @@ describe('nixctl mcp workspace tools', () => {
         });
       }
       if (url.endsWith(`/api/v1/imports/${importId}/commit`)) {
-        return Response.json({
-          id: operationId,
-          kind: 'import.commit',
-          status: 'queued',
-          result: null,
-          errorCode: null,
-          errorDetail: null,
-          attempts: 0,
-          cancellationRequested: false,
-          createdAt: '2026-09-01T00:00:00Z',
-          completedAt: null,
-        }, { status: 202 });
+        return Response.json(
+          {
+            id: operationId,
+            kind: 'import.commit',
+            status: 'queued',
+            result: null,
+            errorCode: null,
+            errorDetail: null,
+            attempts: 0,
+            cancellationRequested: false,
+            createdAt: '2026-09-01T00:00:00Z',
+            completedAt: null,
+          },
+          { status: 202 },
+        );
       }
       if (url.endsWith(`/api/v1/imports/${importId}`) && init?.method === 'DELETE') {
         return new Response(null, { status: 204 });

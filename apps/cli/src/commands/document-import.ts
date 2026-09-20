@@ -34,11 +34,7 @@ export async function commitDocumentImport(
   wait: boolean,
   deps: SessionDeps = {},
 ): Promise<DocumentImport | DocumentImportCommitReceipt> {
-  return commitDocumentImportFromSession(
-    await resolveSession(profileName, deps),
-    importId,
-    wait,
-  );
+  return commitDocumentImportFromSession(await resolveSession(profileName, deps), importId, wait);
 }
 
 export async function commitDocumentImportFromSession(

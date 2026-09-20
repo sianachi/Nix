@@ -240,18 +240,21 @@ describe('nixctl import', () => {
         return new HttpResponse(null, { status: 200 });
       }),
       http.post(`${API}/api/v1/imports/${importId}/preview`, () =>
-        HttpResponse.json({
-          id: operationId,
-          kind: 'import.preview.txt',
-          status: 'queued',
-          result: null,
-          errorCode: null,
-          errorDetail: null,
-          attempts: 0,
-          cancellationRequested: false,
-          createdAt: '2026-09-01T00:00:00Z',
-          completedAt: null,
-        }, { status: 202 }),
+        HttpResponse.json(
+          {
+            id: operationId,
+            kind: 'import.preview.txt',
+            status: 'queued',
+            result: null,
+            errorCode: null,
+            errorDetail: null,
+            attempts: 0,
+            cancellationRequested: false,
+            createdAt: '2026-09-01T00:00:00Z',
+            completedAt: null,
+          },
+          { status: 202 },
+        ),
       ),
       http.get(`${API}/api/v1/operations/:operationId`, () => {
         operationRead = true;
@@ -267,20 +270,24 @@ describe('nixctl import', () => {
       }),
     );
     const stderr: string[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderr.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
-      return true;
-    });
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
+        return true;
+      });
     try {
       const printed = (await capture((json) =>
-        runImport(
-          'default',
-          { path: file, workspaceId: WS, dryRun: false, noWait: true },
-          json,
-          { env },
-        ),
+        runImport('default', { path: file, workspaceId: WS, dryRun: false, noWait: true }, json, {
+          env,
+        }),
       )) as Record<string, unknown>;
-      expect(printed).toMatchObject({ importId, operationId, phase: 'preview', operationStatus: 'queued' });
+      expect(printed).toMatchObject({
+        importId,
+        operationId,
+        phase: 'preview',
+        operationStatus: 'queued',
+      });
       expect(uploadUrlSeen).toBe(true);
       expect(operationRead).toBe(false);
       expect(commitSeen).toBe(false);
@@ -303,10 +310,20 @@ describe('nixctl import', () => {
     await writeFile(markdown, 'text', 'utf8');
     const env = { XDG_CONFIG_HOME: join(dir, 'missing-config') };
     await expect(
-      runImport('default', { path: file, workspaceId: WS, dryRun: true, noWait: true }, outputOptions(true), { env }),
+      runImport(
+        'default',
+        { path: file, workspaceId: WS, dryRun: true, noWait: true },
+        outputOptions(true),
+        { env },
+      ),
     ).rejects.toThrow('--no-wait cannot be combined with --dry-run');
     await expect(
-      runImport('default', { path: markdown, workspaceId: WS, dryRun: false, noWait: true }, outputOptions(true), { env }),
+      runImport(
+        'default',
+        { path: markdown, workspaceId: WS, dryRun: false, noWait: true },
+        outputOptions(true),
+        { env },
+      ),
     ).rejects.toThrow('--no-wait is available only');
     await rm(dir, { recursive: true, force: true });
   });

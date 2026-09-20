@@ -541,13 +541,12 @@ export async function createWorkspaceMcpServer(
   server.registerTool(
     'commit_document_import',
     {
-      description: 'Commit a preview-ready document import, optionally returning before completion.',
+      description:
+        'Commit a preview-ready document import, optionally returning before completion.',
       inputSchema: { importId: identifier, wait: z.boolean().default(true) },
     },
     ({ importId, wait }) =>
-      toolResult(async () =>
-        commitDocumentImportFromSession(await session(), importId, wait),
-      ),
+      toolResult(async () => commitDocumentImportFromSession(await session(), importId, wait)),
   );
 
   server.registerTool(
