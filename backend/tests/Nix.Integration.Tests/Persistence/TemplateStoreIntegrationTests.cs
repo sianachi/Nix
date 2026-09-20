@@ -1,18 +1,28 @@
+using System.Data;
+using System.Data.Common;
 using System.Globalization;
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Nix.Domain.Authorization;
 using Nix.Domain.Content;
+using Nix.Domain.Files;
+using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
+using Nix.Domain.Recurrence;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Integration.Tests.Harness;
 using Nix.Persistence;
+using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.Templates;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -24,8 +34,13 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     private static readonly Guid ManagedServicePrincipal = new("73333333-3333-4333-8333-333333333333");
     private static readonly Guid ViewerPrincipal = new("74444444-4444-4444-8444-444444444444");
     private readonly NixPostgresFixture _fixture;
+    private readonly ITestOutputHelper _output;
 
-    public TemplateStoreIntegrationTests(NixPostgresFixture fixture) => _fixture = fixture;
+    public TemplateStoreIntegrationTests(NixPostgresFixture fixture, ITestOutputHelper output)
+    {
+        _fixture = fixture;
+        _output = output;
+    }
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -38,7 +53,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task User_import_clears_root_values_but_preserves_selected_child_values()
+    public async Task User_import_preserves_root_and_selected_child_values()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
@@ -62,69 +77,224 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
                 Cancellation);
 
             Assert.Equal("Template root", ItemProperties.ReadTitle(root.Properties));
-            Assert.DoesNotContain("workspace-answer", root.Properties, StringComparison.Ordinal);
+            Assert.Contains("workspace-answer", root.Properties, StringComparison.Ordinal);
             Assert.Contains("selected-answer", child.Properties, StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public async Task Template_capture_and_import_refuse_file_items_until_storage_copy_is_supported()
+    public async Task Captured_file_is_copied_to_a_fresh_ready_object_version_before_publication()
     {
-        var source = NewItem("Attached image", null, null, 90_000, DateTimeOffset.UtcNow, "file");
+        var now = DateTimeOffset.UtcNow;
+        var root = NewItem("File template", null, null, 91_000, now, "canvas");
+        var sourceFile = NewItem("Attachment", null, root.Id, 1, now, "file");
+        var versionId = FileVersionId.Create();
+        var objectKey = ObjectStorageKeys.FileVersion(root.TenantId, versionId);
+        var contentHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("source bytes"u8));
+        ItemId copiedFileId;
+        FileVersionId copiedVersionId;
+        TemplateId templateId;
+        string copiedObjectKey;
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            work.DbContext.Items.Add(source);
+            work.DbContext.Items.AddRange(root, sourceFile);
+            work.DbContext.FileVersions.Add(new FileVersion
+            {
+                Id = versionId,
+                TenantId = root.TenantId,
+                WorkspaceId = root.WorkspaceId,
+                ItemId = sourceFile.Id,
+                Version = 1,
+                ObjectKey = objectKey,
+                FileName = "brief.txt",
+                MediaType = "text/plain",
+                ByteLength = 12,
+                Sha256 = contentHash,
+                ObjectReady = true,
+                Previewable = false,
+                CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                CreatedAt = now,
+            });
+            work.DbContext.FileBodies.Add(new FileBody
+            {
+                TenantId = root.TenantId,
+                WorkspaceId = root.WorkspaceId,
+                ItemId = sourceFile.Id,
+                CurrentVersionId = versionId,
+            });
             await work.DbContext.SaveChangesAsync(Cancellation);
             await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({source.TenantId.Value}, {source.WorkspaceId.Value}, {source.Id.Value}, {source.Id.Value}, 0)",
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({root.TenantId.Value}, {root.WorkspaceId.Value}, {root.Id.Value}, {root.Id.Value}, 0), ({sourceFile.TenantId.Value}, {sourceFile.WorkspaceId.Value}, {sourceFile.Id.Value}, {sourceFile.Id.Value}, 0), ({root.TenantId.Value}, {root.WorkspaceId.Value}, {root.Id.Value}, {sourceFile.Id.Value}, 1)",
                 Cancellation);
 
-            var capture = await work.Resolve<TemplateStore>().BeginCaptureAsync(
-                source.WorkspaceId,
-                source.Id,
-                "File template",
-                null,
-                false,
-                false,
-                "capture-file-item",
-                Cancellation);
-            Assert.False(capture.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", capture.Error.Code);
-
-            var import = await work.Resolve<TemplateStore>().BeginImportAsync(
-                source.WorkspaceId,
-                "import-file-item",
-                Descriptor(),
-                [Items()[0] with { ItemType = "file" }],
-                Cancellation);
-            Assert.False(import.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", import.Error.Code);
-
-            var container = NewItem("Canvas with an attachment", null, null, 90_100, DateTimeOffset.UtcNow);
-            var attachment = NewItem("Attached image", null, container.Id, 1, DateTimeOffset.UtcNow, "file");
-            work.DbContext.Items.AddRange(container, attachment);
-            await work.DbContext.SaveChangesAsync(Cancellation);
-            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({container.TenantId.Value}, {container.WorkspaceId.Value}, {container.Id.Value}, {container.Id.Value}, 0), ({attachment.TenantId.Value}, {attachment.WorkspaceId.Value}, {attachment.Id.Value}, {attachment.Id.Value}, 0), ({container.TenantId.Value}, {container.WorkspaceId.Value}, {container.Id.Value}, {attachment.Id.Value}, 1)",
-                Cancellation);
-
-            var captureWithOmittedChildren = await work.Resolve<TemplateStore>().BeginCaptureAsync(
-                container.WorkspaceId,
-                container.Id,
-                "Canvas template",
+            var store = work.Resolve<TemplateStore>();
+            var begun = await store.BeginCaptureAsync(
+                root.WorkspaceId,
+                root.Id,
+                "Independent file template",
                 null,
                 true,
-                false,
-                "capture-file-descendant",
+                true,
+                "capture-independent-file",
                 Cancellation);
-            Assert.False(captureWithOmittedChildren.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", captureWithOmittedChildren.Error.Code);
+            Assert.True(begun.IsSuccess);
+            var operationId = begun.Value.OperationId;
+            var transferRows = await work.DbContext.TemplateFileTransfers.AsNoTracking()
+                .Where(transfer => transfer.OperationId == operationId)
+                .ToListAsync(Cancellation);
+            var transfer = Assert.Single(transferRows);
+            copiedFileId = transfer.TargetItemId;
+            copiedVersionId = transfer.TargetVersionId;
+            Assert.NotEqual(sourceFile.Id, transfer.TargetItemId);
+            Assert.NotEqual(objectKey, (await work.DbContext.FileVersions.AsNoTracking()
+                .SingleAsync(version => version.Id == transfer.TargetVersionId, Cancellation)).ObjectKey);
+            Assert.True(await store.HasUnreadyCopiesAsync("operation", operationId.Value, Cancellation));
+            var premature = await store.FinalizeOperationAsync(operationId, [], Cancellation);
+            Assert.True(premature.IsFailure);
+
+            var copyPlan = await store.AuthorizeCopyAsync("operation", operationId.Value, "lease-1", null, 100, Cancellation);
+            Assert.NotNull(copyPlan);
+            var authorizedCopy = Assert.Single(copyPlan.Transfers);
+            Assert.Equal(contentHash, authorizedCopy.Sha256);
+            Assert.Equal(12, authorizedCopy.ByteLength);
+            Assert.True(await store.CompleteCopyAsync("operation", operationId.Value, "lease-1", [transfer.Id], Cancellation));
+            Assert.False(await store.HasUnreadyCopiesAsync("operation", operationId.Value, Cancellation));
+
+            var finalized = await store.FinalizeOperationAsync(operationId, [], Cancellation);
+            Assert.True(finalized.IsSuccess);
+            templateId = finalized.Value;
+            var targetVersion = await work.DbContext.FileVersions.AsNoTracking()
+                .SingleAsync(version => version.Id == transfer.TargetVersionId, Cancellation);
+            copiedObjectKey = targetVersion.ObjectKey;
+            var targetBody = await work.DbContext.FileBodies.AsNoTracking()
+                .SingleAsync(body => body.ItemId == transfer.TargetItemId, Cancellation);
+            Assert.True(targetVersion.ObjectReady);
+            Assert.Equal(targetVersion.Id, targetBody.CurrentVersionId);
+            await work.CommitAsync(Cancellation);
+        }
+
+        var deletion = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (deletion.ConfigureAwait(false))
+        {
+            var source = await deletion.DbContext.Items.SingleAsync(item => item.Id == sourceFile.Id, Cancellation);
+            deletion.DbContext.Items.Remove(source);
+            await deletion.DbContext.SaveChangesAsync(Cancellation);
+            await deletion.CommitAsync(Cancellation);
+        }
+
+        var verification = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (verification.ConfigureAwait(false))
+        {
+            Assert.False(await verification.DbContext.Items.AnyAsync(item => item.Id == sourceFile.Id, Cancellation));
+            var pageResult = await verification.Resolve<TemplateStore>().ExportFilesPageAsync(
+                templateId, null, null, 1, Cancellation);
+            Assert.True(pageResult.IsSuccess, pageResult.Error.Message);
+            var exportPage = pageResult.Value;
+            var exportedFile = Assert.Single(exportPage.Files);
+            Assert.Equal(copiedVersionId.Value, exportedFile.FileVersionId);
+            Assert.True(exportedFile.Current);
+            Assert.True(exportPage.Complete);
+            Assert.NotNull(await verification.Resolve<TemplateStore>().AuthorizeExportFileAsync(
+                templateId, exportPage.Revision, exportedFile.FileVersionId, Cancellation));
+            Assert.Null(await verification.Resolve<TemplateStore>().AuthorizeExportFileAsync(
+                templateId, exportPage.Revision - 1, exportedFile.FileVersionId, Cancellation));
+            var independent = await verification.DbContext.FileBodies.AsNoTracking()
+                .SingleAsync(body => body.ItemId == copiedFileId, Cancellation);
+            Assert.Equal(copiedVersionId, independent.CurrentVersionId);
+            Assert.True(await verification.DbContext.FileVersions.AsNoTracking()
+                .Where(version => version.Id == copiedVersionId)
+                .Select(version => version.ObjectReady)
+                .SingleAsync(Cancellation));
+        }
+
+        var deleteTemplate = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (deleteTemplate.ConfigureAwait(false))
+        {
+            Assert.True((await deleteTemplate.Resolve<TemplateStore>().DeleteAsync(templateId, Cancellation)).IsSuccess);
+            await deleteTemplate.CommitAsync(Cancellation);
+        }
+        var cleanupCheck = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (cleanupCheck.ConfigureAwait(false))
+        {
+            var cleanup = await cleanupCheck.DbContext.WorkerJobs.AsNoTracking()
+                .Where(job => job.Kind == "object.cleanup")
+                .OrderByDescending(job => job.CreatedAt)
+                .Select(job => job.Payload)
+                .FirstAsync(Cancellation);
+            Assert.Contains(copiedObjectKey, cleanup, StringComparison.Ordinal);
+            Assert.DoesNotContain(objectKey, cleanup, StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public async Task Legacy_template_with_file_child_is_refused_by_all_file_unsafe_paths()
+    public async Task Template_export_file_history_page_uses_a_bounded_runtime_query()
+    {
+        var explain = new TaggedExplainInterceptor("TemplateStore.ExportFilesPageAsync.file_versions_page");
+        await using var application = NixPersistenceHost.Create(_fixture.ApplicationConnectionString, explain);
+        var work = await application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var now = DateTimeOffset.UtcNow;
+            var root = NewItem("Plan evidence", null, null, 92_000, now, "canvas");
+            var file = NewItem("Evidence file", null, root.Id, 1, now, "file");
+            var versionId = FileVersionId.Create();
+            work.DbContext.Items.AddRange(root, file);
+            work.DbContext.FileVersions.Add(new FileVersion
+            {
+                Id = versionId,
+                TenantId = root.TenantId,
+                WorkspaceId = root.WorkspaceId,
+                ItemId = file.Id,
+                Version = 1,
+                ObjectKey = ObjectStorageKeys.FileVersion(root.TenantId, versionId),
+                FileName = "evidence.bin",
+                MediaType = "application/octet-stream",
+                ByteLength = 1,
+                Sha256 = new string('a', 64),
+                ObjectReady = true,
+                Previewable = false,
+                CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                CreatedAt = now,
+            });
+            work.DbContext.FileBodies.Add(new FileBody
+            {
+                TenantId = root.TenantId,
+                WorkspaceId = root.WorkspaceId,
+                ItemId = file.Id,
+                CurrentVersionId = versionId,
+            });
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({root.TenantId.Value}, {root.WorkspaceId.Value}, {root.Id.Value}, {root.Id.Value}, 0), ({file.TenantId.Value}, {file.WorkspaceId.Value}, {file.Id.Value}, {file.Id.Value}, 0), ({root.TenantId.Value}, {root.WorkspaceId.Value}, {root.Id.Value}, {file.Id.Value}, 1)",
+                Cancellation);
+            var begun = await work.Resolve<TemplateStore>().BeginCaptureAsync(root.WorkspaceId, root.Id,
+                "Page plan", null, false, true, "export-page-plan-evidence", Cancellation);
+            Assert.True(begun.IsSuccess);
+            var transfer = await work.DbContext.TemplateFileTransfers.AsNoTracking()
+                .SingleAsync(value => value.OperationId == begun.Value.OperationId, Cancellation);
+            var copyPlan = await work.Resolve<TemplateStore>().AuthorizeCopyAsync(
+                "operation", begun.Value.OperationId.Value, "plan-evidence-lease", null, 100, Cancellation);
+            Assert.NotNull(copyPlan);
+            Assert.True(await work.Resolve<TemplateStore>().CompleteCopyAsync("operation",
+                begun.Value.OperationId.Value, "plan-evidence-lease", [transfer.Id], Cancellation));
+            var template = await work.Resolve<TemplateStore>().FinalizeOperationAsync(begun.Value.OperationId, [], Cancellation);
+            Assert.True(template.IsSuccess);
+            var page = await work.Resolve<TemplateStore>().ExportFilesPageAsync(template.Value, null, null, 1, Cancellation);
+            Assert.True(page.IsSuccess, page.Error.Message);
+            Assert.Single(page.Value.Files);
+            Assert.NotNull(explain.Plan);
+            _output.WriteLine("EXPLAIN (ANALYZE, BUFFERS), bounded template file history page:{0}{1}",
+                Environment.NewLine, explain.Plan);
+            Assert.Contains("Limit", explain.Plan, StringComparison.Ordinal);
+            Assert.Contains("file_version", explain.Plan, StringComparison.Ordinal);
+            Assert.Contains("rows=1", explain.Plan, StringComparison.OrdinalIgnoreCase);
+            await work.CommitAsync(Cancellation);
+        }
+    }
+
+    [Fact]
+    public async Task Legacy_template_file_child_without_ready_version_cannot_start_a_draft()
     {
         var now = DateTimeOffset.UtcNow;
         var templateId = TemplateId.Create();
@@ -196,31 +366,127 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             var store = work.Resolve<TemplateStore>();
             var draft = await store.BeginDraftAsync(templateId, "legacy-file-draft", Cancellation);
             Assert.False(draft.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", draft.Error.Code);
+            Assert.Equal("templates.conflict", draft.Error.Code);
+        }
+    }
 
-            var preflight = await store.PreflightAsync(
-                templateId,
-                TemplateApplicationMode.Create,
-                null,
-                null,
+    [Fact]
+    public async Task Draft_file_child_is_copied_to_a_fresh_ready_version()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var templateId = TemplateId.Create();
+        var rootId = ItemId.Create();
+        var fileId = ItemId.Create();
+        var sourceVersionId = FileVersionId.Create();
+        var sourceKey = ObjectStorageKeys.FileVersion(TestTenants.AlphaContext.TenantId, sourceVersionId);
+        var sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData("draft source"u8));
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.DbContext.WorkspaceTemplates.Add(new WorkspaceTemplate
+            {
+                Id = templateId,
+                TenantId = TestTenants.AlphaContext.TenantId,
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                RootItemId = rootId,
+                StableKey = "ready.file-template",
+                ProfileKey = "ready.file-template",
+                Origin = TemplateOrigin.User,
+                Title = "Ready file template",
+                IncludeBody = true,
+                IncludeChildren = true,
+                State = TemplateState.Active,
+                Revision = 1,
+                CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                CreatedAt = now,
+                LastModifiedAt = now,
+            });
+            work.DbContext.Items.AddRange(
+                new Item
+                {
+                    Id = rootId,
+                    TenantId = TestTenants.AlphaContext.TenantId,
+                    WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                    Type = "canvas",
+                    Seq = 1,
+                    Properties = ItemProperties.WithTitle(null, "Ready canvas"),
+                    TemplateId = templateId,
+                    TemplateSourceId = Guid.NewGuid(),
+                    LifecycleState = ItemLifecycleState.Active,
+                    CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                    LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                    CreatedAt = now,
+                    LastModifiedAt = now,
+                },
+                new Item
+                {
+                    Id = fileId,
+                    TenantId = TestTenants.AlphaContext.TenantId,
+                    WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                    Type = "file",
+                    ParentId = rootId,
+                    Seq = 1,
+                    Properties = ItemProperties.WithTitle(null, "Ready attachment"),
+                    TemplateId = templateId,
+                    TemplateSourceId = Guid.NewGuid(),
+                    LifecycleState = ItemLifecycleState.Active,
+                    CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                    LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+                    CreatedAt = now,
+                    LastModifiedAt = now,
+                });
+            work.DbContext.FileVersions.Add(new FileVersion
+            {
+                Id = sourceVersionId,
+                TenantId = TestTenants.AlphaContext.TenantId,
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                ItemId = fileId,
+                Version = 1,
+                ObjectKey = sourceKey,
+                FileName = "draft.txt",
+                MediaType = "text/plain",
+                ByteLength = 12,
+                Sha256 = sha256,
+                ObjectReady = true,
+                Previewable = false,
+                CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                CreatedAt = now,
+            });
+            work.DbContext.FileBodies.Add(new FileBody
+            {
+                TenantId = TestTenants.AlphaContext.TenantId,
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                ItemId = fileId,
+                CurrentVersionId = sourceVersionId,
+            });
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {rootId.Value}, {rootId.Value}, 0), ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {fileId.Value}, {fileId.Value}, 0), ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {rootId.Value}, {fileId.Value}, 1)",
                 Cancellation);
-            Assert.False(preflight.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", preflight.Error.Code);
 
-            var application = await store.BeginApplicationAsync(
-                templateId,
-                TemplateApplicationMode.Create,
-                null,
-                null,
-                "Copy legacy template",
-                "legacy-file-application",
-                Cancellation);
-            Assert.False(application.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", application.Error.Code);
-
-            var export = await store.ExportAsync(templateId, Cancellation);
-            Assert.False(export.IsSuccess);
-            Assert.Equal("templates.file_attachments_unsupported", export.Error.Code);
+            var store = work.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "ready-file-draft", Cancellation);
+            Assert.True(draft.IsSuccess, draft.Error.Message);
+            var transfer = await work.DbContext.TemplateFileTransfers.AsNoTracking()
+                .SingleAsync(row => row.OperationId == draft.Value.OperationId, Cancellation);
+            Assert.NotEqual(fileId, transfer.TargetItemId);
+            Assert.NotEqual(sourceVersionId, transfer.TargetVersionId);
+            Assert.True(await store.HasUnreadyCopiesAsync("operation", draft.Value.OperationId.Value, Cancellation));
+            Assert.True((await store.AuthorizeCopyAsync("operation", draft.Value.OperationId.Value,
+                "draft-copy-lease", null, 100, Cancellation)) is not null);
+            Assert.True(await store.CompleteCopyAsync("operation", draft.Value.OperationId.Value,
+                "draft-copy-lease", [transfer.Id], Cancellation));
+            Assert.True((await store.SaveDraftAsync(templateId, draft.Value.OperationId, Cancellation)).IsSuccess);
+            var targetVersion = await work.DbContext.FileVersions.AsNoTracking()
+                .SingleAsync(version => version.Id == transfer.TargetVersionId, Cancellation);
+            Assert.True(targetVersion.ObjectReady);
+            Assert.Equal(1, await work.DbContext.FileVersions.AsNoTracking()
+                .Where(version => version.Id == targetVersion.Id)
+                .Select(version => version.Version)
+                .SingleAsync(Cancellation));
+            Assert.Equal(sha256, targetVersion.Sha256);
+            await work.CommitAsync(Cancellation);
         }
     }
 
@@ -299,6 +565,612 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             Assert.Equal(2, begun.Value.CreatedItems.Count);
             Assert.Equal(2, begun.Value.ItemMappings.Count);
             Assert.Empty(begun.Value.BodyCopies);
+        }
+    }
+
+    [Fact]
+    public async Task Import_persists_initialization_and_authored_root_properties_for_preflight()
+    {
+        var initialization = new TemplateInitialization(
+            1,
+            [
+                new("project", "Project", TemplateInitializationInputType.Text, true),
+                new("kickoff", "Kickoff", TemplateInitializationInputType.Date, true),
+            ],
+            [
+                new(RootSource, "name", TemplateInitializationRuleKind.Input, InputKey: "project"),
+                new(RootSource, "due_date", TemplateInitializationRuleKind.RelativeDate, InputKey: "kickoff", OffsetDays: 5),
+            ],
+            []);
+        var descriptor = Descriptor() with { Initialization = initialization };
+        var importedRoot = Items()[0] with
+        {
+            Title = "{{project}} plan",
+            Properties = "{\"title\":\"{{project}} plan\",\"name\":\"starter\",\"due_date\":\"2025-01-01\"}",
+            Schema = "{\"inherit\":false,\"properties\":[{\"key\":\"name\",\"label\":\"Name\",\"type\":\"text\",\"required\":false},{\"key\":\"due_date\",\"label\":\"Due date\",\"type\":\"due_date\",\"required\":false}]}",
+            Recurrence = "{\"freq\":\"weekly\",\"interval\":2,\"weekdays\":[\"fr\"]}",
+        };
+        TemplateId templateId;
+        var begin = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (begin.ConfigureAwait(false))
+        {
+            var staged = await begin.Resolve<TemplateStore>().BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                "import-initialization-persistence",
+                descriptor,
+                [importedRoot],
+                Cancellation);
+            Assert.True(staged.IsSuccess, staged.IsFailure ? staged.Error.ToString() : null);
+            templateId = staged.Value.TemplateId;
+            var stagedOperation = await begin.DbContext.TemplateOperations.AsNoTracking()
+                .SingleAsync(operation => operation.Id == staged.Value.OperationId, Cancellation);
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(TemplateInitializationJson.Write(initialization)),
+                JsonNode.Parse(stagedOperation.DraftInitialization!)));
+            var finalized = await begin.Resolve<TemplateStore>().FinalizeOperationAsync(
+                staged.Value.OperationId!.Value, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            await begin.CommitAsync(Cancellation);
+        }
+
+        var verify = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (verify.ConfigureAwait(false))
+        {
+            var template = await verify.DbContext.WorkspaceTemplates.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == templateId, Cancellation);
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(TemplateInitializationJson.Write(initialization)),
+                JsonNode.Parse(template.Initialization!)));
+            var root = await verify.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(item => item.Id == template.RootItemId, Cancellation);
+            Assert.Equal(ItemLifecycleState.Active, root.LifecycleState);
+            Assert.Equal("{{project}} plan", ItemProperties.ReadTitle(root.Properties));
+            Assert.Equal("starter", JsonNode.Parse(root.Properties!)!["name"]!.GetValue<string>());
+            Assert.Equal("weekly", Assert.IsType<System.Text.Json.Nodes.JsonObject>(
+                JsonNode.Parse(root.Recurrence!))["freq"]!.GetValue<string>());
+
+            var preflight = await verify.Resolve<TemplateStore>().PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["project"] = "Apollo",
+                    ["kickoff"] = "2026-03-01",
+                },
+                null,
+                Cancellation);
+            Assert.True(preflight.IsSuccess, preflight.IsFailure ? preflight.Error.ToString() : null);
+            var preview = Assert.Single(preflight.Value.InitializationPreview!);
+            Assert.Equal("Apollo plan", preview.Title);
+            var previewProperties = JsonNode.Parse(preview.Properties!)!;
+            Assert.Equal("Apollo", previewProperties["name"]!.GetValue<string>());
+            Assert.Equal("2026-03-06", previewProperties["due_date"]!.GetValue<string>());
+            var recurrence = RecurrenceRuleJson.Read(preview.Recurrence);
+            Assert.NotNull(recurrence);
+            Assert.Equal("WEEKLY", recurrence.Frequency.ToString().ToUpperInvariant());
+            Assert.Equal(2, recurrence.Interval);
+        }
+    }
+
+    [Fact]
+    public async Task Managed_revision_replacement_swaps_initialization_with_the_imported_tree()
+    {
+        await SeedTemplateActorsAsync();
+        var serviceContext = TestTenants.ContextFor(
+            TestTenants.Alpha,
+            TestTenants.AlphaWorkspace,
+            ManagedServicePrincipal);
+        const string stableKey = "managed.initialization.revision";
+
+        async Task<TemplateId> ImportRevisionAsync(int revision, string inputKey, char digestCharacter)
+        {
+            var initialization = new TemplateInitialization(
+                1,
+                [new(inputKey, "Project", TemplateInitializationInputType.Text, true)],
+                [new(RootSource, "name", TemplateInitializationRuleKind.Input, InputKey: inputKey)],
+                []);
+            var authoredTitle = "{{" + inputKey + "}} v" + revision + " plan";
+            var descriptor = Descriptor() with
+            {
+                StableKey = stableKey,
+                Origin = TemplateOrigin.Managed,
+                ManagedSource = "/templates/managed.initialization.revision.nix",
+                Digest = new string(digestCharacter, 64),
+                Initialization = initialization,
+            };
+            var root = Items()[0] with
+            {
+                Title = authoredTitle,
+                Properties = "{\"title\":\"" + authoredTitle + "\",\"name\":\"starter\"}",
+                Schema = "{\"inherit\":false,\"properties\":[{\"key\":\"name\",\"label\":\"Name\",\"type\":\"text\",\"required\":false}]}",
+            };
+            var work = await _fixture.Application.BeginUnitOfWorkAsync(serviceContext, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                var store = work.Resolve<TemplateStore>();
+                var begun = await store.BeginImportAsync(
+                    serviceContext.WorkspaceId!.Value,
+                    $"managed-init-revision-{revision}",
+                    descriptor,
+                    [root],
+                    Cancellation);
+                Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+                var finalized = await store.FinalizeManagedBatchAsync(
+                    serviceContext.WorkspaceId.Value,
+                    [new ManagedTemplateFinalization(
+                        begun.Value.OperationId,
+                        begun.Value.TemplateId,
+                        stableKey,
+                        descriptor.Digest,
+                        [])],
+                    [stableKey],
+                    Cancellation);
+                Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+                await work.CommitAsync(Cancellation);
+                return begun.Value.TemplateId;
+            }
+        }
+
+        var templateId = await ImportRevisionAsync(1, "project", 'a');
+        var firstPreview = await _fixture.Application.BeginUnitOfWorkAsync(serviceContext, Cancellation);
+        await using (firstPreview.ConfigureAwait(false))
+        {
+            var preflight = await firstPreview.Resolve<TemplateStore>().PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["project"] = "Apollo" },
+                null,
+                Cancellation);
+            Assert.True(preflight.IsSuccess, preflight.IsFailure ? preflight.Error.ToString() : null);
+            Assert.Equal("Apollo v1 plan", Assert.Single(preflight.Value.InitializationPreview!).Title);
+        }
+
+        Assert.Equal(templateId, await ImportRevisionAsync(2, "initiative", 'b'));
+        var replacementPreview = await _fixture.Application.BeginUnitOfWorkAsync(serviceContext, Cancellation);
+        await using (replacementPreview.ConfigureAwait(false))
+        {
+            var preflight = await replacementPreview.Resolve<TemplateStore>().PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["initiative"] = "Nix" },
+                null,
+                Cancellation);
+            Assert.True(preflight.IsSuccess, preflight.IsFailure ? preflight.Error.ToString() : null);
+            Assert.Equal("Nix v2 plan", Assert.Single(preflight.Value.InitializationPreview!).Title);
+            var catalog = await replacementPreview.DbContext.WorkspaceTemplates.AsNoTracking()
+                .SingleAsync(template => template.Id == templateId, Cancellation);
+            Assert.Equal(2, catalog.Revision);
+            Assert.Contains("initiative", catalog.Initialization!, StringComparison.Ordinal);
+            Assert.DoesNotContain("project", catalog.Initialization!, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Create_preflight_and_application_resolve_text_date_member_and_item_inputs_in_postgres()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var templateId = TemplateId.Create();
+        var templateRootId = ItemId.Create();
+        var ownerId = TestTenants.AlphaPrincipal;
+        var initialization = new TemplateInitialization(
+            1,
+            [
+                new("project", "Project", TemplateInitializationInputType.Text, true),
+                new("kickoff", "Kickoff", TemplateInitializationInputType.Date, true),
+                new("owner", "Owner", TemplateInitializationInputType.Member, true),
+                new("related", "Related item", TemplateInitializationInputType.Item, true),
+            ],
+            [
+                new(RootSource, "name", TemplateInitializationRuleKind.Input, InputKey: "project"),
+                new(RootSource, "due_date", TemplateInitializationRuleKind.RelativeDate, InputKey: "kickoff", OffsetDays: 5),
+                new(RootSource, "assignee", TemplateInitializationRuleKind.Input, InputKey: "owner"),
+            ],
+            []);
+        var unavailableDefault = Guid.NewGuid();
+        var changedInitialization = new TemplateInitialization(
+            1,
+            [new("owner", "Owner", TemplateInitializationInputType.Member, true, unavailableDefault.ToString("D"))],
+            [],
+            []);
+        var changedInitializationJson = TemplateInitializationJson.Write(changedInitialization);
+        var templateRoot = new Item
+        {
+            Id = templateRootId,
+            TenantId = TestTenants.AlphaContext.TenantId,
+            WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+            Type = "task",
+            Seq = 90_200,
+            Properties = "{\"title\":\"Plan: {{project}} for {{related}}\",\"name\":\"old\",\"due_date\":\"2025-01-01\",\"assignee\":\"" + ownerId.ToString("D") + "\"}",
+            Schema = "{\"inherit\":false,\"properties\":["
+                + "{\"key\":\"name\",\"label\":\"Name\",\"type\":\"text\",\"required\":true},"
+                + "{\"key\":\"due_date\",\"label\":\"Due date\",\"type\":\"due_date\",\"required\":true},"
+                + "{\"key\":\"assignee\",\"label\":\"Assignee\",\"type\":\"assignee\",\"required\":true}]}",
+            Recurrence = "{\"freq\":\"weekly\",\"interval\":2,\"weekdays\":[\"fr\"],"
+                + "\"until\":\"2026-05-20\",\"completedThrough\":\"2026-04-02\",\"completed\":[\"2026-04-10\"]}",
+            TemplateId = templateId,
+            TemplateSourceId = RootSource,
+            LifecycleState = ItemLifecycleState.Active,
+            CreatedBy = TestTenants.AlphaContext.PrincipalId,
+            LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+            CreatedAt = now,
+            LastModifiedAt = now,
+        };
+        var template = new WorkspaceTemplate
+        {
+            Id = templateId,
+            TenantId = TestTenants.AlphaContext.TenantId,
+            WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+            RootItemId = templateRootId,
+            StableKey = "init.integration",
+            ProfileKey = "init.integration",
+            Origin = TemplateOrigin.User,
+            Title = "{{project}} for {{related}}",
+            IncludeBody = true,
+            IncludeChildren = true,
+            Initialization = TemplateInitializationJson.Write(initialization),
+            State = TemplateState.Active,
+            Revision = 7,
+            CreatedBy = TestTenants.AlphaContext.PrincipalId,
+            LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+            CreatedAt = now,
+            LastModifiedAt = now,
+        };
+        var externalTarget = NewItem("Reference target", null, null, 90_201, now);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.DbContext.WorkspaceTemplates.Add(template);
+            work.DbContext.Items.AddRange(templateRoot, externalTarget);
+            await work.DbContext.SaveChangesAsync(Cancellation);
+            await work.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {templateRootId.Value}, {templateRootId.Value}, 0), ({TestTenants.AlphaContext.TenantId.Value}, {TestTenants.AlphaWorkspace}, {externalTarget.Id.Value}, {externalTarget.Id.Value}, 0)",
+                Cancellation);
+
+            var inputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["project"] = "Apollo",
+                ["kickoff"] = "2026-04-10",
+                ["owner"] = ownerId.ToString("D"),
+                ["related"] = externalTarget.Id.Value.ToString("D"),
+            };
+            var store = work.Resolve<TemplateStore>();
+            var preflight = await store.PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                inputs,
+                7,
+                Cancellation);
+
+            Assert.True(preflight.IsSuccess);
+            Assert.True(preflight.Value.CanApply);
+            Assert.Equal(3, preflight.Value.FieldAdditions);
+            Assert.Equal(0, preflight.Value.ViewAdditions);
+            Assert.Equal(7, preflight.Value.Resolution!.TemplateRevision);
+            Assert.Equal("Apollo", preflight.Value.Resolution.TextBindings["project"]);
+            Assert.Equal("alpha user", preflight.Value.Resolution.TextBindings["owner"]);
+            Assert.Equal("Reference target", preflight.Value.Resolution.TextBindings["related"]);
+            var preview = Assert.Single(preflight.Value.InitializationPreview!);
+            Assert.Equal("Plan: Apollo for Reference target", preview.Title);
+            var explicitTitlePreflight = await store.PreflightAsync(
+                templateId, TemplateApplicationMode.Create, null, null, "Chosen title", inputs, 7, Cancellation);
+            Assert.True(explicitTitlePreflight.IsSuccess);
+            Assert.Equal("Chosen title", Assert.Single(explicitTitlePreflight.Value.InitializationPreview!).Title);
+            var previewProperties = JsonNode.Parse(preview.Properties!)!.AsObject();
+            Assert.Equal("Apollo", previewProperties["name"]!.GetValue<string>());
+            Assert.Equal("2026-04-15", previewProperties["due_date"]!.GetValue<string>());
+            Assert.Equal(ownerId.ToString("D"), previewProperties["assignee"]!.GetValue<string>());
+            var previewRecurrence = RecurrenceRuleJson.Read(preview.Recurrence)!;
+            Assert.Equal(2, previewRecurrence.Interval);
+            Assert.Equal(new DateOnly(2026, 5, 20), previewRecurrence.Until);
+            Assert.Null(previewRecurrence.CompletedThrough);
+            Assert.Empty(previewRecurrence.Completed);
+
+            var stalePreflight = await store.PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                inputs,
+                6,
+                Cancellation);
+            Assert.True(stalePreflight.IsFailure);
+            Assert.Equal("templates.conflict", stalePreflight.Error.Code);
+            var staleBegin = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                "init-create-postgres-stale-preview",
+                inputs,
+                6,
+                Cancellation);
+            Assert.True(staleBegin.IsFailure);
+            Assert.Equal("templates.conflict", staleBegin.Error.Code);
+
+            var begun = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                "init-create-postgres",
+                inputs,
+                7,
+                Cancellation);
+            Assert.True(begun.IsSuccess);
+            Assert.Empty(begun.Value.BodyCopies);
+            Assert.Equal(preflight.Value.Resolution.TextBindings, begun.Value.Resolution!.TextBindings);
+            Assert.Equal(preflight.Value.InitializationPreview, begun.Value.InitializationPreview);
+            var finalized = await store.FinalizeApplicationAsync(begun.Value.ApplicationId, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            Assert.Equal(begun.Value.TargetItemId, finalized.Value);
+
+            var catalogEdit = await store.BeginDraftAsync(templateId, "init-catalog-edit", Cancellation);
+            Assert.True(catalogEdit.IsSuccess);
+            var updatedDraft = await store.UpdateDraftMetadataAsync(
+                templateId,
+                catalogEdit.Value.OperationId,
+                null,
+                null,
+                changedInitialization,
+                Cancellation);
+            Assert.True(updatedDraft.IsSuccess);
+            Assert.True((await store.SaveDraftAsync(
+                templateId,
+                catalogEdit.Value.OperationId,
+                Cancellation)).IsSuccess);
+            await work.CommitAsync(Cancellation);
+        }
+
+        ItemId createdTargetId;
+        var replayWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (replayWork.ConfigureAwait(false))
+        {
+            var replay = await replayWork.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                "init-create-postgres",
+                null,
+                7,
+                Cancellation);
+            Assert.True(replay.IsSuccess);
+            Assert.True(replay.Value.AlreadyApplied);
+            Assert.Equal(7, replay.Value.Resolution!.TemplateRevision);
+            Assert.Equal("alpha user", replay.Value.Resolution!.TextBindings["owner"]);
+            Assert.Equal("Reference target", replay.Value.Resolution.TextBindings["related"]);
+            var changedReplay = await replayWork.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                "init-create-postgres",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["project"] = "Different project",
+                },
+                7,
+                Cancellation);
+            Assert.True(changedReplay.IsFailure);
+            Assert.Equal("templates.conflict", changedReplay.Error.Code);
+            createdTargetId = replay.Value.TargetItemId;
+        }
+
+        var noOpWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (noOpWork.ConfigureAwait(false))
+        {
+            var catalog = await noOpWork.DbContext.WorkspaceTemplates
+                .AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == templateId, Cancellation);
+            Assert.Equal(8, catalog.Revision);
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(changedInitializationJson),
+                JsonNode.Parse(catalog.Initialization!)));
+            var store = noOpWork.Resolve<TemplateStore>();
+            var mergePreflight = await store.PreflightAsync(
+                templateId,
+                TemplateApplicationMode.Merge,
+                createdTargetId,
+                null,
+                null,
+                null,
+                8,
+                Cancellation);
+            Assert.True(mergePreflight.IsSuccess, mergePreflight.IsFailure ? mergePreflight.Error.ToString() : null);
+            Assert.True(mergePreflight.Value.CanApply);
+            Assert.Empty(mergePreflight.Value.InitializationPreview!);
+            Assert.Empty(mergePreflight.Value.Resolution!.Values);
+            var noOpMerge = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Merge,
+                createdTargetId,
+                null,
+                null,
+                "no-op-merge-stale-member-default",
+                null,
+                8,
+                Cancellation);
+            Assert.True(noOpMerge.IsSuccess);
+            Assert.True(noOpMerge.Value.AlreadyApplied);
+        }
+    }
+
+    [Fact]
+    public async Task Application_finalization_rechecks_initialized_item_access_without_rebinding()
+    {
+        var templateId = await ImportAndFinalizeAsync("init-finalize-access");
+        var targetItemId = await AddOrdinaryItemAsync("Recheck target");
+        var initialization = new TemplateInitialization(
+            1,
+            [new("target", "Target", TemplateInitializationInputType.Item, true)],
+            [],
+            []);
+        TemplateApplicationId applicationId;
+        ItemId applicationTargetId;
+
+        var beginWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (beginWork.ConfigureAwait(false))
+        {
+            var store = beginWork.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "init-finalize-access-edit", Cancellation);
+            Assert.True(draft.IsSuccess);
+            var updated = await store.UpdateDraftMetadataAsync(
+                templateId,
+                draft.Value.OperationId,
+                null,
+                null,
+                initialization,
+                Cancellation);
+            Assert.True(updated.IsSuccess);
+            Assert.True((await store.SaveDraftAsync(templateId, draft.Value.OperationId, Cancellation)).IsSuccess);
+
+            var begun = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                "{{target}}",
+                "init-finalize-access-application",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["target"] = targetItemId.Value.ToString("D"),
+                },
+                null,
+                Cancellation);
+            Assert.True(begun.IsSuccess);
+            Assert.Equal("Recheck target", begun.Value.Resolution!.TextBindings["target"]);
+            applicationId = begun.Value.ApplicationId;
+            applicationTargetId = begun.Value.TargetItemId;
+            await beginWork.CommitAsync(Cancellation);
+        }
+
+        await SetLifecycleAsync(targetItemId, ItemLifecycleState.Deleted);
+        var finalizeWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (finalizeWork.ConfigureAwait(false))
+        {
+            var finalized = await finalizeWork.Resolve<TemplateStore>().FinalizeApplicationAsync(
+                applicationId,
+                [],
+                Cancellation);
+            Assert.True(finalized.IsFailure);
+            Assert.Equal("templates.conflict", finalized.Error.Code);
+            Assert.Equal(ItemLifecycleState.Provisioning, (await finalizeWork.DbContext.Items.IgnoreQueryFilters()
+                .SingleAsync(item => item.Id == applicationTargetId, Cancellation)).LifecycleState);
+        }
+    }
+
+    [Fact]
+    public async Task Application_finalization_rechecks_member_access_without_recomputing_saved_text()
+    {
+        var templateId = await ImportAndFinalizeAsync("init-finalize-member-access");
+        var memberId = PrincipalId.Create();
+        var now = DateTimeOffset.UtcNow;
+        var memberName = "Sam Taylor";
+        var initialization = new TemplateInitialization(
+            1,
+            [new("owner", "Owner", TemplateInitializationInputType.Member, true)],
+            [],
+            []);
+        TemplateApplicationId applicationId;
+        ItemId applicationTargetId;
+
+        var beginWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (beginWork.ConfigureAwait(false))
+        {
+            beginWork.DbContext.Principals.Add(new Principal
+            {
+                Id = memberId,
+                TenantId = TestTenants.AlphaContext.TenantId,
+                ExternalSubject = $"template-member-{memberId.Value:D}",
+                Kind = PrincipalKind.User,
+                DisplayName = memberName,
+                Status = PrincipalStatus.Active,
+            });
+            beginWork.DbContext.WorkspaceMembers.Add(new WorkspaceMember
+            {
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                SubjectType = SubjectType.Principal,
+                SubjectId = memberId.Value,
+                TenantId = TestTenants.AlphaContext.TenantId,
+                Role = "editor",
+                GrantedBy = TestTenants.AlphaContext.PrincipalId,
+                GrantedAt = now,
+            });
+            await beginWork.DbContext.SaveChangesAsync(Cancellation);
+
+            var store = beginWork.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "init-finalize-member-access-edit", Cancellation);
+            Assert.True(draft.IsSuccess);
+            var updated = await store.UpdateDraftMetadataAsync(
+                templateId,
+                draft.Value.OperationId,
+                null,
+                null,
+                initialization,
+                Cancellation);
+            Assert.True(updated.IsSuccess);
+            Assert.True((await store.SaveDraftAsync(templateId, draft.Value.OperationId, Cancellation)).IsSuccess);
+
+            var begun = await store.BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                "{{owner}}",
+                "init-finalize-member-access-application",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["owner"] = memberId.Value.ToString("D"),
+                },
+                null,
+                Cancellation);
+            Assert.True(begun.IsSuccess);
+            Assert.Equal(memberName, begun.Value.Resolution!.TextBindings["owner"]);
+            applicationId = begun.Value.ApplicationId;
+            applicationTargetId = begun.Value.TargetItemId;
+            await beginWork.CommitAsync(Cancellation);
+        }
+
+        var revokeWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (revokeWork.ConfigureAwait(false))
+        {
+            await revokeWork.DbContext.WorkspaceMembers
+                .Where(member => member.WorkspaceId == WorkspaceId.From(TestTenants.AlphaWorkspace)
+                    && member.SubjectType == SubjectType.Principal
+                    && member.SubjectId == memberId.Value)
+                .ExecuteDeleteAsync(Cancellation);
+            await revokeWork.CommitAsync(Cancellation);
+        }
+
+        var finalizeWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (finalizeWork.ConfigureAwait(false))
+        {
+            var finalized = await finalizeWork.Resolve<TemplateStore>().FinalizeApplicationAsync(
+                applicationId,
+                [],
+                Cancellation);
+            Assert.True(finalized.IsFailure);
+            Assert.Equal("templates.conflict", finalized.Error.Code);
+            Assert.Equal(ItemLifecycleState.Provisioning, (await finalizeWork.DbContext.Items.IgnoreQueryFilters()
+                .SingleAsync(item => item.Id == applicationTargetId, Cancellation)).LifecycleState);
         }
     }
 
@@ -1305,7 +2177,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Draft_root_properties_remain_title_only()
+    public async Task Draft_root_properties_are_preserved_when_the_root_is_edited()
     {
         var templateId = await ImportAndFinalizeAsync("draft-root-invariant");
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
@@ -1328,7 +2200,126 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
 
             Assert.True(updated.IsSuccess);
             Assert.Equal("Renamed root", updated.Value.Title);
-            Assert.DoesNotContain("answer", updated.Value.Properties, StringComparison.Ordinal);
+            Assert.Contains("must not persist", updated.Value.Properties, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_draft_keep_rule_and_application_preserve_root_content_and_reset_task_state()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var root = new Item
+        {
+            Id = ItemId.Create(),
+            TenantId = TestTenants.AlphaContext.TenantId,
+            WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+            Type = "note",
+            Seq = 91_100,
+            Properties = "{\"title\":\"Captured {{project}} plan\",\"answer\":\"keep this authored answer\",\"due_date\":\"2025-01-03\",\"completion\":true}",
+            Schema = "{\"inherit\":false,\"properties\":["
+            + "{\"key\":\"answer\",\"label\":\"Answer\",\"type\":\"text\",\"required\":false},"
+            + "{\"key\":\"due_date\",\"label\":\"Due date\",\"type\":\"due_date\",\"required\":false},"
+            + "{\"key\":\"completion\",\"label\":\"Complete\",\"type\":\"completion\",\"required\":false}]}",
+            Recurrence = "{\"freq\":\"weekly\",\"interval\":1,\"weekdays\":[\"fr\"],"
+            + "\"until\":\"2026-12-31\",\"completedThrough\":\"2025-01-03\",\"completed\":[\"2025-01-10\"]}",
+            LifecycleState = ItemLifecycleState.Active,
+            CreatedBy = TestTenants.AlphaContext.PrincipalId,
+            LastModifiedBy = TestTenants.AlphaContext.PrincipalId,
+            CreatedAt = now,
+            LastModifiedAt = now,
+        };
+        TemplateId templateId;
+        var capture = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (capture.ConfigureAwait(false))
+        {
+            capture.DbContext.Items.Add(root);
+            await capture.DbContext.SaveChangesAsync(Cancellation);
+            await capture.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({root.TenantId.Value}, {root.WorkspaceId.Value}, {root.Id.Value}, {root.Id.Value}, 0)",
+                Cancellation);
+            var store = capture.Resolve<TemplateStore>();
+            var staged = await store.BeginCaptureAsync(
+                root.WorkspaceId, root.Id, "Captured workflow", null, true, true,
+                "capture-root-values-draft-keep", Cancellation);
+            Assert.True(staged.IsSuccess, staged.IsFailure ? staged.Error.ToString() : null);
+            var finalized = await store.FinalizeOperationAsync(staged.Value.OperationId, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            templateId = finalized.Value;
+            await capture.CommitAsync(Cancellation);
+        }
+
+        var draftWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (draftWork.ConfigureAwait(false))
+        {
+            var store = draftWork.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "capture-root-values-draft", Cancellation);
+            Assert.True(draft.IsSuccess, draft.IsFailure ? draft.Error.ToString() : null);
+            Assert.Contains("keep this authored answer", draft.Value.Root.Properties, StringComparison.Ordinal);
+            var initialization = new TemplateInitialization(
+                1,
+                [
+                    new("project", "Project", TemplateInitializationInputType.Text, true),
+                    new("kickoff", "Kickoff", TemplateInitializationInputType.Date, true),
+                ],
+                [
+                    new(draft.Value.Root.SourceId, "answer", TemplateInitializationRuleKind.Keep),
+                    new(draft.Value.Root.SourceId, "due_date", TemplateInitializationRuleKind.Input, InputKey: "kickoff"),
+                ],
+                []);
+            var metadata = await store.UpdateDraftMetadataAsync(
+                templateId, draft.Value.OperationId, null, null, initialization, Cancellation);
+            Assert.True(metadata.IsSuccess, metadata.IsFailure ? metadata.Error.ToString() : null);
+            var saved = await store.SaveDraftAsync(templateId, draft.Value.OperationId, Cancellation);
+            Assert.True(saved.IsSuccess, saved.IsFailure ? saved.Error.ToString() : null);
+            await draftWork.CommitAsync(Cancellation);
+        }
+
+        ItemId applicationRootId;
+        var applyWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (applyWork.ConfigureAwait(false))
+        {
+            var applied = await applyWork.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId,
+                TemplateApplicationMode.Create,
+                null,
+                null,
+                null,
+                "apply-captured-root-values",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["project"] = "Apollo",
+                    ["kickoff"] = "2026-03-01",
+                },
+                null,
+                Cancellation);
+            Assert.True(applied.IsSuccess, applied.IsFailure ? applied.Error.ToString() : null);
+            applicationRootId = applied.Value.TargetItemId;
+            var preview = Assert.Single(applied.Value.InitializationPreview!);
+            Assert.Equal("Captured Apollo plan", preview.Title);
+            var previewProperties = JsonNode.Parse(preview.Properties!)!;
+            Assert.Equal("keep this authored answer", previewProperties["answer"]!.GetValue<string>());
+            Assert.Equal("2026-03-01", previewProperties["due_date"]!.GetValue<string>());
+            Assert.False(previewProperties["completion"]!.GetValue<bool>());
+            var recurrence = RecurrenceRuleJson.Read(preview.Recurrence);
+            Assert.NotNull(recurrence);
+            Assert.Null(recurrence.CompletedThrough);
+            Assert.Empty(recurrence.Completed);
+            Assert.Equal(new DateOnly(2026, 12, 31), recurrence.Until);
+            var finalized = await applyWork.Resolve<TemplateStore>().FinalizeApplicationAsync(
+                applied.Value.ApplicationId, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            await applyWork.CommitAsync(Cancellation);
+        }
+
+        var verify = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (verify.ConfigureAwait(false))
+        {
+            var appliedRoot = await verify.DbContext.Items.AsNoTracking()
+                .SingleAsync(item => item.Id == applicationRootId, Cancellation);
+            var properties = JsonNode.Parse(appliedRoot.Properties!)!;
+            Assert.Equal("keep this authored answer", properties["answer"]!.GetValue<string>());
+            Assert.Equal("2026-03-01", properties["due_date"]!.GetValue<string>());
+            Assert.False(properties["completion"]!.GetValue<bool>());
         }
     }
 
@@ -1586,7 +2577,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         var lines = (await _fixture.ServerLogLinesSinceAsync(since))
             .Select(line => line.Replace("\"", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
             .ToArray();
-        Assert.Equal(3, lines.Count(line => line.Contains(
+        Assert.Equal(4, lines.Count(line => line.Contains(
             "FROM TEMPLATE_OPERATION_ITEM AS",
             StringComparison.Ordinal)));
         Assert.Equal(1, lines.Count(line => line.Contains(
@@ -2323,6 +3314,9 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         Assert.Contains(statements, line => line.Contains(
             "FROM TEMPLATE_APPLICATION AS",
             StringComparison.Ordinal));
+        Assert.Equal(2, statements.Count(line => line.Contains(
+            "SELECT ANCESTOR.SCHEMA, EDGE.DEPTH",
+            StringComparison.Ordinal)));
         Assert.DoesNotContain(statements, line =>
             line.Contains("PARENT_ID = $", StringComparison.Ordinal));
 
@@ -2871,6 +3865,80 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             Assert.False(await work.DbContext.ContentSnapshots.AnyAsync(
                 snapshot => snapshot.DocId == documentId,
                 Cancellation));
+        }
+    }
+
+    private sealed class TaggedExplainInterceptor(string marker) : DbCommandInterceptor
+    {
+        public string? Plan { get; private set; }
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(command);
+            if (Plan is null && command.CommandText.Contains(marker, StringComparison.Ordinal))
+            {
+                Plan = await ExplainAsync(command, cancellationToken);
+            }
+
+            return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static async Task<string> ExplainAsync(DbCommand command, CancellationToken cancellationToken)
+        {
+            if (command.Connection is not NpgsqlConnection connection
+                || command.Transaction is not NpgsqlTransaction transaction)
+            {
+                throw new InvalidOperationException("The captured query must use the Npgsql runtime-role transaction.");
+            }
+
+            // The command is selected by a fixed EF TagWith marker; its SQL and parameters come from EF.
+#pragma warning disable CA2100 // Review SQL queries for security vulnerabilities
+            var explain = new NpgsqlCommand("EXPLAIN (ANALYZE, BUFFERS) " + command.CommandText, connection, transaction);
+#pragma warning restore CA2100 // Review SQL queries for security vulnerabilities
+            await using (explain.ConfigureAwait(false))
+            {
+                foreach (DbParameter parameter in command.Parameters)
+                {
+                    if (parameter is not NpgsqlParameter source)
+                    {
+                        throw new InvalidOperationException("The captured query contained a non-Npgsql parameter.");
+                    }
+
+                    var copy = new NpgsqlParameter
+                    {
+                        ParameterName = source.ParameterName,
+                        Direction = source.Direction,
+                        IsNullable = source.IsNullable,
+                        Size = source.Size,
+                        Precision = source.Precision,
+                        Scale = source.Scale,
+                        Value = source.Value,
+                    };
+                    if (source.NpgsqlDbType != NpgsqlDbType.Unknown)
+                    {
+                        copy.NpgsqlDbType = source.NpgsqlDbType;
+                    }
+                    else
+                    {
+                        copy.DbType = source.DbType;
+                    }
+
+                    explain.Parameters.Add(copy);
+                }
+
+                var plan = new StringBuilder();
+                await using var reader = await explain.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    plan.AppendLine(reader.GetString(0));
+                }
+
+                return plan.ToString();
+            }
         }
     }
 }

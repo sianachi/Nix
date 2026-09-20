@@ -20,12 +20,14 @@ import {
   workspaceInvitationSchema,
   workspaceInviteeSchema,
   workspaceMemberSchema,
+  workspacePrincipalSchema,
   workspaceSchema,
   type DailyNote,
   type Workspace,
   type WorkspaceInvitation,
   type WorkspaceInvitee,
   type WorkspaceMember,
+  type WorkspacePrincipal,
 } from '../schemas/index.js';
 import { cursorPageSchema, type CursorPage } from '../schemas/pagination.js';
 import type {
@@ -128,6 +130,35 @@ export const listMembersPage = (
     path: `/api/v1/workspaces/${workspaceId}/members`,
     query: { cursor: options.cursor, limit: options.limit },
     schema: cursorPageSchema(workspaceMemberSchema),
+  });
+
+export interface AssignablePrincipalPageOptions extends WorkspacePageOptions {
+  readonly query?: string | undefined;
+}
+
+export const listAssignablePrincipalsPage = (
+  workspaceId: string,
+  options: AssignablePrincipalPageOptions = {},
+): QueryEndpoint<CursorPage<WorkspacePrincipal>> =>
+  defineQuery({
+    operation: 'workspaces.principals.list.page',
+    path: `/api/v1/workspaces/${workspaceId}/principals`,
+    query: { query: options.query, cursor: options.cursor, limit: options.limit },
+    schema: cursorPageSchema(workspacePrincipalSchema),
+    cacheKey: ['workspaces', workspaceId, 'principals', options.query ?? '', options.cursor ?? ''],
+    staleAfterMs: 0,
+  });
+
+export const listAssignablePrincipals = (
+  workspaceId: string,
+  query?: string,
+): PagedQueryEndpoint<WorkspacePrincipal> =>
+  definePagedQuery({
+    operation: 'workspaces.principals.list',
+    path: `/api/v1/workspaces/${workspaceId}/principals`,
+    query: query === undefined ? undefined : { query },
+    itemSchema: workspacePrincipalSchema,
+    pageSize: 100,
   });
 export const changeMemberRole = (
   workspaceId: string,

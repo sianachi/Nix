@@ -92,6 +92,7 @@ internal static class WorkspaceEndpoints
             .WithName("ListWorkspaceMembers")
             .Produces<CursorPage<WorkspaceMemberResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        WorkspacePrincipalDirectoryEndpoints.Map(workspaces);
         workspaces.MapGet("/{workspaceId:guid}/invitees", WorkspaceAdministrationEndpoints.ListInvitees)
             .WithName("ListWorkspaceInvitees")
             .Produces<CursorPage<WorkspaceInviteeResponse>>(StatusCodes.Status200OK)

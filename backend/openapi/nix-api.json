@@ -921,6 +921,75 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/principals": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Active principals who can be assigned in a workspace",
+        "operationId": "ListWorkspaceAssignablePrincipals",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPageOfWorkspacePrincipalResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/invitees": {
       "get": {
         "tags": [
@@ -6709,6 +6778,27 @@
           }
         }
       },
+      "CursorPageOfWorkspacePrincipalResponse": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspacePrincipalResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CursorPageOfWorkspaceResponse": {
         "required": [
           "items",
@@ -9872,6 +9962,7 @@
           "viewKinds",
           "capabilities",
           "updatedAt",
+          "initialization",
           "root"
         ],
         "type": "object",
@@ -9946,6 +10037,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "initialization": {
+            "$ref": "#/components/schemas/TemplateInitialization"
           },
           "root": {
             "$ref": "#/components/schemas/TemplateItemResponse"
@@ -10163,7 +10257,8 @@
           },
           "includeChildren": {
             "type": "boolean"
-          }
+          },
+          "initialization": { }
         }
       },
       "TemplateImportResponse": {
@@ -10322,6 +10417,160 @@
           }
         }
       },
+      "TemplateInitialization": {
+        "required": [
+          "version",
+          "inputs",
+          "rules",
+          "references"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateInitializationInput"
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateInitializationRule"
+            }
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateReferenceRule"
+            }
+          }
+        }
+      },
+      "TemplateInitializationInput": {
+        "required": [
+          "key",
+          "label",
+          "type",
+          "required"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/TemplateInitializationInputType"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TemplateInitializationInputType": { },
+      "TemplateInitializationPreviewResponse": {
+        "required": [
+          "sourceId",
+          "title",
+          "properties",
+          "recurrence"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "properties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
+            ]
+          }
+        }
+      },
+      "TemplateInitializationRule": {
+        "required": [
+          "sourceId",
+          "propertyKey",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyKey": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TemplateInitializationRuleKind"
+          },
+          "value": { },
+          "inputKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "offsetDays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "timeOfDay": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timeZone": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TemplateInitializationRuleKind": { },
       "TemplateInteractiveFormResponse": {
         "required": [
           "pages",
@@ -10364,6 +10613,7 @@
           "properties",
           "schema",
           "views",
+          "recurrence",
           "hasBody",
           "children"
         ],
@@ -10409,6 +10659,16 @@
               },
               {
                 "$ref": "#/components/schemas/TemplateStoredViewsResponse"
+              }
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
               }
             ]
           },
@@ -10472,22 +10732,53 @@
               "null",
               "string"
             ]
+          },
+          "inputs": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expectedRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
       "TemplatePreflightResponse": {
         "required": [
           "templateId",
+          "templateRevision",
           "mode",
           "additions",
           "conflicts",
-          "canApply"
+          "canApply",
+          "resolvedInputs",
+          "initializationPreview",
+          "textBindings",
+          "referenceMappings"
         ],
         "type": "object",
         "properties": {
           "templateId": {
             "type": "string",
             "format": "uuid"
+          },
+          "templateRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "mode": {
             "$ref": "#/components/schemas/TemplateApplicationModeResponse"
@@ -10503,6 +10794,34 @@
           },
           "canApply": {
             "type": "boolean"
+          },
+          "resolvedInputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "initializationPreview": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateInitializationPreviewResponse"
+            }
+          },
+          "textBindings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "referenceMappings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "uuid"
+            }
           }
         }
       },
@@ -10512,7 +10831,10 @@
           "label",
           "type",
           "options",
-          "required"
+          "required",
+          "expression",
+          "aggregate",
+          "source"
         ],
         "type": "object",
         "properties": {
@@ -10533,6 +10855,24 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "expression": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "aggregate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -10558,6 +10898,29 @@
           },
           "inherit": {
             "type": "boolean"
+          }
+        }
+      },
+      "TemplateReferencePolicy": { },
+      "TemplateReferenceRule": {
+        "required": [
+          "sourceItemId",
+          "policy"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceItemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/TemplateReferencePolicy"
+          },
+          "inputKey": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11433,6 +11796,26 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "WorkspacePrincipalResponse": {
+        "required": [
+          "principalId",
+          "displayName",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },

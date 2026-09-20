@@ -10,32 +10,35 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 )
 
 const (
-	nixArchiveFormat  = "nix-archive"
-	nixArchiveVersion = 1
-	nixSchemaMinimum  = 1
-	// Keep this in lockstep with @nix/editor-schema's SCHEMA_VERSION. Version 3
-	// adds the durable image fileItemId attribute; the importer preserves the
-	// opaque document envelope and still validates its shape below.
-	nixSchemaMaximum = 3
+	nixArchiveFormat      = "nix-archive"
+	nixArchiveVersion     = 1
+	nixArchiveFileVersion = 2
+	nixSchemaMinimum      = 1
+	// Keep this in lockstep with @nix/editor-schema's SCHEMA_VERSION. The importer
+	// preserves newer ProseMirror content opaquely after checking the body envelope.
+	nixSchemaMaximum = 4
 )
 
 var archiveIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type nixManifest struct {
-	Format              string             `json:"format"`
-	FormatVersion       int                `json:"formatVersion"`
-	SchemaVersion       int                `json:"schemaVersion"`
-	Profile             json.RawMessage    `json:"profile,omitempty"`
-	ExportedAt          string             `json:"exportedAt"`
-	Root                string             `json:"root"`
-	RootEffectiveSchema *nixSchemaSnapshot `json:"rootEffectiveSchema"`
-	IncludesDeleted     bool               `json:"includesDeleted"`
-	Items               []nixManifestItem  `json:"items"`
-	Omitted             []nixOmission      `json:"omitted"`
-	Loss                []nixLoss          `json:"loss"`
+	Format              string                        `json:"format"`
+	FormatVersion       int                           `json:"formatVersion"`
+	SchemaVersion       int                           `json:"schemaVersion"`
+	Profile             json.RawMessage               `json:"profile,omitempty"`
+	ExportedAt          string                        `json:"exportedAt"`
+	Root                string                        `json:"root"`
+	RootEffectiveSchema *nixSchemaSnapshot            `json:"rootEffectiveSchema"`
+	IncludesDeleted     bool                          `json:"includesDeleted"`
+	Items               []nixManifestItem             `json:"items"`
+	Files               []nixarchive.FileVersionEntry `json:"files,omitempty"`
+	Omitted             []nixOmission                 `json:"omitted"`
+	Loss                []nixLoss                     `json:"loss"`
 }
 
 type nixManifestItem struct {
@@ -65,6 +68,17 @@ type nixSchemaSnapshot struct {
 	Inherit    bool            `json:"inherit"`
 }
 
+type nixSchemaProperty struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
+}
+
+var nixPropertyTypes = map[string]struct{}{
+	"text": {}, "number": {}, "select": {}, "multi_select": {}, "date": {}, "checkbox": {},
+	"url": {}, "timestamp": {}, "image": {}, "due_date": {}, "start_date": {},
+	"completion": {}, "priority": {}, "estimate": {}, "assignee": {},
+}
+
 type nixBundle struct {
 	ID                string             `json:"id"`
 	ParentID          *string            `json:"parentId"`
@@ -76,6 +90,7 @@ type nixBundle struct {
 	CreatedAt         string             `json:"createdAt"`
 	UpdatedAt         string             `json:"updatedAt"`
 	Properties        json.RawMessage    `json:"properties"`
+	Recurrence        json.RawMessage    `json:"recurrence,omitempty"`
 	Schema            *nixSchemaSnapshot `json:"schema"`
 	Views             json.RawMessage    `json:"views"`
 	ViewRows          json.RawMessage    `json:"viewRows"`
@@ -91,6 +106,7 @@ type validatedNixItem struct {
 type validatedNixArchive struct {
 	manifest nixManifest
 	items    []validatedNixItem
+	files    []nixarchive.FileVersionEntry
 }
 
 func parseNix(ctx context.Context, source Source, limits Limits) (Plan, error) {
@@ -113,8 +129,9 @@ func parseNix(ctx context.Context, source Source, limits Limits) (Plan, error) {
 		planItem := Item{
 			SourceID: entry.ID, ParentSourceID: entry.ParentID, Order: order,
 			Title: bundle.Title, ItemType: bundle.Type, Properties: cloneJSON(bundle.Properties),
-			Schema: importNixSchema(entry.ID == parsed.manifest.Root, parsed.manifest.RootEffectiveSchema, bundle.Schema),
-			Views:  cloneNullableJSON(bundle.Views), FinalLifecycleState: bundle.LifecycleState,
+			Recurrence: cloneNullableJSON(bundle.Recurrence),
+			Schema:     importNixSchema(entry.ID == parsed.manifest.Root, parsed.manifest.RootEffectiveSchema, bundle.Schema),
+			Views:      cloneNullableJSON(bundle.Views), FinalLifecycleState: bundle.LifecycleState,
 		}
 		if !isJSONNull(bundle.Body) {
 			planItem.Body = &Body{Encoding: "archive", Archive: cloneJSON(bundle.Body)}
@@ -132,7 +149,7 @@ func parseNix(ctx context.Context, source Source, limits Limits) (Plan, error) {
 	}
 	return Plan{
 		Version: Version, Format: "nix", Title: source.Title, SourceSHA256: source.SHA256,
-		Items: items, Loss: loss, Omissions: omissions,
+		Items: items, FileVersions: parsed.files, Loss: loss, Omissions: omissions,
 	}, nil
 }
 
@@ -140,7 +157,7 @@ func validateNixArchive(ctx context.Context, source Source, limits Limits) (vali
 	if err := ctx.Err(); err != nil {
 		return validatedNixArchive{}, err
 	}
-	archive, err := openArchive(source, limits)
+	archive, err := openNixArchive(source, limits)
 	if err != nil {
 		return validatedNixArchive{}, fmt.Errorf("open Nix archive: %w", err)
 	}
@@ -157,14 +174,21 @@ func validateNixArchive(ctx context.Context, source Source, limits Limits) (vali
 	if err := decodeStrictJSON(manifestBody, &manifest); err != nil {
 		return validatedNixArchive{}, fmt.Errorf("decode Nix manifest: %w", err)
 	}
+	if manifest.FormatVersion == nixArchiveVersion && hasJSONProperty(manifestBody, "files") {
+		return validatedNixArchive{}, errors.New("Nix archive v1 must not declare file-version entries")
+	}
 	if err := validateNixManifest(manifest, limits); err != nil {
 		return validatedNixArchive{}, err
 	}
-	if len(archive.File) != len(manifest.Items)+1 {
+	if len(archive.File) != len(manifest.Items)+len(manifest.Files)+1 {
 		return validatedNixArchive{}, errors.New("the Nix archive contains unlisted or missing entries")
 	}
 
 	bundles := make(map[string]nixBundle, len(manifest.Items))
+	expectedFiles := make(map[string]nixarchive.FileVersionEntry, len(manifest.Files))
+	for _, file := range manifest.Files {
+		expectedFiles[nixFileVersionEntryName(file.ItemID, file.Version)] = file
+	}
 	seenEntries := map[string]bool{"manifest.json": true}
 	for _, entry := range archive.File[1:] {
 		if err := ctx.Err(); err != nil {
@@ -174,6 +198,17 @@ func validateNixArchive(ctx context.Context, source Source, limits Limits) (vali
 			return validatedNixArchive{}, fmt.Errorf("the Nix archive contains duplicate entry %q", entry.Name)
 		}
 		seenEntries[entry.Name] = true
+		if isNixFileVersionPath(entry.Name) {
+			file, ok := expectedFiles[entry.Name]
+			if !ok {
+				return validatedNixArchive{}, fmt.Errorf("the Nix archive contains an undeclared file-version entry %q", entry.Name)
+			}
+			if err := verifyNixFileVersion(ctx, entry, file); err != nil {
+				return validatedNixArchive{}, fmt.Errorf("Nix file %s/%d: %w", file.ItemID, file.Version, err)
+			}
+			delete(expectedFiles, entry.Name)
+			continue
+		}
 		id, ok := nixItemIDFromEntry(entry.Name)
 		if !ok {
 			return validatedNixArchive{}, fmt.Errorf("the Nix archive entry %q is not supported", entry.Name)
@@ -190,6 +225,9 @@ func validateNixArchive(ctx context.Context, source Source, limits Limits) (vali
 			return validatedNixArchive{}, fmt.Errorf("the Nix archive contains a duplicate or mismatched item %s", id)
 		}
 		bundles[id] = bundle
+	}
+	if len(expectedFiles) != 0 {
+		return validatedNixArchive{}, errors.New("the Nix archive is missing a declared file-version entry")
 	}
 
 	items := make([]validatedNixItem, 0, len(manifest.Items))
@@ -236,11 +274,11 @@ func validateNixArchive(ctx context.Context, source Source, limits Limits) (vali
 	if !seen[manifest.Root] {
 		return validatedNixArchive{}, errors.New("the Nix archive root is not listed")
 	}
-	return validatedNixArchive{manifest: manifest, items: items}, nil
+	return validatedNixArchive{manifest: manifest, items: items, files: manifest.Files}, nil
 }
 
 func validateNixManifest(manifest nixManifest, limits Limits) error {
-	if manifest.Format != nixArchiveFormat || manifest.FormatVersion != nixArchiveVersion {
+	if manifest.Format != nixArchiveFormat || manifest.FormatVersion != nixArchiveVersion && manifest.FormatVersion != nixArchiveFileVersion {
 		return errors.New("the Nix archive format or version is unsupported")
 	}
 	if manifest.SchemaVersion < nixSchemaMinimum || manifest.SchemaVersion > nixSchemaMaximum {
@@ -251,6 +289,30 @@ func validateNixManifest(manifest nixManifest, limits Limits) error {
 	}
 	if len(manifest.Omitted) > limits.MaxItems || len(manifest.Loss) > limits.MaxItems {
 		return errors.New("the Nix archive report exceeds the item limit")
+	}
+	if manifest.RootEffectiveSchema != nil {
+		if err := validateNixSchema(manifest.RootEffectiveSchema); err != nil {
+			return fmt.Errorf("root effective schema: %w", err)
+		}
+	}
+	if manifest.FormatVersion == nixArchiveVersion {
+		if manifest.Files != nil {
+			return errors.New("Nix archive v1 must not declare file-version entries")
+		}
+	} else {
+		if manifest.Files == nil {
+			return errors.New("Nix archive v2 must declare file-version entries")
+		}
+		if len(manifest.Files) > limits.MaxItems*nixarchive.MaxFileVersionsPerItem {
+			return errors.New("the Nix archive declares too many file versions")
+		}
+		items := make([]nixarchive.ManifestItem, 0, len(manifest.Items))
+		for _, item := range manifest.Items {
+			items = append(items, nixarchive.ManifestItem{ID: item.ID, Type: item.Type})
+		}
+		if err := nixarchive.ValidateFileVersions(manifest.Files, items); err != nil {
+			return err
+		}
 	}
 	for _, entry := range manifest.Items {
 		if !validArchiveID(entry.ID) || (entry.ParentID != nil && !validArchiveID(*entry.ParentID)) ||
@@ -279,8 +341,10 @@ func validateNixBundle(bundle nixBundle, manifestSchema int, limits Limits) erro
 		!isJSONObject(bundle.Properties) || !isJSONArray(bundle.ViewRows) || len(bundle.Body) > int(limits.MaxBodyBytes) {
 		return errors.New("the item envelope is invalid")
 	}
-	if bundle.Schema != nil && (!isJSONArray(bundle.Schema.Properties) || !isJSONArray(bundle.Schema.Declared)) {
-		return errors.New("the property schema is invalid")
+	if bundle.Schema != nil {
+		if err := validateNixSchema(bundle.Schema); err != nil {
+			return err
+		}
 	}
 	if !isJSONNull(bundle.Views) && !isJSONObject(bundle.Views) {
 		return errors.New("the item views are invalid")
@@ -303,6 +367,27 @@ func validateNixBundle(bundle nixBundle, manifestSchema int, limits Limits) erro
 		}
 		if !isJSONObject(expected) || (bundle.Type != "sheet" && bundle.Type != "spreadsheet" && body.SchemaVersion > manifestSchema) {
 			return errors.New("the item body does not match its type or schema")
+		}
+	}
+	return nil
+}
+
+func validateNixSchema(schema *nixSchemaSnapshot) error {
+	for _, encoded := range []json.RawMessage{schema.Properties, schema.Declared} {
+		if !isJSONArray(encoded) {
+			return errors.New("the property schema is invalid")
+		}
+		var properties []nixSchemaProperty
+		if err := json.Unmarshal(encoded, &properties); err != nil {
+			return errors.New("the property schema is invalid")
+		}
+		for _, property := range properties {
+			if strings.TrimSpace(property.Key) == "" {
+				return errors.New("the property schema contains an invalid property")
+			}
+			if _, ok := nixPropertyTypes[property.Type]; !ok {
+				return fmt.Errorf("the property schema contains unsupported type %q", property.Type)
+			}
 		}
 	}
 	return nil

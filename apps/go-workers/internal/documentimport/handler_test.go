@@ -8,12 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/importplan"
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
@@ -194,6 +196,93 @@ func TestCommitRevalidatesStagesWritesBodiesAndFinalizes(t *testing.T) {
 	}
 	if len(collabWrites.Writes) != 1 || collabWrites.Writes[0].SourceID != "root" || collabWrites.Writes[0].Body.Text != "durable text" {
 		t.Fatalf("body writes = %#v", collabWrites)
+	}
+}
+
+func TestArchiveFileVersionsUploadVerifyAndAcknowledgePerVersion(t *testing.T) {
+	const sourceID = "11111111-1111-4111-8111-111111111111"
+	const targetID = "22222222-2222-4222-8222-222222222222"
+	transferIDs := []string{"33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"}
+	versions := []struct {
+		version      int
+		size         int64
+		digest, text string
+	}{
+		{1, 20, "e44788cbbfd29389d597b72c023af1f02e33957f4268dec483bb5016095a7e7b", "%PDF-1.5\nold version"},
+		{2, 24, "87bf031eea39c63fe21114134da65932eea8449eb9219638f8e94d4203ba9b0f", "%PDF-1.5\ncurrent version"},
+	}
+	uploaded := make(map[string][]byte)
+	completed := []string{}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		assertExecution(t, request)
+		switch {
+		case request.URL.Path == "/internal/worker-executions/imports/"+testImportID+"/file-versions/authorization":
+			response.Header().Set("Content-Type", "application/json")
+			files := make([]workerapi.TemplateImportFileCapability, 0, len(versions))
+			for index, version := range versions {
+				uploadURL, verifyURL := server.URL+"/objects/"+transferIDs[index], server.URL+"/verify/"+transferIDs[index]
+				files = append(files, workerapi.TemplateImportFileCapability{
+					TransferID: transferIDs[index], SourceItemID: sourceID, TargetItemID: targetID, TargetVersion: version.version,
+					FileName: "report.pdf", MediaType: "application/pdf", ByteLength: version.size, SHA256: version.digest,
+					UploadURL: &uploadURL, VerifyURL: &verifyURL,
+				})
+			}
+			_ = json.NewEncoder(response).Encode(workerapi.TemplateImportFilePlan{ImportID: testImportID, Files: files, Complete: true})
+		case request.URL.Path == "/internal/worker-executions/imports/"+testImportID+"/file-versions/complete":
+			response.Header().Set("Content-Type", "application/json")
+			var body struct {
+				TransferIDs []string `json:"transferIds"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body.TransferIDs) != 1 {
+				t.Fatalf("expected per-version durable ack, got %v", body.TransferIDs)
+			}
+			completed = append(completed, body.TransferIDs...)
+			_ = json.NewEncoder(response).Encode(map[string]any{"importId": testImportID, "completed": true})
+		case strings.HasPrefix(request.URL.Path, "/objects/") && request.Method == http.MethodPut:
+			transferID := strings.TrimPrefix(request.URL.Path, "/objects/")
+			if request.Header.Get("If-None-Match") != "*" {
+				t.Fatal("file version upload was not conditional")
+			}
+			uploaded[transferID], _ = io.ReadAll(request.Body)
+			response.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(request.URL.Path, "/verify/") && request.Method == http.MethodGet:
+			transferID := strings.TrimPrefix(request.URL.Path, "/verify/")
+			bytes, ok := uploaded[transferID]
+			if !ok {
+				response.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = response.Write(bytes)
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	handler := testHandler(t, server.URL)
+	archivePath := filepath.Join("../../../../fixtures", "nix-archive-v2-file.nix")
+	descriptors := []nixarchive.FileVersionEntry{
+		{ItemID: sourceID, Version: 1, FileName: "report.pdf", MediaType: "application/pdf", ByteLength: versions[0].size, SHA256: versions[0].digest, Previewable: true},
+		{ItemID: sourceID, Version: 2, FileName: "report.pdf", MediaType: "application/pdf", ByteLength: versions[1].size, SHA256: versions[1].digest, Previewable: true},
+	}
+	stage := &workerapi.DocumentImportStage{FileTransfers: []workerapi.TemplateImportFileTransferMapping{
+		{TransferID: transferIDs[0], SourceItemID: sourceID, TargetItemID: targetID, TargetVersion: 1},
+		{TransferID: transferIDs[1], SourceItemID: sourceID, TargetItemID: targetID, TargetVersion: 2},
+	}}
+	err := handler.transferArchiveFileVersions(workerapi.WithExecution(context.Background(), "job", "execution"), testImportID, archivePath, descriptors, stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completed) != 2 || completed[0] != transferIDs[0] || completed[1] != transferIDs[1] {
+		t.Fatalf("completed transfers = %v", completed)
+	}
+	for index, version := range versions {
+		if string(uploaded[transferIDs[index]]) != version.text {
+			t.Fatalf("version %d bytes = %q", version.version, uploaded[transferIDs[index]])
+		}
 	}
 }
 

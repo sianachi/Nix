@@ -166,6 +166,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets idempotent template applications.</summary>
     public DbSet<TemplateApplication> TemplateApplications => Set<TemplateApplication>();
 
+    /// <summary>Gets immutable staged template file-version copies.</summary>
+    public DbSet<TemplateFileTransfer> TemplateFileTransfers => Set<TemplateFileTransfer>();
+
     /// <summary>Gets source-to-target item mappings for template applications.</summary>
     public DbSet<TemplateApplicationItem> TemplateApplicationItems => Set<TemplateApplicationItem>();
 
@@ -181,6 +184,7 @@ public sealed class NixDbContext : DbContext
 
     public DbSet<DocumentImport> DocumentImports => Set<DocumentImport>();
     public DbSet<DocumentImportItem> DocumentImportItems => Set<DocumentImportItem>();
+    public DbSet<DocumentImportFileVersion> DocumentImportFileVersions => Set<DocumentImportFileVersion>();
 
     /// <summary>Gets tenant-pinned plugin publisher keys.</summary>
     public DbSet<PluginPublisher> PluginPublishers => Set<PluginPublisher>();
@@ -302,6 +306,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TemplateOperationItemConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateApplicationConfiguration());
         modelBuilder.ApplyConfiguration(new TemplateApplicationItemConfiguration());
+        modelBuilder.ApplyConfiguration(new TemplateFileTransferConfiguration());
         modelBuilder.ApplyConfiguration(new WorkerJobConfiguration());
         modelBuilder.ApplyConfiguration(new WorkerOutboxEventConfiguration());
         modelBuilder.ApplyConfiguration(new FileBodyConfiguration());
@@ -309,6 +314,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new FileUploadConfiguration());
         modelBuilder.ApplyConfiguration(new DocumentImportConfiguration());
         modelBuilder.ApplyConfiguration(new DocumentImportItemConfiguration());
+        modelBuilder.ApplyConfiguration(new DocumentImportFileVersionConfiguration());
         modelBuilder.ApplyConfiguration(new PluginPublisherConfiguration());
         modelBuilder.ApplyConfiguration(new PluginComponentConfiguration());
         modelBuilder.ApplyConfiguration(new PluginInstallationConfiguration());

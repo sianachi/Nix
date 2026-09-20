@@ -1,5 +1,7 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Nix.Domain.Templates;
 
 namespace Nix.Features.Templates;
 
@@ -62,6 +64,7 @@ internal sealed record TemplateItemResponse(
     JsonObject? Properties,
     TemplatePropertySchemaResponse? Schema,
     TemplateStoredViewsResponse? Views,
+    JsonObject? Recurrence,
     bool HasBody,
     IReadOnlyList<TemplateItemResponse> Children);
 
@@ -70,7 +73,10 @@ internal sealed record TemplatePropertyDefinitionResponse(
     string Label,
     string Type,
     IReadOnlyList<string> Options,
-    bool Required);
+    bool Required,
+    string? Expression,
+    string? Aggregate,
+    string? Source);
 
 internal sealed record TemplatePropertySchemaResponse(
     IReadOnlyList<TemplatePropertyDefinitionResponse> Properties,
@@ -146,6 +152,7 @@ internal sealed record TemplateDetailResponse(
     IReadOnlyList<string> ViewKinds,
     TemplateCapabilitiesResponse Capabilities,
     DateTimeOffset UpdatedAt,
+    TemplateInitialization Initialization,
     TemplateItemResponse Root);
 
 internal sealed record UpdateTemplateItemRequest(
@@ -158,16 +165,29 @@ internal sealed record TemplatePreflightRequest(
     TemplateApplicationModeResponse Mode,
     Guid? TargetItemId,
     Guid? ParentItemId,
-    string? Title);
+    string? Title,
+    IReadOnlyDictionary<string, string>? Inputs = null,
+    int? ExpectedRevision = null);
 
 internal sealed record TemplateAdditionsResponse(int Fields, int Views, int Items);
 
 internal sealed record TemplatePreflightResponse(
     Guid TemplateId,
+    int TemplateRevision,
     TemplateApplicationModeResponse Mode,
     TemplateAdditionsResponse Additions,
     IReadOnlyList<string> Conflicts,
-    bool CanApply);
+    bool CanApply,
+    IReadOnlyDictionary<string, string> ResolvedInputs,
+    IReadOnlyList<TemplateInitializationPreviewResponse> InitializationPreview,
+    IReadOnlyDictionary<string, string> TextBindings,
+    IReadOnlyDictionary<Guid, Guid?> ReferenceMappings);
+
+internal sealed record TemplateInitializationPreviewResponse(
+    Guid SourceId,
+    string Title,
+    JsonObject? Properties,
+    JsonObject? Recurrence);
 
 internal sealed record BeginTemplateCaptureRequest(
     Guid WorkspaceId,
@@ -186,7 +206,8 @@ internal sealed record ImportTemplateDescriptorRequest(
     string? ManagedSource,
     string Digest,
     bool IncludeBody,
-    bool IncludeChildren);
+    bool IncludeChildren,
+    JsonElement? Initialization = null);
 
 public sealed record ImportTemplateItemRequest(
     Guid SourceId,
@@ -197,7 +218,8 @@ public sealed record ImportTemplateItemRequest(
     JsonObject? Properties,
     JsonObject? Schema,
     JsonObject? Views,
-    bool HasBody);
+    bool HasBody,
+    JsonObject? Recurrence = null);
 
 internal sealed record BeginTemplateImportRequest(
     Guid WorkspaceId,
@@ -211,9 +233,13 @@ internal sealed record BeginTemplateApplicationRequest(
     Guid? TargetItemId,
     Guid? ParentItemId,
     string? Title,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    IReadOnlyDictionary<string, string>? Inputs = null,
+    int? ExpectedRevision = null);
 
-internal sealed record FinalizeTemplateBodiesRequest(IReadOnlyList<Guid> WrittenTargetItemIds);
+internal sealed record FinalizeTemplateBodiesRequest(
+    IReadOnlyList<Guid> WrittenTargetItemIds,
+    IReadOnlyList<Guid>? ExternalReferenceTargets = null);
 
 internal sealed record ItemMappingResponse(Guid SourceId, Guid ItemId, string ItemType);
 
@@ -225,7 +251,9 @@ internal sealed record BeginTemplateCaptureResponse(
     Guid OperationId,
     Guid TemplateId,
     IReadOnlyList<ItemMappingResponse> ItemMappings,
-    IReadOnlyList<BodyCopyResponse> BodyCopies);
+    IReadOnlyList<BodyCopyResponse> BodyCopies,
+    Guid? FileTransferJobId = null,
+    bool FileTransferPending = false);
 
 internal sealed record BeginTemplateImportResponse(
     Guid? OperationId,
@@ -241,7 +269,14 @@ internal sealed record BeginTemplateApplicationResponse(
     bool AlreadyApplied,
     IReadOnlyList<ItemMappingResponse> CreatedItems,
     IReadOnlyList<ItemMappingResponse> ItemMappings,
-    IReadOnlyList<BodyCopyResponse> BodyCopies);
+    IReadOnlyList<BodyCopyResponse> BodyCopies,
+    int TemplateRevision,
+    IReadOnlyDictionary<string, string> ResolvedInputs,
+    IReadOnlyList<TemplateInitializationPreviewResponse> InitializationPreview,
+    IReadOnlyDictionary<string, string> TextBindings,
+    IReadOnlyDictionary<Guid, Guid?> ReferenceMappings,
+    Guid? FileTransferJobId = null,
+    bool FileTransferPending = false);
 
 internal sealed record FinalizeTemplateResponse(Guid TemplateId);
 
@@ -249,7 +284,10 @@ internal sealed record FinalizeTemplateApplicationResponse(Guid TargetItemId);
 
 internal sealed record BeginTemplateDraftRequest(string IdempotencyKey);
 
-internal sealed record UpdateTemplateDraftRequest(string? Title, string? Description);
+internal sealed record UpdateTemplateDraftRequest(
+    string? Title,
+    string? Description,
+    JsonElement? Initialization = null);
 
 internal sealed record TemplateDraftResponse(
     Guid OperationId,
@@ -257,9 +295,12 @@ internal sealed record TemplateDraftResponse(
     string Title,
     string? Description,
     DateTimeOffset ExpiresAt,
+    TemplateInitialization Initialization,
     TemplateItemResponse Root,
     IReadOnlyList<ItemMappingResponse> ItemMappings,
-    IReadOnlyList<BodyCopyResponse> BodyCopies);
+    IReadOnlyList<BodyCopyResponse> BodyCopies,
+    Guid? FileTransferJobId = null,
+    bool FileTransferPending = false);
 
 internal sealed record ManagedTemplateFinalizeEntryRequest(
     Guid? OperationId,
@@ -315,7 +356,8 @@ internal sealed record TemplateExportItemResponse(
     JsonObject Properties,
     JsonObject? Schema,
     JsonObject? Views,
-    bool HasBody);
+    bool HasBody,
+    JsonObject? Recurrence = null);
 
 internal sealed record TemplateExportResponse(
     Guid TemplateId,
@@ -327,4 +369,29 @@ internal sealed record TemplateExportResponse(
     int Revision,
     bool IncludeBody,
     bool IncludeChildren,
-    IReadOnlyList<TemplateExportItemResponse> Items);
+    TemplateInitialization Initialization,
+    IReadOnlyList<TemplateExportItemResponse> Items,
+    IReadOnlyList<TemplateExportFileResponse> Files);
+
+internal sealed record TemplateExportFileResponse(
+    Guid FileVersionId,
+    Guid SourceId,
+    int Version,
+    bool Current,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight,
+    Uri? DownloadUrl,
+    DateTimeOffset? ExpiresAt);
+
+internal sealed record TemplateExportFileCapabilityResponse(Uri DownloadUrl, DateTimeOffset ExpiresAt);
+
+internal sealed record TemplateExportFilesPageResponse(
+    int Revision,
+    IReadOnlyList<TemplateExportFileResponse> Files,
+    Guid? NextAfterFileVersionId,
+    bool Complete);

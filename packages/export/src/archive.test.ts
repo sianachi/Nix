@@ -1,4 +1,5 @@
 import { FIXTURE_DOCUMENT, SCHEMA_VERSION } from '@nix/editor-schema';
+import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
@@ -8,7 +9,10 @@ import {
   ARCHIVE_FORMAT,
   ARCHIVE_FORMAT_VERSION,
   MANIFEST_ENTRY,
+  FILE_ARCHIVE_FORMAT_VERSION,
+  fileVersionEntryName,
   itemEntryName,
+  type ArchiveFileBytes,
   type ArchiveManifest,
   type ItemBundle,
   type ProseBody,
@@ -87,6 +91,25 @@ async function collect(archive: AsyncIterable<Uint8Array>): Promise<Uint8Array> 
   return out;
 }
 
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+// eslint-disable-next-line @typescript-eslint/require-await -- async iterable is the writer's public streaming contract.
+async function* chunks(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+  yield bytes.subarray(0, Math.min(3, bytes.byteLength));
+  if (bytes.byteLength > 3) yield bytes.subarray(3);
+}
+
+// eslint-disable-next-line @typescript-eslint/require-await -- async iterable is the writer's public streaming contract.
+async function* fileStream(files: readonly ArchiveFileBytes[]): AsyncGenerator<ArchiveFileBytes> {
+  for (const file of files) yield file;
+}
+
+async function* byteStream(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+  yield* chunks(bytes);
+}
+
 async function consumeInto(
   archive: AsyncIterable<Uint8Array>,
   chunks: Uint8Array[],
@@ -136,6 +159,98 @@ describe('writeArchive', () => {
 
     expect(body?.prosemirror).toEqual(FIXTURE_DOCUMENT);
     expect(body?.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it('writes and reads versioned PDF attachments with streamed bytes and history metadata', async () => {
+    const first = new TextEncoder().encode('%PDF-1.4\nfirst revision');
+    const current = new TextEncoder().encode('%PDF-1.7\ncurrent revision');
+    const fileManifest: ArchiveManifest = {
+      ...manifest([ROOT]),
+      formatVersion: FILE_ARCHIVE_FORMAT_VERSION,
+      items: [{ id: ROOT, parentId: null, seq: '1', title: 'Brief.pdf', type: 'file' }],
+      files: [
+        {
+          itemId: ROOT,
+          version: 1,
+          current: false,
+          fileName: 'Brief.pdf',
+          mediaType: 'application/pdf',
+          byteLength: first.length,
+          sha256: sha256(first),
+          previewable: true,
+          pixelWidth: null,
+          pixelHeight: null,
+        },
+        {
+          itemId: ROOT,
+          version: 2,
+          current: true,
+          fileName: 'Brief.pdf',
+          mediaType: 'application/pdf',
+          byteLength: current.length,
+          sha256: sha256(current),
+          previewable: true,
+          pixelWidth: null,
+          pixelHeight: null,
+        },
+      ],
+    };
+    const bytes = await collect(
+      writeArchive({
+        manifest: fileManifest,
+        bundles: streamOf([bundle(ROOT, { type: 'file', title: 'Brief.pdf', body: null })]),
+        files: fileStream([
+          { itemId: ROOT, version: 1, chunks: byteStream(first) },
+          { itemId: ROOT, version: 2, chunks: byteStream(current) },
+        ]),
+      }),
+    );
+    const entries = unzipSync(bytes);
+
+    expect(Object.keys(entries).sort()).toEqual(
+      [
+        MANIFEST_ENTRY,
+        itemEntryName(ROOT),
+        fileVersionEntryName(ROOT, 1),
+        fileVersionEntryName(ROOT, 2),
+      ].sort(),
+    );
+    expect(Buffer.from(entries[fileVersionEntryName(ROOT, 1)] ?? [])).toEqual(Buffer.from(first));
+    expect(Buffer.from(entries[fileVersionEntryName(ROOT, 2)] ?? [])).toEqual(Buffer.from(current));
+  });
+
+  it('refuses a streamed file whose length or digest does not match the manifest', async () => {
+    const bytes = new TextEncoder().encode('the source bytes');
+    const fileManifest: ArchiveManifest = {
+      ...manifest([ROOT]),
+      formatVersion: FILE_ARCHIVE_FORMAT_VERSION,
+      items: [{ id: ROOT, parentId: null, seq: '1', title: 'source.bin', type: 'file' }],
+      files: [
+        {
+          itemId: ROOT,
+          version: 1,
+          current: true,
+          fileName: 'source.bin',
+          mediaType: 'application/octet-stream',
+          byteLength: bytes.length,
+          sha256: sha256(bytes),
+          previewable: false,
+          pixelWidth: null,
+          pixelHeight: null,
+        },
+      ],
+    };
+    const changed = new TextEncoder().encode('the source byte!');
+
+    await expect(
+      collect(
+        writeArchive({
+          manifest: fileManifest,
+          bundles: streamOf([bundle(ROOT, { type: 'file', title: 'source.bin', body: null })]),
+          files: fileStream([{ itemId: ROOT, version: 1, chunks: byteStream(changed) }]),
+        }),
+      ),
+    ).rejects.toThrow(/different SHA-256 digest/);
   });
 
   it('records the schema version the bodies were written against', async () => {

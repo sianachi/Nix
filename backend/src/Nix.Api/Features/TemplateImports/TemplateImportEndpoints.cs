@@ -86,6 +86,8 @@ internal static class TemplateImportEndpoints
         imports.MapPost("/preview/complete", CompletePreviewExecution);
         imports.MapGet("/commit", GetCommitExecution);
         imports.MapPost("/stage", StageExecution).WithRequestBodyLimit(16L * 1024 * 1024);
+        imports.MapGet("/files/authorization", AuthorizeFileVersionsExecution);
+        imports.MapPost("/files/complete", CompleteFileVersionsExecution);
         imports.MapGet("/bodies/authorization", AuthorizeBodiesExecution);
         imports.MapPost("/complete", CompleteExecution);
         imports.MapPost("/reject", RejectExecution);
@@ -575,6 +577,18 @@ internal static class TemplateImportEndpoints
         {
             return TypedResults.Problem(ExecutionLost(context));
         }
+        var fileTransfers = await imports.StageTemplateFileVersionsAsync(
+            DocumentImportId.From(importId),
+            plan.Unchanged ? [] : (request.Files ?? []).Select(file => new ImportFileVersionPlan(
+                file.SourceItemId, file.Version, file.FileName, file.MediaType, file.ByteLength,
+                file.Sha256, file.Previewable, file.PixelWidth, file.PixelHeight)).ToArray(),
+            plan.ItemMappings.Where(mapping => mapping.ItemType == "file")
+                .Select(mapping => (mapping.SourceId.ToString("D"), mapping.ItemId)).ToArray(),
+            context.RequestAborted).ConfigureAwait(false);
+        if (fileTransfers is null)
+        {
+            return TypedResults.Problem(ExecutionLost(context));
+        }
         if (!await ExecutionStillLive(context, dispatch).ConfigureAwait(false))
         {
             return TypedResults.Problem(ExecutionLost(context));
@@ -587,7 +601,9 @@ internal static class TemplateImportEndpoints
             descriptor.Digest,
             plan.Unchanged,
             plan.ItemMappings.Select(Map).ToArray(),
-            plan.BodyWrites.Select(Map).ToArray()));
+            plan.BodyWrites.Select(Map).ToArray(),
+            fileTransfers.Select(value => new TemplateImportFileTransferMappingResponse(
+                value.TransferId, value.SourceItemId, value.TargetItemId, value.TargetVersion)).ToArray()));
     }
 
     private static async Task<IResult> AuthorizeBodiesExecution(
@@ -648,6 +664,62 @@ internal static class TemplateImportEndpoints
                 write.ItemType,
                 write.BodyRequired)).ToArray(),
             CanWrite: true));
+    }
+
+    private static async Task<IResult> AuthorizeFileVersionsExecution(
+        Guid importId,
+        Guid? afterTransferId,
+        int? limit,
+        HttpContext context,
+        [FromServices] IDocumentImportStore imports,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session,
+        [FromServices] S3CapabilitySigner signer)
+    {
+        var pageSize = limit ?? 100;
+        var executionId = context.Request.Headers[WorkerExecutionMiddleware.ExecutionHeaderName].ToString();
+        if (pageSize is < 1 or > 100 || !signer.IsConfigured
+            || await OwnedExecution(importId, context, imports, jobs, session, "template.commit").ConfigureAwait(false) is null)
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+        var page = await imports.AuthorizeFileVersionsAsync(DocumentImportId.From(importId), executionId,
+            afterTransferId, pageSize, context.RequestAborted).ConfigureAwait(false);
+        if (page is null)
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+
+        var files = page.Files.Select(file => new TemplateImportFileVersionCapabilityResponse(
+            file.TransferId, file.SourceItemId, file.TargetItemId, file.TargetVersion,
+            file.FileName, file.MediaType, file.ByteLength, file.Sha256,
+            file.ObjectReady ? null : signer.PutImmutableVerified(file.ObjectKey, file.ByteLength, file.Sha256).Url,
+            file.ObjectReady ? null : signer.Get(file.ObjectKey).Url, file.ObjectReady)).ToArray();
+        return TypedResults.Ok(new TemplateImportFileVersionsAuthorizationResponse(
+            importId, files, page.NextAfterTransferId, page.Complete));
+    }
+
+    private static async Task<IResult> CompleteFileVersionsExecution(
+        Guid importId,
+        CompleteTemplateImportFileVersionsRequest request,
+        HttpContext context,
+        [FromServices] IDocumentImportStore imports,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session,
+        [FromServices] IWorkerDispatchStore dispatch)
+    {
+        var executionId = context.Request.Headers[WorkerExecutionMiddleware.ExecutionHeaderName].ToString();
+        if (request.TransferIds.Count is < 1 or > 100
+            || request.TransferIds.Distinct().Count() != request.TransferIds.Count
+            || await OwnedExecution(importId, context, imports, jobs, session, "template.commit").ConfigureAwait(false) is null
+            || !await imports.CompleteFileVersionsAsync(DocumentImportId.From(importId), executionId,
+                request.TransferIds, context.RequestAborted).ConfigureAwait(false))
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+        return await ExecutionStillLive(context, dispatch).ConfigureAwait(false)
+            ? TypedResults.Ok(new CompleteTemplateImportFileVersionsResponse(importId, request.TransferIds))
+            : TypedResults.Problem(ExecutionLost(context));
     }
 
     private static async Task<IResult> CompleteExecution(
@@ -950,7 +1022,7 @@ internal static class TemplateImportEndpoints
             || request.Items is null
             || preview is null
             || operation.SourceSha256 is null
-            || request.Profile != preview.Profile
+            || !ProfileMatches(request.Profile, preview.Profile)
             || request.Items.Count != preview.ItemCount
             || request.Items.Count is < 1 or > MaximumItems
             || request.Items.Count(value => value.HasBody) != preview.BodyCount
@@ -959,7 +1031,8 @@ internal static class TemplateImportEndpoints
             || request.Items.Single(value => value.ParentSourceId is null).ItemType != preview.RootItemType
             || request.Items.Any(value => !ValidOptionalObject(value.Properties)
                 || !ValidOptionalObject(value.Schema)
-                || !ValidOptionalObject(value.Views)))
+                || !ValidOptionalObject(value.Views)
+                || !ValidOptionalObject(value.Recurrence)))
         {
             return false;
         }
@@ -980,8 +1053,14 @@ internal static class TemplateImportEndpoints
                 Json(item.Properties),
                 Json(item.Schema),
                 Json(item.Views),
-                item.HasBody);
+                item.HasBody,
+                Json(item.Recurrence));
         }
+        if (!TryInitialization(request.Profile.Initialization, out var initialization))
+        {
+            return false;
+        }
+
         descriptor = new TemplateImportDescriptor(
             request.Profile.Key,
             request.Profile.Name,
@@ -990,7 +1069,8 @@ internal static class TemplateImportEndpoints
             operation.ManagedSource,
             operation.SourceSha256,
             request.Profile.IncludeBody,
-            request.Profile.IncludeChildren);
+            request.Profile.IncludeChildren,
+            initialization);
         items = built;
         return true;
     }
@@ -1072,6 +1152,48 @@ internal static class TemplateImportEndpoints
 
     private static string? Json(JsonElement? value) =>
         value is { ValueKind: JsonValueKind.Object } ? value.Value.GetRawText() : null;
+
+    private static bool TryInitialization(JsonElement? value, out TemplateInitialization? initialization)
+    {
+        if (value is null)
+        {
+            initialization = null;
+            return true;
+        }
+
+        if (value.Value.ValueKind == JsonValueKind.Null)
+        {
+            initialization = null;
+            return false;
+        }
+
+        return TemplateInitializationJson.TryRead(value.Value.GetRawText(), out initialization, out _);
+    }
+
+    private static bool ProfileMatches(TemplateImportProfileResponse left, TemplateImportProfileResponse right)
+    {
+        if (left.Kind != right.Kind
+            || left.Version != right.Version
+            || left.Key != right.Key
+            || left.Name != right.Name
+            || left.Description != right.Description
+            || left.IncludeBody != right.IncludeBody
+            || left.IncludeChildren != right.IncludeChildren)
+        {
+            return false;
+        }
+
+        if (!TryInitialization(left.Initialization, out var leftInitialization)
+            || !TryInitialization(right.Initialization, out var rightInitialization))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            TemplateInitializationJson.Write(leftInitialization ?? TemplateInitialization.Empty),
+            TemplateInitializationJson.Write(rightInitialization ?? TemplateInitialization.Empty),
+            StringComparison.Ordinal);
+    }
 
     private static bool ValidOptionalObject(JsonElement? value) =>
         value is null || value.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Object;
@@ -1174,7 +1296,7 @@ internal static class TemplateImportEndpoints
         IWorkerJobStore jobs,
         NixSessionContext scoped,
         DateTimeOffset notBefore) =>
-        await ObjectCleanupJobs.QueueAsync(
+        await ObjectCleanupJobs.QueueBatchedAsync(
             jobs,
             scoped.TenantId,
             scoped.PrincipalId,

@@ -36,14 +36,12 @@ public sealed partial class TemplateStore
             Type = source.Type,
             ParentId = parentId,
             Seq = source.Seq,
-            // The captured root is a reusable shape, not an accidental snapshot of the source
-            // row's workspace-specific answers. Descendants are selected content and retain their
-            // values; the root retains only its display title.
-            Properties = isRoot
-                ? ItemProperties.WithTitle(null, ItemProperties.ReadTitle(source.Properties))
-                : source.Properties,
+            // Capture keeps authored root values so initialization can explicitly keep, reset, or
+            // replace them at application time. Sensitive task fields are reset by the evaluator.
+            Properties = source.Properties,
             Schema = isRoot && rootSchema is not null ? rootSchema : source.Schema,
             Views = source.Views,
+            Recurrence = source.Recurrence,
             TemplateId = templateId,
             TemplateSourceId = sourceId,
             LifecycleState = ItemLifecycleState.Provisioning,
@@ -58,7 +56,8 @@ public sealed partial class TemplateStore
         ItemId? parentId,
         ItemId targetId,
         string title,
-        DateTimeOffset now) =>
+        DateTimeOffset now,
+        TemplateInitializedItem? initialized = null) =>
         new()
         {
             Id = targetId,
@@ -67,9 +66,12 @@ public sealed partial class TemplateStore
             Type = source.Type,
             ParentId = parentId,
             Seq = source.Seq,
-            Properties = ItemProperties.WithTitle(source.Properties, title),
+            Properties = initialized is null
+                ? ItemProperties.WithTitle(source.Properties, title)
+                : ItemProperties.WithTitle(initialized.Properties, initialized.Title),
             Schema = source.Schema,
             Views = source.Views,
+            Recurrence = initialized?.Recurrence ?? source.Recurrence,
             LifecycleState = ItemLifecycleState.Provisioning,
             CreatedBy = Context.PrincipalId,
             LastModifiedBy = Context.PrincipalId,

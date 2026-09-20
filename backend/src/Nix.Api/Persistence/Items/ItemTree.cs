@@ -90,6 +90,29 @@ public sealed class ItemTree : IItemTree
             .ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async ValueTask<bool> IsVisibleSubtreeMemberAsync(
+        WorkspaceId workspaceId,
+        ItemId ancestorId,
+        ItemId descendantId,
+        CancellationToken cancellationToken)
+    {
+        var ancestor = await FindAsync(ancestorId, cancellationToken).ConfigureAwait(false);
+        var descendant = await FindAsync(descendantId, cancellationToken).ConfigureAwait(false);
+        if (ancestor is null || descendant is null
+            || ancestor.WorkspaceId != workspaceId || descendant.WorkspaceId != workspaceId)
+        {
+            return false;
+        }
+
+        return await _dbContext.ItemClosure.AsNoTracking().AnyAsync(
+            edge => edge.TenantId == Tenant
+                && edge.WorkspaceId == workspaceId
+                && edge.AncestorId == ancestorId
+                && edge.DescendantId == descendantId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
         WorkspaceId workspaceId,
         IReadOnlyList<ItemId> parents,

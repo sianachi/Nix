@@ -3,9 +3,11 @@ package templateimport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -132,8 +134,12 @@ func (handler *Handler) preview(ctx context.Context, importID string) (any, erro
 		}
 		return nil, transient("template_plan_upload_failed", err)
 	}
+	profile, err := templateProfile(plan.Profile)
+	if err != nil {
+		return nil, handler.reject(ctx, importID, "template_profile_invalid", err)
+	}
 	completion := workerapi.CompleteTemplateImportPreview{
-		Profile: templateProfile(plan.Profile), RootItemType: plan.RootItemType,
+		Profile: profile, RootItemType: plan.RootItemType,
 		ItemCount: plan.ItemCount, BodyCount: plan.BodyCount, ViewCount: plan.ViewCount,
 		SourceSHA256: source.sha256, PlanSHA256: planDigest, PlanByteLength: int64(len(planBody)),
 	}
@@ -200,7 +206,11 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 	if !strings.EqualFold(plan.SourceSHA256, commit.SourceSHA256) {
 		return nil, handler.reject(ctx, importID, "template_plan_mismatch", errors.New("the template plan does not describe this source"))
 	}
-	stage, err := handler.api.StageTemplateImport(ctx, importID, stageRequest(plan))
+	request, err := stageRequest(plan)
+	if err != nil {
+		return nil, handler.reject(ctx, importID, "template_plan_invalid", err)
+	}
+	stage, err := handler.api.StageTemplateImport(ctx, importID, request)
 	if err != nil {
 		return nil, handler.apiError(ctx, importID, "template_stage_failed", err)
 	}
@@ -223,7 +233,7 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 				return nil, ctx.Err()
 			}
 			var response *workerapi.ResponseError
-			if errors.As(err, &response) && response.Status == http.StatusConflict {
+			if errors.As(err, &response) && response.Status == http.StatusConflict && response.Code == "worker.execution_refused" {
 				return nil, err
 			}
 			if !errors.As(err, &response) || response.Status >= 500 {
@@ -235,6 +245,14 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 			return nil, handler.reject(ctx, importID, "template_body_write_invalid", errors.New("Collaboration did not confirm every staged template body"))
 		}
 	}
+	if !stage.Unchanged && len(plan.Files) > 0 {
+		if err := handler.transferTemplateFiles(ctx, importID, source.path, plan, stage); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
+		}
+	}
 	result, err := handler.api.CompleteTemplateImport(ctx, importID, workerapi.CompleteTemplateImportRequest{WrittenTargetItemIDs: writtenIDs})
 	if err != nil {
 		return nil, handler.apiError(ctx, importID, "template_completion_failed", err)
@@ -243,6 +261,116 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 		return nil, failure("template_completion_invalid", err)
 	}
 	return commitResult(result), nil
+}
+
+func (handler *Handler) transferTemplateFiles(ctx context.Context, importID, archivePath string, plan importplan.TemplatePlan, stage *workerapi.TemplateImportStage) error {
+	archives, err := importplan.OpenNixArchiveFiles(archivePath, handler.limits)
+	if err != nil {
+		return failure("template_file_archive_invalid", err)
+	}
+	defer archives.Close()
+	expected := make(map[string]workerapi.TemplateImportStageFile, len(plan.Files))
+	for _, file := range plan.Files {
+		expected[fileVersionKey(file.ItemID, file.Version)] = workerapi.TemplateImportStageFile{
+			SourceItemID: file.ItemID, Version: file.Version, FileName: file.FileName, MediaType: file.MediaType,
+			ByteLength: file.ByteLength, SHA256: file.SHA256, Previewable: file.Previewable,
+			PixelWidth: cloneInt(file.PixelWidth), PixelHeight: cloneInt(file.PixelHeight),
+		}
+	}
+	transfers := make(map[string]workerapi.TemplateImportFileTransferMapping, len(stage.FileTransfers))
+	for _, mapping := range stage.FileTransfers {
+		transfers[fileVersionKey(mapping.SourceItemID, mapping.TargetVersion)] = mapping
+	}
+	seen := make(map[string]struct{}, len(expected))
+	var after string
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		page, err := handler.api.GetTemplateImportFilePlan(ctx, importID, after, 100)
+		if err != nil {
+			return handler.apiError(ctx, importID, "template_file_capability_unavailable", err)
+		}
+		for _, file := range page.Files {
+			key := fileVersionKey(file.SourceItemID, file.TargetVersion)
+			descriptor, hasDescriptor := expected[key]
+			mapping, hasMapping := transfers[key]
+			if !hasDescriptor || !hasMapping || mapping.TransferID != file.TransferID || mapping.TargetItemID != file.TargetItemID ||
+				file.FileName != descriptor.FileName || file.MediaType != descriptor.MediaType || file.ByteLength != descriptor.ByteLength || !strings.EqualFold(file.SHA256, descriptor.SHA256) {
+				return failure("template_file_capability_invalid", errors.New("Core returned a file capability that does not match the validated archive"))
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return failure("template_file_capability_invalid", errors.New("Core returned a duplicate template file transfer"))
+			}
+			seen[key] = struct{}{}
+			if file.Ready {
+				continue
+			}
+			if err := handler.copyTemplateFile(ctx, archives, file); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return transient("template_file_transfer_failed", err)
+			}
+			if err := handler.api.CompleteTemplateImportFileBatch(ctx, importID, []string{file.TransferID}); err != nil {
+				return handler.apiError(ctx, importID, "template_file_transfer_completion_failed", err)
+			}
+		}
+		if page.Complete {
+			if len(seen) != len(expected) {
+				return failure("template_file_capability_invalid", errors.New("Core omitted one or more staged archive file versions"))
+			}
+			return nil
+		}
+		after = *page.NextAfterTransferID
+	}
+}
+
+func (handler *Handler) copyTemplateFile(ctx context.Context, archive *importplan.NixArchiveFiles, file workerapi.TemplateImportFileCapability) error {
+	if file.UploadURL == nil || file.VerifyURL == nil {
+		return errors.New("Core omitted a staged template file capability")
+	}
+	if err := handler.verifyTemplateFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256); err == nil {
+		return nil
+	} else if !errors.Is(err, objecttransfer.ErrNotFound) {
+		return err
+	}
+	content, err := archive.OpenVersion(file.SourceItemID, file.TargetVersion, file.ByteLength)
+	if err != nil {
+		return err
+	}
+	defer content.Close()
+	digest := sha256.New()
+	if err := handler.transfer.UploadCreateOnlyVerified(ctx, *file.UploadURL, file.MediaType, io.TeeReader(content, digest), file.ByteLength, file.SHA256); err != nil {
+		if errors.Is(err, objecttransfer.ErrAlreadyExists) {
+			return handler.verifyTemplateFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256)
+		}
+		return err
+	}
+	if err := objecttransfer.VerifyDigest(digest, file.SHA256); err != nil {
+		return fmt.Errorf("archive file digest does not match its declaration: %w", err)
+	}
+	return handler.verifyTemplateFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256)
+}
+
+func (handler *Handler) verifyTemplateFile(ctx context.Context, rawURL string, expectedLength int64, expectedDigest string) error {
+	maximum := expectedLength
+	if maximum == 0 {
+		maximum = 1
+	}
+	verified, err := handler.transfer.Download(ctx, rawURL, maximum)
+	if err != nil {
+		return fmt.Errorf("read staged template file for verification: %w", err)
+	}
+	defer verified.Body.Close()
+	count, err := io.Copy(io.Discard, verified.Body)
+	if err != nil {
+		return fmt.Errorf("stream staged template file verification: %w", err)
+	}
+	if count != expectedLength {
+		return errors.New("staged template file length differs from the archive")
+	}
+	return objecttransfer.VerifyDigest(verified.Digest, expectedDigest)
 }
 
 func validatePreview(importID string, preview *workerapi.TemplateImportPreview) error {
@@ -301,19 +429,32 @@ func validateMetadata(
 	return nil
 }
 
-func stageRequest(plan importplan.TemplatePlan) workerapi.TemplateImportStageRequest {
+func stageRequest(plan importplan.TemplatePlan) (workerapi.TemplateImportStageRequest, error) {
+	profile, err := templateProfile(plan.Profile)
+	if err != nil {
+		return workerapi.TemplateImportStageRequest{}, err
+	}
 	request := workerapi.TemplateImportStageRequest{
-		Profile: templateProfile(plan.Profile),
+		Profile: profile,
 		Items:   make([]workerapi.TemplateImportStageItem, 0, len(plan.Items)),
+		Files:   make([]workerapi.TemplateImportStageFile, 0, len(plan.Files)),
 	}
 	for _, item := range plan.Items {
 		request.Items = append(request.Items, workerapi.TemplateImportStageItem{
 			SourceID: item.SourceID, ParentSourceID: cloneString(item.ParentSourceID), Sequence: item.Sequence,
 			Title: item.Title, ItemType: item.ItemType, Properties: cloneJSON(item.Properties),
 			Schema: cloneJSON(item.Schema), Views: cloneJSON(item.Views), HasBody: !jsonNull(item.Body),
+			Recurrence: cloneJSON(item.Recurrence),
 		})
 	}
-	return request
+	for _, file := range plan.Files {
+		request.Files = append(request.Files, workerapi.TemplateImportStageFile{
+			SourceItemID: file.ItemID, Version: file.Version, FileName: file.FileName, MediaType: file.MediaType,
+			ByteLength: file.ByteLength, SHA256: file.SHA256, Previewable: file.Previewable,
+			PixelWidth: cloneInt(file.PixelWidth), PixelHeight: cloneInt(file.PixelHeight),
+		})
+	}
+	return request, nil
 }
 
 func validateStage(importID string, stage *workerapi.TemplateImportStage, plan importplan.TemplatePlan) error {
@@ -332,7 +473,7 @@ func validateStage(importID string, stage *workerapi.TemplateImportStage, plan i
 		itemTargets[mapping.SourceID] = mapping.TargetItemID
 	}
 	if stage.Unchanged {
-		if stage.OperationID != nil || len(stage.BodyWrites) != 0 {
+		if stage.OperationID != nil || len(stage.BodyWrites) != 0 || len(stage.FileTransfers) != 0 {
 			return errors.New("an unchanged template stage cannot request body writes")
 		}
 		return nil
@@ -357,8 +498,28 @@ func validateStage(importID string, stage *workerapi.TemplateImportStage, plan i
 			return errors.New("Core template item and body-write maps disagree")
 		}
 	}
+	expectedFiles := make(map[string]workerapi.TemplateImportStageFile, len(plan.Files))
+	for _, file := range plan.Files {
+		expectedFiles[fileVersionKey(file.ItemID, file.Version)] = workerapi.TemplateImportStageFile{SourceItemID: file.ItemID, Version: file.Version}
+	}
+	if len(stage.FileTransfers) != len(expectedFiles) {
+		return errors.New("Core returned an incomplete template file-transfer map")
+	}
+	seenTransfers := make(map[string]struct{}, len(stage.FileTransfers))
+	for _, mapping := range stage.FileTransfers {
+		key := fileVersionKey(mapping.SourceItemID, mapping.TargetVersion)
+		if _, ok := expectedFiles[key]; !ok || !uuidPattern.MatchString(mapping.TransferID) || itemTargets[mapping.SourceItemID] != mapping.TargetItemID {
+			return errors.New("Core returned an invalid template file-transfer map")
+		}
+		if _, duplicate := seenTransfers[mapping.TransferID]; duplicate {
+			return errors.New("Core returned duplicate template file-transfer identities")
+		}
+		seenTransfers[mapping.TransferID] = struct{}{}
+	}
 	return nil
 }
+
+func fileVersionKey(itemID string, version int) string { return fmt.Sprintf("%s/%d", itemID, version) }
 
 func validMappings(mappings []workerapi.TemplateImportBodyWrite, expected map[string]string) bool {
 	seenSources := make(map[string]struct{}, len(mappings))
@@ -453,11 +614,20 @@ func commitResult(result *workerapi.TemplateImportResult) CommitResult {
 	}
 }
 
-func templateProfile(profile importplan.TemplateProfile) workerapi.TemplateImportProfile {
+func templateProfile(profile importplan.TemplateProfile) (workerapi.TemplateImportProfile, error) {
+	var initialization json.RawMessage
+	if profile.Initialization != nil {
+		var err error
+		initialization, err = json.Marshal(profile.Initialization)
+		if err != nil {
+			return workerapi.TemplateImportProfile{}, fmt.Errorf("encode template initialization: %w", err)
+		}
+	}
 	return workerapi.TemplateImportProfile{
 		Kind: profile.Kind, Version: profile.Version, Key: profile.Key, Name: profile.Name,
 		Description: profile.Description, IncludeBody: profile.IncludeBody, IncludeChildren: profile.IncludeChildren,
-	}
+		Initialization: initialization,
+	}, nil
 }
 
 func templateSource(object localObject, fileName, mediaType string) importplan.Source {
@@ -492,7 +662,7 @@ func (handler *Handler) apiError(ctx context.Context, importID, code string, err
 	}
 	var response *workerapi.ResponseError
 	if errors.As(err, &response) {
-		if response.Status == http.StatusConflict {
+		if response.Status == http.StatusConflict && response.Code == "worker.execution_refused" {
 			return err
 		}
 		if response.Status < 500 {
@@ -612,7 +782,7 @@ func (client *collaborationClient) Write(ctx context.Context, importID string, w
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, &workerapi.ResponseError{Status: response.StatusCode, Path: path}
+		return nil, workerapi.ResponseErrorFrom(response, path)
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 	if err != nil {
@@ -647,6 +817,14 @@ func cloneJSON(value json.RawMessage) json.RawMessage {
 }
 
 func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func cloneInt(value *int) *int {
 	if value == nil {
 		return nil
 	}

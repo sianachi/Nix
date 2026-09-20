@@ -471,7 +471,7 @@ export function TemplateImportPage(): ReactNode {
                 {activity === 'validating' ? 'Validating…' : 'Validate file'}
               </Button>
               {activity === 'replacing' ? (
-                <Text variant="caption" role="status" tone="muted">
+                <Text as="p" variant="caption" role="status" tone="muted">
                   Releasing the previous staged import…
                 </Text>
               ) : null}
@@ -519,7 +519,7 @@ export function TemplateImportPage(): ReactNode {
                       {preview.profile.description}
                     </Text>
                   )}
-                  <Text variant="caption" role="status" aria-live="polite" tone="muted">
+                  <Text as="p" variant="caption" role="status" aria-live="polite" tone="muted">
                     Validation complete. Review this preview before adding it to the library.
                   </Text>
                 </div>

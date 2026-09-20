@@ -51,6 +51,13 @@ public interface IItemTree
     /// </remarks>
     public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken);
 
+    /// <summary>Checks visible ancestry through the tenant-scoped closure index.</summary>
+    public ValueTask<bool> IsVisibleSubtreeMemberAsync(
+        WorkspaceId workspaceId,
+        ItemId ancestorId,
+        ItemId descendantId,
+        CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
     /// <summary>Which of these items have at least one child that is not deleted.</summary>
     /// <param name="workspaceId">The workspace the items live in.</param>
     /// <param name="parents">The items to ask about.</param>

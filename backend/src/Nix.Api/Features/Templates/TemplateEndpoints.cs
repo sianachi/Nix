@@ -1,5 +1,9 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
+using Nix.Abstractions;
+using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
+using Nix.Authentication;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Templates;
@@ -7,6 +11,7 @@ using Nix.Domain.Tenancy;
 using Nix.Errors;
 using Nix.Http;
 using Nix.Messaging;
+using Nix.Persistence.ObjectStorage;
 
 namespace Nix.Features.Templates;
 
@@ -89,6 +94,12 @@ internal static class TemplateEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
         internalTemplates.MapGet("/{templateId:guid}/export", Export)
             .Produces<TemplateExportResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        internalTemplates.MapGet("/{templateId:guid}/export/files", ExportFiles)
+            .Produces<TemplateExportFilesPageResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        internalTemplates.MapGet("/{templateId:guid}/export/files/{fileVersionId:guid}/capability", ExportFileCapability)
+            .Produces<TemplateExportFileCapabilityResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
         internalTemplateWrites.MapPost("/{templateId:guid}/drafts", BeginDraft)
             .Produces<TemplateDraftResponse>(StatusCodes.Status200OK)
@@ -215,18 +226,26 @@ internal static class TemplateEndpoints
                 TemplateId.From(templateId),
                 mode,
                 request.TargetItemId is { } target ? ItemId.From(target) : null,
-                request.ParentItemId is { } parent ? ItemId.From(parent) : null),
+                request.ParentItemId is { } parent ? ItemId.From(parent) : null,
+                request.Title,
+                request.Inputs,
+                request.ExpectedRevision),
             context.RequestAborted).ConfigureAwait(false);
         return result.Match<IResult>(
-            preflight => TypedResults.Ok(new TemplatePreflightResponse(
+                preflight => TypedResults.Ok(new TemplatePreflightResponse(
                 preflight.TemplateId.Value,
+                TemplateMapping.ResolutionOrEmpty(preflight.Resolution).TemplateRevision,
                 Mode(preflight.Mode),
                 new TemplateAdditionsResponse(
                     preflight.FieldAdditions,
                     preflight.ViewAdditions,
                     preflight.ItemAdditions),
                 preflight.Conflicts,
-                preflight.CanApply)),
+                preflight.CanApply,
+                TemplateMapping.ResolutionOrEmpty(preflight.Resolution).Values,
+                (preflight.InitializationPreview ?? []).Select(TemplateMapping.Preview).ToArray(),
+                TemplateMapping.ResolutionOrEmpty(preflight.Resolution).TextBindings,
+                TemplateMapping.ResolutionOrEmpty(preflight.Resolution).ReferenceMappings)),
             error => Problem(context, error));
     }
 
@@ -247,7 +266,10 @@ internal static class TemplateEndpoints
     private static async Task<IResult> BeginCapture(
         BeginTemplateCaptureRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session)
     {
         var result = await dispatcher.SendAsync<BeginTemplateCapture, TemplateCapturePlan>(
             new BeginTemplateCapture(
@@ -259,13 +281,34 @@ internal static class TemplateEndpoints
                 request.IncludeChildren,
                 request.IdempotencyKey),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(
-            plan => TypedResults.Ok(new BeginTemplateCaptureResponse(
+        if (result.IsFailure)
+        {
+            return Problem(context, result.Error);
+        }
+        var plan = result.Value;
+        TemplateFileTransferJobReceipt fileJob;
+        try
+        {
+            fileJob = await TemplateFileTransferJobs.EnsureAsync(
+                "operation",
                 plan.OperationId.Value,
-                plan.TemplateId.Value,
-                plan.ItemMappings.Select(Map).ToArray(),
-                plan.BodyCopies.Select(Map).ToArray())),
-            error => Problem(context, error));
+                plan.ItemMappings.Any(mapping => mapping.ItemType == "file"),
+                transfers,
+                jobs,
+                session,
+                context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (WorkerJobIdempotencyConflictException)
+        {
+            return Problem(context, TemplateErrors.Conflict("The template file-copy job conflicts with existing work."));
+        }
+        return TypedResults.Ok(new BeginTemplateCaptureResponse(
+            plan.OperationId.Value,
+            plan.TemplateId.Value,
+            plan.ItemMappings.Select(Map).ToArray(),
+            plan.BodyCopies.Select(Map).ToArray(),
+            fileJob.JobId,
+            fileJob.Pending));
     }
 
     private static async Task<IResult> BeginImport(
@@ -278,6 +321,11 @@ internal static class TemplateEndpoints
             return Problem(context, TemplateErrors.Invalid("Origin must be 'user' or 'managed'."));
         }
 
+        if (!TryInitialization(request.Template.Initialization, out var initialization, out var initializationRefusal))
+        {
+            return Problem(context, TemplateErrors.Invalid(initializationRefusal!));
+        }
+
         var descriptor = new TemplateImportDescriptor(
             request.Template.StableKey,
             request.Template.Title,
@@ -286,7 +334,8 @@ internal static class TemplateEndpoints
             request.Template.ManagedSource,
             request.Template.Digest,
             request.Template.IncludeBody,
-            request.Template.IncludeChildren);
+            request.Template.IncludeChildren,
+            initialization);
         var items = new TemplateImportItem[request.Items.Count];
         for (var index = 0; index < request.Items.Count; index++)
         {
@@ -308,7 +357,8 @@ internal static class TemplateEndpoints
                 item.Properties?.ToJsonString(),
                 item.Schema?.ToJsonString(),
                 item.Views?.ToJsonString(),
-                item.HasBody);
+                item.HasBody,
+                item.Recurrence?.ToJsonString());
         }
         var result = await dispatcher.SendAsync<BeginTemplateImport, TemplateImportPlan>(
             new BeginTemplateImport(
@@ -330,7 +380,10 @@ internal static class TemplateEndpoints
     private static async Task<IResult> BeginApplication(
         BeginTemplateApplicationRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session)
     {
         if (!TryMode(request.Mode, out var mode))
         {
@@ -344,34 +397,66 @@ internal static class TemplateEndpoints
                 request.TargetItemId is { } target ? ItemId.From(target) : null,
                 request.ParentItemId is { } parent ? ItemId.From(parent) : null,
                 request.Title,
-                request.IdempotencyKey),
+                request.IdempotencyKey,
+                request.Inputs,
+                request.ExpectedRevision),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(
-            plan =>
-            {
-                var mappings = plan.ItemMappings.Select(Map).ToArray();
-                return TypedResults.Ok(new BeginTemplateApplicationResponse(
-                    plan.ApplicationId.Value,
-                    plan.TemplateId.Value,
-                    plan.TargetItemId.Value,
-                    plan.AlreadyApplied,
-                    plan.CreatedItems.Select(Map).ToArray(),
-                    mappings,
-                    plan.BodyCopies.Select(Map).ToArray()));
-            },
-            error => Problem(context, error));
+        if (result.IsFailure)
+        {
+            return Problem(context, result.Error);
+        }
+        var plan = result.Value;
+        TemplateFileTransferJobReceipt fileJob;
+        try
+        {
+            fileJob = await TemplateFileTransferJobs.EnsureAsync(
+                "application",
+                plan.ApplicationId.Value,
+                plan.ItemMappings.Any(mapping => mapping.ItemType == "file"),
+                transfers,
+                jobs,
+                session,
+                context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (WorkerJobIdempotencyConflictException)
+        {
+            return Problem(context, TemplateErrors.Conflict("The template file-copy job conflicts with existing work."));
+        }
+        var mappings = plan.ItemMappings.Select(Map).ToArray();
+        return TypedResults.Ok(new BeginTemplateApplicationResponse(
+            plan.ApplicationId.Value,
+            plan.TemplateId.Value,
+            plan.TargetItemId.Value,
+            plan.AlreadyApplied,
+            plan.CreatedItems.Select(Map).ToArray(),
+            mappings,
+            plan.BodyCopies.Select(Map).ToArray(),
+            TemplateMapping.ResolutionOrEmpty(plan.Resolution).TemplateRevision,
+            TemplateMapping.ResolutionOrEmpty(plan.Resolution).Values,
+            (plan.InitializationPreview ?? []).Select(TemplateMapping.Preview).ToArray(),
+            TemplateMapping.ResolutionOrEmpty(plan.Resolution).TextBindings,
+            TemplateMapping.ResolutionOrEmpty(plan.Resolution).ReferenceMappings,
+            fileJob.JobId,
+            fileJob.Pending));
     }
 
     private static async Task<IResult> FinalizeOperation(
         Guid operationId,
         FinalizeTemplateBodiesRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers)
     {
+        if (await transfers.HasUnreadyCopiesAsync("operation", operationId, context.RequestAborted)
+            .ConfigureAwait(false))
+        {
+            return Problem(context, TemplateErrors.Conflict("File copies must complete before publishing this template stage."));
+        }
         var result = await dispatcher.SendAsync<FinalizeTemplateOperation, TemplateId>(
             new FinalizeTemplateOperation(
                 TemplateOperationId.From(operationId),
-                request.WrittenTargetItemIds.Select(ItemId.From).ToArray()),
+                request.WrittenTargetItemIds.Select(ItemId.From).ToArray(),
+                request.ExternalReferenceTargets),
             context.RequestAborted).ConfigureAwait(false);
         return result.Match<IResult>(
             templateId => TypedResults.Ok(new FinalizeTemplateResponse(templateId.Value)),
@@ -382,8 +467,14 @@ internal static class TemplateEndpoints
         Guid applicationId,
         FinalizeTemplateBodiesRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers)
     {
+        if (await transfers.HasUnreadyCopiesAsync("application", applicationId, context.RequestAborted)
+            .ConfigureAwait(false))
+        {
+            return Problem(context, TemplateErrors.Conflict("File copies must complete before publishing this application."));
+        }
         var result = await dispatcher.SendAsync<FinalizeTemplateApplication, ItemId>(
             new FinalizeTemplateApplication(
                 TemplateApplicationId.From(applicationId),
@@ -461,12 +552,15 @@ internal static class TemplateEndpoints
     private static async Task<IResult> Export(
         Guid templateId,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] S3CapabilitySigner signer)
     {
         var result = await dispatcher.QueryAsync<ExportTemplate, Result<TemplateExportSnapshot>>(
             new ExportTemplate(TemplateId.From(templateId)),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(snapshot => TypedResults.Ok(new TemplateExportResponse(
+        return result.Match<IResult>(snapshot =>
+        {
+            return TypedResults.Ok(new TemplateExportResponse(
             snapshot.TemplateId.Value,
             snapshot.WorkspaceId.Value,
             snapshot.StableKey,
@@ -476,6 +570,7 @@ internal static class TemplateEndpoints
             snapshot.Revision,
             snapshot.IncludeBody,
             snapshot.IncludeChildren,
+            snapshot.Initialization ?? TemplateInitialization.Empty,
             snapshot.Items.Select(item => new TemplateExportItemResponse(
                 item.SourceId,
                 item.ParentSourceId,
@@ -486,31 +581,112 @@ internal static class TemplateEndpoints
                 TemplateMapping.Object(item.Properties) ?? [],
                 TemplateMapping.Object(item.Schema),
                 TemplateMapping.Object(item.Views),
-                item.HasBody)).ToArray())), error => Problem(context, error));
+                item.HasBody,
+                TemplateMapping.Object(item.Recurrence))).ToArray(),
+            []));
+        }, error => Problem(context, error));
+    }
+
+    private static async Task<IResult> ExportFiles(
+        Guid templateId,
+        Guid? afterFileVersionId,
+        int? revision,
+        int? limit,
+        HttpContext context,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var pageSize = limit ?? 100;
+        if (pageSize is < 1 or > 100)
+        {
+            return Problem(context, TemplateErrors.Invalid("The template export file page size is invalid."));
+        }
+        var result = await dispatcher.QueryAsync<ExportTemplateFiles, Result<TemplateExportFilesPage>>(
+            new ExportTemplateFiles(TemplateId.From(templateId), revision, afterFileVersionId, pageSize),
+            context.RequestAborted).ConfigureAwait(false);
+        return result.Match<IResult>(page => TypedResults.Ok(new TemplateExportFilesPageResponse(
+            page.Revision,
+            page.Files.Select(file => new TemplateExportFileResponse(
+                file.FileVersionId, file.SourceId, file.Version, file.Current, file.FileName, file.MediaType,
+                file.ByteLength, file.Sha256, file.Previewable, file.PixelWidth, file.PixelHeight, null, null)).ToArray(),
+            page.NextAfterFileVersionId,
+            page.Complete)), error => Problem(context, error));
+    }
+
+    private static async Task<IResult> ExportFileCapability(
+        Guid templateId,
+        Guid fileVersionId,
+        int revision,
+        HttpContext context,
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] S3CapabilitySigner signer)
+    {
+        if (!signer.IsConfigured)
+        {
+            return TypedResults.Problem(new Microsoft.AspNetCore.Mvc.ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "File storage unavailable",
+                Detail = "Template attachments cannot be exported while object storage is unavailable.",
+            });
+        }
+        var file = await dispatcher.QueryAsync<AuthorizeTemplateExportFile, TemplateExportFileDownload?>(
+            new AuthorizeTemplateExportFile(TemplateId.From(templateId), revision, fileVersionId),
+            context.RequestAborted).ConfigureAwait(false);
+        if (file is null)
+        {
+            return Problem(context, TemplateErrors.NotFound("No such template file version is visible."));
+        }
+
+        var capability = signer.Get(file.ObjectKey);
+        return TypedResults.Ok(new TemplateExportFileCapabilityResponse(capability.Url, capability.ExpiresAt));
     }
 
     private static async Task<IResult> BeginDraft(
         Guid templateId,
         BeginTemplateDraftRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session)
     {
         var result = await dispatcher.SendAsync<BeginTemplateDraft, TemplateDraftPlan>(
             new BeginTemplateDraft(TemplateId.From(templateId), request.IdempotencyKey),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(draft => TypedResults.Ok(Map(draft)), error => Problem(context, error));
+        if (result.IsFailure)
+        {
+            return Problem(context, result.Error);
+        }
+        return TypedResults.Ok(await MapWithFileTransferJobAsync(
+            result.Value,
+            transfers,
+            jobs,
+            session,
+            context.RequestAborted).ConfigureAwait(false));
     }
 
     private static async Task<IResult> GetDraft(
         Guid templateId,
         Guid operationId,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session)
     {
         var result = await dispatcher.QueryAsync<GetTemplateDraft, Result<TemplateDraftPlan>>(
             new GetTemplateDraft(TemplateId.From(templateId), TemplateOperationId.From(operationId)),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(draft => TypedResults.Ok(Map(draft)), error => Problem(context, error));
+        if (result.IsFailure)
+        {
+            return Problem(context, result.Error);
+        }
+        return TypedResults.Ok(await MapWithFileTransferJobAsync(
+            result.Value,
+            transfers,
+            jobs,
+            session,
+            context.RequestAborted).ConfigureAwait(false));
     }
 
     private static async Task<IResult> UpdateDraft(
@@ -518,16 +694,34 @@ internal static class TemplateEndpoints
         Guid operationId,
         UpdateTemplateDraftRequest request,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session)
     {
+        if (!TryInitialization(request.Initialization, out var initialization, out var initializationRefusal))
+        {
+            return Problem(context, TemplateErrors.Invalid(initializationRefusal!));
+        }
+
         var result = await dispatcher.SendAsync<UpdateTemplateDraft, TemplateDraftPlan>(
             new UpdateTemplateDraft(
                 TemplateId.From(templateId),
                 TemplateOperationId.From(operationId),
                 request.Title,
-                request.Description),
+                request.Description,
+                initialization),
             context.RequestAborted).ConfigureAwait(false);
-        return result.Match<IResult>(draft => TypedResults.Ok(Map(draft)), error => Problem(context, error));
+        if (result.IsFailure)
+        {
+            return Problem(context, result.Error);
+        }
+        return TypedResults.Ok(await MapWithFileTransferJobAsync(
+            result.Value,
+            transfers,
+            jobs,
+            session,
+            context.RequestAborted).ConfigureAwait(false));
     }
 
     private static async Task<IResult> UpdateDraftItem(
@@ -555,8 +749,14 @@ internal static class TemplateEndpoints
         Guid templateId,
         Guid operationId,
         HttpContext context,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] ITemplateFileTransferStore transfers)
     {
+        if (await transfers.HasUnreadyCopiesAsync("operation", operationId, context.RequestAborted)
+            .ConfigureAwait(false))
+        {
+            return Problem(context, TemplateErrors.Conflict("File copies must complete before saving this draft."));
+        }
         var result = await dispatcher.SendAsync<SaveTemplateDraft, TemplateId>(
             new SaveTemplateDraft(TemplateId.From(templateId), TemplateOperationId.From(operationId)),
             context.RequestAborted).ConfigureAwait(false);
@@ -609,9 +809,32 @@ internal static class TemplateEndpoints
             draft.Title,
             draft.Description,
             draft.ExpiresAt,
+            draft.Initialization ?? TemplateInitialization.Empty,
             TemplateMapping.Item(draft.Root),
             draft.ItemMappings.Select(Map).ToArray(),
             draft.BodyCopies.Select(Map).ToArray());
+
+    private static async ValueTask<TemplateDraftResponse> MapWithFileTransferJobAsync(
+        TemplateDraftPlan draft,
+        ITemplateFileTransferStore transfers,
+        IWorkerJobStore jobs,
+        INixSessionContextAccessor session,
+        CancellationToken cancellationToken)
+    {
+        var fileJob = await TemplateFileTransferJobs.EnsureAsync(
+            "operation",
+            draft.OperationId.Value,
+            draft.ItemMappings.Any(mapping => mapping.ItemType == "file"),
+            transfers,
+            jobs,
+            session,
+            cancellationToken).ConfigureAwait(false);
+        return Map(draft) with
+        {
+            FileTransferJobId = fileJob.JobId,
+            FileTransferPending = fileJob.Pending,
+        };
+    }
 
     private static async Task<IResult> FinalizeManagedTemplates(
         Guid workspaceId,
@@ -700,6 +923,28 @@ internal static class TemplateEndpoints
     {
         origin = value == "managed" ? TemplateOrigin.Managed : TemplateOrigin.User;
         return value is "user" or "managed";
+    }
+
+    private static bool TryInitialization(
+        System.Text.Json.JsonElement? json,
+        out TemplateInitialization? initialization,
+        out string? refusal)
+    {
+        if (json is null)
+        {
+            initialization = null;
+            refusal = null;
+            return true;
+        }
+
+        if (json.Value.ValueKind == System.Text.Json.JsonValueKind.Null)
+        {
+            initialization = null;
+            refusal = "Initialization must be an object when supplied.";
+            return false;
+        }
+
+        return TemplateInitializationJson.TryRead(json.Value.GetRawText(), out initialization, out refusal);
     }
 
     private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Problem(

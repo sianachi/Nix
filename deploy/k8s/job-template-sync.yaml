@@ -28,6 +28,7 @@ spec:
           command: ["node", "/sync/sync-managed-templates.mjs"]
           env:
             - { name: NIX_TEMPLATE_BOOT_DIRECTORY, value: /templates }
+            - { name: NIX_TEMPLATE_BOOT_BUILTIN_DIRECTORY, value: /repo/packages/template-catalog/templates }
             - { name: NIX_TEMPLATE_BOOT_WORKSPACE_ID, value: "${TEMPLATE_BOOT_WORKSPACE_ID}" }
             - { name: NIX_TEMPLATE_BOOT_CORE_URL, value: http://nix-api:8080 }
             - { name: NIX_TEMPLATE_BOOT_OIDC_ISSUER, value: "${OIDC_ISSUER}" }

@@ -37,6 +37,8 @@ export interface HttpRequest {
   readonly body?: unknown;
   readonly headers?: Readonly<Record<string, string>> | undefined;
   readonly responseType?: 'json' | 'blob' | undefined;
+  /** Optional transport-level response cap, primarily for CLI binary downloads. */
+  readonly maxResponseBytes?: number | undefined;
   /** Cancellation is plumbed through every layer; nothing is unabortable. */
   readonly signal?: AbortSignal | undefined;
 }
@@ -168,6 +170,9 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
           data: request.body,
           headers,
           responseType: request.responseType ?? 'json',
+          ...(request.maxResponseBytes === undefined
+            ? {}
+            : { maxContentLength: request.maxResponseBytes }),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         });
         return {

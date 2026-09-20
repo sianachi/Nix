@@ -19,6 +19,7 @@ import (
 var (
 	ErrTooLarge      = errors.New("source object exceeds the configured byte limit")
 	ErrAlreadyExists = errors.New("destination object already exists")
+	ErrNotFound      = errors.New("object capability target does not exist")
 )
 
 type Client struct {
@@ -99,6 +100,9 @@ func (client *Client) download(ctx context.Context, rawURL string, maxBytes int6
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_ = response.Body.Close()
+		if response.StatusCode == http.StatusNotFound {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("source download returned %s", response.Status)
 	}
 	if response.ContentLength > maxBytes {

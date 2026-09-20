@@ -259,6 +259,12 @@ public sealed class DocumentImportStore(
         {
             return null;
         }
+        if (await database.DocumentImportFileVersions.AnyAsync(value =>
+            value.TenantId == Context.TenantId && value.ImportId == request.ImportId && !value.ObjectReady,
+            cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
         var expectedStatus = request.Managed ? DocumentImportStatuses.Staged : DocumentImportStatuses.Completed;
         var written = request.WrittenTargetItemIds.Select(value => value.Value)
             .Distinct()
@@ -316,6 +322,11 @@ public sealed class DocumentImportStore(
         {
             return false;
         }
+        if (await database.DocumentImportFileVersions.AnyAsync(value =>
+            distinct.Contains(value.ImportId) && !value.ObjectReady, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
         var now = clock.GetUtcNow();
         foreach (var operation in operations.Where(value => value.Status == DocumentImportStatuses.Staged))
         {
@@ -334,7 +345,8 @@ public sealed class DocumentImportStore(
         ArgumentNullException.ThrowIfNull(request);
         if (!ValidDigest(request.PlanSha256)
             || !ValidDigest(request.SourceSha256)
-            || !TryValidatePlan(request.Items, out var ordered))
+            || !TryValidatePlan(request.Items, out var ordered)
+            || !TryValidateFileVersions(request.FileVersions, ordered))
         {
             return null;
         }
@@ -383,6 +395,17 @@ public sealed class DocumentImportStore(
         }
 
         var plannedFiles = ordered.Where(item => item.File is not null).Select(item => item.File!).ToArray();
+        var fileVersions = request.FileVersions ?? [];
+        if (fileVersions.Count > 0 && plannedFiles.Length > 0)
+        {
+            return null;
+        }
+        var describedFileItems = fileVersions.Select(value => value.SourceItemId).ToHashSet(StringComparer.Ordinal);
+        if (ordered.Any(item => item.ItemType == "file" && item.File is null
+            && !describedFileItems.Contains(item.SourceId)))
+        {
+            return null;
+        }
         var sourceFiles = plannedFiles.Where(file => file.SourceKind == "source").ToArray();
         var expectedSourceFiles = operation.Format is "pdf" or "docx" or "txt" ? 1 : 0;
         if (sourceFiles.Length != expectedSourceFiles
@@ -398,6 +421,10 @@ public sealed class DocumentImportStore(
         try
         {
             foreach (var file in plannedFiles)
+            {
+                fileBytes = checked(fileBytes + file.ByteLength);
+            }
+            foreach (var file in fileVersions)
             {
                 fileBytes = checked(fileBytes + file.ByteLength);
             }
@@ -423,6 +450,7 @@ public sealed class DocumentImportStore(
         var mappings = new List<DocumentImportItem>(ordered.Count);
         var versions = new List<FileVersion>();
         var bodies = new List<FileBody>();
+        var archivedVersions = new List<DocumentImportFileVersion>();
         foreach (var planned in ordered)
         {
             var targetId = targetIds[planned.SourceId];
@@ -472,6 +500,7 @@ public sealed class DocumentImportStore(
                     MediaType = file.MediaType,
                     ByteLength = file.ByteLength,
                     Sha256 = file.Sha256,
+                    ObjectReady = false,
                     Previewable = file.Previewable,
                     PixelWidth = file.PixelWidth,
                     PixelHeight = file.PixelHeight,
@@ -502,9 +531,79 @@ public sealed class DocumentImportStore(
             });
         }
 
+        var filesBySource = new Dictionary<string, List<(FileVersion Version, DocumentImportFileVersion Transfer)>>(StringComparer.Ordinal);
+        var archivedVersionNumbers = new Dictionary<Guid, int>();
+        foreach (var file in fileVersions)
+        {
+            var targetItemId = targetIds[file.SourceItemId];
+            var versionId = FileVersionId.Create();
+            var objectKey = ObjectStorageKeys.FileVersion(context.TenantId, versionId);
+            var versionCreatedAt = clock.GetUtcNow();
+            var version = new FileVersion
+            {
+                Id = versionId,
+                TenantId = context.TenantId,
+                WorkspaceId = operation.WorkspaceId,
+                ItemId = targetItemId,
+                Version = file.Version,
+                ObjectKey = objectKey,
+                FileName = file.FileName,
+                MediaType = file.MediaType,
+                ByteLength = file.ByteLength,
+                Sha256 = file.Sha256,
+                ObjectReady = false,
+                Previewable = file.Previewable,
+                PixelWidth = file.PixelWidth,
+                PixelHeight = file.PixelHeight,
+                CreatedBy = context.PrincipalId,
+                CreatedAt = versionCreatedAt,
+            };
+            var transfer = new DocumentImportFileVersion
+            {
+                TransferId = Guid.CreateVersion7(),
+                TenantId = context.TenantId,
+                ImportId = operation.Id,
+                SourceItemId = file.SourceItemId,
+                TargetItemId = targetItemId,
+                FileVersionId = versionId,
+                ObjectKey = objectKey,
+                FileName = file.FileName,
+                MediaType = file.MediaType,
+                ByteLength = file.ByteLength,
+                Sha256 = file.Sha256,
+                Previewable = file.Previewable,
+                PixelWidth = file.PixelWidth,
+                PixelHeight = file.PixelHeight,
+                ObjectReady = false,
+            };
+            _ = filesBySource.TryGetValue(file.SourceItemId, out var history);
+            history ??= [];
+            history.Add((version, transfer));
+            filesBySource[file.SourceItemId] = history;
+            versions.Add(version);
+            archivedVersions.Add(transfer);
+            archivedVersionNumbers.Add(transfer.TransferId, version.Version);
+        }
+        foreach (var (sourceId, history) in filesBySource)
+        {
+            var current = history.MaxBy(entry => entry.Version.Version).Version;
+            bodies.Add(new FileBody
+            {
+                TenantId = context.TenantId,
+                WorkspaceId = operation.WorkspaceId,
+                ItemId = targetIds[sourceId],
+                CurrentVersionId = current.Id,
+            });
+            var mapping = mappings.Single(value => value.SourceId == sourceId);
+            mapping.FileVersionId = current.Id;
+            mapping.ObjectKey = current.ObjectKey;
+            mapping.ObjectReady = false;
+        }
+
         database.Items.AddRange(items);
         database.DocumentImportItems.AddRange(mappings);
         database.FileVersions.AddRange(versions);
+        database.DocumentImportFileVersions.AddRange(archivedVersions);
         database.FileBodies.AddRange(bodies);
         operation.RootItemId = targetIds[root.SourceId];
         operation.Status = DocumentImportStatuses.Staging;
@@ -514,7 +613,269 @@ public sealed class DocumentImportStore(
         return new DocumentImportStageRecord(
             operation.Id.Value,
             operation.RootItemId.Value.Value,
-            mappings.Select(ToMapping).ToArray());
+            mappings.Select(ToMapping).ToArray(),
+            archivedVersions.Select(value => new DocumentImportFileVersionMapping(
+                value.TransferId, value.SourceItemId, value.TargetItemId.Value,
+                archivedVersionNumbers[value.TransferId])).ToArray());
+    }
+
+    public async ValueTask<IReadOnlyList<DocumentImportFileVersionMapping>?> StageTemplateFileVersionsAsync(
+        DocumentImportId id,
+        IReadOnlyList<ImportFileVersionPlan> fileVersions,
+        IReadOnlyList<(string SourceItemId, ItemId TargetItemId)> targets,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fileVersions);
+        ArgumentNullException.ThrowIfNull(targets);
+        if (fileVersions.Count > 20_000 || fileVersions.Any(file => file.Version is < 1 or > 100
+            || !ValidFile(new ImportFilePlan("asset", "archive", file.FileName, file.MediaType,
+                file.ByteLength, file.Sha256, file.Previewable, file.PixelWidth, file.PixelHeight))))
+        {
+            return null;
+        }
+        var context = Context;
+        await LockImportAsync(id, cancellationToken).ConfigureAwait(false);
+        var operation = await OwnedTrackingAsync(id, cancellationToken).ConfigureAwait(false);
+        if (operation is null || !DocumentImportPurposes.IsTemplate(operation.Purpose)
+            || operation.Status != DocumentImportStatuses.Staging || operation.ExpiresAt <= clock.GetUtcNow()
+            || !await permissions.CanWriteWorkspaceAsync(operation.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+        var knownTargets = targets.Where(value => value.SourceItemId.Length <= 160)
+            .ToDictionary(value => value.SourceItemId, value => value.TargetItemId, StringComparer.Ordinal);
+        var grouped = fileVersions.GroupBy(value => value.SourceItemId, StringComparer.Ordinal).ToArray();
+        if (grouped.Any(group => !knownTargets.ContainsKey(group.Key)
+            || group.Count() > 100 || group.Select(value => value.Version).Distinct().Count() != group.Count()
+            || !group.Select(value => value.Version).Order().SequenceEqual(Enumerable.Range(1, group.Count()))))
+        {
+            return null;
+        }
+        var existing = await database.DocumentImportFileVersions.AsNoTracking()
+            .Where(value => value.TenantId == context.TenantId && value.ImportId == id)
+            .Join(database.FileVersions.AsNoTracking(), transfer => new { transfer.TenantId, transfer.FileVersionId },
+                version => new { version.TenantId, FileVersionId = version.Id },
+                (transfer, version) => new
+                {
+                    transfer.TransferId,
+                    transfer.SourceItemId,
+                    TargetItemId = transfer.TargetItemId,
+                    version.Version,
+                })
+            .OrderBy(value => value.TransferId).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (existing.Length > 0)
+        {
+            return existing.Length == fileVersions.Count
+                ? existing.Select(value => new DocumentImportFileVersionMapping(
+                    value.TransferId, value.SourceItemId, value.TargetItemId!.Value, value.Version)).ToArray()
+                : null;
+        }
+        if (fileVersions.Count == 0)
+        {
+            return [];
+        }
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({operation.WorkspaceId.Value.ToString()}, 0))",
+            cancellationToken).ConfigureAwait(false);
+        long totalBytes = 0;
+        try
+        {
+            foreach (var file in fileVersions)
+            {
+                totalBytes = checked(totalBytes + file.ByteLength);
+            }
+        }
+        catch (OverflowException) { return null; }
+        if (!await FitsQuotaAsync(operation.WorkspaceId, totalBytes, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        var now = clock.GetUtcNow();
+        var versions = new List<FileVersion>(fileVersions.Count);
+        var transfers = new List<DocumentImportFileVersion>(fileVersions.Count);
+        var bySource = new Dictionary<string, List<(FileVersion Version, DocumentImportFileVersion Transfer)>>(StringComparer.Ordinal);
+        var result = new List<DocumentImportFileVersionMapping>(fileVersions.Count);
+        foreach (var file in fileVersions)
+        {
+            var targetId = knownTargets[file.SourceItemId];
+            var versionId = FileVersionId.Create();
+            var objectKey = ObjectStorageKeys.FileVersion(context.TenantId, versionId);
+            var version = new FileVersion
+            {
+                Id = versionId,
+                TenantId = context.TenantId,
+                WorkspaceId = operation.WorkspaceId,
+                ItemId = targetId,
+                Version = file.Version,
+                ObjectKey = objectKey,
+                FileName = file.FileName,
+                MediaType = file.MediaType,
+                ByteLength = file.ByteLength,
+                Sha256 = file.Sha256,
+                ObjectReady = false,
+                Previewable = file.Previewable,
+                PixelWidth = file.PixelWidth,
+                PixelHeight = file.PixelHeight,
+                CreatedBy = context.PrincipalId,
+                CreatedAt = now,
+            };
+            var transfer = new DocumentImportFileVersion
+            {
+                TransferId = Guid.CreateVersion7(),
+                TenantId = context.TenantId,
+                ImportId = id,
+                SourceItemId = file.SourceItemId,
+                TargetItemId = targetId,
+                FileVersionId = versionId,
+                ObjectKey = objectKey,
+                FileName = file.FileName,
+                MediaType = file.MediaType,
+                ByteLength = file.ByteLength,
+                Sha256 = file.Sha256,
+                Previewable = file.Previewable,
+                PixelWidth = file.PixelWidth,
+                PixelHeight = file.PixelHeight,
+                ObjectReady = false,
+            };
+            versions.Add(version);
+            transfers.Add(transfer);
+            if (!bySource.TryGetValue(file.SourceItemId, out var history))
+            {
+                history = [];
+                bySource[file.SourceItemId] = history;
+            }
+            history.Add((version, transfer));
+            result.Add(new DocumentImportFileVersionMapping(transfer.TransferId, file.SourceItemId,
+                targetId.Value, file.Version));
+        }
+        database.FileVersions.AddRange(versions);
+        database.DocumentImportFileVersions.AddRange(transfers);
+        foreach (var (sourceId, history) in bySource)
+        {
+            var current = history.MaxBy(value => value.Version.Version).Version;
+            database.FileBodies.Add(new FileBody
+            {
+                TenantId = context.TenantId,
+                WorkspaceId = operation.WorkspaceId,
+                ItemId = knownTargets[sourceId],
+                CurrentVersionId = current.Id,
+            });
+        }
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    public async ValueTask<DocumentImportFileVersionsPage?> AuthorizeFileVersionsAsync(
+        DocumentImportId id, string executionId, Guid? afterTransferId, int limit,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(executionId) || executionId.Length > 128 || limit is < 1 or > 100)
+        {
+            return null;
+        }
+
+        var context = Context;
+        var query = database.DocumentImportFileVersions.AsTracking().Where(value =>
+            value.TenantId == context.TenantId && value.ImportId == id);
+        if (afterTransferId is { } cursor)
+        {
+            query = query.Where(value => value.TransferId.CompareTo(cursor) > 0);
+        }
+
+        var fetched = await query.OrderBy(value => value.TransferId).Take(limit + 1)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var hasMore = fetched.Count > limit;
+        var rows = fetched.Take(limit).ToArray();
+        var operation = await database.DocumentImports.AsNoTracking().SingleOrDefaultAsync(value =>
+            value.TenantId == context.TenantId && value.ActorId == context.PrincipalId && value.Id == id
+            && value.Status == DocumentImportStatuses.Staging && value.ExpiresAt > clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        if (operation is null || rows.Length == 0)
+        {
+            return null;
+        }
+        if (!await permissions.CanWriteWorkspaceAsync(operation.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        foreach (var row in rows.Where(value => !value.ObjectReady))
+        {
+            row.ExecutionId = executionId;
+        }
+
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var versionNumbers = await database.FileVersions.AsNoTracking()
+            .Where(version => version.TenantId == context.TenantId
+                && rows.Select(row => row.FileVersionId).Contains(version.Id))
+            .ToDictionaryAsync(version => version.Id, version => version.Version, cancellationToken).ConfigureAwait(false);
+        var files = rows.Select(value => new DocumentImportFileVersionAuthorization(
+            value.TransferId, value.SourceItemId, value.TargetItemId.Value,
+            versionNumbers[value.FileVersionId],
+            value.ObjectKey, value.FileName, value.MediaType, value.ByteLength, value.Sha256, value.ObjectReady)).ToArray();
+        return new DocumentImportFileVersionsPage(files, hasMore ? rows[^1].TransferId : null, !hasMore);
+    }
+
+    public async ValueTask<bool> CompleteFileVersionsAsync(
+        DocumentImportId id, string executionId, IReadOnlyList<Guid> transferIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transferIds);
+        if (transferIds.Count is < 1 or > 100 || transferIds.Distinct().Count() != transferIds.Count)
+        {
+            return false;
+        }
+
+        var context = Context;
+        await LockImportAsync(id, cancellationToken).ConfigureAwait(false);
+        var operation = await OwnedTrackingAsync(id, cancellationToken).ConfigureAwait(false);
+        if (operation is null || operation.Status != DocumentImportStatuses.Staging || operation.ExpiresAt <= clock.GetUtcNow())
+        {
+            return false;
+        }
+        if (!await permissions.CanWriteWorkspaceAsync(operation.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var rows = await database.DocumentImportFileVersions.AsTracking().Where(value =>
+            value.TenantId == context.TenantId && value.ImportId == id && transferIds.Contains(value.TransferId))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (rows.Count != transferIds.Count || rows.Any(value => !value.ObjectReady && value.ExecutionId != executionId))
+        {
+            return false;
+        }
+
+        var versions = await database.FileVersions.AsTracking().Where(value =>
+            value.TenantId == context.TenantId && rows.Select(row => row.FileVersionId).Contains(value.Id))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var row in rows)
+        {
+            var version = versions.SingleOrDefault(value => value.Id == row.FileVersionId);
+            if (version is null || version.ObjectKey != row.ObjectKey || version.ByteLength != row.ByteLength
+                || !string.Equals(version.Sha256, row.Sha256, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            version.ObjectReady = true;
+            row.ObjectReady = true;
+        }
+        var currentIds = rows.Select(value => value.FileVersionId).ToArray();
+        var currentBodies = await database.FileBodies.AsNoTracking().Where(value =>
+            value.TenantId == context.TenantId && currentIds.Contains(value.CurrentVersionId))
+            .Select(value => value.ItemId).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (currentBodies.Length > 0)
+        {
+            await database.DocumentImportItems.AsTracking().Where(value =>
+                value.TenantId == context.TenantId && value.ImportId == id
+                && currentBodies.Contains(value.TargetItemId)
+                && value.FileVersionId != null && currentIds.Contains(value.FileVersionId.Value))
+                .ExecuteUpdateAsync(update => update.SetProperty(value => value.ObjectReady, true), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async ValueTask<bool> MarkObjectReadyAsync(
@@ -540,7 +901,7 @@ public sealed class DocumentImportStore(
         {
             return false;
         }
-        var version = await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(
+        var version = await database.FileVersions.AsTracking().SingleOrDefaultAsync(
             value => value.TenantId == context.TenantId && value.Id == fileVersionId,
             cancellationToken).ConfigureAwait(false);
         if (version is null
@@ -549,6 +910,7 @@ public sealed class DocumentImportStore(
         {
             return false;
         }
+        version.ObjectReady = true;
         mapping.ObjectReady = true;
         operation.UpdatedAt = clock.GetUtcNow();
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -630,7 +992,10 @@ public sealed class DocumentImportStore(
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         if (mappings.Count == 0
             || mappings.Count != operation.ItemCount
-            || mappings.Any(value => value.FileVersionId is not null && !value.ObjectReady))
+            || mappings.Any(value => value.FileVersionId is not null && !value.ObjectReady)
+            || await database.DocumentImportFileVersions.AnyAsync(value =>
+                value.TenantId == context.TenantId && value.ImportId == id && !value.ObjectReady,
+                cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
@@ -763,6 +1128,9 @@ public sealed class DocumentImportStore(
             .Select(value => value.ObjectKey!)
             .Append(operation.PlanObjectKey)
             .Concat(upload is null ? [] : [upload.ObjectKey])
+            .Concat(await database.DocumentImportFileVersions.AsNoTracking()
+                .Where(value => value.TenantId == context.TenantId && value.ImportId == id)
+                .Select(value => value.ObjectKey).ToArrayAsync(cancellationToken).ConfigureAwait(false))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -873,7 +1241,7 @@ public sealed class DocumentImportStore(
                 || string.IsNullOrWhiteSpace(plan.ItemType)
                 || plan.ItemType.Length > 64
                 || plan.FinalLifecycleState is not ("active" or "deleted")
-                || (plan.ItemType == "file") != (plan.File is not null)
+                || (plan.ItemType != "file" && plan.File is not null)
                 || (plan.File is not null && plan.BodyRequired)
                 || !ValidFile(plan.File))
             {
@@ -940,6 +1308,45 @@ public sealed class DocumentImportStore(
         }
         ordered = sorted;
         return true;
+    }
+
+    private static bool TryValidateFileVersions(
+        IReadOnlyList<ImportFileVersionPlan>? fileVersions,
+        IReadOnlyList<ImportEnvelopePlan> items)
+    {
+        if (fileVersions is null)
+        {
+            return true;
+        }
+
+        if (fileVersions.Count > 100_000)
+        {
+            return false;
+        }
+
+        var fileItems = items.Where(value => value.ItemType == "file")
+            .Select(value => value.SourceId).ToHashSet(StringComparer.Ordinal);
+        var groups = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        foreach (var file in fileVersions)
+        {
+            if (!fileItems.Contains(file.SourceItemId)
+                || file.Version is < 1 or > 100
+                || !ValidFile(new ImportFilePlan("asset", "archive", file.FileName, file.MediaType,
+                    file.ByteLength, file.Sha256, file.Previewable, file.PixelWidth, file.PixelHeight)))
+            {
+                return false;
+            }
+
+            if (!groups.TryGetValue(file.SourceItemId, out var history))
+            {
+                history = [];
+                groups[file.SourceItemId] = history;
+            }
+            history.Add(file.Version);
+        }
+        return groups.Values.All(history => history.Count is > 0 and <= 100
+            && history.Distinct().Count() == history.Count
+            && history.Order().SequenceEqual(Enumerable.Range(1, history.Count)));
     }
 
     private static bool ValidFile(ImportFilePlan? file)
@@ -1011,7 +1418,14 @@ public sealed class DocumentImportStore(
             : new DocumentImportStageRecord(
                 operation.Id.Value,
                 rootId.Value,
-                mappings.Select(ToMapping).ToArray());
+                mappings.Select(ToMapping).ToArray(),
+                await database.DocumentImportFileVersions.AsNoTracking()
+                    .Where(value => value.TenantId == context.TenantId && value.ImportId == operation.Id)
+                    .Join(database.FileVersions.AsNoTracking(), transfer => new { transfer.TenantId, transfer.FileVersionId },
+                        version => new { version.TenantId, FileVersionId = version.Id },
+                        (transfer, version) => new DocumentImportFileVersionMapping(
+                            transfer.TransferId, transfer.SourceItemId, transfer.TargetItemId.Value, version.Version))
+                    .OrderBy(value => value.TransferId).ToArrayAsync(cancellationToken).ConfigureAwait(false));
     }
 
     private async ValueTask RebuildClosureAsync(

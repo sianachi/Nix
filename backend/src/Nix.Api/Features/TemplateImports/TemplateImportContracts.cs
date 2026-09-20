@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Nix.Domain.Templates;
 using Nix.Features.Operations;
 
 namespace Nix.Features.TemplateImports;
@@ -32,7 +33,8 @@ public sealed record TemplateImportProfileResponse(
     string Name,
     string Description,
     bool IncludeBody,
-    bool IncludeChildren);
+    bool IncludeChildren,
+    JsonElement? Initialization = null);
 
 public sealed record TemplateImportPreviewResponse(
     TemplateImportProfileResponse Profile,
@@ -113,7 +115,19 @@ internal sealed record CompleteTemplateImportPreviewRequest(
 
 internal sealed record StageTemplateImportRequest(
     TemplateImportProfileResponse Profile,
-    IReadOnlyList<StageTemplateImportItemRequest> Items);
+    IReadOnlyList<StageTemplateImportItemRequest> Items,
+    IReadOnlyList<StageTemplateImportFileRequest>? Files = null);
+
+internal sealed record StageTemplateImportFileRequest(
+    string SourceItemId,
+    int Version,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight);
 
 internal sealed record StageTemplateImportItemRequest(
     Guid SourceId,
@@ -124,7 +138,8 @@ internal sealed record StageTemplateImportItemRequest(
     JsonElement? Properties,
     JsonElement? Schema,
     JsonElement? Views,
-    bool HasBody);
+    bool HasBody,
+    JsonElement? Recurrence = null);
 
 internal sealed record TemplateImportItemMappingResponse(
     Guid SourceId,
@@ -139,7 +154,37 @@ internal sealed record TemplateImportStageResponse(
     string Digest,
     bool Unchanged,
     IReadOnlyList<TemplateImportItemMappingResponse> ItemMappings,
-    IReadOnlyList<TemplateImportItemMappingResponse> BodyWrites);
+    IReadOnlyList<TemplateImportItemMappingResponse> BodyWrites,
+    IReadOnlyList<TemplateImportFileTransferMappingResponse>? FileTransfers = null);
+
+internal sealed record TemplateImportFileTransferMappingResponse(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion);
+
+internal sealed record TemplateImportFileVersionsAuthorizationResponse(
+    Guid ImportId,
+    IReadOnlyList<TemplateImportFileVersionCapabilityResponse> Files,
+    Guid? NextAfterTransferId,
+    bool Complete);
+
+internal sealed record TemplateImportFileVersionCapabilityResponse(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    Uri? UploadUrl,
+    Uri? VerifyUrl,
+    bool Ready);
+
+internal sealed record CompleteTemplateImportFileVersionsRequest(IReadOnlyList<Guid> TransferIds);
+
+internal sealed record CompleteTemplateImportFileVersionsResponse(Guid ImportId, IReadOnlyList<Guid> CompletedTransferIds);
 
 internal sealed record TemplateImportBodyAuthorizationResponse(
     Guid TenantId,
@@ -205,7 +250,13 @@ internal sealed record ManagedTemplateStageSweepResponse(int Removed, IReadOnlyL
 [JsonSerializable(typeof(CompleteTemplateImportPreviewRequest))]
 [JsonSerializable(typeof(StageTemplateImportRequest))]
 [JsonSerializable(typeof(StageTemplateImportItemRequest))]
+[JsonSerializable(typeof(StageTemplateImportFileRequest))]
 [JsonSerializable(typeof(TemplateImportItemMappingResponse))]
+[JsonSerializable(typeof(TemplateImportFileTransferMappingResponse))]
+[JsonSerializable(typeof(TemplateImportFileVersionsAuthorizationResponse))]
+[JsonSerializable(typeof(TemplateImportFileVersionCapabilityResponse))]
+[JsonSerializable(typeof(CompleteTemplateImportFileVersionsRequest))]
+[JsonSerializable(typeof(CompleteTemplateImportFileVersionsResponse))]
 [JsonSerializable(typeof(TemplateImportStageResponse))]
 [JsonSerializable(typeof(TemplateImportBodyAuthorizationResponse))]
 [JsonSerializable(typeof(TemplateImportBodyAuthorizationItemResponse))]

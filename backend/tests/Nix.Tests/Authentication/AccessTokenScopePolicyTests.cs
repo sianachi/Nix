@@ -73,6 +73,7 @@ public sealed class AccessTokenScopePolicyTests
         ["ListItems"] = Requirement.Read,
         ["ListTrash"] = Requirement.Read,
         ["ListWorkspaceMembers"] = Requirement.Read,
+        ["ListWorkspaceAssignablePrincipals"] = Requirement.Read,
         ["ListWorkspaceInvitations"] = Requirement.Read,
         ["GetAccessTokenSigningKeys"] = Requirement.Read,
         ["GetPublicForm"] = Requirement.Read,

@@ -3,6 +3,7 @@ package workerapi
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -241,6 +242,36 @@ type ObjectCleanupCapability struct {
 	NextOffset *int      `json:"nextOffset"`
 }
 
+// TemplateFileTransferPlan is one fenced page of immutable source-to-stage copies.
+type TemplateFileTransferPlan struct {
+	JobID               string                 `json:"jobId"`
+	OwnerKind           string                 `json:"ownerKind"`
+	OwnerID             string                 `json:"ownerId"`
+	Transfers           []TemplateFileTransfer `json:"transfers"`
+	ObservedAt          time.Time              `json:"observedAt"`
+	NextAfterTransferID *string                `json:"nextAfterTransferId"`
+	Complete            bool                   `json:"complete"`
+}
+
+type TemplateFileTransfer struct {
+	TransferID    string  `json:"transferId"`
+	SourceItemID  string  `json:"sourceItemId"`
+	TargetItemID  string  `json:"targetItemId"`
+	TargetVersion int     `json:"targetVersion"`
+	DownloadURL   *string `json:"downloadUrl"`
+	UploadURL     *string `json:"uploadUrl"`
+	VerifyURL     *string `json:"verifyUrl"`
+	FileName      string  `json:"fileName"`
+	MediaType     string  `json:"mediaType"`
+	ByteLength    int64   `json:"byteLength"`
+	SHA256        string  `json:"sha256"`
+	Ready         bool    `json:"ready"`
+}
+
+type CompleteTemplateFileTransferBatch struct {
+	TransferIDs []string `json:"transferIds"`
+}
+
 type DocumentImportPreview struct {
 	ImportID           string    `json:"importId"`
 	Format             string    `json:"format"`
@@ -312,12 +343,14 @@ type DocumentImportStageRequest struct {
 	PlanSHA256   string                    `json:"planSha256"`
 	SourceSHA256 string                    `json:"sourceSha256"`
 	Items        []DocumentImportStageItem `json:"items"`
+	FileVersions []TemplateImportStageFile `json:"fileVersions,omitempty"`
 }
 
 type DocumentImportStage struct {
-	ImportID   string                       `json:"importId"`
-	RootItemID string                       `json:"rootItemId"`
-	Items      []DocumentImportStageMapping `json:"items"`
+	ImportID      string                              `json:"importId"`
+	RootItemID    string                              `json:"rootItemId"`
+	Items         []DocumentImportStageMapping        `json:"items"`
+	FileTransfers []TemplateImportFileTransferMapping `json:"fileTransfers"`
 }
 
 type DocumentImportStageMapping struct {
@@ -343,13 +376,14 @@ type DocumentImportResult struct {
 }
 
 type TemplateImportProfile struct {
-	Kind            string `json:"kind"`
-	Version         int    `json:"version"`
-	Key             string `json:"key"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	IncludeBody     bool   `json:"includeBody"`
-	IncludeChildren bool   `json:"includeChildren"`
+	Kind            string          `json:"kind"`
+	Version         int             `json:"version"`
+	Key             string          `json:"key"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	IncludeBody     bool            `json:"includeBody"`
+	IncludeChildren bool            `json:"includeChildren"`
+	Initialization  json.RawMessage `json:"initialization,omitempty"`
 }
 
 type TemplateImportPreview struct {
@@ -410,11 +444,25 @@ type TemplateImportStageItem struct {
 	Schema         json.RawMessage `json:"schema"`
 	Views          json.RawMessage `json:"views"`
 	HasBody        bool            `json:"hasBody"`
+	Recurrence     json.RawMessage `json:"recurrence,omitempty"`
 }
 
 type TemplateImportStageRequest struct {
 	Profile TemplateImportProfile     `json:"profile"`
 	Items   []TemplateImportStageItem `json:"items"`
+	Files   []TemplateImportStageFile `json:"files"`
+}
+
+type TemplateImportStageFile struct {
+	SourceItemID string `json:"sourceItemId"`
+	Version      int    `json:"version"`
+	FileName     string `json:"fileName"`
+	MediaType    string `json:"mediaType"`
+	ByteLength   int64  `json:"byteLength"`
+	SHA256       string `json:"sha256"`
+	Previewable  bool   `json:"previewable"`
+	PixelWidth   *int   `json:"pixelWidth"`
+	PixelHeight  *int   `json:"pixelHeight"`
 }
 
 type TemplateImportBodyWrite struct {
@@ -424,14 +472,43 @@ type TemplateImportBodyWrite struct {
 }
 
 type TemplateImportStage struct {
-	ImportID     string                    `json:"importId"`
-	OperationID  *string                   `json:"operationId"`
-	TemplateID   string                    `json:"templateId"`
-	StableKey    string                    `json:"stableKey"`
-	Digest       string                    `json:"digest"`
-	Unchanged    bool                      `json:"unchanged"`
-	ItemMappings []TemplateImportBodyWrite `json:"itemMappings"`
-	BodyWrites   []TemplateImportBodyWrite `json:"bodyWrites"`
+	ImportID      string                              `json:"importId"`
+	OperationID   *string                             `json:"operationId"`
+	TemplateID    string                              `json:"templateId"`
+	StableKey     string                              `json:"stableKey"`
+	Digest        string                              `json:"digest"`
+	Unchanged     bool                                `json:"unchanged"`
+	ItemMappings  []TemplateImportBodyWrite           `json:"itemMappings"`
+	BodyWrites    []TemplateImportBodyWrite           `json:"bodyWrites"`
+	FileTransfers []TemplateImportFileTransferMapping `json:"fileTransfers"`
+}
+
+type TemplateImportFileTransferMapping struct {
+	TransferID    string `json:"transferId"`
+	SourceItemID  string `json:"sourceItemId"`
+	TargetItemID  string `json:"targetItemId"`
+	TargetVersion int    `json:"targetVersion"`
+}
+
+type TemplateImportFilePlan struct {
+	ImportID            string                         `json:"importId"`
+	Files               []TemplateImportFileCapability `json:"files"`
+	NextAfterTransferID *string                        `json:"nextAfterTransferId"`
+	Complete            bool                           `json:"complete"`
+}
+
+type TemplateImportFileCapability struct {
+	TransferID    string  `json:"transferId"`
+	SourceItemID  string  `json:"sourceItemId"`
+	TargetItemID  string  `json:"targetItemId"`
+	TargetVersion int     `json:"targetVersion"`
+	FileName      string  `json:"fileName"`
+	MediaType     string  `json:"mediaType"`
+	ByteLength    int64   `json:"byteLength"`
+	SHA256        string  `json:"sha256"`
+	UploadURL     *string `json:"uploadUrl"`
+	VerifyURL     *string `json:"verifyUrl"`
+	Ready         bool    `json:"ready"`
 }
 
 type CompleteTemplateImportRequest struct {
@@ -472,6 +549,7 @@ type ExportDestination struct {
 type ResponseError struct {
 	Status int
 	Path   string
+	Code   string
 }
 
 func (err *ResponseError) Error() string {
@@ -523,7 +601,7 @@ func (client *Client) GetIndexItemMetadata(ctx context.Context, tenantID, itemID
 		return nil, nil
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, &ResponseError{Status: response.StatusCode, Path: path}
+		return nil, ResponseErrorFrom(response, path)
 	}
 	if !hasMediaType(response.Header.Get("Content-Type"), "application/json") {
 		return nil, errors.New("worker API index metadata is not JSON")
@@ -566,7 +644,7 @@ func (client *Client) GetIndexItemBody(ctx context.Context, tenantID, itemID str
 		return &empty, nil
 	case http.StatusOK:
 	default:
-		return nil, &ResponseError{Status: response.StatusCode, Path: path}
+		return nil, ResponseErrorFrom(response, path)
 	}
 	if !hasMediaType(response.Header.Get("Content-Type"), "text/plain") {
 		return nil, errors.New("worker API index body is not plain text")
@@ -830,6 +908,216 @@ func (client *Client) GetObjectCleanupCapability(ctx context.Context, offset int
 	return &capability, nil
 }
 
+func (client *Client) GetTemplateFileTransferPlan(ctx context.Context, jobID, afterTransferID string, limit int) (*TemplateFileTransferPlan, error) {
+	if !canonicalUUID(jobID) || afterTransferID != "" && !canonicalUUID(afterTransferID) || limit < 1 || limit > 100 {
+		return nil, errors.New("template file transfer plan request is invalid")
+	}
+	query := url.Values{}
+	query.Set("limit", fmt.Sprint(limit))
+	if afterTransferID != "" {
+		query.Set("afterTransferId", afterTransferID)
+	}
+	path := "/internal/worker-executions/template-file-transfers/" + url.PathEscape(jobID) + "/plan?" + query.Encode()
+	var plan TemplateFileTransferPlan
+	if err := client.requestStrictJSON(ctx, http.MethodGet, path, nil, &plan, 1<<20); err != nil {
+		return nil, err
+	}
+	if plan.JobID != jobID || plan.OwnerKind != "operation" && plan.OwnerKind != "application" ||
+		!canonicalUUID(plan.OwnerID) || plan.ObservedAt.IsZero() || len(plan.Transfers) > limit ||
+		plan.Complete != (plan.NextAfterTransferID == nil) || !plan.Complete && !canonicalUUID(*plan.NextAfterTransferID) {
+		return nil, errors.New("worker API template file transfer plan is invalid")
+	}
+	previous := afterTransferID
+	for _, transfer := range plan.Transfers {
+		if !canonicalUUID(transfer.TransferID) || !canonicalUUID(transfer.SourceItemID) || !canonicalUUID(transfer.TargetItemID) ||
+			transfer.TargetVersion < 1 || transfer.TargetVersion > 100 || transfer.ByteLength < 0 || transfer.ByteLength > 100<<20 ||
+			!validSHA256(transfer.SHA256) || strings.TrimSpace(transfer.FileName) == "" || len(transfer.FileName) > 255 ||
+			strings.TrimSpace(transfer.MediaType) == "" || len(transfer.MediaType) > 160 || transfer.TransferID <= previous {
+			return nil, errors.New("worker API template file transfer entry is invalid")
+		}
+		if transfer.Ready {
+			if transfer.DownloadURL != nil || transfer.UploadURL != nil || transfer.VerifyURL != nil {
+				return nil, errors.New("ready template file transfer unexpectedly includes capabilities")
+			}
+		} else if transfer.DownloadURL == nil || transfer.UploadURL == nil || transfer.VerifyURL == nil ||
+			strings.TrimSpace(*transfer.DownloadURL) == "" || strings.TrimSpace(*transfer.UploadURL) == "" || strings.TrimSpace(*transfer.VerifyURL) == "" {
+			return nil, errors.New("pending template file transfer is missing capabilities")
+		}
+		previous = transfer.TransferID
+	}
+	if !plan.Complete && (len(plan.Transfers) == 0 || *plan.NextAfterTransferID != plan.Transfers[len(plan.Transfers)-1].TransferID) {
+		return nil, errors.New("worker API template file transfer cursor is invalid")
+	}
+	return &plan, nil
+}
+
+func (client *Client) CompleteTemplateFileTransferBatch(ctx context.Context, jobID string, transferIDs []string) error {
+	if !canonicalUUID(jobID) || len(transferIDs) == 0 || len(transferIDs) > 100 {
+		return errors.New("template file transfer completion request is invalid")
+	}
+	for index, transferID := range transferIDs {
+		if !canonicalUUID(transferID) || index > 0 && transferID <= transferIDs[index-1] {
+			return errors.New("template file transfer completion IDs are invalid")
+		}
+	}
+	body, err := json.Marshal(CompleteTemplateFileTransferBatch{TransferIDs: transferIDs})
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/template-file-transfers/" + url.PathEscape(jobID) + "/complete"
+	var result struct {
+		JobID     string `json:"jobId"`
+		Completed bool   `json:"completed"`
+	}
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
+		return err
+	}
+	if result.JobID != jobID || !result.Completed {
+		return errors.New("worker API rejected template file transfer completion")
+	}
+	return nil
+}
+
+func (client *Client) GetTemplateImportFilePlan(ctx context.Context, importID, afterTransferID string, limit int) (*TemplateImportFilePlan, error) {
+	if !canonicalUUID(importID) || afterTransferID != "" && !canonicalUUID(afterTransferID) || limit < 1 || limit > 100 {
+		return nil, errors.New("template import file plan request is invalid")
+	}
+	query := url.Values{}
+	query.Set("limit", fmt.Sprint(limit))
+	if afterTransferID != "" {
+		query.Set("afterTransferId", afterTransferID)
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/files/authorization?" + query.Encode()
+	var plan TemplateImportFilePlan
+	if err := client.requestStrictJSON(ctx, http.MethodGet, path, nil, &plan, 1<<20); err != nil {
+		return nil, err
+	}
+	if plan.ImportID != importID || len(plan.Files) > limit || plan.Complete != (plan.NextAfterTransferID == nil) ||
+		!plan.Complete && !canonicalUUID(*plan.NextAfterTransferID) {
+		return nil, errors.New("worker API template import file plan is invalid")
+	}
+	previous := afterTransferID
+	for _, file := range plan.Files {
+		if !canonicalUUID(file.TransferID) || !canonicalUUID(file.SourceItemID) || !canonicalUUID(file.TargetItemID) ||
+			file.TargetVersion < 1 || file.TargetVersion > 100 || file.ByteLength < 0 || file.ByteLength > 100<<20 ||
+			!validSHA256(file.SHA256) || strings.TrimSpace(file.FileName) == "" || len(file.FileName) > 255 ||
+			strings.TrimSpace(file.MediaType) == "" || len(file.MediaType) > 160 || file.TransferID <= previous {
+			return nil, errors.New("worker API template import file entry is invalid")
+		}
+		if file.Ready {
+			if file.UploadURL != nil || file.VerifyURL != nil {
+				return nil, errors.New("ready template import file unexpectedly includes capabilities")
+			}
+		} else if file.UploadURL == nil || file.VerifyURL == nil || strings.TrimSpace(*file.UploadURL) == "" || strings.TrimSpace(*file.VerifyURL) == "" {
+			return nil, errors.New("pending template import file is missing capabilities")
+		}
+		previous = file.TransferID
+	}
+	if !plan.Complete && (len(plan.Files) == 0 || *plan.NextAfterTransferID != plan.Files[len(plan.Files)-1].TransferID) {
+		return nil, errors.New("worker API template import file cursor is invalid")
+	}
+	return &plan, nil
+}
+
+func (client *Client) CompleteTemplateImportFileBatch(ctx context.Context, importID string, transferIDs []string) error {
+	if !canonicalUUID(importID) || len(transferIDs) == 0 || len(transferIDs) > 100 {
+		return errors.New("template import file completion request is invalid")
+	}
+	for index, transferID := range transferIDs {
+		if !canonicalUUID(transferID) || index > 0 && transferID <= transferIDs[index-1] {
+			return errors.New("template import file completion IDs are invalid")
+		}
+	}
+	body, err := json.Marshal(CompleteTemplateFileTransferBatch{TransferIDs: transferIDs})
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/template-imports/" + url.PathEscape(importID) + "/files/complete"
+	var result struct {
+		ImportID  string `json:"importId"`
+		Completed bool   `json:"completed"`
+	}
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
+		return err
+	}
+	if result.ImportID != importID || !result.Completed {
+		return errors.New("worker API rejected template import file completion")
+	}
+	return nil
+}
+
+func (client *Client) GetDocumentImportFilePlan(ctx context.Context, importID, afterTransferID string, limit int) (*TemplateImportFilePlan, error) {
+	if !canonicalUUID(importID) || afterTransferID != "" && !canonicalUUID(afterTransferID) || limit < 1 || limit > 100 {
+		return nil, errors.New("document import file-version plan request is invalid")
+	}
+	query := url.Values{}
+	query.Set("limit", fmt.Sprint(limit))
+	if afterTransferID != "" {
+		query.Set("afterTransferId", afterTransferID)
+	}
+	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/file-versions/authorization?" + query.Encode()
+	var plan TemplateImportFilePlan
+	if err := client.requestStrictJSON(ctx, http.MethodGet, path, nil, &plan, 1<<20); err != nil {
+		return nil, err
+	}
+	if plan.ImportID != importID || len(plan.Files) > limit || plan.Complete != (plan.NextAfterTransferID == nil) || !plan.Complete && !canonicalUUID(*plan.NextAfterTransferID) {
+		return nil, errors.New("worker API document import file-version plan is invalid")
+	}
+	previous := afterTransferID
+	for _, file := range plan.Files {
+		if !canonicalUUID(file.TransferID) || !canonicalUUID(file.SourceItemID) || !canonicalUUID(file.TargetItemID) || file.TargetVersion < 1 || file.TargetVersion > 100 || file.ByteLength < 0 || file.ByteLength > 100<<20 || !validSHA256(file.SHA256) || strings.TrimSpace(file.FileName) == "" || len(file.FileName) > 255 || strings.TrimSpace(file.MediaType) == "" || len(file.MediaType) > 160 || file.TransferID <= previous {
+			return nil, errors.New("worker API document import file-version entry is invalid")
+		}
+		if file.Ready {
+			if file.UploadURL != nil || file.VerifyURL != nil {
+				return nil, errors.New("ready document import file unexpectedly includes capabilities")
+			}
+		} else if file.UploadURL == nil || file.VerifyURL == nil || strings.TrimSpace(*file.UploadURL) == "" || strings.TrimSpace(*file.VerifyURL) == "" {
+			return nil, errors.New("pending document import file is missing capabilities")
+		}
+		previous = file.TransferID
+	}
+	if !plan.Complete && (len(plan.Files) == 0 || *plan.NextAfterTransferID != plan.Files[len(plan.Files)-1].TransferID) {
+		return nil, errors.New("worker API document import file cursor is invalid")
+	}
+	return &plan, nil
+}
+
+func (client *Client) CompleteDocumentImportFileBatch(ctx context.Context, importID string, transferIDs []string) error {
+	if !canonicalUUID(importID) || len(transferIDs) == 0 || len(transferIDs) > 100 {
+		return errors.New("document import file completion request is invalid")
+	}
+	for index, transferID := range transferIDs {
+		if !canonicalUUID(transferID) || index > 0 && transferID <= transferIDs[index-1] {
+			return errors.New("document import file completion IDs are invalid")
+		}
+	}
+	body, err := json.Marshal(CompleteTemplateFileTransferBatch{TransferIDs: transferIDs})
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/imports/" + url.PathEscape(importID) + "/file-versions/complete"
+	var result struct {
+		ImportID  string `json:"importId"`
+		Completed bool   `json:"completed"`
+	}
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, bytes.NewReader(body), &result, 64<<10); err != nil {
+		return err
+	}
+	if result.ImportID != importID || !result.Completed {
+		return errors.New("worker API rejected document import file completion")
+	}
+	return nil
+}
+
+func validSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
 func (client *Client) FinalizeWorkspacePurge(ctx context.Context) error {
 	return client.requestJSON(ctx, http.MethodPost, "/internal/worker-executions/workspace-purge/finalize", nil, nil)
 }
@@ -997,6 +1285,34 @@ type ExportImage struct {
 	SHA256     string    `json:"sha256"`
 }
 
+type ExportFileHistory struct {
+	ItemID   string              `json:"itemId"`
+	Versions []ExportFileVersion `json:"versions"`
+}
+
+type ExportFileVersion struct {
+	Version     int       `json:"version"`
+	Current     bool      `json:"current"`
+	FileName    string    `json:"fileName"`
+	MediaType   string    `json:"mediaType"`
+	ByteLength  int64     `json:"byteLength"`
+	SHA256      string    `json:"sha256"`
+	Previewable bool      `json:"previewable"`
+	PixelWidth  *int      `json:"pixelWidth"`
+	PixelHeight *int      `json:"pixelHeight"`
+	DownloadURL string    `json:"downloadUrl"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+}
+
+func (client *Client) GetExportFileHistory(ctx context.Context, exportID, itemID string) (*ExportFileHistory, error) {
+	path := "/internal/worker-executions/exports/" + url.PathEscape(exportID) + "/files/" + url.PathEscape(itemID) + "/versions"
+	var result ExportFileHistory
+	if err := client.requestJSON(ctx, http.MethodGet, path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (client *Client) GetExportImage(ctx context.Context, exportID, itemID string) (*ExportImage, error) {
 	path := "/internal/worker-executions/exports/" + url.PathEscape(exportID) + "/images/" + url.PathEscape(itemID)
 	var result ExportImage
@@ -1106,7 +1422,7 @@ func (client *Client) requestJSONLimit(ctx context.Context, method, path string,
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &ResponseError{Status: response.StatusCode, Path: path}
+		return ResponseErrorFrom(response, path)
 	}
 	if target != nil {
 		if responseLimit <= 0 {
@@ -1131,7 +1447,7 @@ func (client *Client) requestStrictJSON(ctx context.Context, method, path string
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &ResponseError{Status: response.StatusCode, Path: path}
+		return ResponseErrorFrom(response, path)
 	}
 	if !hasMediaType(response.Header.Get("Content-Type"), "application/json") {
 		return errors.New("worker API response is not JSON")
@@ -1146,6 +1462,26 @@ func (client *Client) requestStrictJSON(ctx context.Context, method, path string
 		return err
 	}
 	return requireResponseEOF(decoder)
+}
+
+// ResponseErrorFrom returns a bounded status error and extracts the stable problem code from 409s.
+// Callers use the code to distinguish a worker lease refusal from a terminal domain conflict.
+func ResponseErrorFrom(response *http.Response, path string) *ResponseError {
+	result := &ResponseError{Status: response.StatusCode, Path: path}
+	if response.StatusCode != http.StatusConflict {
+		return result
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<10))
+	if err != nil {
+		return result
+	}
+	var problem struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &problem); err == nil {
+		result.Code = problem.Code
+	}
+	return result
 }
 
 func (client *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {

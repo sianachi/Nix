@@ -14,6 +14,8 @@ public sealed record ObjectCleanupJobPayload(
 public static class ObjectCleanupJobs
 {
     public const string Kind = "object.cleanup";
+    private const int MaximumKeysPerJob = 10_002;
+    private const int MaximumKeysPerCleanup = 1_010_002;
 
     public static ValueTask<WorkerJobRecord> QueueAsync(
         IWorkerJobStore jobs,
@@ -30,7 +32,7 @@ public static class ObjectCleanupJobs
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerKind);
         ArgumentNullException.ThrowIfNull(objectKeys);
         var keys = objectKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        if (keys.Length > 10_002 || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 1024))
+        if (keys.Length > MaximumKeysPerJob || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 1024))
         {
             throw new ArgumentException("Object cleanup targets are invalid.", nameof(objectKeys));
         }
@@ -45,6 +47,57 @@ public static class ObjectCleanupJobs
             $"object.cleanup:{ownerKind}:{ownerId:D}",
             payload,
             cancellationToken);
+    }
+
+    /// <summary>Queues large cleanup sets as deterministic, bounded worker jobs.</summary>
+    public static async ValueTask<IReadOnlyList<WorkerJobRecord>> QueueBatchedAsync(
+        IWorkerJobStore jobs,
+        TenantId tenantId,
+        PrincipalId actorId,
+        WorkspaceId workspaceId,
+        string ownerKind,
+        Guid ownerId,
+        DateTimeOffset notBefore,
+        IEnumerable<string> objectKeys,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerKind);
+        ArgumentNullException.ThrowIfNull(objectKeys);
+        var keys = objectKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        if (keys.Length > MaximumKeysPerCleanup
+            || keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 1024))
+        {
+            throw new ArgumentException("Object cleanup targets are invalid.", nameof(objectKeys));
+        }
+
+        if (keys.Length <= MaximumKeysPerJob)
+        {
+            return [await QueueAsync(jobs, tenantId, actorId, workspaceId, ownerKind, ownerId,
+                notBefore, keys, cancellationToken).ConfigureAwait(false)];
+        }
+
+        var records = new List<WorkerJobRecord>((keys.Length + MaximumKeysPerJob - 1) / MaximumKeysPerJob);
+        for (var offset = 0; offset < keys.Length; offset += MaximumKeysPerJob)
+        {
+            var batch = keys.Skip(offset).Take(MaximumKeysPerJob).ToArray();
+            var batchNumber = offset / MaximumKeysPerJob;
+            var batchHash = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('\n', batch))))[..16];
+            var payload = JsonSerializer.Serialize(
+                new ObjectCleanupJobPayload(ownerKind, ownerId, notBefore, batch),
+                ObjectCleanupJsonContext.Default.ObjectCleanupJobPayload);
+            records.Add(await jobs.CreateAsync(
+                tenantId,
+                actorId,
+                workspaceId,
+                Kind,
+                $"object.cleanup:{ownerKind}:{ownerId:D}:batch:{batchNumber:D4}:{batchHash}",
+                payload,
+                cancellationToken).ConfigureAwait(false));
+        }
+
+        return records;
     }
 }
 

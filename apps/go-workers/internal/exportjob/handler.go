@@ -111,10 +111,37 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	var writeErr error
 	projectionLoss := make([]string, 0)
 	if format == "nix" {
-		writeErr = nixarchive.WriteStream(
+		files, fileURLs, fileErr := handler.exportFileVersions(ctx, job.ID, input.Manifest)
+		if fileErr != nil {
+			_ = download.Body.Close()
+			_ = file.Close()
+			return nil, fileErr
+		}
+		input.Manifest.FormatVersion = nixarchive.FileFormatVersion
+		input.Manifest.Files = files
+		input.Manifest.Raw = nil
+		fileIndex := 0
+		writeErr = nixarchive.WriteStreamWithFiles(
 			io.MultiWriter(file, digest),
 			input.Manifest,
 			cancellableBundles(ctx, input),
+			func() (nixarchive.FileVersionEntry, io.ReadCloser, bool, error) {
+				if fileIndex >= len(files) {
+					return nixarchive.FileVersionEntry{}, nil, false, nil
+				}
+				entry := files[fileIndex]
+				url := fileURLs[fileIndex]
+				fileIndex++
+				maximum := entry.ByteLength
+				if maximum == 0 {
+					maximum = 1
+				}
+				capability, err := handler.source.Download(ctx, url, maximum)
+				if err != nil {
+					return nixarchive.FileVersionEntry{}, nil, false, err
+				}
+				return entry, capability.Body, true, nil
+			},
 			handler.limits.MaxBytes)
 	} else {
 		writeErr = exporter.WriteStreamWithReport(
@@ -177,6 +204,57 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		return nil, transient("export_upload_failed", err)
 	}
 	return handler.result(destination.AttemptID, format, destination.ObjectKey, input.Manifest, projectionLoss, stat.Size(), checksum), nil
+}
+
+func (handler *Handler) exportFileVersions(
+	ctx context.Context,
+	exportID string,
+	manifest nixarchive.Manifest,
+) ([]nixarchive.FileVersionEntry, []string, error) {
+	entries := make([]nixarchive.FileVersionEntry, 0)
+	urls := make([]string, 0)
+	for _, item := range manifest.Items {
+		if item.Type != "file" {
+			continue
+		}
+		history, err := handler.api.GetExportFileHistory(ctx, exportID, item.ID)
+		if err != nil {
+			return nil, nil, transient("export_file_history_unavailable", err)
+		}
+		if history == nil || history.ItemID != item.ID || len(history.Versions) == 0 || len(history.Versions) > nixarchive.MaxFileVersionsPerItem {
+			return nil, nil, failure("export_file_history_invalid", errors.New("the file history does not match the export bundle"))
+		}
+		currentCount := 0
+		for index, version := range history.Versions {
+			if version.Version != index+1 || version.ByteLength < 0 || version.ByteLength > 100<<20 ||
+				!validDigest(version.SHA256) || strings.TrimSpace(version.FileName) == "" ||
+				strings.TrimSpace(version.MediaType) == "" || version.DownloadURL == "" || !version.ExpiresAt.After(time.Now()) {
+				return nil, nil, failure("export_file_history_invalid", errors.New("a file version capability is invalid"))
+			}
+			if version.Current {
+				currentCount++
+			}
+			entries = append(entries, nixarchive.FileVersionEntry{
+				ItemID: item.ID, Version: version.Version, Current: version.Current,
+				FileName: version.FileName, MediaType: version.MediaType, ByteLength: version.ByteLength,
+				SHA256: strings.ToLower(version.SHA256), Previewable: version.Previewable,
+				PixelWidth: version.PixelWidth, PixelHeight: version.PixelHeight,
+			})
+			urls = append(urls, version.DownloadURL)
+		}
+		if currentCount != 1 || !history.Versions[len(history.Versions)-1].Current {
+			return nil, nil, failure("export_file_history_invalid", errors.New("the file history does not identify exactly one current version"))
+		}
+	}
+	return entries, urls, nil
+}
+
+func validDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func (handler *Handler) verifyExisting(ctx context.Context, readURL string, size int64, expectedSHA256 string) error {

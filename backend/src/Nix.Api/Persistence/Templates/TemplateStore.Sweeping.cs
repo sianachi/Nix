@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Audit;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -88,6 +89,64 @@ public sealed partial class TemplateStore
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
         var targets = operationTargets.Concat(applicationTargets).Distinct().ToArray();
+
+        if (operationIds.Length > 0 || applicationIds.Length > 0)
+        {
+            var stagedObjectKeys = await (
+                from transfer in _database.TemplateFileTransfers.AsNoTracking()
+                join version in _database.FileVersions.AsNoTracking()
+                    on new { transfer.TenantId, transfer.TargetVersionId }
+                    equals new { version.TenantId, TargetVersionId = version.Id }
+                where transfer.TenantId == Context.TenantId
+                    && (operationIds.Contains(transfer.OperationId!.Value)
+                        || applicationIds.Contains(transfer.ApplicationId!.Value))
+                select new
+                {
+                    transfer.OperationId,
+                    transfer.ApplicationId,
+                    transfer.WorkspaceId,
+                    transfer.TenantId,
+                    ObjectKey = version.ObjectKey,
+                })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var importedArchiveObjectKeys = operationIds.Length == 0
+                ? []
+                : await (from transfer in _database.DocumentImportFileVersions.AsNoTracking()
+                         join import in _database.DocumentImports.AsNoTracking()
+                             on new { transfer.TenantId, transfer.ImportId }
+                             equals new { import.TenantId, ImportId = import.Id }
+                         where transfer.TenantId == Context.TenantId
+                             && import.TemplateOperationId != null
+                             && operationIds.Contains(import.TemplateOperationId.Value)
+                         select new
+                         {
+                             OperationId = import.TemplateOperationId,
+                             ApplicationId = (TemplateApplicationId?)null,
+                             WorkspaceId = import.WorkspaceId,
+                             transfer.TenantId,
+                             transfer.ObjectKey,
+                         })
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            stagedObjectKeys = stagedObjectKeys.Concat(importedArchiveObjectKeys).ToList();
+            var cleanupNotBefore = _signer.GetCleanupNotBefore();
+            foreach (var group in stagedObjectKeys
+                .GroupBy(transfer => (transfer.OperationId, transfer.ApplicationId, transfer.WorkspaceId, transfer.TenantId)))
+            {
+                var ownerId = group.Key.OperationId?.Value ?? group.Key.ApplicationId!.Value.Value;
+                await ObjectCleanupJobs.QueueBatchedAsync(
+                    _jobs,
+                    group.Key.TenantId,
+                    Context.PrincipalId,
+                    group.Key.WorkspaceId,
+                    "template-file-transfer",
+                    ownerId,
+                    cleanupNotBefore,
+                    group.Select(transfer => transfer.ObjectKey),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         var templateIds = operations.Select(operation => operation.TemplateId).Distinct().ToArray();
         var catalogs = await _database.WorkspaceTemplates

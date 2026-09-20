@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from '../../app';
-import { item, STUB_WORKSPACE, stubCoreApi } from '../api-stub';
+import { item, STUB_TEMPLATES, STUB_WORKSPACE, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
 const SOURCE = item({
@@ -177,9 +177,345 @@ describe('the template studio', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('A Status field already exists.');
     expect(screen.queryByRole('heading', { name: 'Review' })).not.toBeInTheDocument();
-    expect(writes.templatePreflights).toEqual([
-      { mode: 'merge', targetItemId: SOURCE.id, parentItemId: null, title: null },
+    expect(writes.templatePreflights).toMatchObject([
+      {
+        mode: 'merge',
+        targetItemId: SOURCE.id,
+        parentItemId: null,
+        title: null,
+        inputs: {},
+        expectedRevision: 1,
+      },
     ]);
+  });
+
+  it('keeps a cleared optional default empty, blocks missing required answers, and previews resolved values', async () => {
+    const user = userEvent.setup();
+    const template = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(template).toBeDefined();
+    if (template === undefined) return;
+    const sourceId = `b${template.id.slice(1)}`;
+    const configured = {
+      ...template,
+      initialization: {
+        version: 1 as const,
+        inputs: [
+          {
+            key: 'project_name',
+            label: 'Project name',
+            type: 'text' as const,
+            required: false,
+            defaultValue: 'Default project',
+          },
+          {
+            key: 'team_name',
+            label: 'Team name',
+            type: 'text' as const,
+            required: true,
+            defaultValue: null,
+          },
+          {
+            key: 'optional_note',
+            label: 'Optional note',
+            type: 'text' as const,
+            required: false,
+            defaultValue: null,
+          },
+        ],
+        rules: [],
+        references: [],
+      },
+    };
+    const writes = stubCoreApi({
+      templates: [configured],
+      templatePreflightPreview: [
+        {
+          sourceId,
+          title: 'Personalized project',
+          properties: { title: 'Personalized project' },
+          recurrence: null,
+        },
+      ],
+    });
+    renderAt(<App />, `/templates/${KANBAN_TEMPLATE_ID}/create`);
+
+    const projectName = await screen.findByRole('textbox', { name: 'Project name' });
+    expect(projectName).toHaveValue('Default project');
+    expect(await screen.findByRole('textbox', { name: 'Optional note' })).toHaveValue('');
+    await user.clear(projectName);
+    expect(projectName).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    expect(await screen.findByText('Enter Team name to continue.')).toBeVisible();
+    expect(writes.templatePreflights).toHaveLength(0);
+
+    await user.type(screen.getByRole('textbox', { name: 'Team name' }), 'Delivery');
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    const resolved = await screen.findByLabelText('Resolved template preview');
+    expect(within(resolved).getAllByText('Personalized project')).toHaveLength(2);
+    expect(writes.templatePreflights).toMatchObject([
+      { inputs: { project_name: '', team_name: 'Delivery' }, expectedRevision: template.revision },
+    ]);
+    expect(writes.templatePreflights[0]?.inputs).toEqual({
+      project_name: '',
+      team_name: 'Delivery',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Create item' }));
+    expect(writes.templateApplications[0]).toMatchObject({
+      inputs: { project_name: '', team_name: 'Delivery' },
+      expectedRevision: template.revision,
+    });
+  });
+
+  it('keeps a relative date rule date-only when its time fields are null', async () => {
+    const user = userEvent.setup();
+    const template = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(template).toBeDefined();
+    if (template === undefined) return;
+    const sourceId = `b${template.id.slice(1)}`;
+    const dueDate = {
+      key: 'dueDate',
+      label: 'Due date',
+      type: 'date',
+      options: [],
+      required: false,
+    };
+    const configured = {
+      ...template,
+      origin: 'user' as const,
+      capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+      initialization: {
+        version: 1 as const,
+        inputs: [
+          {
+            key: 'start_date',
+            label: 'Start date',
+            type: 'date' as const,
+            required: true,
+            defaultValue: null,
+          },
+        ],
+        rules: [
+          {
+            sourceId,
+            propertyKey: 'dueDate',
+            kind: 'relativeDate' as const,
+            inputKey: 'start_date',
+            offsetDays: 0,
+            timeOfDay: null,
+            timeZone: null,
+          },
+        ],
+        references: [],
+      },
+      root: {
+        sourceId,
+        itemType: 'task',
+        title: template.title,
+        seq: '1',
+        properties: { title: template.title, dueDate: null },
+        schema: { properties: [dueDate], declared: [dueDate], inherit: false },
+        views: null,
+        hasBody: false,
+        recurrence: null,
+        children: [],
+      },
+    };
+    stubCoreApi({ templates: [configured] });
+    renderAt(<App />, `/templates/${KANBAN_TEMPLATE_ID}/edit`);
+
+    expect(await screen.findByRole('heading', { name: /edit kanban/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+
+    const useTime = await screen.findByRole('checkbox', { name: 'Set a time and time zone' });
+    expect(useTime).not.toBeChecked();
+    expect(screen.queryByLabelText('Time')).not.toBeInTheDocument();
+  });
+
+  it('waits for a pending template file copy and replays the same application request', async () => {
+    const user = userEvent.setup();
+    const writes = stubCoreApi({ templateApplicationFileTransferPending: true });
+    renderAt(<App />, `/templates/${KANBAN_TEMPLATE_ID}/create`);
+
+    expect(await screen.findByRole('button', { name: /Review/ })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    await user.click(await screen.findByRole('button', { name: 'Create item' }));
+
+    await waitFor(() => {
+      expect(writes.templateApplications).toHaveLength(2);
+    });
+    expect(writes.templateApplications[0]?.idempotencyKey).toBe(
+      writes.templateApplications[1]?.idempotencyKey,
+    );
+  });
+
+  it('lets Core resolve authored root title bindings unless the user overrides the title', async () => {
+    const user = userEvent.setup();
+    const template = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(template).toBeDefined();
+    if (template === undefined) return;
+    const configured = {
+      ...template,
+      root: {
+        sourceId: SOURCE.id,
+        itemType: 'note',
+        title: 'Kick off {{project_name}}',
+        seq: '1',
+        properties: {},
+        schema: { properties: [], declared: [], inherit: false },
+        views: null,
+        hasBody: false,
+        recurrence: null,
+        children: [],
+      },
+      initialization: {
+        version: 1 as const,
+        inputs: [
+          {
+            key: 'project_name',
+            label: 'Project name',
+            type: 'text' as const,
+            required: true,
+            defaultValue: null,
+          },
+        ],
+        rules: [],
+        references: [],
+      },
+    };
+    const writes = stubCoreApi({ templates: [configured] });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/${KANBAN_TEMPLATE_ID}/create`);
+
+    const name = await screen.findByRole('textbox', { name: 'Name' });
+    expect(name).toHaveValue('Kick off {{project_name}}');
+    await user.type(await screen.findByRole('textbox', { name: 'Project name' }), 'Apollo');
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    await user.click(await screen.findByRole('button', { name: 'Create item' }));
+    expect(writes.templateApplications[0]).not.toHaveProperty('title');
+  });
+
+  it('keeps an explicitly edited item title when the source root title has bindings', async () => {
+    const user = userEvent.setup();
+    const template = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(template).toBeDefined();
+    if (template === undefined) return;
+    const configured = {
+      ...template,
+      root: {
+        sourceId: SOURCE.id,
+        itemType: 'note',
+        title: 'Kick off {{project_name}}',
+        seq: '1',
+        properties: {},
+        schema: { properties: [], declared: [], inherit: false },
+        views: null,
+        hasBody: false,
+        recurrence: null,
+        children: [],
+      },
+      initialization: {
+        version: 1 as const,
+        inputs: [
+          {
+            key: 'project_name',
+            label: 'Project name',
+            type: 'text' as const,
+            required: true,
+            defaultValue: null,
+          },
+        ],
+        rules: [],
+        references: [],
+      },
+    };
+    const writes = stubCoreApi({ templates: [configured] });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/${KANBAN_TEMPLATE_ID}/create`);
+
+    const name = await screen.findByRole('textbox', { name: 'Name' });
+    await user.clear(name);
+    await user.type(name, 'Custom setup');
+    await user.type(await screen.findByRole('textbox', { name: 'Project name' }), 'Apollo');
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    await user.click(await screen.findByRole('button', { name: 'Create item' }));
+    expect(writes.templateApplications[0]).toMatchObject({ title: 'Custom setup' });
+  });
+
+  it('offers group-derived active principals as template member answers', async () => {
+    const user = userEvent.setup();
+    const template = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(template).toBeDefined();
+    if (template === undefined) return;
+    const groupPersonId = 'a7777777-7777-4777-8777-777777777777';
+    const configured = {
+      ...template,
+      initialization: {
+        version: 1 as const,
+        inputs: [
+          {
+            key: 'assignee',
+            label: 'Assignee',
+            type: 'member' as const,
+            required: true,
+            defaultValue: null,
+          },
+        ],
+        rules: [],
+        references: [],
+      },
+    };
+    const writes = stubCoreApi({
+      templates: [configured],
+      workspacePrincipals: [
+        { principalId: groupPersonId, displayName: 'Group team member', kind: 'user' },
+      ],
+    });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/${KANBAN_TEMPLATE_ID}/create`);
+
+    const assignee = await screen.findByRole('combobox', { name: 'Assignee' });
+    await waitFor(() =>
+      expect(within(assignee).getByRole('option', { name: 'Group team member' })).toBeVisible(),
+    );
+    await user.selectOptions(assignee, groupPersonId);
+    await user.click(screen.getByRole('button', { name: /Review/ }));
+    await user.click(await screen.findByRole('button', { name: 'Create item' }));
+
+    expect(writes.templatePreflights[0]).toMatchObject({ inputs: { assignee: groupPersonId } });
+    expect(writes.templateApplications[0]).toMatchObject({ inputs: { assignee: groupPersonId } });
+  });
+
+  it('announces when a recovered template draft has expired and offers recovery actions', async () => {
+    const operationId = 'a0000000-0000-4000-8000-000000000009';
+    sessionStorage.setItem(
+      `nix:template-studio:${STUB_WORKSPACE.id}:edit:template:${KANBAN_TEMPLATE_ID}`,
+      JSON.stringify({
+        scope: `template:${KANBAN_TEMPLATE_ID}`,
+        title: 'Recovered name',
+        description: '',
+        includeBody: false,
+        includeChildren: false,
+        idempotencyKey: 'a0000000-0000-4000-8000-000000000010',
+        operationId,
+        expiresAt: null,
+        selectedSourceId: null,
+        itemEdits: {},
+      }),
+    );
+    const seed = STUB_TEMPLATES.find((candidate) => candidate.id === KANBAN_TEMPLATE_ID);
+    expect(seed).toBeDefined();
+    if (seed === undefined) return;
+    const editable = {
+      ...seed,
+      origin: 'user' as const,
+      capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+    };
+    stubCoreApi({ templates: [editable], templateDraftUnavailable: true });
+    renderAt(<App />, `/templates/${KANBAN_TEMPLATE_ID}/edit`);
+
+    expect(
+      await screen.findByRole('heading', { name: 'This saved draft is no longer available' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try to resume again' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start a fresh draft' })).toBeVisible();
   });
 
   it('keeps recovered apply drafts isolated to their exact target item', async () => {

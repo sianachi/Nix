@@ -56,6 +56,8 @@ export interface NixClientConfig {
 
 export interface CallOptions {
   readonly signal?: AbortSignal | undefined;
+  /** Refuse binary responses larger than this limit before materializing them. */
+  readonly maxResponseBytes?: number | undefined;
   /** Ignore any cached value and go to Core. Still de-duplicated. */
   readonly forceRefresh?: boolean | undefined;
 }
@@ -214,6 +216,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
         query: endpoint.query,
         responseType: 'blob',
         signal: options.signal,
+        maxResponseBytes: options.maxResponseBytes,
       });
       const blob = parseAtBoundary(z.instanceof(Blob), response.body, {
         operation: endpoint.operation,

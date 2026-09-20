@@ -81,6 +81,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(ChartJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(TemplateFileTransfersJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateImportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TokensJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BrowserAuthJsonContext.Default);

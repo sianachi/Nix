@@ -28,6 +28,7 @@
 \if :{?oidc_project_id} \else \set oidc_project_id '' \endif
 \if :{?dev_user_id} \else \set dev_user_id '' \endif
 \if :{?template_boot_service_user_id} \else \set template_boot_service_user_id '' \endif
+\if :{?template_boot_workspace_id} \else \set template_boot_workspace_id 'a1000000-0000-4000-8000-000000000001' \endif
 
 DO $$
 BEGIN
@@ -199,7 +200,7 @@ SELECT workspace.workspace_id,
        'a2000000-0000-4000-8000-000000000001'::uuid,
        now()
   FROM workspace
- WHERE workspace.workspace_id = 'a1000000-0000-4000-8000-000000000001'::uuid
+ WHERE workspace.workspace_id = :'template_boot_workspace_id'::uuid
    AND workspace.tenant_id = 'a0000000-0000-4000-8000-000000000001'::uuid
    AND :'template_boot_service_user_id' <> ''
 ON CONFLICT (workspace_id, subject_type, subject_id) DO NOTHING;

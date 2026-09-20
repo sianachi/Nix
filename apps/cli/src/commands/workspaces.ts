@@ -191,6 +191,38 @@ export async function listWorkspaceMembers(
   );
 }
 
+export async function listWorkspaceAssignablePrincipals(
+  profileName: string | undefined,
+  workspaceId: string,
+  page: WorkspacePageOptions & { readonly query?: string | undefined },
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const limit = page.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Page limit must be an integer from 1 through 100.');
+  }
+  if (page.cursor !== undefined && page.cursor.length > 128) {
+    throw new Error('Cursor must not exceed 128 characters.');
+  }
+  const query = page.query?.trim();
+  if (query !== undefined && query.length > 128) {
+    throw new Error('Search text must not exceed 128 characters.');
+  }
+  const session = await resolveSession(profileName, deps);
+  const result = await session.client.query(
+    workspaces.listAssignablePrincipalsPage(workspaceId, {
+      limit,
+      ...(page.cursor === undefined ? {} : { cursor: page.cursor }),
+      ...(query === undefined ? {} : { query }),
+    }),
+  );
+  printResult(
+    { principals: result.items, count: result.items.length, nextCursor: result.nextCursor },
+    output,
+  );
+}
+
 export async function changeWorkspaceMemberRole(
   profileName: string | undefined,
   workspaceId: string,

@@ -60,6 +60,23 @@ internal sealed class FakeTemplateCatalogStore : TemplateWorkflowFake, ITemplate
         TemplateId templateId,
         CancellationToken cancellationToken) =>
         Refuse<TemplateExportSnapshot>(new ExportTemplate(templateId), cancellationToken);
+
+    public ValueTask<TemplateExportFileDownload?> AuthorizeExportFileAsync(
+        TemplateId templateId,
+        int expectedRevision,
+        Guid fileVersionId,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult<TemplateExportFileDownload?>(null);
+
+    public ValueTask<Result<TemplateExportFilesPage>> ExportFilesPageAsync(
+        TemplateId templateId,
+        int? expectedRevision,
+        Guid? afterFileVersionId,
+        int limit,
+        CancellationToken cancellationToken) =>
+        Refuse<TemplateExportFilesPage>(
+            new ExportTemplate(templateId),
+            cancellationToken);
 }
 
 internal sealed class FakeTemplateDraftStore : TemplateWorkflowFake, ITemplateDraftStore
