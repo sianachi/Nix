@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { BASE_SCHEMA_VERSION, FIXTURE_DOCUMENT, SCHEMA_VERSION } from '@nix/editor-schema';
+import { createHash } from 'node:crypto';
 import { SHEET_LIMITS, SHEET_SCHEMA_VERSION } from '@nix/sheet';
 import { Zip, ZipPassThrough, strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
@@ -7,9 +9,16 @@ import { writeArchive } from './archive.js';
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_FORMAT_VERSION,
+  FILE_ARCHIVE_FORMAT_VERSION,
+  MAX_ARCHIVE_ENTRIES,
+  MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM,
+  MAX_ARCHIVE_ITEMS,
   MANIFEST_ENTRY,
+  MAX_TEMPLATE_ARCHIVE_ENTRIES,
+  MAX_TEMPLATE_ARCHIVE_ITEMS,
   TEMPLATE_PROFILE_VERSION,
   itemEntryName,
+  fileVersionEntryName,
   type ArchiveManifest,
   type ItemBundle,
 } from './manifest.js';
@@ -19,6 +28,25 @@ import {
   requireTemplateProfile,
   validateTemplateArchive,
 } from './reader.js';
+
+it('keeps Go and TypeScript Nix archive profiles aligned with the shared limits fixture', () => {
+  const limits = JSON.parse(
+    readFileSync(new URL('../../../fixtures/nix-archive-v2-limits.json', import.meta.url), 'utf8'),
+  ) as {
+    ordinary: { maxArchiveEntries: number; maxItems: number };
+    template: { maxArchiveEntries: number; maxItems: number };
+    maxFileVersionsPerItem: number;
+  };
+  expect(limits.ordinary).toEqual({
+    maxArchiveEntries: MAX_ARCHIVE_ENTRIES,
+    maxItems: MAX_ARCHIVE_ITEMS,
+  });
+  expect(limits.template).toEqual({
+    maxArchiveEntries: MAX_TEMPLATE_ARCHIVE_ENTRIES,
+    maxItems: MAX_TEMPLATE_ARCHIVE_ITEMS,
+  });
+  expect(limits.maxFileVersionsPerItem).toBe(MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM);
+});
 
 const ROOT = '11111111-1111-4111-8111-111111111111';
 const CHILD = '22222222-2222-4222-8222-222222222222';
@@ -141,6 +169,37 @@ function bundle(id: string): ItemBundle {
   };
 }
 
+function fileBundle(id: string, title = 'Brief.pdf'): ItemBundle {
+  return { ...bundle(id), type: 'file', title, body: null };
+}
+
+function fileDigest(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function fileArchive(bytes: Uint8Array, overrides: Record<string, unknown> = {}): ArchiveManifest {
+  return {
+    ...manifest(),
+    formatVersion: FILE_ARCHIVE_FORMAT_VERSION,
+    items: [{ id: ROOT, parentId: null, seq: '1000', title: 'Brief.pdf', type: 'file' }],
+    files: [
+      {
+        itemId: ROOT,
+        version: 1,
+        current: true,
+        fileName: 'Brief.pdf',
+        mediaType: 'application/pdf',
+        byteLength: bytes.byteLength,
+        sha256: fileDigest(bytes),
+        previewable: true,
+        pixelWidth: null,
+        pixelHeight: null,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/require-await -- the production writer consumes an async source.
 async function* bundles(): AsyncGenerator<ItemBundle> {
   yield bundle(ROOT);
@@ -201,6 +260,16 @@ function zipEntries(entries: readonly { name: string; bytes: Uint8Array }[]): Pr
 }
 
 describe('the hostile archive reader', () => {
+  it('preserves item recurrence metadata through expanded service payloads', () => {
+    const recurrence = { frequency: 'weekly', interval: 2, daysOfWeek: ['monday'] };
+    const parsed = parseArchiveObject({
+      manifest: manifest(),
+      bundles: [{ ...bundle(ROOT), recurrence }, bundle(CHILD)],
+    });
+
+    expect(parsed.bundles[0]?.recurrence).toEqual(recurrence);
+  });
+
   it('parses the expanded service object with the same nested and cross-entry rules', () => {
     const parsed = parseArchiveObject({
       manifest: manifest(),
@@ -373,6 +442,91 @@ describe('the hostile archive reader', () => {
     });
   });
 
+  it('round-trips v2 file entries and accepts previewable PDFs without raster dimensions', async () => {
+    const body = strToU8('%PDF-1.7\nA small attachment.');
+    const archive = zipSync({
+      [MANIFEST_ENTRY]: strToU8(JSON.stringify(fileArchive(body))),
+      [itemEntryName(ROOT)]: strToU8(JSON.stringify(fileBundle(ROOT))),
+      [fileVersionEntryName(ROOT, 1)]: body,
+    });
+
+    const read = await readArchive(pieces(archive));
+
+    expect(read.manifest.formatVersion).toBe(FILE_ARCHIVE_FORMAT_VERSION);
+    expect(read.files).toHaveLength(1);
+    expect(read.files[0]?.descriptor.previewable).toBe(true);
+    expect(read.files[0]?.descriptor.pixelWidth).toBeNull();
+    expect(Buffer.from(read.files[0]?.bytes ?? [])).toEqual(Buffer.from(body));
+  });
+
+  it('reads the shared TypeScript-authored v2 PDF history fixture', async () => {
+    const bytes = readFileSync(
+      new URL('../../../fixtures/nix-archive-v2-file.nix', import.meta.url),
+    );
+    const read = await readArchive(pieces(bytes));
+
+    expect(read.manifest.formatVersion).toBe(FILE_ARCHIVE_FORMAT_VERSION);
+    expect(read.files.map((entry) => entry.descriptor.version)).toEqual([1, 2]);
+    expect(read.files.map((entry) => Buffer.from(entry.bytes).toString())).toEqual([
+      '%PDF-1.5\nold version',
+      '%PDF-1.5\ncurrent version',
+    ]);
+  });
+
+  it('rejects file bytes whose digest differs from the v2 manifest', async () => {
+    const actual = strToU8('%PDF-1.7\nActual bytes');
+    const expected = strToU8('%PDF-1.7\nOther bytes!');
+    const archive = zipSync({
+      [MANIFEST_ENTRY]: strToU8(JSON.stringify(fileArchive(expected))),
+      [itemEntryName(ROOT)]: strToU8(JSON.stringify(fileBundle(ROOT))),
+      [fileVersionEntryName(ROOT, 1)]: actual,
+    });
+
+    await expect(readArchive(pieces(archive))).rejects.toMatchObject({
+      code: 'archive.file_digest_mismatch',
+    });
+  });
+
+  it('rejects a v2 archive with an unlisted file entry', async () => {
+    const body = strToU8('%PDF-1.7\nA small attachment.');
+    const archive = zipSync({
+      [MANIFEST_ENTRY]: strToU8(JSON.stringify(fileArchive(body))),
+      [itemEntryName(ROOT)]: strToU8(JSON.stringify(fileBundle(ROOT))),
+      [fileVersionEntryName(ROOT, 1)]: body,
+      [fileVersionEntryName(ROOT, 2)]: body,
+    });
+
+    await expect(readArchive(pieces(archive))).rejects.toMatchObject({
+      code: 'archive.file_entry_mismatch',
+    });
+  });
+
+  it('rejects hostile file entry names before extracting their payload', async () => {
+    const body = strToU8('%PDF-1.7\nA small attachment.');
+    const archive = zipSync({
+      [MANIFEST_ENTRY]: strToU8(JSON.stringify(fileArchive(body))),
+      [itemEntryName(ROOT)]: strToU8(JSON.stringify(fileBundle(ROOT))),
+      'files/../outside/1.bin': body,
+    });
+
+    await expect(readArchive(pieces(archive))).rejects.toMatchObject({
+      code: 'archive.invalid_entry_name',
+    });
+  });
+
+  it('keeps v1 readable but rejects a file item that v1 cannot carry', async () => {
+    const bytes = zipSync({
+      [MANIFEST_ENTRY]: strToU8(
+        JSON.stringify({ ...manifest(), items: [{ ...manifest().items[0], type: 'file' }] }),
+      ),
+      [itemEntryName(ROOT)]: strToU8(JSON.stringify(fileBundle(ROOT))),
+    });
+
+    await expect(readArchive(pieces(bytes))).rejects.toMatchObject({
+      code: 'archive.file_bytes_unsupported',
+    });
+  });
+
   it('refuses an entry whose expanded bytes cross the per-entry bound', async () => {
     const bytes = zipSync({
       [MANIFEST_ENTRY]: strToU8(JSON.stringify(manifest())),
@@ -417,6 +571,84 @@ describe('the hostile archive reader', () => {
     const bytes = zipSync({ [MANIFEST_ENTRY]: strToU8(JSON.stringify(invalid)) });
     await expect(readArchive(pieces(bytes))).rejects.toMatchObject({
       code: 'template.profile_invalid',
+    });
+  });
+
+  it('preserves the versioned initialization profile and refuses rules outside the template tree', async () => {
+    const baseManifest = manifest();
+    if (baseManifest.profile === undefined) throw new Error('The fixture must contain a profile.');
+    const initialized: ArchiveManifest = {
+      ...baseManifest,
+      profile: {
+        ...baseManifest.profile,
+        initialization: {
+          version: 1 as const,
+          inputs: [
+            { key: 'project_name', label: 'Project name', type: 'text' as const, required: true },
+          ],
+          rules: [
+            {
+              sourceId: ROOT,
+              propertyKey: 'name',
+              kind: 'input' as const,
+              inputKey: 'project_name',
+            },
+          ],
+          references: [{ sourceItemId: WORKSPACE, policy: 'omit' as const }],
+        },
+      },
+    };
+    const bytes = await collect(
+      writeArchive({
+        manifest: initialized,
+        bundles: bundles(),
+      }),
+    );
+    const archive = await readArchive(pieces(bytes));
+    const profile = validateTemplateArchive(archive);
+
+    expect(profile.initialization?.rules[0]?.sourceId).toBe(ROOT);
+    expect(profile.initialization?.references[0]?.policy).toBe('omit');
+
+    const initialization = profile.initialization;
+    if (initialization == null)
+      throw new Error('The fixture must preserve initialization metadata.');
+    const outsideTree = {
+      ...archive,
+      manifest: {
+        ...archive.manifest,
+        profile: {
+          ...profile,
+          initialization: {
+            ...initialization,
+            rules: [
+              {
+                sourceId: WORKSPACE,
+                propertyKey: 'name',
+                kind: 'input' as const,
+                inputKey: 'project_name',
+              },
+            ],
+          },
+        },
+      },
+    };
+    expect(() => validateTemplateArchive(outsideTree)).toThrowError(
+      expect.objectContaining({ code: 'template.initialization_invalid' }) as Error,
+    );
+  });
+
+  it('refuses unknown initialization keys instead of silently dropping profile data', async () => {
+    const invalid = {
+      ...manifest(),
+      profile: {
+        ...manifest().profile,
+        initialization: { version: 1, inputs: [], rules: [], references: [], undeclared: true },
+      },
+    };
+    const bytes = zipSync({ [MANIFEST_ENTRY]: strToU8(JSON.stringify(invalid)) });
+    await expect(readArchive(pieces(bytes))).rejects.toMatchObject({
+      code: 'template.initialization_invalid',
     });
   });
 

@@ -29,3 +29,14 @@ export function ApiClientProvider({ children }: { readonly children: ReactNode }
 
   return <ApiClientContext value={client}>{children}</ApiClientContext>;
 }
+
+/** Supplies a deterministic client to isolated component stories and interaction tests. */
+export function ApiClientOverrideProvider({
+  client,
+  children,
+}: {
+  readonly client: NixClient;
+  readonly children: ReactNode;
+}): ReactNode {
+  return <ApiClientContext value={client}>{children}</ApiClientContext>;
+}

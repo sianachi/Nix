@@ -1,30 +1,40 @@
-using System.Collections.Immutable;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
-using Nix.Abstractions.Templates;
-using Nix.Domain.Audit;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
 using Nix.Domain.Templates;
-using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
-using Npgsql;
-using NpgsqlTypes;
 
 namespace Nix.Persistence.Templates;
 
 public sealed partial class TemplateStore
 {
     /// <summary>Calculates server-owned additions before an application begins.</summary>
+    public ValueTask<Result<TemplatePreflight>> PreflightAsync(
+        TemplateId templateId,
+        TemplateApplicationMode mode,
+        ItemId? targetItemId,
+        ItemId? parentItemId,
+        CancellationToken cancellationToken) =>
+        PreflightAsync(
+            templateId,
+            mode,
+            targetItemId,
+            parentItemId,
+            null,
+            null,
+            null,
+            cancellationToken);
+
+    /// <summary>Preflights the same initialized envelope the application path will stage.</summary>
     public async ValueTask<Result<TemplatePreflight>> PreflightAsync(
         TemplateId templateId,
         TemplateApplicationMode mode,
         ItemId? targetItemId,
         ItemId? parentItemId,
+        string? title,
+        IReadOnlyDictionary<string, string>? inputs,
+        int? expectedRevision,
         CancellationToken cancellationToken)
     {
         var template = await ActiveTemplateAsync(templateId, cancellationToken).ConfigureAwait(false);
@@ -39,18 +49,28 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplatePreflight>(TemplateErrors.Invalid("The template has no active root."));
         }
-        if (ContainsFileItems(source))
-        {
-            return Result.Failure<TemplatePreflight>(TemplateErrors.FileAttachmentsUnsupported());
-        }
+
         var canApply = await _permissions.CanWriteWorkspaceAsync(template.WorkspaceId, cancellationToken)
             .ConfigureAwait(false);
-        // Preflighting an application of a captured template: the source came from a workspace and
-        // is tolerated the same way it was at capture, so a template that saved can also be applied.
         var templateConflict = _validator.ValidateTemplateTree(source, tolerateViewDrift: true);
+        var existingBySource = new Dictionary<Guid, ItemId>();
+        var conflicts = new List<string>();
+        if (templateConflict is not null)
+        {
+            conflicts.Add(templateConflict);
+        }
+        var fieldAdditions = 0;
+        var viewAdditions = 0;
+        var itemAdditions = source.Count;
 
         if (mode == TemplateApplicationMode.Create)
         {
+            if (targetItemId is not null)
+            {
+                return Result.Failure<TemplatePreflight>(TemplateErrors.Invalid(
+                    "A create preflight cannot include a merge target."));
+            }
+
             if (parentItemId is { } parent
                 && (await RegularItemAsync(parent, cancellationToken).ConfigureAwait(false) is not { } parentItem
                     || parentItem.WorkspaceId != template.WorkspaceId))
@@ -59,56 +79,88 @@ public sealed partial class TemplateStore
             }
 
             var root = source[0];
-            IReadOnlyList<string> createConflicts = templateConflict is null ? [] : [templateConflict];
-            return Result.Success(new TemplatePreflight(
+            fieldAdditions = PropertySchemaJson.Read(root.Schema).Properties.Length;
+            viewAdditions = ViewDefinitionsJson.Read(root.Views).Views.Length;
+        }
+        else
+        {
+            if (parentItemId is not null)
+            {
+                return Result.Failure<TemplatePreflight>(TemplateErrors.Invalid(
+                    "A merge preflight cannot include a create parent."));
+            }
+
+            if (targetItemId is not { } targetId
+                || await RegularItemAsync(targetId, cancellationToken).ConfigureAwait(false) is not { } target
+                || target.WorkspaceId != template.WorkspaceId)
+            {
+                return Result.Failure<TemplatePreflight>(TemplateErrors.NotFound("No such target is visible."));
+            }
+
+            existingBySource[source[0].TemplateSourceId!.Value] = target.Id;
+            var effectiveTargetSchema = await _schemas.ResolveForItemAsync(targetId, cancellationToken).ConfigureAwait(false);
+            var merge = _mergePlanner.Plan(
+                target.Schema,
+                source[0].Schema,
+                target.Views,
+                source[0].Views,
+                effectiveTargetSchema);
+            fieldAdditions = merge.FieldAdditions;
+            viewAdditions = merge.ViewAdditions;
+            var prior = await PriorTargetMapAsync(
                 templateId,
-                mode,
-                PropertySchemaJson.Read(root.Schema).Properties.Length,
-                ViewDefinitionsJson.Read(root.Views).Views.Length,
-                source.Count,
-                createConflicts,
-                canApply && createConflicts.Count == 0));
+                targetId,
+                template.WorkspaceId,
+                source.Select(item => item.TemplateSourceId!.Value).ToArray(),
+                cancellationToken).ConfigureAwait(false);
+            if (prior.IsFailure)
+            {
+                conflicts.Add(prior.Error.Message);
+                return Result.Success(new TemplatePreflight(
+                    templateId,
+                    mode,
+                    fieldAdditions,
+                    viewAdditions,
+                    0,
+                    conflicts,
+                    false));
+            }
+
+            foreach (var pair in prior.Value)
+            {
+                existingBySource[pair.Key] = pair.Value;
+            }
+
+            var priorSources = prior.Value.Keys.ToHashSet();
+            itemAdditions = source.Skip(1).Count(item => !priorSources.Contains(item.TemplateSourceId!.Value));
+            conflicts.AddRange(merge.Conflicts);
         }
 
-        if (targetItemId is not { } targetId
-            || await RegularItemAsync(targetId, cancellationToken).ConfigureAwait(false) is not { } target
-            || target.WorkspaceId != template.WorkspaceId)
-        {
-            return Result.Failure<TemplatePreflight>(TemplateErrors.NotFound("No such target is visible."));
-        }
-
-        var effectiveTargetSchema = await _schemas.ResolveForItemAsync(targetId, cancellationToken).ConfigureAwait(false);
-        var merge = _mergePlanner.Plan(
-            target.Schema,
-            source[0].Schema,
-            target.Views,
-            source[0].Views,
-            effectiveTargetSchema);
-        var prior = await PriorTargetMapAsync(
-            templateId,
-            targetId,
-            template.WorkspaceId,
-            source.Select(item => item.TemplateSourceId!.Value).ToArray(),
+        var prepared = await PrepareApplicationAsync(
+            template,
+            source,
+            mode,
+            targetItemId,
+            parentItemId,
+            title,
+            inputs,
+            existingBySource,
+            expectedRevision,
             cancellationToken).ConfigureAwait(false);
-        var conflicts = merge.Conflicts.ToList();
-        if (templateConflict is not null)
+        if (prepared.IsFailure)
         {
-            conflicts.Add(templateConflict);
+            return Result.Failure<TemplatePreflight>(prepared.Error);
         }
-        if (prior.IsFailure)
-        {
-            conflicts.Add(prior.Error.Message);
-        }
-        var priorSources = prior.IsSuccess ? prior.Value.Keys.ToHashSet() : [];
-        var itemAdditions = source.Skip(1).Count(item => !priorSources.Contains(item.TemplateSourceId!.Value));
+
         return Result.Success(new TemplatePreflight(
             templateId,
             mode,
-            merge.FieldAdditions,
-            merge.ViewAdditions,
+            fieldAdditions,
+            viewAdditions,
             itemAdditions,
             conflicts,
-            canApply && conflicts.Count == 0));
+            canApply && conflicts.Count == 0,
+            prepared.Value.Resolution,
+            prepared.Value.Preview));
     }
-
 }

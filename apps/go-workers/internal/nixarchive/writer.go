@@ -2,9 +2,11 @@ package nixarchive
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"time"
 
@@ -25,9 +27,49 @@ func Write(output io.Writer, manifest Manifest, bundles []Bundle, maxBytes int64
 	}, maxBytes)
 }
 
+// FileSource is one immutable file version selected by the manifest. Bytes are supplied as a
+// reader so callers can stream from object storage without buffering the full file in memory.
+type FileSource struct {
+	Entry  FileVersionEntry
+	Reader io.ReadCloser
+}
+
+// WriteWithFiles writes a v2 archive while retaining only one item bundle and one file stream.
+func WriteWithFiles(output io.Writer, manifest Manifest, bundles []Bundle, files []FileSource, maxBytes int64) error {
+	itemIndex := 0
+	fileIndex := 0
+	return WriteStreamWithFiles(output, manifest, func() (Bundle, bool, error) {
+		if itemIndex == len(bundles) {
+			return Bundle{}, false, nil
+		}
+		bundle := bundles[itemIndex]
+		itemIndex++
+		return bundle, true, nil
+	}, func() (FileVersionEntry, io.ReadCloser, bool, error) {
+		if fileIndex == len(files) {
+			return FileVersionEntry{}, nil, false, nil
+		}
+		file := files[fileIndex]
+		fileIndex++
+		return file.Entry, file.Reader, true, nil
+	}, maxBytes)
+}
+
 // WriteStream writes one validated bundle at a time and never retains the workspace body set.
 func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool, error), maxBytes int64) error {
+	return WriteStreamWithFiles(output, manifest, next, nil, maxBytes)
+}
+
+// WriteStreamWithFiles writes one bundle and one file version at a time. File content is streamed
+// into a stored ZIP member and SHA-256 is checked incrementally against the manifest metadata.
+func WriteStreamWithFiles(output io.Writer, manifest Manifest, next func() (Bundle, bool, error), nextFile func() (FileVersionEntry, io.ReadCloser, bool, error), maxBytes int64) error {
+	if len(manifest.Items) == 0 || len(manifest.Items) > MaxArchiveItems || 1+len(manifest.Items)+len(manifest.Files) > MaxArchiveEntries {
+		return fmt.Errorf("archive exceeds the shared Nix archive entry or item ceiling")
+	}
 	if err := ValidateManifest(manifest, len(manifest.Items)); err != nil {
+		return err
+	}
+	if err := validateRawManifest(manifest); err != nil {
 		return err
 	}
 	if output == nil || next == nil || maxBytes <= 0 {
@@ -35,6 +77,9 @@ func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool,
 	}
 	if err := validateManifestFilePortability(manifest); err != nil {
 		return err
+	}
+	if manifest.FormatVersion == FileFormatVersion && nextFile == nil {
+		return fmt.Errorf("archive v2 file reader is required")
 	}
 	limited := &limitedWriter{writer: output, remaining: maxBytes}
 	archive := zip.NewWriter(limited)
@@ -59,7 +104,10 @@ func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool,
 		if bundle.ID != item.ID || bundle.ID != manifest.Items[index].ID {
 			return fmt.Errorf("archive bundle order does not match manifest")
 		}
-		if err := validateBundleFilePortability(bundle); err != nil {
+		if bundle.Type != item.Type {
+			return fmt.Errorf("archive bundle type does not match manifest")
+		}
+		if err := validateBundleFilePortability(bundle, manifest); err != nil {
 			return err
 		}
 		payload, err := encoded(bundle.Raw, bundle)
@@ -75,10 +123,90 @@ func WriteStream(output io.Writer, manifest Manifest, next func() (Bundle, bool,
 	} else if ok {
 		return fmt.Errorf("archive bundle count does not match manifest")
 	}
+	if manifest.FormatVersion == FileFormatVersion {
+		for _, expected := range manifest.Files {
+			entry, reader, ok, err := nextFile()
+			if err != nil {
+				return err
+			}
+			if !ok || reader == nil {
+				return fmt.Errorf("archive file-version count does not match manifest")
+			}
+			if !reflect.DeepEqual(entry, expected) {
+				_ = reader.Close()
+				return fmt.Errorf("archive file-version order does not match manifest")
+			}
+			if err := writeFileEntry(archive, entry, reader); err != nil {
+				return err
+			}
+		}
+		if _, _, ok, err := nextFile(); err != nil {
+			return err
+		} else if ok {
+			return fmt.Errorf("archive file-version count does not match manifest")
+		}
+	} else if nextFile != nil {
+		if _, reader, ok, err := nextFile(); err != nil {
+			return err
+		} else if ok {
+			if reader != nil {
+				_ = reader.Close()
+			}
+			return fmt.Errorf("archive v1 cannot write file-version entries")
+		}
+	}
 	if err := archive.Close(); err != nil {
 		return err
 	}
 	return limited.err
+}
+
+func validateRawManifest(manifest Manifest) error {
+	if len(manifest.Raw) == 0 {
+		return nil
+	}
+	var source Manifest
+	if err := json.Unmarshal(manifest.Raw, &source); err != nil {
+		return fmt.Errorf("archive source JSON is invalid: %w", err)
+	}
+	if err := ValidateManifest(source, len(manifest.Items)); err != nil {
+		return err
+	}
+	if source.Format != manifest.Format || source.FormatVersion != manifest.FormatVersion || source.Root != manifest.Root ||
+		!reflect.DeepEqual(source.Items, manifest.Items) || !reflect.DeepEqual(source.Files, manifest.Files) {
+		return fmt.Errorf("archive manifest source does not match its validated descriptor")
+	}
+	return nil
+}
+
+func writeFileEntry(archive *zip.Writer, metadata FileVersionEntry, source io.ReadCloser) error {
+	defer source.Close()
+	name := fileEntryName(metadata.ItemID, metadata.Version)
+	header := &zip.FileHeader{Name: name, Method: zip.Store}
+	header.SetModTime(time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC))
+	entry, err := archive.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	digest := sha256.New()
+	count, err := io.Copy(io.MultiWriter(entry, digest), io.LimitReader(source, metadata.ByteLength+1))
+	if err != nil {
+		return err
+	}
+	if count != metadata.ByteLength {
+		return fmt.Errorf("file version %s/%d length does not match manifest", metadata.ItemID, metadata.Version)
+	}
+	if count > metadata.ByteLength {
+		return fmt.Errorf("file version %s/%d exceeds manifest length", metadata.ItemID, metadata.Version)
+	}
+	if fmt.Sprintf("%x", digest.Sum(nil)) != metadata.SHA256 {
+		return fmt.Errorf("file version %s/%d digest does not match manifest", metadata.ItemID, metadata.Version)
+	}
+	return nil
+}
+
+func fileEntryName(itemID string, version int) string {
+	return fmt.Sprintf("files/%s/%d.bin", itemID, version)
 }
 
 type limitedWriter struct {

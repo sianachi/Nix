@@ -1,8 +1,9 @@
 import { createHash, randomUUID, sign } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 
 const directory = required('NIX_TEMPLATE_BOOT_DIRECTORY');
+const builtInDirectory = required('NIX_TEMPLATE_BOOT_BUILTIN_DIRECTORY');
 const workspaceId = required('NIX_TEMPLATE_BOOT_WORKSPACE_ID');
 const coreBaseUrl = serviceOrigin(required('NIX_TEMPLATE_BOOT_CORE_URL'), 'NIX_TEMPLATE_BOOT_CORE_URL');
 const objectOrigins = configuredOrigins(required('NIX_TEMPLATE_BOOT_OBJECT_ORIGINS'));
@@ -11,6 +12,7 @@ const audience = required('NIX_TEMPLATE_BOOT_OIDC_AUDIENCE');
 const scope = required('NIX_TEMPLATE_BOOT_OIDC_SCOPE');
 const serviceKeyFile = required('NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE');
 const syncRevision = required('NIX_TEMPLATE_BOOT_REVISION');
+const inspectOperationId = process.env.NIX_TEMPLATE_BOOT_INSPECT_OPERATION_ID ?? null;
 const healthUrls = required('NIX_TEMPLATE_BOOT_HEALTH_URLS')
   .split(',')
   .map((entry) => strip(entry.trim()));
@@ -42,6 +44,9 @@ if (healthUrls.length === 0 || healthUrls.some((url) => url.length === 0)) {
 if (pollIntervalMs > operationTimeoutMs) {
   throw new Error('NIX_TEMPLATE_BOOT_POLL_INTERVAL_MS cannot exceed the operation timeout.');
 }
+if (inspectOperationId !== null && !uuid(inspectOperationId)) {
+  throw new Error('NIX_TEMPLATE_BOOT_INSPECT_OPERATION_ID must be a UUID.');
+}
 if (syncRevision.length > 200 || [...syncRevision].some((character) => character.charCodeAt(0) < 0x20)) {
   throw new Error('NIX_TEMPLATE_BOOT_REVISION must be a bounded printable release identity.');
 }
@@ -58,13 +63,36 @@ if (!record(discovery) || typeof discovery.token_endpoint !== 'string') {
 const tokenEndpoint = oidcEndpoint(discovery.token_endpoint);
 const serviceKey = parseServiceKey(await readFile(serviceKeyFile, 'utf8'));
 const tokens = tokenProvider(tokenEndpoint, serviceKey);
-const names = (await readdir(directory, { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.nix'))
-  .map((entry) => entry.name)
-  .sort((left, right) => left.localeCompare(right));
+if (inspectOperationId !== null) {
+  const operation = parseOperation(
+    await authorizedJson(`${coreBaseUrl}/api/v1/operations/${inspectOperationId}`, {
+      method: 'GET',
+    }),
+    null,
+    inspectOperationId,
+  );
+  console.log(
+    JSON.stringify({
+      id: operation.id,
+      kind: operation.kind,
+      status: operation.status,
+      errorCode: operation.errorCode,
+      errorDetail: redactUrls(operation.errorDetail),
+      attempts: operation.attempts,
+      cancellationRequested: operation.cancellationRequested,
+      createdAt: operation.createdAt,
+      completedAt: operation.completedAt,
+    }),
+  );
+  process.exit(0);
+}
+const names = [
+  ...(await managedNames(builtInDirectory, 'builtin')),
+  ...(await managedNames(directory, 'operator')),
+].sort((left, right) => left.managedSource.localeCompare(right.managedSource));
 
 if (names.length > MAX_TEMPLATE_COUNT) {
-  throw new Error(`A managed template directory may contain at most ${String(MAX_TEMPLATE_COUNT)} .nix files.`);
+    throw new Error(`The combined managed template directories may contain at most ${String(MAX_TEMPLATE_COUNT)} .nix files.`);
 }
 
 try {
@@ -75,26 +103,33 @@ try {
 
   const previews = [];
   const stableKeys = new Set();
-  for (const name of names) {
-    const bytes = await readManagedFile(name);
+  for (const source of names) {
+    console.log(`[template-sync] archive=${source.managedSource} stage=begin`);
+    const bytes = await readManagedFile(source);
     const sourceDigest = sha256(bytes);
     const begun = parseUpload(
       await authorizedJson(
         `${coreBaseUrl}/api/v1/workspaces/${workspaceId}/managed-template-imports`,
         jsonRequest('POST', {
-          fileName: name,
+          fileName: source.name,
           mediaType: TEMPLATE_MEDIA_TYPE,
           byteLength: bytes.byteLength,
-          managedSource: basename(name),
-          idempotencyKey: importIdempotencyKey(name, sourceDigest),
+          managedSource: source.managedSource,
+          idempotencyKey: importIdempotencyKey(source.managedSource, sourceDigest),
         }),
       ),
-      name,
+      source.managedSource,
+    );
+    console.log(
+      `[template-sync] archive=${source.managedSource} importId=${begun.id} stage=upload status=${begun.status}`,
     );
     if (begun.uploadUrl !== null) {
       await putCapability(begun.uploadUrl, bytes);
+      console.log(
+        `[template-sync] archive=${source.managedSource} importId=${begun.id} stage=upload status=completed`,
+      );
     } else if (begun.status === 'pending_upload') {
-      throw new Error(`Core did not provide an upload capability for ${name}.`);
+      throw new Error(`Core did not provide an upload capability for ${source.managedSource}.`);
     }
 
     const previewJob = parseOperation(
@@ -104,7 +139,10 @@ try {
       ),
       'template.preview',
     );
-    await waitForOperation(previewJob);
+    await waitForOperation(
+      previewJob,
+      `archive=${source.managedSource} importId=${begun.id} stage=preview`,
+    );
     const current = parseTemplateImport(
       await authorizedJson(`${coreBaseUrl}/api/v1/template-imports/${begun.id}`, {
         method: 'GET',
@@ -112,7 +150,7 @@ try {
       begun.id,
     );
     if (current.preview === null || current.preview.digest !== sourceDigest) {
-      throw new Error(`The durable preview for ${name} did not describe its uploaded archive.`);
+      throw new Error(`The durable preview for ${source.managedSource} did not describe its uploaded archive.`);
     }
     if (stableKeys.has(current.preview.stableKey)) {
       throw new Error(
@@ -120,8 +158,12 @@ try {
       );
     }
     stableKeys.add(current.preview.stableKey);
+    console.log(
+      `[template-sync] archive=${source.managedSource} profile=${current.preview.stableKey} importId=${begun.id} stage=preview status=${current.status}`,
+    );
     previews.push({
-      name,
+      name: source.managedSource,
+      source,
       importId: begun.id,
       digest: current.preview.digest,
       stableKey: current.preview.stableKey,
@@ -130,7 +172,10 @@ try {
 
   const imports = [];
   for (const preview of previews) {
-    const currentBytes = await readManagedFile(preview.name);
+    console.log(
+      `[template-sync] archive=${preview.name} profile=${preview.stableKey} importId=${preview.importId} stage=commit`,
+    );
+    const currentBytes = await readManagedFile(preview.source);
     if (sha256(currentBytes) !== preview.digest) {
       throw new Error(`Managed template ${preview.name} changed after its durable preview.`);
     }
@@ -141,7 +186,10 @@ try {
       ),
       'template.commit',
     );
-    await waitForOperation(commitJob);
+    await waitForOperation(
+      commitJob,
+      `archive=${preview.name} profile=${preview.stableKey} importId=${preview.importId} stage=commit`,
+    );
     const current = parseTemplateImport(
       await authorizedJson(`${coreBaseUrl}/api/v1/template-imports/${preview.importId}`, {
         method: 'GET',
@@ -156,6 +204,9 @@ try {
     ) {
       throw new Error(`The managed template commit for ${preview.name} was incomplete.`);
     }
+    console.log(
+      `[template-sync] archive=${preview.name} profile=${current.result.stableKey} importId=${preview.importId} templateId=${current.result.templateId} stage=commit status=${current.status}`,
+    );
     imports.push({ importId: preview.importId, ...current.result });
   }
 
@@ -173,6 +224,9 @@ try {
       activeStableKeys: previews.map((preview) => preview.stableKey),
     }),
   );
+  console.log(
+    `[template-sync] stage=finalize status=completed activeStableKeys=${previews.length}`,
+  );
 } catch (error) {
   // Durable imports are deliberately retained after an interrupted run. A retry with the same
   // release identity resumes the exact jobs; Core's expiry reaper owns eventual cleanup when a
@@ -180,17 +234,32 @@ try {
   throw error;
 }
 
-async function waitForOperation(initial) {
+async function waitForOperation(initial, context) {
   const deadline = Date.now() + operationTimeoutMs;
+  const started = Date.now();
   let operation = initial;
+  let previousStatus = null;
+  let lastHeartbeat = started;
   for (;;) {
+    if (operation.status !== previousStatus) {
+      console.log(
+        `[template-sync] ${context} jobId=${operation.id} state=${operation.status} attempts=${operation.attempts}`,
+      );
+      previousStatus = operation.status;
+    }
     if (operation.status === 'completed') return;
     if (operation.status === 'failed' || operation.status === 'cancelled') {
       throw new Error(
-        operation.errorDetail ??
+        redactUrls(operation.errorDetail) ??
           operation.errorCode ??
           `The ${operation.kind} operation ${operation.status}.`,
       );
+    }
+    if (Date.now() - lastHeartbeat >= 15_000) {
+      console.log(
+        `[template-sync] ${context} jobId=${operation.id} heartbeat elapsedSeconds=${Math.floor((Date.now() - started) / 1000)} state=${operation.status} attempts=${operation.attempts}`,
+      );
+      lastHeartbeat = Date.now();
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
@@ -372,8 +441,16 @@ async function boundedJson(response, maximumBytes) {
   }
 }
 
-async function readManagedFile(name) {
-  const path = join(directory, name);
+async function managedNames(path, source) {
+  const entries = await readdir(path, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.nix'))
+    .map((entry) => ({ name: entry.name, directory: path, managedSource: `${source}/${entry.name}` }));
+}
+
+async function readManagedFile(source) {
+  const { name } = source;
+  const path = join(source.directory, name);
   const metadata = await lstat(path);
   if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_TEMPLATE_BYTES) {
     throw new Error(`Managed template ${name} is not a regular non-empty file of at most 64 MiB.`);
@@ -402,20 +479,34 @@ function parseOperation(value, expectedKind, expectedId = null) {
     !record(value) ||
     !uuid(value.id) ||
     (expectedId !== null && value.id !== expectedId) ||
-    value.kind !== expectedKind ||
+    typeof value.kind !== 'string' ||
+    (expectedKind !== null && value.kind !== expectedKind) ||
     !['queued', 'running', 'completed', 'failed', 'cancelled'].includes(value.status) ||
     (value.errorCode !== null && typeof value.errorCode !== 'string') ||
-    (value.errorDetail !== null && typeof value.errorDetail !== 'string')
+    (value.errorDetail !== null && typeof value.errorDetail !== 'string') ||
+    !Number.isSafeInteger(value.attempts) ||
+    value.attempts < 0 ||
+    typeof value.cancellationRequested !== 'boolean' ||
+    typeof value.createdAt !== 'string' ||
+    (value.completedAt !== null && typeof value.completedAt !== 'string')
   ) {
-    throw new Error(`Core returned an invalid ${expectedKind} operation status.`);
+    throw new Error(`Core returned an invalid ${expectedKind ?? 'operation'} status.`);
   }
   return {
     id: value.id,
-    kind: expectedKind,
+    kind: value.kind,
     status: value.status,
     errorCode: value.errorCode,
     errorDetail: value.errorDetail,
+    attempts: value.attempts,
+    cancellationRequested: value.cancellationRequested,
+    createdAt: value.createdAt,
+    completedAt: value.completedAt,
   };
+}
+
+function redactUrls(value) {
+  return value?.replace(/https?:\/\/[^\s)"']+/giu, '[url redacted]') ?? null;
 }
 
 function parseTemplateImport(value, expectedId) {

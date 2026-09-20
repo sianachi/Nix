@@ -1,4 +1,8 @@
 import { parseStoredViewsObject, type PropertyDefinition, type ViewsSnapshot } from '@nix/export';
+import {
+  templateInitializationSchema,
+  type TemplateInitialization as ApiTemplateInitialization,
+} from '@nix/api-client';
 
 export interface ItemMapping {
   readonly sourceId: string;
@@ -28,6 +32,7 @@ export interface CoreTemplateClient {
     kind: OperationKind,
     operationId: string,
     writtenTargetItemIds: readonly string[],
+    externalReferenceTargets?: readonly string[],
   ): Promise<FinalizeTemplateResult | FinalizeApplicationResult>;
   abort(token: string, kind: OperationKind, operationId: string): Promise<void>;
   finalizeManaged(
@@ -71,6 +76,19 @@ export interface CoreTemplateClient {
     sourceId: string,
   ): Promise<TemplateItemAuthorization>;
   getTemplateExport(token: string, templateId: string): Promise<TemplateExportSnapshot>;
+  getTemplateExportFiles(
+    token: string,
+    templateId: string,
+    afterFileVersionId?: string,
+    revision?: number,
+  ): Promise<TemplateExportFilePage>;
+  getTemplateExportFileCapability(
+    token: string,
+    templateId: string,
+    fileVersionId: string,
+    revision: number,
+    signal?: AbortSignal,
+  ): Promise<TemplateExportFileCapability>;
 }
 
 export interface TemplateStageSweep {
@@ -128,6 +146,7 @@ export interface TemplateExportItem {
   readonly schema: TemplateExportSchema | null;
   readonly views: ViewsSnapshot | null;
   readonly hasBody: boolean;
+  readonly recurrence: Readonly<Record<string, unknown>> | null;
 }
 
 /** Core stores declarations; Collab expands them into the archive snapshot shape. */
@@ -153,14 +172,18 @@ export interface TemplateDraftItem {
   readonly schema: TemplatePropertySchemaResponse | null;
   readonly views: ViewsSnapshot | null;
   readonly hasBody: boolean;
+  readonly recurrence: Readonly<Record<string, unknown>> | null;
   readonly children: readonly TemplateDraftItem[];
 }
 
 export interface TemplateDraft {
   readonly operationId: string;
   readonly templateId: string;
+  readonly fileTransferJobId: string | null;
+  readonly fileTransferPending: boolean;
   readonly title: string;
   readonly description: string | null;
+  readonly initialization: TemplateInitialization;
   readonly expiresAt: string;
   readonly root: TemplateDraftItem;
   readonly itemMappings: readonly ItemMapping[];
@@ -177,7 +200,34 @@ export interface TemplateExportSnapshot {
   readonly revision: number;
   readonly includeBody: boolean;
   readonly includeChildren: boolean;
+  readonly initialization: TemplateInitialization;
   readonly items: readonly TemplateExportItem[];
+}
+
+export interface TemplateExportFilePage {
+  readonly revision: number;
+  readonly files: readonly TemplateExportFile[];
+  readonly nextAfterFileVersionId: string | null;
+  readonly complete: boolean;
+}
+
+export interface TemplateExportFile {
+  readonly fileVersionId: string;
+  readonly sourceId: string;
+  readonly version: number;
+  readonly current: boolean;
+  readonly fileName: string;
+  readonly mediaType: string;
+  readonly byteLength: number;
+  readonly sha256: string;
+  readonly previewable: boolean;
+  readonly pixelWidth: number | null;
+  readonly pixelHeight: number | null;
+}
+
+export interface TemplateExportFileCapability {
+  readonly downloadUrl: string;
+  readonly expiresAt: string;
 }
 
 export type OperationKind = 'captures' | 'imports' | 'applications';
@@ -185,6 +235,8 @@ export type OperationKind = 'captures' | 'imports' | 'applications';
 export interface CaptureBegin {
   readonly operationId: string;
   readonly templateId: string;
+  readonly fileTransferJobId: string | null;
+  readonly fileTransferPending: boolean;
   readonly bodyCopies: readonly { sourceItemId: string; targetItemId: string; itemType: string }[];
   readonly itemMappings: readonly ItemMapping[];
 }
@@ -200,12 +252,19 @@ export interface ImportBegin {
 export interface ApplicationBegin {
   readonly applicationId: string;
   readonly templateId: string;
+  readonly fileTransferJobId: string | null;
+  readonly fileTransferPending: boolean;
   readonly targetItemId: string;
   readonly alreadyApplied: boolean;
   readonly createdItems: readonly ItemMapping[];
   readonly bodyCopies: readonly { sourceItemId: string; targetItemId: string; itemType: string }[];
   readonly itemMappings: readonly ItemMapping[];
+  readonly resolvedInputs: Readonly<Record<string, string>>;
+  readonly textBindings: Readonly<Record<string, string>>;
+  readonly referenceMappings: Readonly<Record<string, string | null>>;
 }
+
+export type TemplateInitialization = ApiTemplateInitialization;
 
 export class CoreTemplateError extends Error {
   public readonly status: number;
@@ -233,6 +292,7 @@ export function createCoreTemplateClient(options: {
     path: string,
     init: RequestInit,
     parse: (value: unknown) => T,
+    signal?: AbortSignal,
   ): Promise<T> {
     let response: Response;
     try {
@@ -244,7 +304,10 @@ export function createCoreTemplateClient(options: {
           accept: 'application/json',
           ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal:
+          signal === undefined
+            ? AbortSignal.timeout(timeoutMs)
+            : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
       });
     } catch {
       throw new CoreTemplateError(
@@ -267,10 +330,17 @@ export function createCoreTemplateClient(options: {
       return parse(body);
     } catch (error) {
       if (error instanceof CoreTemplateError) throw error;
+      // Parsers in this module throw short, fixed field/shape labels. Preserve that
+      // label so contract drift can be diagnosed without logging response bodies,
+      // capabilities, or credentials.
+      const parserLabel =
+        error instanceof Error && /^[a-z0-9 _-]{1,64}$/i.test(error.message)
+          ? error.message
+          : 'response shape';
       throw new CoreTemplateError(
         502,
         'template.core_contract_invalid',
-        `Core returned an invalid template response for ${path}.`,
+        `Core returned an invalid template response for ${path} (${parserLabel}).`,
       );
     }
   }
@@ -304,9 +374,15 @@ export function createCoreTemplateClient(options: {
         { method: 'GET' },
         parseOperationAuthorization,
       ),
-    finalize(token, kind, operationId, writtenTargetItemIds) {
+    finalize(token, kind, operationId, writtenTargetItemIds, externalReferenceTargets) {
       const path = `/internal/templates/${kind}/${operationId}/finalize`;
-      const request = { method: 'POST', body: JSON.stringify({ writtenTargetItemIds }) };
+      const request = {
+        method: 'POST',
+        body: JSON.stringify({
+          writtenTargetItemIds,
+          ...(externalReferenceTargets === undefined ? {} : { externalReferenceTargets }),
+        }),
+      };
       return kind === 'applications'
         ? send(token, path, request, parseFinalizeApplication)
         : send(token, path, request, parseFinalizeTemplate);
@@ -404,6 +480,25 @@ export function createCoreTemplateClient(options: {
         { method: 'GET' },
         parseTemplateExport,
       ),
+    getTemplateExportFiles: (token, templateId, afterFileVersionId, revision) => {
+      const query = new URLSearchParams({ limit: '100' });
+      if (afterFileVersionId !== undefined) query.set('afterFileVersionId', afterFileVersionId);
+      if (revision !== undefined) query.set('revision', String(revision));
+      return send(
+        token,
+        `/internal/templates/${templateId}/export/files?${query.toString()}`,
+        { method: 'GET' },
+        parseTemplateExportFilePage,
+      );
+    },
+    getTemplateExportFileCapability: (token, templateId, fileVersionId, revision, signal) =>
+      send(
+        token,
+        `/internal/templates/${templateId}/export/files/${fileVersionId}/capability?revision=${String(revision)}`,
+        { method: 'GET' },
+        parseTemplateExportFileCapability,
+        signal,
+      ),
   };
 }
 
@@ -412,6 +507,8 @@ function parseCaptureBegin(value: unknown): CaptureBegin {
   return {
     operationId: requiredUuid(body.operationId),
     templateId: requiredUuid(body.templateId),
+    fileTransferJobId: nullableUuid(body.fileTransferJobId),
+    fileTransferPending: requiredBoolean(body.fileTransferPending),
     itemMappings: requiredArray(body.itemMappings, parseItemMapping),
     bodyCopies: requiredArray(body.bodyCopies, parseBodyCopy),
   };
@@ -433,11 +530,16 @@ function parseApplicationBegin(value: unknown): ApplicationBegin {
   return {
     applicationId: requiredUuid(body.applicationId),
     templateId: requiredUuid(body.templateId),
+    fileTransferJobId: nullableUuid(body.fileTransferJobId),
+    fileTransferPending: requiredBoolean(body.fileTransferPending),
     targetItemId: requiredUuid(body.targetItemId),
     alreadyApplied: requiredBoolean(body.alreadyApplied),
     createdItems: requiredArray(body.createdItems, parseItemMapping),
     itemMappings: requiredArray(body.itemMappings, parseItemMapping),
     bodyCopies: requiredArray(body.bodyCopies, parseBodyCopy),
+    resolvedInputs: optionalTextRecord(body.resolvedInputs),
+    textBindings: optionalTextRecord(body.textBindings),
+    referenceMappings: optionalNullableUuidRecord(body.referenceMappings),
   };
 }
 
@@ -508,13 +610,27 @@ function parseTemplateDraft(value: unknown): TemplateDraft {
   return {
     operationId: requiredUuid(body.operationId),
     templateId: requiredUuid(body.templateId),
+    fileTransferJobId: nullableUuid(body.fileTransferJobId),
+    fileTransferPending: requiredBoolean(body.fileTransferPending),
     title: requiredText(body.title, true),
     description: nullableText(body.description),
+    initialization: parseTemplateInitialization(body.initialization),
     expiresAt: requiredDate(body.expiresAt),
     root: parseTemplateDraftItem(body.root),
     itemMappings: requiredArray(body.itemMappings, parseItemMapping),
     bodyCopies: requiredArray(body.bodyCopies, parseBodyCopy),
   };
+}
+
+function parseTemplateInitialization(value: unknown): TemplateInitialization {
+  const body = value === undefined || value === null ? {} : requiredRecord(value);
+  const candidate = {
+    version: body.version ?? 1,
+    inputs: body.inputs ?? [],
+    rules: body.rules ?? [],
+    references: body.references ?? [],
+  };
+  return templateInitializationSchema.parse(candidate);
 }
 
 function parseTemplateDraftItem(value: unknown): TemplateDraftItem {
@@ -530,6 +646,7 @@ function parseTemplateDraftItem(value: unknown): TemplateDraftItem {
     schema: body.schema === null ? null : parseTemplatePropertySchemaResponse(body.schema),
     views: parseStoredViewsObject(body.views, sourceId),
     hasBody: requiredBoolean(body.hasBody),
+    recurrence: body.recurrence === undefined ? null : nullableRecord(body.recurrence),
     children: requiredArray(body.children, parseTemplateDraftItem),
   };
 }
@@ -557,7 +674,52 @@ function parseTemplateExport(value: unknown): TemplateExportSnapshot {
     revision: requiredInteger(body.revision),
     includeBody: requiredBoolean(body.includeBody),
     includeChildren: requiredBoolean(body.includeChildren),
-    items: requiredArray(body.items, parseTemplateExportItem),
+    initialization: parseAt('initialization', () =>
+      parseTemplateInitialization(body.initialization),
+    ),
+    items: parseAt('items', () =>
+      requiredArray(body.items, (item) => parseAt('item', () => parseTemplateExportItem(item))),
+    ),
+  };
+}
+
+function parseTemplateExportFilePage(value: unknown): TemplateExportFilePage {
+  const body = requiredRecord(value);
+  return {
+    revision: requiredInteger(body.revision),
+    files: requiredArray(body.files, parseTemplateExportFile),
+    nextAfterFileVersionId:
+      body.nextAfterFileVersionId === null ? null : requiredUuid(body.nextAfterFileVersionId),
+    complete: requiredBoolean(body.complete),
+  };
+}
+
+function parseTemplateExportFile(value: unknown): TemplateExportFile {
+  const body = requiredRecord(value);
+  return {
+    fileVersionId: requiredUuid(body.fileVersionId),
+    sourceId: requiredUuid(body.sourceId),
+    version: requiredInteger(body.version),
+    current: requiredBoolean(body.current),
+    fileName: requiredText(body.fileName),
+    mediaType: requiredText(body.mediaType),
+    byteLength: requiredInteger(body.byteLength),
+    sha256: requiredText(body.sha256),
+    previewable: requiredBoolean(body.previewable),
+    pixelWidth: body.pixelWidth === null ? null : requiredInteger(body.pixelWidth),
+    pixelHeight: body.pixelHeight === null ? null : requiredInteger(body.pixelHeight),
+  };
+}
+
+function parseTemplateExportFileCapability(value: unknown): TemplateExportFileCapability {
+  const body = requiredRecord(value);
+  const downloadUrl = requiredText(body.downloadUrl);
+  const parsedUrl = new URL(downloadUrl);
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:')
+    throw new Error('downloadUrl');
+  return {
+    downloadUrl,
+    expiresAt: requiredDate(body.expiresAt),
   };
 }
 
@@ -573,9 +735,11 @@ function parseTemplateExportItem(value: unknown): TemplateExportItem {
     title: requiredText(body.title, true),
     seq: requiredIntegerText(body.seq),
     properties: requiredRecord(body.properties),
-    schema: body.schema === null ? null : parseTemplateExportSchema(body.schema),
-    views: parseStoredViewsObject(body.views, sourceId),
+    schema:
+      body.schema === null ? null : parseAt('schema', () => parseTemplateExportSchema(body.schema)),
+    views: parseAt('views', () => parseStoredViewsObject(body.views, sourceId)),
     hasBody: requiredBoolean(body.hasBody),
+    recurrence: body.recurrence === undefined ? null : nullableRecord(body.recurrence),
   };
 }
 
@@ -596,7 +760,11 @@ function parseProperty(value: unknown): PropertyDefinition {
     key: requiredText(body.key),
     label: requiredText(body.label, true),
     type: requiredText(body.type),
-    options: requiredArray(body.options, (option) => requiredText(option, true)),
+    // Core's canonical stored-schema writer omits an empty options array.
+    options:
+      body.options === undefined
+        ? []
+        : requiredArray(body.options, (option) => requiredText(option, true)),
     required: requiredBoolean(body.required),
   };
 }
@@ -698,6 +866,16 @@ function requiredArray<T>(value: unknown, parse: (entry: unknown) => T): readonl
   return value.map(parse);
 }
 
+function parseAt<T>(field: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : 'invalid';
+    const safeCause = /^[a-z0-9 _.-]{1,96}$/i.test(cause) ? cause : 'invalid';
+    throw new Error(`${field}.${safeCause}`);
+  }
+}
+
 function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -706,6 +884,24 @@ function record(value: unknown): Record<string, unknown> {
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function optionalTextRecord(value: unknown): Readonly<Record<string, string>> {
+  if (value === undefined) return {};
+  const body = requiredRecord(value);
+  const parsed: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(body)) parsed[key] = requiredText(entry, true);
+  return parsed;
+}
+
+function optionalNullableUuidRecord(value: unknown): Readonly<Record<string, string | null>> {
+  if (value === undefined) return {};
+  const body = requiredRecord(value);
+  const parsed: Record<string, string | null> = {};
+  for (const [key, entry] of Object.entries(body)) {
+    parsed[requiredUuid(key)] = entry === null ? null : requiredUuid(entry);
+  }
+  return parsed;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

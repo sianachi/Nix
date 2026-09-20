@@ -1,10 +1,35 @@
 /** Workspace administration tools exposed over the Model Context Protocol. */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { files, habits, workspaces } from '@nix/api-client';
+import {
+  files,
+  habits,
+  operations,
+  workspaces,
+  templates as templateResources,
+  templateInitializationSchema,
+} from '@nix/api-client';
 import { downloadFileValue, uploadFileValue } from './commands/files.ts';
 import { runImport } from './commands/import.ts';
+import {
+  executeTemplateApply,
+  executeTemplateArchiveCommit,
+  executeTemplateArchiveExport,
+  executeTemplateImportGet,
+  executeTemplateImportCancel,
+  executeTemplateArchivePreview,
+  executeTemplateCapture,
+  executeTemplateDraftBegin,
+  executeTemplateDraftGet,
+  executeTemplateDraftUpdate,
+  executeTemplateDraftItemUpdate,
+  executeTemplateDraftSave,
+  executeTemplateDraftDiscard,
+  executeTemplateOperationResume,
+  executeTemplateInitializationUpdate,
+} from './commands/templates.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
 import type { Session } from './session.ts';
 
@@ -29,6 +54,118 @@ export async function createWorkspaceMcpServer(
   const server = new McpServer({ name: 'nixctl', version: '0.0.0' });
   const resolver = options.resolve ?? resolveSession;
   const session = lazy(() => resolver(options.profileName, options.sessionDeps ?? {}));
+
+  server.registerTool(
+    'begin_template_draft',
+    {
+      description:
+        'Copy a template into an editable draft, waiting for file copies to finish before returning.',
+      inputSchema: {
+        templateId: identifier,
+        idempotencyKey: z.string().min(1).max(200).optional(),
+      },
+    },
+    ({ templateId, idempotencyKey }) =>
+      toolResult(async () => {
+        const current = await session();
+        const key = idempotencyKey ?? `nixctl-mcp-draft:${templateId}:${randomUUID()}`;
+        const draft = await executeTemplateDraftBegin(current, templateId, key, false);
+        return {
+          draft,
+          resume: draft.fileTransferPending
+            ? {
+                kind: 'draft',
+                jobId: draft.fileTransferJobId,
+                operationId: draft.operationId,
+                idempotencyKey: key,
+                request: { templateId, idempotencyKey: key },
+              }
+            : { idempotencyKey: key },
+        };
+      }),
+  );
+
+  server.registerTool(
+    'get_template_draft',
+    {
+      description: 'Read an active template draft and its item tree.',
+      inputSchema: { templateId: identifier, operationId: identifier },
+    },
+    ({ templateId, operationId }) =>
+      toolResult(async () => executeTemplateDraftGet(await session(), templateId, operationId)),
+  );
+
+  server.registerTool(
+    'update_template_draft',
+    {
+      description: 'Update a draft title, description, or setup questions and rules.',
+      inputSchema: {
+        templateId: identifier,
+        operationId: identifier,
+        title: z.string().trim().min(1).max(200).optional(),
+        description: z.string().max(4_096).nullable().optional(),
+        initialization: z.record(z.string(), z.unknown()).optional(),
+      },
+    },
+    ({ templateId, operationId, title, description, initialization }) =>
+      toolResult(async () =>
+        executeTemplateDraftUpdate(await session(), templateId, operationId, {
+          ...(title === undefined ? {} : { title }),
+          ...(description === undefined ? {} : { description }),
+          ...(initialization === undefined
+            ? {}
+            : { initialization: templateInitializationSchema.parse(initialization) }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'update_template_draft_item',
+    {
+      description: 'Update a draft item title, properties, schema, or views.',
+      inputSchema: {
+        templateId: identifier,
+        operationId: identifier,
+        sourceId: identifier,
+        title: z.string().trim().min(1).max(200).optional(),
+        properties: z.record(z.string(), z.unknown()).nullable().optional(),
+        schema: z
+          .object({ properties: z.array(z.unknown()), inherit: z.boolean() })
+          .nullable()
+          .optional(),
+        views: z.unknown().optional(),
+      },
+    },
+    ({ templateId, operationId, sourceId, title, properties, schema, views }) =>
+      toolResult(async () =>
+        executeTemplateDraftItemUpdate(await session(), templateId, operationId, sourceId, {
+          ...(title === undefined ? {} : { title }),
+          ...(properties === undefined ? {} : { properties }),
+          ...(schema === undefined ? {} : { schema }),
+          ...(views === undefined ? {} : { views }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'save_template_draft',
+    {
+      description: 'Publish a completed template draft as a new revision.',
+      inputSchema: { templateId: identifier, operationId: identifier },
+    },
+    ({ templateId, operationId }) =>
+      toolResult(async () => executeTemplateDraftSave(await session(), templateId, operationId)),
+  );
+
+  server.registerTool(
+    'discard_template_draft',
+    {
+      description: 'Discard an unfinished template draft.',
+      inputSchema: { templateId: identifier, operationId: identifier },
+    },
+    ({ templateId, operationId }) =>
+      toolResult(async () => executeTemplateDraftDiscard(await session(), templateId, operationId)),
+  );
 
   server.registerTool(
     'list_workspaces',
@@ -164,6 +301,30 @@ export async function createWorkspaceMcpServer(
   );
 
   server.registerTool(
+    'get_operation',
+    {
+      description: 'Read the current state of an operation visible to the current principal.',
+      inputSchema: { operationId: identifier },
+    },
+    ({ operationId }) =>
+      toolResult(async () =>
+        (await session()).client.query(operations.operationById(operationId), {
+          forceRefresh: true,
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'cancel_template_archive_import',
+    {
+      description: 'Cancel a template archive import visible to the current principal.',
+      inputSchema: { importId: identifier, confirm: z.literal(true) },
+    },
+    ({ importId }) =>
+      toolResult(async () => executeTemplateImportCancel(await session(), importId)),
+  );
+
+  server.registerTool(
     'list_workspace_members',
     {
       description: 'List principal and group workspace grants with server-decided capabilities.',
@@ -287,6 +448,30 @@ export async function createWorkspaceMcpServer(
   );
 
   server.registerTool(
+    'list_workspace_assignable_principals',
+    {
+      description:
+        'List active direct and group-derived workspace principals available for assignment.',
+      inputSchema: {
+        workspaceId: identifier,
+        query: z.string().trim().max(128).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        cursor: z.string().max(128).optional(),
+      },
+    },
+    ({ workspaceId, query, limit, cursor }) =>
+      toolResult(async () =>
+        (await session()).client.query(
+          workspaces.listAssignablePrincipalsPage(workspaceId, {
+            ...(query === undefined ? {} : { query }),
+            limit,
+            ...(cursor === undefined ? {} : { cursor }),
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
     'leave_workspace',
     {
       description: 'Leave a workspace when doing so preserves ownership.',
@@ -396,6 +581,261 @@ export async function createWorkspaceMcpServer(
           versionId,
           options.sessionDeps ?? {},
         ),
+      ),
+  );
+
+  server.registerTool(
+    'list_templates',
+    {
+      description: 'List templates visible in a workspace, including their setup metadata.',
+      inputSchema: { workspaceId: identifier },
+    },
+    ({ workspaceId }) =>
+      toolResult(async () =>
+        (await session()).client.query(templateResources.listTemplates(workspaceId)),
+      ),
+  );
+
+  server.registerTool(
+    'get_template',
+    {
+      description: 'Read a template, its item tree, and its initialization questions and rules.',
+      inputSchema: { templateId: identifier },
+    },
+    ({ templateId }) =>
+      toolResult(async () =>
+        (await session()).client.query(templateResources.templateById(templateId)),
+      ),
+  );
+
+  server.registerTool(
+    'capture_template',
+    {
+      description: 'Capture a readable item subtree as a reusable workspace template.',
+      inputSchema: {
+        workspaceId: identifier,
+        sourceItemId: identifier,
+        title: z.string().trim().min(1).max(200),
+        description: z.string().max(4_096).nullable().optional(),
+        includeBody: z.boolean().default(false),
+        includeChildren: z.boolean().default(false),
+        idempotencyKey: z.string().min(1).max(200).optional(),
+      },
+    },
+    ({
+      workspaceId,
+      sourceItemId,
+      title,
+      description,
+      includeBody,
+      includeChildren,
+      idempotencyKey,
+    }) =>
+      toolResult(async () => {
+        const key = idempotencyKey ?? `nixctl-mcp-capture:${sourceItemId}:${randomUUID()}`;
+        const request = {
+          workspaceId,
+          sourceItemId,
+          title,
+          ...(description === undefined ? {} : { description }),
+          includeBody,
+          includeChildren,
+          idempotencyKey: key,
+        };
+        const result = await executeTemplateCapture(await session(), request, false);
+        return {
+          capture: result,
+          resume: result.fileTransferPending
+            ? {
+                kind: 'capture',
+                jobId: result.fileTransferJobId,
+                operationId: result.operationId,
+                idempotencyKey: key,
+                request,
+              }
+            : { idempotencyKey: key, request },
+        };
+      }),
+  );
+
+  server.registerTool(
+    'preflight_template_application',
+    {
+      description:
+        'Resolve inputs and preview a template against an exact destination and revision.',
+      inputSchema: {
+        templateId: identifier,
+        mode: z.enum(['merge', 'create']),
+        targetItemId: identifier.nullable().optional(),
+        parentItemId: identifier.nullable().optional(),
+        title: z.string().max(200).optional(),
+        inputs: z.record(z.string(), z.string()).optional(),
+        expectedRevision: z.number().int().nonnegative().optional(),
+      },
+    },
+    ({ templateId, mode, targetItemId, parentItemId, title, inputs, expectedRevision }) =>
+      toolResult(async () => {
+        const current = await session();
+        const detail = await current.client.query(templateResources.templateById(templateId));
+        return current.client.execute(
+          templateResources.preflightTemplate(templateId, {
+            mode,
+            ...(targetItemId === undefined ? {} : { targetItemId }),
+            ...(parentItemId === undefined ? {} : { parentItemId }),
+            ...(title === undefined ? {} : { title }),
+            ...(inputs === undefined ? {} : { inputs }),
+            expectedRevision: expectedRevision ?? detail.revision,
+          }),
+        );
+      }),
+  );
+
+  server.registerTool(
+    'apply_template',
+    {
+      description:
+        'Preflight and apply a template; the server checks permissions and resolves links.',
+      inputSchema: {
+        templateId: identifier,
+        mode: z.enum(['merge', 'create']),
+        targetItemId: identifier.nullable().optional(),
+        parentItemId: identifier.nullable().optional(),
+        title: z.string().max(200).optional(),
+        inputs: z.record(z.string(), z.string()).optional(),
+        expectedRevision: z.number().int().nonnegative().optional(),
+        idempotencyKey: z.string().min(1).max(200).optional(),
+      },
+    },
+    ({
+      templateId,
+      mode,
+      targetItemId,
+      parentItemId,
+      title,
+      inputs,
+      expectedRevision,
+      idempotencyKey,
+    }) =>
+      toolResult(async () =>
+        executeTemplateApply(
+          await session(),
+          {
+            templateId,
+            mode,
+            ...(targetItemId === undefined ? {} : { targetItemId }),
+            ...(parentItemId === undefined ? {} : { parentItemId }),
+            ...(title === undefined ? {} : { title }),
+            ...(inputs === undefined ? {} : { inputs }),
+            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+            ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+          },
+          randomUUID,
+          { waitForFileTransfer: false },
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'set_template_initialization',
+    {
+      description:
+        'Author setup questions, per-field rules, and external reference policies, then save the template draft.',
+      inputSchema: {
+        templateId: identifier,
+        initialization: z.record(z.string(), z.unknown()),
+        title: z.string().trim().min(1).max(200).optional(),
+        description: z.string().max(4_096).nullable().optional(),
+        idempotencyKey: z.string().min(1).max(200).optional(),
+      },
+    },
+    ({ templateId, initialization, title, description, idempotencyKey }) =>
+      toolResult(async () => {
+        const parsed = templateInitializationSchema.parse(initialization);
+        const key = idempotencyKey ?? `nixctl-mcp-edit:${templateId}:${randomUUID()}`;
+        return executeTemplateInitializationUpdate(
+          await session(),
+          templateId,
+          parsed,
+          {
+            ...(title === undefined ? {} : { title }),
+            ...(description === undefined ? {} : { description }),
+            idempotencyKey: key,
+          },
+          randomUUID,
+          false,
+        );
+      }),
+  );
+
+  server.registerTool(
+    'preview_template_archive_import',
+    {
+      description:
+        'Upload a local .nix template archive and validate its destination and digest before commit.',
+      inputSchema: {
+        workspaceId: identifier,
+        path: z.string().trim().min(1).max(4_096),
+        idempotencyKey: z.string().min(1).max(200).optional(),
+      },
+    },
+    ({ workspaceId, path, idempotencyKey }) =>
+      toolResult(async () => {
+        const key = idempotencyKey ?? `nixctl-mcp-template-import:${randomUUID()}`;
+        return executeTemplateArchivePreview(await session(), workspaceId, path, key);
+      }),
+  );
+
+  server.registerTool(
+    'get_template_archive_import',
+    {
+      description: 'Read the current state of an authorized template archive import.',
+      inputSchema: { importId: identifier },
+    },
+    ({ importId }) => toolResult(async () => executeTemplateImportGet(await session(), importId)),
+  );
+
+  server.registerTool(
+    'commit_template_archive_import',
+    {
+      description:
+        'Publish a previewed template archive using its exact import ID and SHA-256 digest.',
+      inputSchema: {
+        importId: identifier,
+        digest: z.string().regex(/^[0-9a-f]{64}$/),
+      },
+    },
+    ({ importId, digest }) =>
+      toolResult(async () => executeTemplateArchiveCommit(await session(), importId, digest)),
+  );
+
+  server.registerTool(
+    'export_template_archive',
+    {
+      description:
+        'Write a portable template archive to a local path and return its size and media type.',
+      inputSchema: {
+        templateId: identifier,
+        path: z.string().trim().min(1).max(4_096),
+      },
+    },
+    ({ templateId, path }) =>
+      toolResult(async () => executeTemplateArchiveExport(await session(), templateId, path)),
+  );
+
+  server.registerTool(
+    'resume_template_file_copy',
+    {
+      description:
+        'Wait for a Core file-copy operation, then replay the original idempotent template command.',
+      inputSchema: {
+        kind: z.enum(['capture', 'apply', 'draft']),
+        jobId: identifier,
+        request: z.record(z.string(), z.unknown()),
+      },
+    },
+    ({ kind, jobId, request }) =>
+      toolResult(async () =>
+        executeTemplateOperationResume(await session(), { kind, jobId, request }),
       ),
   );
 

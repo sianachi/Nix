@@ -86,6 +86,10 @@ describe('the workspace template library', () => {
     await user.click(screen.getByRole('button', { name: 'Add field' }));
     await user.clear(screen.getByRole('textbox', { name: 'Field name' }));
     await user.type(screen.getByRole('textbox', { name: 'Field name' }), 'Priority');
+    await user.click(screen.getByRole('button', { name: 'Add field rule' }));
+    expect(
+      await screen.findByRole('option', { name: 'Delivery workspace · Priority' }),
+    ).toBeInTheDocument();
     await user.clear(screen.getByRole('textbox', { name: 'View name' }));
     await user.type(screen.getByRole('textbox', { name: 'View name' }), 'Delivery board');
     await user.click(screen.getByRole('button', { name: 'Continue' }));

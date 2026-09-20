@@ -7,6 +7,7 @@ WORKDIR /repo
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/ packages/
+COPY deploy/template-sync/ deploy/template-sync/
 COPY apps/collab/ apps/collab/
 COPY apps/web/package.json apps/web/
 

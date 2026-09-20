@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/importplan"
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
@@ -183,6 +185,13 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 		SourceSHA256: commit.SourceSHA256,
 		Items:        make([]workerapi.DocumentImportStageItem, 0, len(plan.Items)),
 	}
+	for _, file := range plan.FileVersions {
+		stageRequest.FileVersions = append(stageRequest.FileVersions, workerapi.TemplateImportStageFile{
+			SourceItemID: file.ItemID, Version: file.Version, FileName: file.FileName, MediaType: file.MediaType,
+			ByteLength: file.ByteLength, SHA256: file.SHA256, Previewable: file.Previewable,
+			PixelWidth: file.PixelWidth, PixelHeight: file.PixelHeight,
+		})
+	}
 	for _, item := range plan.Items {
 		stageRequest.Items = append(stageRequest.Items, stageItem(item))
 	}
@@ -196,6 +205,15 @@ func (handler *Handler) commit(ctx context.Context, importID string) (any, error
 	}
 	if stage.ImportID != importID || len(stage.Items) != len(plan.Items) {
 		return nil, handler.reject(ctx, importID, "import_stage_invalid", errors.New("Core returned an incomplete staging map"))
+	}
+	if len(plan.FileVersions) > 0 {
+		if err := handler.transferArchiveFileVersions(ctx, importID, source.path, plan.FileVersions, stage); err != nil {
+			var typed *jobrunner.JobError
+			if errors.As(err, &typed) && typed.Retryable {
+				return nil, err
+			}
+			return nil, handler.reject(ctx, importID, "import_file_invalid", err)
+		}
 	}
 
 	mapped := make(map[string]workerapi.DocumentImportStageMapping, len(stage.Items))
@@ -318,6 +336,97 @@ func (handler *Handler) uploadFile(ctx context.Context, importID string, source 
 	}
 	return nil
 }
+
+func (handler *Handler) transferArchiveFileVersions(ctx context.Context, importID, archivePath string, descriptors []nixarchive.FileVersionEntry, stage *workerapi.DocumentImportStage) error {
+	archives, err := importplan.OpenNixArchiveFiles(archivePath, handler.limits)
+	if err != nil {
+		return failure("import_file_archive_invalid", err)
+	}
+	defer archives.Close()
+	expected := make(map[string]nixarchive.FileVersionEntry, len(descriptors))
+	for _, descriptor := range descriptors {
+		expected[fileVersionKey(descriptor.ItemID, descriptor.Version)] = descriptor
+	}
+	mappings := make(map[string]workerapi.TemplateImportFileTransferMapping, len(stage.FileTransfers))
+	for _, mapping := range stage.FileTransfers {
+		mappings[fileVersionKey(mapping.SourceItemID, mapping.TargetVersion)] = mapping
+	}
+	if len(mappings) != len(expected) {
+		return errors.New("Core returned incomplete archive file-version mappings")
+	}
+	seen := make(map[string]struct{}, len(expected))
+	var after string
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		page, err := handler.api.GetDocumentImportFilePlan(ctx, importID, after, 100)
+		if err != nil {
+			return apiFailure("import_file_capability_failed", err)
+		}
+		for _, file := range page.Files {
+			key := fileVersionKey(file.SourceItemID, file.TargetVersion)
+			descriptor, hasDescriptor := expected[key]
+			mapping, hasMapping := mappings[key]
+			if !hasDescriptor || !hasMapping || mapping.TransferID != file.TransferID || mapping.TargetItemID != file.TargetItemID ||
+				file.FileName != descriptor.FileName || file.MediaType != descriptor.MediaType || file.ByteLength != descriptor.ByteLength || !strings.EqualFold(file.SHA256, descriptor.SHA256) {
+				return errors.New("Core returned file capabilities that differ from the validated archive")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return errors.New("Core returned a duplicate archive file-version transfer")
+			}
+			seen[key] = struct{}{}
+			if file.Ready {
+				continue
+			}
+			if file.UploadURL == nil || file.VerifyURL == nil {
+				return errors.New("Core omitted archive file-version capabilities")
+			}
+			if err := handler.copyArchiveFileVersion(ctx, archives, file); err != nil {
+				return transient("import_file_transfer_failed", err)
+			}
+			if err := handler.api.CompleteDocumentImportFileBatch(ctx, importID, []string{file.TransferID}); err != nil {
+				return apiFailure("import_file_completion_failed", err)
+			}
+		}
+		if page.Complete {
+			if len(seen) != len(expected) {
+				return errors.New("Core omitted one or more archive file versions")
+			}
+			return nil
+		}
+		after = *page.NextAfterTransferID
+	}
+}
+
+func (handler *Handler) copyArchiveFileVersion(ctx context.Context, archive *importplan.NixArchiveFiles, file workerapi.TemplateImportFileCapability) error {
+	if file.UploadURL == nil || file.VerifyURL == nil {
+		return errors.New("file-version upload capabilities are missing")
+	}
+	if err := handler.verifyPublishedFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256); err == nil {
+		return nil
+	} else if !errors.Is(err, objecttransfer.ErrNotFound) {
+		return err
+	}
+	content, err := archive.OpenVersion(file.SourceItemID, file.TargetVersion, file.ByteLength)
+	if err != nil {
+		return err
+	}
+	defer content.Close()
+	digest := sha256.New()
+	if err := handler.transfer.UploadCreateOnlyVerified(ctx, *file.UploadURL, file.MediaType, io.TeeReader(content, digest), file.ByteLength, file.SHA256); err != nil {
+		if errors.Is(err, objecttransfer.ErrAlreadyExists) {
+			return handler.verifyPublishedFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256)
+		}
+		return err
+	}
+	if err := objecttransfer.VerifyDigest(digest, file.SHA256); err != nil {
+		return err
+	}
+	return handler.verifyPublishedFile(ctx, *file.VerifyURL, file.ByteLength, file.SHA256)
+}
+
+func fileVersionKey(itemID string, version int) string { return itemID + "/" + strconv.Itoa(version) }
 
 func (handler *Handler) verifyPublishedFile(ctx context.Context, sourceURL string, size int64, expectedDigest string) error {
 	download, err := handler.transfer.Download(ctx, sourceURL, handler.limits.MaxSourceBytes)

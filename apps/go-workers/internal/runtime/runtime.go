@@ -37,6 +37,7 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
+	"github.com/sianachi/Nix/apps/go-workers/internal/templatefilecopy"
 	"github.com/sianachi/Nix/apps/go-workers/internal/templateimport"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
@@ -165,6 +166,7 @@ func Run(service role.Service) {
 			stream.Limits{MaxBytes: settings.MaxInputBytes, MaxLine: settings.MaxLineBytes, MaxRecords: settings.MaxRecords})
 		files := fileinspect.New(apiClient, transfer, settings.MaxInputBytes)
 		cleanup := objectcleanup.New(apiClient, transfer)
+		fileCopies := templatefilecopy.New(apiClient, transfer)
 		planLimits := importplan.Limits{
 			MaxSourceBytes: settings.MaxInputBytes,
 			MaxPlanBytes:   16 << 20,
@@ -198,7 +200,7 @@ func Run(service role.Service) {
 			logger.Error("template import handler configuration failed", "error", templatesErr)
 			os.Exit(1)
 		}
-		routes := make(map[string]jobrunner.Handler, len(importjob.Kinds)+len(documentimport.Kinds)+len(templateimport.Kinds)+len(fileinspect.Kinds)+len(objectcleanup.Kinds))
+		routes := make(map[string]jobrunner.Handler, len(importjob.Kinds)+len(documentimport.Kinds)+len(templateimport.Kinds)+len(fileinspect.Kinds)+len(objectcleanup.Kinds)+1)
 		for _, kind := range importjob.Kinds {
 			routes[kind] = imports
 		}
@@ -214,12 +216,13 @@ func Run(service role.Service) {
 		for _, kind := range objectcleanup.Kinds {
 			routes[kind] = cleanup
 		}
+		routes[templatefilecopy.Kind] = fileCopies
 		handler, routeErr := jobrunner.NewRouter(routes)
 		if routeErr != nil {
 			logger.Error("import handler routing failed", "error", routeErr)
 			os.Exit(1)
 		}
-		kinds := append(append(append(append(append([]string{}, importjob.Kinds...), documentimport.Kinds...), templateimport.Kinds...), fileinspect.Kinds...), objectcleanup.Kinds...)
+		kinds := append(append(append(append(append(append([]string{}, importjob.Kinds...), documentimport.Kinds...), templateimport.Kinds...), fileinspect.Kinds...), objectcleanup.Kinds...), templatefilecopy.Kind)
 		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.ImportQueue, kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
 		if runnerErr != nil {
 			logger.Error("import job runner configuration failed", "error", runnerErr)

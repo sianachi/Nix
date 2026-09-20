@@ -57,6 +57,63 @@ describe('the Core template client', () => {
     });
   });
 
+  it('requests bounded template export capability pages at the pinned revision', async () => {
+    let requestedUrl = '';
+    const client = createCoreTemplateClient({
+      coreBaseUrl: 'https://core.test',
+      internalSecret: 'secret',
+      fetch: (input) => {
+        requestedUrl =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              revision: 7,
+              files: [],
+              nextAfterFileVersionId: null,
+              complete: true,
+            }),
+          ),
+        );
+      },
+    });
+
+    await expect(
+      client.getTemplateExportFiles('token', TEMPLATE, '66666666-6666-4666-8666-666666666666', 7),
+    ).resolves.toMatchObject({ revision: 7, files: [], complete: true });
+    expect(requestedUrl).toBe(
+      `https://core.test/internal/templates/${TEMPLATE}/export/files?limit=100&afterFileVersionId=66666666-6666-4666-8666-666666666666&revision=7`,
+    );
+  });
+
+  it('mints one revision-bound file capability on demand', async () => {
+    let requestedUrl = '';
+    const fileVersionId = '66666666-6666-4666-8666-666666666666';
+    const client = createCoreTemplateClient({
+      coreBaseUrl: 'https://core.test',
+      internalSecret: 'secret',
+      fetch: (input) => {
+        requestedUrl =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              downloadUrl: 'https://bucket.test/capability',
+              expiresAt: '2026-08-16T13:00:00Z',
+            }),
+          ),
+        );
+      },
+    });
+
+    await expect(
+      client.getTemplateExportFileCapability('token', TEMPLATE, fileVersionId, 7),
+    ).resolves.toMatchObject({ downloadUrl: 'https://bucket.test/capability' });
+    expect(requestedUrl).toBe(
+      `https://core.test/internal/templates/${TEMPLATE}/export/files/${fileVersionId}/capability?revision=7`,
+    );
+  });
+
   it('refuses a successful Core response that does not satisfy the operation contract', async () => {
     const client = createCoreTemplateClient({
       coreBaseUrl: 'https://core.test',
@@ -204,6 +261,7 @@ describe('the Core template client', () => {
         ],
       },
     });
+    expect(result.items[0]?.schema?.properties[0]?.options).toEqual([]);
   });
 
   it('maps malformed nested Core export forms to a stable upstream contract error', async () => {
@@ -223,6 +281,20 @@ describe('the Core template client', () => {
       code: 'template.core_contract_invalid',
     });
   });
+
+  it('includes a bounded parser label without exposing Core response data', async () => {
+    const client = exportClient({ default: 'list', views: [] }, 'unexpected-private-origin');
+
+    const error = await client
+      .getTemplateExport('secret-token', TEMPLATE)
+      .catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) return;
+    const contractError = error as Error & { code?: unknown; status?: unknown };
+    expect(contractError.status).toBe(502);
+    expect(contractError.code).toBe('template.core_contract_invalid');
+    expect(error.message).toMatch(/\(origin\)/);
+  });
 });
 
 const PROPERTY = {
@@ -239,8 +311,11 @@ function draftResponse(
   return {
     operationId: OPERATION,
     templateId: TEMPLATE,
+    fileTransferJobId: null,
+    fileTransferPending: false,
     title: 'Daily tracker',
     description: null,
+    initialization: { version: 1, inputs: [], rules: [], references: [] },
     expiresAt: '2026-08-18T10:00:00.000Z',
     root: {
       sourceId: SOURCE,
@@ -254,6 +329,7 @@ function draftResponse(
         views: [{ id: 'list', name: 'List', kind: 'list' }],
       },
       hasBody: false,
+      recurrence: null,
       children: [],
       ...rootChanges,
     },
@@ -270,7 +346,7 @@ function draftClient(response: Readonly<Record<string, unknown>>) {
   });
 }
 
-function exportClient(views: unknown) {
+function exportClient(views: unknown, origin = 'user') {
   return createCoreTemplateClient({
     coreBaseUrl: 'https://core.test',
     internalSecret: 'secret',
@@ -283,10 +359,12 @@ function exportClient(views: unknown) {
             stableKey: 'daily-tracker',
             title: 'Daily tracker',
             description: null,
-            origin: 'user',
+            origin,
             revision: 1,
             includeBody: false,
             includeChildren: false,
+            initialization: { version: 1, inputs: [], rules: [], references: [] },
+            files: [],
             items: [
               {
                 sourceId: SOURCE,
@@ -302,7 +380,6 @@ function exportClient(views: unknown) {
                       key: 'mood',
                       label: 'Mood',
                       type: 'text',
-                      options: [],
                       required: false,
                     },
                   ],

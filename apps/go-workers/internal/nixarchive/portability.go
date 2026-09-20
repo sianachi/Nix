@@ -13,55 +13,90 @@ import (
 var ErrFileBytesUnsupported = errors.New("Nix archive v1 has no file-byte entry format")
 
 func validateManifestFilePortability(manifest Manifest) error {
-	if item, ok := firstFileItem(manifest.Items); ok {
-		return fileItemUnsupported(item.ID)
+	fileItems := make(map[string]struct{})
+	for _, item := range manifest.Items {
+		if item.Type == "file" {
+			fileItems[item.ID] = struct{}{}
+		}
 	}
-	if len(manifest.Raw) == 0 {
+	if len(manifest.Raw) > 0 {
+		var wire struct {
+			Items []ManifestItem `json:"items"`
+		}
+		if err := json.Unmarshal(manifest.Raw, &wire); err != nil {
+			return fmt.Errorf("archive source JSON is invalid: %w", err)
+		}
+		for _, item := range wire.Items {
+			if item.Type == "file" {
+				fileItems[item.ID] = struct{}{}
+			}
+		}
+	}
+	if manifest.FormatVersion == FormatVersion {
+		if item, ok := firstFileItem(manifest.Items); ok {
+			return fileItemUnsupported(item.ID)
+		}
 		return nil
 	}
-
-	var wire struct {
-		Items []ManifestItem `json:"items"`
-	}
-	if err := json.Unmarshal(manifest.Raw, &wire); err != nil {
-		return fmt.Errorf("archive source JSON is invalid: %w", err)
-	}
-	if item, ok := firstFileItem(wire.Items); ok {
-		return fileItemUnsupported(item.ID)
+	for _, entry := range manifest.Files {
+		if _, ok := fileItems[entry.ItemID]; !ok {
+			return fmt.Errorf("Nix archive file entry refers to unknown file item %s", entry.ItemID)
+		}
 	}
 	return nil
 }
 
-func validateBundleFilePortability(bundle Bundle) error {
-	if bundle.Type == "file" {
+func validateBundleFilePortability(bundle Bundle, manifest Manifest) error {
+	var rawBody json.RawMessage
+	if len(bundle.Raw) > 0 {
+		// Raw is the representation the writer preserves. Inspect it as well as decoded fields so
+		// callers cannot attach harmless typed fields to source JSON with hidden file references.
+		var wire struct {
+			ID   string          `json:"id"`
+			Type string          `json:"type"`
+			Body json.RawMessage `json:"body"`
+		}
+		if err := json.Unmarshal(bundle.Raw, &wire); err != nil {
+			return fmt.Errorf("archive source JSON is invalid: %w", err)
+		}
+		if wire.ID != bundle.ID || wire.Type != bundle.Type {
+			return fmt.Errorf("archive bundle source does not match its validated descriptor")
+		}
+		if wire.Type == "file" && manifest.FormatVersion == FormatVersion {
+			return fileItemUnsupported(firstNonEmpty(wire.ID, bundle.ID))
+		}
+		rawBody = wire.Body
+	}
+	if bundle.Type == "file" && manifest.FormatVersion == FormatVersion {
 		return fileItemUnsupported(bundle.ID)
 	}
-	if found, err := bodyHasDurableFileReference(bundle.Body); err != nil {
-		return fmt.Errorf("archive bundle %s body is invalid: %w", bundle.ID, err)
-	} else if found {
-		return fileReferenceUnsupported(bundle.ID)
-	}
-	if len(bundle.Raw) == 0 {
+	if manifest.FormatVersion == FormatVersion {
+		for _, body := range []json.RawMessage{bundle.Body, rawBody} {
+			found, err := bodyHasDurableFileReference(body)
+			if err != nil {
+				return fmt.Errorf("archive bundle %s body is invalid: %w", bundle.ID, err)
+			}
+			if found {
+				return fileReferenceUnsupported(bundle.ID)
+			}
+		}
 		return nil
 	}
 
-	// Raw is the representation the writer preserves. Inspect it as well as the decoded fields so a
-	// caller cannot attach an innocuous struct to source JSON that actually carries a file.
-	var wire struct {
-		ID   string          `json:"id"`
-		Type string          `json:"type"`
-		Body json.RawMessage `json:"body"`
+	fileItems := make(map[string]struct{})
+	for _, entry := range manifest.Files {
+		fileItems[entry.ItemID] = struct{}{}
 	}
-	if err := json.Unmarshal(bundle.Raw, &wire); err != nil {
-		return fmt.Errorf("archive source JSON is invalid: %w", err)
-	}
-	if wire.Type == "file" {
-		return fileItemUnsupported(firstNonEmpty(wire.ID, bundle.ID))
-	}
-	if found, err := bodyHasDurableFileReference(wire.Body); err != nil {
-		return fmt.Errorf("archive bundle %s body is invalid: %w", bundle.ID, err)
-	} else if found {
-		return fileReferenceUnsupported(firstNonEmpty(wire.ID, bundle.ID))
+	for _, body := range []json.RawMessage{bundle.Body, rawBody} {
+		references, err := durableFileReferences(body)
+		if err != nil {
+			return fmt.Errorf("archive bundle %s body is invalid: %w", bundle.ID, err)
+		}
+		for _, itemID := range references {
+			if _, ok := fileItems[itemID]; !ok {
+				return fmt.Errorf("archive bundle %s refers to file item %s without included file bytes", bundle.ID, itemID)
+			}
+		}
 	}
 	return nil
 }
@@ -92,28 +127,35 @@ func fileReferenceUnsupported(itemID string) error {
 }
 
 func bodyHasDurableFileReference(body json.RawMessage) (bool, error) {
+	references, err := durableFileReferences(body)
+	return len(references) > 0, err
+}
+
+func durableFileReferences(body json.RawMessage) ([]string, error) {
 	if len(bytes.TrimSpace(body)) == 0 || bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
-		return false, nil
+		return nil, nil
 	}
 
 	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
-		return false, err
+		return nil, err
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return false, nil
+		return nil, nil
 	}
+	var references []string
 	if document, exists := root["prosemirror"]; exists {
-		return proseHasDurableFileReference(document), nil
+		references = append(references, proseDurableFileReferences(document)...)
 	}
 	if scene, exists := root["canvas"]; exists {
-		return canvasHasDurableFileReference(scene), nil
+		references = append(references, canvasDurableFileReferences(scene)...)
 	}
-	return false, nil
+	return references, nil
 }
 
-func proseHasDurableFileReference(document any) bool {
+func proseDurableFileReferences(document any) []string {
+	var references []string
 	pending := []any{document}
 	for len(pending) > 0 {
 		last := len(pending) - 1
@@ -128,8 +170,10 @@ func proseHasDurableFileReference(document any) bool {
 			attributes, _ := node["attrs"].(map[string]any)
 			fileItemID, _ := attributes["fileItemId"].(string)
 			source, _ := attributes["src"].(string)
-			if fileItemID != "" || strings.HasPrefix(source, "nix-file:") && len(source) > len("nix-file:") {
-				return true
+			if fileItemID != "" {
+				references = append(references, fileItemID)
+			} else if strings.HasPrefix(source, "nix-file:") {
+				references = append(references, strings.TrimPrefix(source, "nix-file:"))
 			}
 		}
 
@@ -137,13 +181,13 @@ func proseHasDurableFileReference(document any) bool {
 			pending = append(pending, content...)
 		}
 	}
-	return false
+	return references
 }
 
-func canvasHasDurableFileReference(scene any) bool {
+func canvasDurableFileReferences(scene any) []string {
 	root, ok := scene.(map[string]any)
 	if !ok {
-		return false
+		return nil
 	}
 
 	var elements []any
@@ -157,6 +201,7 @@ func canvasHasDurableFileReference(scene any) bool {
 		}
 	}
 
+	var references []string
 	for _, value := range elements {
 		element, ok := value.(map[string]any)
 		if !ok {
@@ -166,14 +211,14 @@ func canvasHasDurableFileReference(scene any) bool {
 		marker, _ := customData["nix"].(map[string]any)
 		itemID, _ := marker["itemId"].(string)
 		if marker["kind"] == "file" && itemID != "" {
-			return true
+			references = append(references, itemID)
 		}
 		imageItemID, _ := element["imageItemId"].(string)
 		if element["type"] == "image" && imageItemID != "" {
-			return true
+			references = append(references, imageItemID)
 		}
 	}
-	return false
+	return references
 }
 
 func firstNonEmpty(first, fallback string) string {

@@ -3,12 +3,19 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Nix.Abstractions;
+using Nix.Abstractions.Templates;
 using Nix.Authentication;
 using Nix.Domain.Identity;
 using Nix.Domain.Plugins;
+using Nix.Domain.Primitives;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
+using Nix.Features.Templates;
 using Nix.Features.Tokens;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
@@ -56,6 +63,37 @@ public sealed class PluginCatalogHttpTests(NixPostgresFixture fixture) : IAsyncL
     {
         _client.Dispose();
         await _factory.DisposeAsync();
+    }
+
+    [Fact]
+    public void Composed_http_json_resolver_contains_new_worker_and_export_endpoint_types()
+    {
+        var serializerOptions = _factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        var api = typeof(Program).Assembly;
+        foreach (var name in new[]
+        {
+            "Nix.Features.Internal.CompleteTemplateFileTransferRequest",
+            "Nix.Features.Internal.WorkerTemplateFileTransferPlanResponse",
+            "Nix.Features.DocumentImports.CompleteDocumentImportFileVersionsRequest",
+            "Nix.Features.TemplateImports.TemplateImportFileVersionsAuthorizationResponse",
+            "Nix.Features.Templates.TemplateExportFilesPageResponse",
+            "Nix.Features.Templates.TemplateExportFileCapabilityResponse",
+        })
+        {
+            var type = api.GetType(name, throwOnError: true);
+            Assert.NotNull(type);
+            Assert.NotNull(serializerOptions.GetTypeInfo(type));
+        }
+    }
+
+    [Fact]
+    public void Composed_host_resolves_template_export_query_handlers()
+    {
+        using var scope = _factory.Services.CreateScope();
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<
+            IQueryHandler<ExportTemplateFiles, Result<TemplateExportFilesPage>>>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<
+            IQueryHandler<AuthorizeTemplateExportFile, TemplateExportFileDownload?>>());
     }
 
     [Fact]

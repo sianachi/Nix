@@ -3,12 +3,42 @@ package nixarchive
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 )
+
+func TestArchiveProfileLimitsMatchSharedFixture(t *testing.T) {
+	data, err := os.ReadFile("../../../../fixtures/nix-archive-v2-limits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var limits struct {
+		Ordinary struct {
+			MaxArchiveEntries int `json:"maxArchiveEntries"`
+			MaxItems          int `json:"maxItems"`
+		} `json:"ordinary"`
+		Template struct {
+			MaxArchiveEntries int `json:"maxArchiveEntries"`
+			MaxItems          int `json:"maxItems"`
+		} `json:"template"`
+		MaxFileVersionsPerItem int `json:"maxFileVersionsPerItem"`
+	}
+	if err := json.Unmarshal(data, &limits); err != nil {
+		t.Fatal(err)
+	}
+	if limits.Ordinary.MaxArchiveEntries != MaxArchiveEntries || limits.Ordinary.MaxItems != MaxArchiveItems ||
+		limits.Template.MaxArchiveEntries != MaxTemplateArchiveEntries || limits.Template.MaxItems != MaxTemplateArchiveItems ||
+		limits.MaxFileVersionsPerItem != MaxFileVersionsPerItem {
+		t.Fatalf("Go archive bounds differ from shared fixture: %+v", limits)
+	}
+}
 
 func TestWriteProducesManifestFirstLosslessArchive(t *testing.T) {
 	root := "123e4567-e89b-12d3-a456-426614174000"
@@ -139,4 +169,154 @@ func TestWriteAllowsRemoteNoteImageWithoutNixOwnedBytes(t *testing.T) {
 	if _, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len())); err != nil {
 		t.Fatalf("remote image archive did not close: %v", err)
 	}
+}
+
+func TestWriteStreamWithFilesStreamsAndVerifiesV2FileVersions(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	body := []byte("bounded PDF archive bytes")
+	digest := sha256.Sum256(body)
+	file := FileVersionEntry{
+		ItemID: root, Version: 1, Current: true, FileName: "diagram.pdf", MediaType: "application/pdf",
+		ByteLength: int64(len(body)), SHA256: fmt.Sprintf("%x", digest), Previewable: true,
+	}
+	manifest := Manifest{
+		Format: Format, FormatVersion: FileFormatVersion, Root: root,
+		Items: []ManifestItem{{ID: root, Title: "Diagram", Seq: "1", Type: "file"}},
+		Files: []FileVersionEntry{file},
+	}
+	var output bytes.Buffer
+	bundleSent := false
+	fileSent := false
+	err := WriteStreamWithFiles(&output, manifest,
+		func() (Bundle, bool, error) {
+			if bundleSent {
+				return Bundle{}, false, nil
+			}
+			bundleSent = true
+			return Bundle{ID: root, Type: "file", Title: "Diagram", Body: []byte("null")}, true, nil
+		},
+		func() (FileVersionEntry, io.ReadCloser, bool, error) {
+			if fileSent {
+				return FileVersionEntry{}, nil, false, nil
+			}
+			fileSent = true
+			return file, io.NopCloser(bytes.NewReader(body)), true, nil
+		}, 1<<20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archive.File) != 3 || archive.File[2].Name != "files/"+root+"/1.bin" {
+		t.Fatalf("archive entries = %#v", archive.File)
+	}
+	fileBytes, err := readZipEntry(t, archive.File[2])
+	if err != nil || !bytes.Equal(fileBytes, body) {
+		t.Fatalf("file entry bytes = %q, error = %v", fileBytes, err)
+	}
+	if !bytes.Contains(readZipEntryMust(t, archive.File[0]), []byte(`"files":[`)) {
+		t.Fatal("v2 manifest did not preserve the file descriptor array")
+	}
+}
+
+func TestWriteStreamWithFilesRefusesInvalidLengthOrDigest(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	body := []byte("content")
+	digest := sha256.Sum256(body)
+	base := FileVersionEntry{
+		ItemID: root, Version: 1, Current: true, FileName: "asset.bin", MediaType: "application/octet-stream",
+		ByteLength: int64(len(body)), SHA256: fmt.Sprintf("%x", digest),
+	}
+	for _, test := range []struct {
+		name  string
+		entry FileVersionEntry
+		bytes []byte
+	}{
+		{name: "short", entry: base, bytes: body[:len(body)-1]},
+		{name: "long", entry: base, bytes: append(append([]byte(nil), body...), 'x')},
+		{name: "digest", entry: FileVersionEntry{ItemID: base.ItemID, Version: base.Version, Current: base.Current, FileName: base.FileName, MediaType: base.MediaType, ByteLength: base.ByteLength, SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, bytes: body},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := Manifest{
+				Format: Format, FormatVersion: FileFormatVersion, Root: root,
+				Items: []ManifestItem{{ID: root, Title: "Asset", Seq: "1", Type: "file"}},
+				Files: []FileVersionEntry{test.entry},
+			}
+			var output bytes.Buffer
+			bundleSent := false
+			fileSent := false
+			err := WriteStreamWithFiles(&output, manifest,
+				func() (Bundle, bool, error) {
+					if bundleSent {
+						return Bundle{}, false, nil
+					}
+					bundleSent = true
+					return Bundle{ID: root, Type: "file", Title: "Asset"}, true, nil
+				},
+				func() (FileVersionEntry, io.ReadCloser, bool, error) {
+					if fileSent {
+						return FileVersionEntry{}, nil, false, nil
+					}
+					fileSent = true
+					return test.entry, io.NopCloser(bytes.NewReader(test.bytes)), true, nil
+				}, 1<<20,
+			)
+			if err == nil {
+				t.Fatal("invalid file payload was accepted")
+			}
+			if _, openErr := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len())); openErr == nil {
+				t.Fatal("failed file payload completed a readable archive")
+			}
+		})
+	}
+}
+
+func TestV2ManifestEmitsEmptyFileArrayAndV1OmitsField(t *testing.T) {
+	root := "123e4567-e89b-12d3-a456-426614174000"
+	for _, test := range []struct {
+		version int
+		want    []byte
+		avoid   []byte
+	}{
+		{version: FileFormatVersion, want: []byte(`"files":[]`)},
+		{version: FormatVersion, avoid: []byte(`"files"`)},
+	} {
+		manifest := Manifest{
+			Format: Format, FormatVersion: test.version, Root: root,
+			Items: []ManifestItem{{ID: root, Title: "Root", Seq: "1", Type: "note"}},
+			Files: []FileVersionEntry{},
+		}
+		encoded, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(test.want) > 0 && !bytes.Contains(encoded, test.want) {
+			t.Fatalf("manifest %d = %s", test.version, encoded)
+		}
+		if len(test.avoid) > 0 && bytes.Contains(encoded, test.avoid) {
+			t.Fatalf("v1 manifest unexpectedly contains files: %s", encoded)
+		}
+	}
+}
+
+func readZipEntry(t *testing.T, entry *zip.File) ([]byte, error) {
+	t.Helper()
+	reader, err := entry.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
+
+func readZipEntryMust(t *testing.T, entry *zip.File) []byte {
+	t.Helper()
+	body, err := readZipEntry(t, entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
 }

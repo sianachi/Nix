@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Audit;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -27,7 +28,8 @@ public sealed partial class TemplateStore :
     ITemplateStagingStore,
     ITemplateApplicationStore,
     ITemplateManagedStore,
-    ITemplateAuthorizationStore
+    ITemplateAuthorizationStore,
+    ITemplateFileTransferStore
 {
     private const int MaximumTemplateItems = 200;
     private const int MaximumTemplateDepth = 32;
@@ -46,6 +48,8 @@ public sealed partial class TemplateStore :
     private readonly TimeProvider _clock;
     private readonly TemplateDefinitionValidator _validator;
     private readonly TemplateMergePlanner _mergePlanner;
+    private readonly IWorkerJobStore _jobs;
+    private readonly Nix.Persistence.ObjectStorage.S3CapabilitySigner _signer;
 
     /// <summary>Initializes the store.</summary>
     public TemplateStore(
@@ -55,7 +59,9 @@ public sealed partial class TemplateStore :
         INixSessionContextAccessor session,
         TimeProvider clock,
         TemplateDefinitionValidator validator,
-        TemplateMergePlanner mergePlanner)
+        TemplateMergePlanner mergePlanner,
+        IWorkerJobStore jobs,
+        Nix.Persistence.ObjectStorage.S3CapabilitySigner signer)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -64,6 +70,8 @@ public sealed partial class TemplateStore :
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(mergePlanner);
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(signer);
 
         _database = database;
         _permissions = permissions;
@@ -72,6 +80,8 @@ public sealed partial class TemplateStore :
         _clock = clock;
         _validator = validator;
         _mergePlanner = mergePlanner;
+        _jobs = jobs;
+        _signer = signer;
     }
 
     private NixSessionContext Context => _session.Current

@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import type { TemplateInitialization } from '@nix/api-client';
 import { item, STUB_WORKSPACE_ID } from './resources/items';
 import type { StubItem } from './resources/items';
 
@@ -92,6 +93,7 @@ export interface StubTemplate {
   };
   readonly updatedAt: string;
   readonly root?: Readonly<Record<string, unknown>>;
+  readonly initialization?: TemplateInitialization | null;
 }
 
 const TEMPLATE_WORKSPACE_ID = 'a1000000-0000-4000-8000-000000000001';
@@ -154,6 +156,8 @@ export interface StubOptions {
 
   /** Who holds a role in the workspace, as the members read reports them. */
   readonly members?: readonly StubMember[];
+  /** Active people returned by the assignable-principal directory, including group-derived users. */
+  readonly workspacePrincipals?: readonly StubAssignablePrincipal[];
   readonly invitations?: readonly StubInvitation[];
   readonly invitees?: readonly StubInvitee[];
 
@@ -314,6 +318,15 @@ export interface StubOptions {
   readonly templatePreflightCanApply?: boolean;
   /** Conflict explanations returned by template preflight. */
   readonly templatePreflightConflicts?: readonly string[];
+  /** Resolved item values returned by template preflight. */
+  readonly templatePreflightPreview?: readonly {
+    readonly sourceId: string;
+    readonly title: string;
+    readonly properties: Readonly<Record<string, unknown>>;
+    readonly recurrence?: unknown;
+  }[];
+  /** Makes the first template application return a durable pending file-copy receipt. */
+  readonly templateApplicationFileTransferPending?: boolean;
 }
 
 /** A personal access token as `GET /api/v1/me/tokens` reports one - metadata, never the secret. */
@@ -338,6 +351,12 @@ export interface StubMember {
   readonly canChangeRole?: boolean;
   readonly canRemove?: boolean;
   readonly assignableRoles?: readonly ('owner' | 'editor' | 'viewer')[];
+}
+
+export interface StubAssignablePrincipal {
+  readonly principalId: string;
+  readonly displayName: string;
+  readonly kind: string;
 }
 
 export interface StubInvitation {
@@ -423,6 +442,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     tokensFail = false,
     createTokenProblem,
     members = [],
+    workspacePrincipals,
     invitations = [],
     invitees = [DEFAULT_INVITEE],
     membersFail = false,
@@ -465,6 +485,8 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     canManageTemplates = true,
     templatePreflightCanApply = true,
     templatePreflightConflicts = [],
+    templatePreflightPreview,
+    templateApplicationFileTransferPending = false,
   } = options;
 
   // The items the stub knows about. Mutable, because a create has to be visible to the reads that
@@ -479,6 +501,13 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     canRemove: member.canRemove ?? true,
     assignableRoles: member.assignableRoles ?? ['owner', 'editor', 'viewer'],
   }));
+  const assignablePrincipals =
+    workspacePrincipals ??
+    members.map((member) => ({
+      principalId: member.subjectId,
+      displayName: member.subjectDisplayName,
+      kind: 'user',
+    }));
   let heldInvitations = [...invitations];
   let heldInvitees = [...invitees];
   let knownTemplates = [...templates];
@@ -489,7 +518,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       templateId: string;
       title: string;
       description: string | null;
+      initialization: TemplateInitialization;
       root: Readonly<Record<string, unknown>>;
+      itemMappings: readonly [];
+      bodyCopies: readonly [];
     }
   >();
 
@@ -527,6 +559,8 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   const templateUploadBodies: Blob[] = [];
   const templatePreflightWrites: Record<string, unknown>[] = [];
   const templateApplicationWrites: Record<string, unknown>[] = [];
+  let templateApplicationAttempts = 0;
+  const completedTemplateApplications = new Map<string, Record<string, unknown>>();
   let durableTemplateImportSequence = 0;
   let durableTemplateImportId = STUB_TEMPLATE_IMPORT_ID;
   let durableTemplateIdempotencyKey: string | null = null;
@@ -1091,6 +1125,27 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       // The workspace's members. One page with no cursor: pagination is the reader's concern and
       // walking it is covered by the page shape, not by this stub growing pages.
       if (
+        /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/principals$/.test(parsedUrl.pathname) &&
+        method === 'GET'
+      ) {
+        if (membersFail) return Promise.resolve(json({ code: 'workspaces.not_found' }, 404));
+        const query = parsedUrl.searchParams.get('query')?.toLocaleLowerCase();
+        const cursor = parsedUrl.searchParams.get('cursor');
+        const limit = Number(parsedUrl.searchParams.get('limit') ?? 100);
+        const matches = assignablePrincipals.filter(
+          (principal) =>
+            (query === undefined || principal.displayName.toLocaleLowerCase().includes(query)) &&
+            (cursor === null || principal.principalId > cursor),
+        );
+        const page = matches.slice(0, limit);
+        return Promise.resolve(
+          json({
+            items: page,
+            nextCursor: matches.length > limit ? (page.at(-1)?.principalId ?? null) : null,
+          }),
+        );
+      }
+      if (
         /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/members$/.test(parsedUrl.pathname) &&
         method === 'GET'
       ) {
@@ -1144,6 +1199,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             ? json({}, 404)
             : json({
                 templateId: template.id,
+                templateRevision: template.revision,
                 mode: body.mode ?? 'create',
                 additions: {
                   fields: template.fieldCount,
@@ -1152,6 +1208,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 },
                 conflicts: templatePreflightConflicts,
                 canApply: templatePreflightCanApply,
+                ...(templatePreflightPreview === undefined
+                  ? {}
+                  : { initializationPreview: templatePreflightPreview }),
               }),
         );
       }
@@ -1168,6 +1227,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 ...candidate,
                 title: draft.title,
                 description: draft.description,
+                initialization: draft.initialization,
                 root: draft.root,
                 revision: candidate.revision + 1,
               }
@@ -1229,6 +1289,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 ...(JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
                   title?: string;
                   description?: string | null;
+                  initialization?: TemplateInitialization;
                 }),
               }
             : draft;
@@ -1239,8 +1300,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             templateId: next.templateId,
             title: next.title,
             description: next.description,
+            initialization: next.initialization,
             expiresAt: '2026-08-17T09:00:00.000Z',
             root: next.root,
+            itemMappings: next.itemMappings,
+            bodyCopies: next.bodyCopies,
           }),
         );
       }
@@ -1265,7 +1329,15 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           templateId: template.id,
           title: template.title,
           description: template.description,
+          initialization: template.initialization ?? {
+            version: 1 as const,
+            inputs: [],
+            rules: [],
+            references: [],
+          },
           root: template.root ?? templateRoot(template),
+          itemMappings: [] as const,
+          bodyCopies: [] as const,
         };
         templateDrafts.set(operationId, draft);
         return Promise.resolve(
@@ -1275,8 +1347,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
               templateId: template.id,
               title: draft.title,
               description: draft.description,
+              initialization: draft.initialization,
               expiresAt: '2026-08-17T09:00:00.000Z',
               root: draft.root,
+              itemMappings: draft.itemMappings,
+              bodyCopies: draft.bodyCopies,
             },
             201,
           ),
@@ -1373,10 +1448,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       }
 
       if (url.endsWith('/collab/templates/applications') && method === 'POST') {
+        templateApplicationAttempts += 1;
         const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
           string,
           unknown
         > & {
+          idempotencyKey?: string;
           templateId?: string;
           mode?: 'merge' | 'create';
           targetItemId?: string;
@@ -1384,6 +1461,8 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           title?: string;
         };
         templateApplicationWrites.push(body);
+        const existing = completedTemplateApplications.get(body.idempotencyKey ?? '');
+        if (existing !== undefined) return Promise.resolve(json(existing, 201));
         const targetItemId = body.targetItemId ?? createdId(known.length);
         if (body.mode === 'create') {
           known.push(
@@ -1394,19 +1473,50 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             }),
           );
         }
+        const result: Record<string, unknown> = {
+          applicationId: 'a6666666-6666-4666-8666-666666666666',
+          operationId: 'a6666666-6666-4666-8666-666666666666',
+          templateId: body.templateId ?? '',
+          targetItemId,
+          alreadyApplied: false,
+          createdItems: [],
+          resolvedInputs: body.inputs ?? {},
+          textBindings: body.inputs ?? {},
+          referenceMappings: {},
+          writtenTargetItemIds: [],
+        };
+        completedTemplateApplications.set(body.idempotencyKey ?? '', result);
         return Promise.resolve(
           json(
-            {
-              applicationId: 'a6666666-6666-4666-8666-666666666666',
-              operationId: 'a6666666-6666-4666-8666-666666666666',
-              templateId: body.templateId ?? '',
-              targetItemId,
-              alreadyApplied: false,
-              createdItems: [],
-              writtenTargetItemIds: [],
-            },
+            templateApplicationFileTransferPending && templateApplicationAttempts === 1
+              ? {
+                  ...result,
+                  fileTransferJobId: 'a6666666-6666-4666-8666-666666666667',
+                  fileTransferPending: true,
+                }
+              : result,
             201,
           ),
+        );
+      }
+
+      if (
+        parsedUrl.pathname === '/api/v1/operations/a6666666-6666-4666-8666-666666666667' &&
+        method === 'GET'
+      ) {
+        return Promise.resolve(
+          json({
+            id: 'a6666666-6666-4666-8666-666666666667',
+            kind: 'template.files.copy',
+            status: 'completed',
+            result: null,
+            errorCode: null,
+            errorDetail: null,
+            attempts: 1,
+            cancellationRequested: false,
+            createdAt: '2026-09-20T00:00:00Z',
+            completedAt: '2026-09-20T00:00:01Z',
+          }),
         );
       }
 

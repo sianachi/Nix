@@ -68,6 +68,23 @@ public sealed record WorkerExportSourceResponse(
     string BearerToken,
     DateTimeOffset DelegationExpiresAt);
 
+internal sealed record WorkerExportFileHistoryResponse(
+    Guid ItemId,
+    IReadOnlyList<WorkerExportFileVersionResponse> Versions);
+
+internal sealed record WorkerExportFileVersionResponse(
+    int Version,
+    bool Current,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight,
+    Uri DownloadUrl,
+    DateTimeOffset ExpiresAt);
+
 public sealed record WorkerExportDestinationResponse(
     Guid ExportId,
     Guid AttemptId,
@@ -97,6 +114,7 @@ public sealed record WorkerExportResult(
 [JsonSerializable(typeof(ExportDownloadCapabilityResponse))]
 [JsonSerializable(typeof(ExportJobPayload))]
 [JsonSerializable(typeof(WorkerExportSourceResponse))]
+[JsonSerializable(typeof(WorkerExportFileHistoryResponse))]
 [JsonSerializable(typeof(WorkerExportDestinationResponse))]
 [JsonSerializable(typeof(WorkerExportResult))]
 [JsonSerializable(typeof(IReadOnlyList<string>))]

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -24,6 +24,11 @@ test('previews every archive before committing and atomically finalizes the dire
   const result = await fixture.run();
 
   assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /archive=operator\/alpha\.nix importId=.*stage=upload status=pending_upload/u);
+  assert.match(result.stdout, /profile=alpha importId=.*stage=preview status=preview_ready/u);
+  assert.match(result.stdout, /jobId=.*state=completed/u);
+  assert.match(result.stdout, /stage=finalize status=completed activeStableKeys=2/u);
+  assert.doesNotMatch(result.stdout, /short-lived-token|signature=capability|uploadUrl/u);
   assert.deepEqual(fixture.failures, []);
   assert.deepEqual(
     fixture.events.map((event) => event.kind),
@@ -53,9 +58,9 @@ test('previews every archive before committing and atomically finalizes the dire
       'finalize',
     ],
   );
-  assert.deepEqual(fixture.finalize.activeStableKeys, ['alpha', 'beta']);
+  assert.deepEqual(fixture.finalizations[0].activeStableKeys, ['alpha', 'beta']);
   assert.deepEqual(
-    fixture.finalize.imports.map((entry) => ({
+    fixture.finalizations[0].imports.map((entry) => ({
       importId: entry.importId,
       stableKey: entry.stableKey,
       operationId: entry.operationId,
@@ -66,6 +71,28 @@ test('previews every archive before committing and atomically finalizes the dire
       operationId: entry.operationId,
     })),
   );
+});
+
+test('combines built-ins and operator templates in one idempotent snapshot', async () => {
+  const fixture = await bootFixture([
+    { name: 'project.nix', source: 'builtin', bytes: 'project-v1', key: 'nix.project-hub', operationId: null },
+    { name: 'custom.nix', source: 'operator', bytes: 'custom-v1', key: 'operator.custom', operationId: null },
+  ]);
+
+  const first = await fixture.run();
+  const firstImportIds = fixture.records.map((record) => record.importId);
+  const second = await fixture.run();
+
+  assert.equal(first.code, 0, first.stderr);
+  assert.equal(second.code, 0, second.stderr);
+  assert.deepEqual(fixture.failures, []);
+  assert.equal(fixture.finalizations.length, 2);
+  for (const snapshot of fixture.finalizations) {
+    assert.deepEqual(snapshot.activeStableKeys, ['nix.project-hub', 'operator.custom']);
+    assert.deepEqual(snapshot.imports.map((entry) => entry.stableKey), ['nix.project-hub', 'operator.custom']);
+  }
+  assert.deepEqual(fixture.records.map((record) => record.importId), firstImportIds);
+  assert.equal(fixture.events.filter((event) => event.kind === 'begin').length, 4);
 });
 
 test('retains durable imports for retry when a file changes after preview', async () => {
@@ -80,13 +107,13 @@ test('retains durable imports for retry when a file changes after preview', asyn
   assert.match(result.stderr, /changed after its durable preview/u);
   assert.deepEqual(fixture.events.filter((event) => event.kind === 'cancel'), []);
   assert.equal(fixture.events.some((event) => event.kind === 'commit'), false);
-  assert.equal(fixture.finalize, null);
+  assert.equal(fixture.finalizations.length, 0);
 });
 
 test('rejects duplicate managed keys before committing and retains the durable attempts', async () => {
   const fixture = await bootFixture([
-    { name: 'alpha.nix', bytes: 'alpha', key: 'same', operationId: randomUUID() },
-    { name: 'beta.nix', bytes: 'beta', key: 'same', operationId: randomUUID() },
+    { name: 'alpha.nix', source: 'builtin', bytes: 'alpha', key: 'same', operationId: randomUUID() },
+    { name: 'beta.nix', source: 'operator', bytes: 'beta', key: 'same', operationId: randomUUID() },
   ]);
 
   const result = await fixture.run();
@@ -153,7 +180,7 @@ test('reacquires one token and retries one Core request after a 401', async () =
 
 test('refuses an oversized managed file before beginning or uploading it', async () => {
   const fixture = await bootFixture([]);
-  const oversized = resolve(fixture.directory, 'oversized.nix');
+  const oversized = resolve(fixture.operatorDirectory, 'oversized.nix');
   await writeFile(oversized, '');
   await truncate(oversized, 64 * 1024 * 1024 + 1);
 
@@ -181,7 +208,11 @@ test('bounds RabbitMQ operation polling and leaves the timed-out import resumabl
 async function bootFixture(files, options = {}) {
   const directory = await mkdtemp(resolve(tmpdir(), 'nix-template-boot-'));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
-  for (const file of files) await writeFile(resolve(directory, file.name), file.bytes);
+  const builtinDirectory = resolve(directory, 'builtin');
+  const operatorDirectory = resolve(directory, 'operator');
+  await mkdir(builtinDirectory, { recursive: true });
+  await mkdir(operatorDirectory, { recursive: true });
+  for (const file of files) await writeFile(resolve(file.source === 'builtin' ? builtinDirectory : operatorDirectory, file.name), file.bytes);
 
   const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const keyFile = resolve(directory, 'service-account.json');
@@ -209,7 +240,7 @@ async function bootFixture(files, options = {}) {
   const events = [];
   const failures = [];
   let authorizedStatus = options.firstAuthorizedRequestStatus;
-  let finalized = null;
+  const finalizations = [];
   const server = createServer((request, response) => {
     void handleRequest(request, response).catch((error) => {
       failures.push(error instanceof Error ? error.message : String(error));
@@ -287,7 +318,7 @@ async function bootFixture(files, options = {}) {
       request.method === 'POST'
     ) {
       const requestBody = JSON.parse((await body(request)).toString('utf8'));
-      const record = records.find((candidate) => candidate.name === requestBody.managedSource);
+      const record = records.find((candidate) => `${candidate.source ?? 'operator'}/${candidate.name}` === requestBody.managedSource);
       if (record === undefined) return unexpected(response, failures, 'Unknown managed template.');
       if (
         requestBody.fileName !== record.name ||
@@ -371,7 +402,7 @@ async function bootFixture(files, options = {}) {
         !record.changed &&
         options.changeAfterPreview?.name === record.name
       ) {
-        await writeFile(resolve(directory, record.name), options.changeAfterPreview.bytes);
+        await writeFile(resolve(record.source === 'builtin' ? builtinDirectory : operatorDirectory, record.name), options.changeAfterPreview.bytes);
         record.changed = true;
       }
       json(response, 200, templateImport(record));
@@ -389,8 +420,9 @@ async function bootFixture(files, options = {}) {
       request.method === 'POST'
     ) {
       events.push({ kind: 'finalize' });
-      finalized = JSON.parse((await body(request)).toString('utf8'));
-      json(response, 200, { activated: 1, unchanged: 1, retired: 1 });
+      const snapshot = JSON.parse((await body(request)).toString('utf8'));
+      finalizations.push(snapshot);
+      json(response, 200, { activated: 1, unchanged: 1, retired: 0 });
       return;
     }
     unexpected(response, failures, `Unexpected route ${request.method} ${url.pathname}.`);
@@ -406,15 +438,16 @@ async function bootFixture(files, options = {}) {
 
   return {
     directory,
+    builtinDirectory,
+    operatorDirectory,
     events,
     failures,
     records,
-    get finalize() {
-      return finalized;
-    },
+    finalizations,
     run: () =>
       child(SCRIPT, {
-        NIX_TEMPLATE_BOOT_DIRECTORY: directory,
+        NIX_TEMPLATE_BOOT_DIRECTORY: operatorDirectory,
+        NIX_TEMPLATE_BOOT_BUILTIN_DIRECTORY: builtinDirectory,
         NIX_TEMPLATE_BOOT_WORKSPACE_ID: WORKSPACE,
         NIX_TEMPLATE_BOOT_CORE_URL: origin(server),
         NIX_TEMPLATE_BOOT_OBJECT_ORIGINS: origin(server),
@@ -522,15 +555,20 @@ function child(script, env) {
   return new Promise((resolveChild) => {
     const childProcess = spawn(process.execPath, [script], {
       env: { PATH: process.env.PATH ?? '', ...env },
-      stdio: ['ignore', 'ignore', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
+    let stdout = '';
     let stderr = '';
+    childProcess.stdout.setEncoding('utf8');
+    childProcess.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
     childProcess.stderr.setEncoding('utf8');
     childProcess.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
     childProcess.on('close', (code) => {
-      resolveChild({ code, stderr });
+      resolveChild({ code, stdout, stderr });
     });
   });
 }

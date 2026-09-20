@@ -21,6 +21,8 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(RenameWorkspaceRequest))]
 [JsonSerializable(typeof(WorkspaceMemberResponse))]
 [JsonSerializable(typeof(CursorPage<WorkspaceMemberResponse>))]
+[JsonSerializable(typeof(WorkspacePrincipalResponse))]
+[JsonSerializable(typeof(CursorPage<WorkspacePrincipalResponse>))]
 [JsonSerializable(typeof(WorkspaceInvitationResponse))]
 [JsonSerializable(typeof(CursorPage<WorkspaceInvitationResponse>))]
 [JsonSerializable(typeof(WorkspaceInviteeResponse))]

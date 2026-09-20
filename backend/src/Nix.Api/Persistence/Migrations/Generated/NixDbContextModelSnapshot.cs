@@ -509,6 +509,12 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("character varying(512)")
                         .HasColumnName("object_key");
 
+                    b.Property<bool>("ObjectReady")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("object_ready");
+
                     b.Property<int?>("PixelHeight")
                         .HasColumnType("integer")
                         .HasColumnName("pixel_height");
@@ -1189,6 +1195,98 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("document_import", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImportFileVersion", b =>
+                {
+                    b.Property<Guid>("TransferId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<string>("ExecutionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("execution_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<Guid>("FileVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_version_id");
+
+                    b.Property<Guid>("ImportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("import_id");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("media_type");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("object_key");
+
+                    b.Property<bool>("ObjectReady")
+                        .HasColumnType("boolean")
+                        .HasColumnName("object_ready");
+
+                    b.Property<int?>("PixelHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_height");
+
+                    b.Property<int?>("PixelWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_width");
+
+                    b.Property<bool>("Previewable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("previewable");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<string>("SourceItemId")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("TransferId");
+
+                    b.HasAlternateKey("TenantId", "TransferId");
+
+                    b.HasIndex("TenantId", "FileVersionId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "ImportId", "SourceItemId");
+
+                    b.HasIndex("TenantId", "TargetItemId", "FileVersionId");
+
+                    b.ToTable("document_import_file_version", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Importing.DocumentImportItem", b =>
                 {
                     b.Property<Guid>("ImportId")
@@ -1855,10 +1953,19 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("parent_item_id");
 
+                    b.Property<string>("RequestFingerprint")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("request_fingerprint");
+
                     b.Property<string>("RequestedTitle")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("requested_title");
+
+                    b.Property<string>("ResolvedInputs")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("resolved_inputs");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -1872,6 +1979,10 @@ namespace Nix.Persistence.Migrations.Generated
                     b.Property<Guid>("TemplateId")
                         .HasColumnType("uuid")
                         .HasColumnName("template_id");
+
+                    b.Property<int>("TemplateRevision")
+                        .HasColumnType("integer")
+                        .HasColumnName("template_revision");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -1944,6 +2055,105 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("template_application_item", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateFileTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.Property<Guid?>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<string>("ExecutionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("execution_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("media_type");
+
+                    b.Property<Guid?>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<int?>("PixelHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_height");
+
+                    b.Property<int?>("PixelWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("pixel_width");
+
+                    b.Property<bool>("Previewable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("previewable");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<Guid>("SourceItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<string>("SourceObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("source_object_key");
+
+                    b.Property<Guid>("TargetItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_item_id");
+
+                    b.Property<Guid>("TargetVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_version_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId", "ApplicationId");
+
+                    b.HasIndex("TenantId", "OperationId");
+
+                    b.HasIndex("TenantId", "TargetVersionId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "TargetItemId", "TargetVersionId");
+
+                    b.ToTable("template_file_transfer", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_template_file_transfer_owner", "(operation_id IS NOT NULL AND application_id IS NULL) OR (operation_id IS NULL AND application_id IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Templates.TemplateOperation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1962,6 +2172,10 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("draft_description");
+
+                    b.Property<string>("DraftInitialization")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("draft_initialization");
 
                     b.Property<string>("DraftTitle")
                         .HasMaxLength(200)
@@ -2100,6 +2314,10 @@ namespace Nix.Persistence.Migrations.Generated
                     b.Property<bool>("IncludeChildren")
                         .HasColumnType("boolean")
                         .HasColumnName("include_children");
+
+                    b.Property<string>("Initialization")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("initialization");
 
                     b.Property<DateTimeOffset>("LastModifiedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2770,6 +2988,30 @@ namespace Nix.Persistence.Migrations.Generated
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Nix.Domain.Importing.DocumentImportFileVersion", b =>
+                {
+                    b.HasOne("Nix.Domain.Importing.DocumentImport", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ImportId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TargetItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Nix.Domain.Files.FileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TargetItemId", "FileVersionId")
+                        .HasPrincipalKey("TenantId", "ItemId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Nix.Domain.Importing.DocumentImportItem", b =>
                 {
                     b.HasOne("Nix.Domain.Files.FileVersion", null)
@@ -2952,6 +3194,28 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "ApplicationId")
                         .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Templates.TemplateFileTransfer", b =>
+                {
+                    b.HasOne("Nix.Domain.Templates.TemplateApplication", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApplicationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Nix.Domain.Templates.TemplateOperation", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OperationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Nix.Domain.Files.FileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TargetItemId", "TargetVersionId")
+                        .HasPrincipalKey("TenantId", "ItemId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -53,6 +53,18 @@ const _workspaceMemberContract = workspaceMemberSchema satisfies z.ZodType<
 >;
 void _workspaceMemberContract;
 
+export const workspacePrincipalSchema = z.object({
+  principalId: z.uuid(),
+  displayName: z.string(),
+  kind: z.string().min(1),
+});
+export type WorkspacePrincipal = z.infer<typeof workspacePrincipalSchema>;
+
+const _workspacePrincipalContract = workspacePrincipalSchema satisfies z.ZodType<
+  components['schemas']['WorkspacePrincipalResponse']
+>;
+void _workspacePrincipalContract;
+
 export const workspaceInvitationSchema = z.object({
   id: z.uuid(),
   emailNormalized: z.string().min(1).max(320),

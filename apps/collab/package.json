@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@nix/api-client": "workspace:*",
     "@nix/editor-schema": "workspace:*",
     "@nix/export": "workspace:*",
     "@nix/markdown": "workspace:*",

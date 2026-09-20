@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Audit;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -86,11 +87,6 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateDraftPlan>(TemplateErrors.Invalid("The template has no active root."));
         }
-        if (ContainsFileItems(source))
-        {
-            return Result.Failure<TemplateDraftPlan>(TemplateErrors.FileAttachmentsUnsupported());
-        }
-
         var operationId = TemplateOperationId.Create();
         var now = _clock.GetUtcNow();
         var expiresAt = now + StagingLifetime;
@@ -135,12 +131,23 @@ public sealed partial class TemplateStore
             ActorId = Context.PrincipalId,
             DraftTitle = template.Title,
             DraftDescription = template.Description,
+            DraftInitialization = template.Initialization ?? TemplateInitializationJson.Write(TemplateInitialization.Empty),
             State = TemplateOperationState.Provisioning,
             CreatedAt = now,
             ExpiresAt = expiresAt,
         });
         _database.TemplateOperationItems.AddRange(mappings);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var fileTransfers = await PrepareTemplateFilesAsync(operationId, mappings, cancellationToken)
+            .ConfigureAwait(false);
+        if (fileTransfers.IsFailure)
+        {
+            return Result.Failure<TemplateDraftPlan>(fileTransfers.Error);
+        }
+        if (fileTransfers.Value.Count > 0)
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
         await RebuildClosureAsync(staged.Select(item => item.Id), cancellationToken).ConfigureAwait(false);
 
         return Result.Success(new TemplateDraftPlan(
@@ -157,7 +164,8 @@ public sealed partial class TemplateStore
             mappings.Where(mapping => mapping.BodyRequired).Select(mapping => new TemplateBodyCopy(
                 mapping.SourceItemId!.Value,
                 mapping.TargetItemId,
-                mapping.ItemType)).ToArray()));
+                mapping.ItemType)).ToArray(),
+            ReadInitializationOrThrow(template.Initialization)));
     }
 
     /// <summary>Reads a caller-owned provisioning draft without exposing another active revision.</summary>
@@ -178,6 +186,22 @@ public sealed partial class TemplateStore
         TemplateOperationId operationId,
         string? title,
         string? description,
+        CancellationToken cancellationToken)
+        => await UpdateDraftMetadataAsync(
+            templateId,
+            operationId,
+            title,
+            description,
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Updates draft metadata and its complete initialization definition.</summary>
+    public async ValueTask<Result<TemplateDraftPlan>> UpdateDraftMetadataAsync(
+        TemplateId templateId,
+        TemplateOperationId operationId,
+        string? title,
+        string? description,
+        TemplateInitialization? initialization,
         CancellationToken cancellationToken)
     {
         await LockTemplateStagesAsync(cancellationToken).ConfigureAwait(false);
@@ -208,6 +232,22 @@ public sealed partial class TemplateStore
         }
 
         var nextDescription = description ?? operation.DraftDescription;
+        var nextInitialization = operation.DraftInitialization;
+        if (initialization is not null)
+        {
+            var sourceIds = await _database.TemplateOperationItems
+                .Where(mapping => mapping.OperationId == operationId)
+                .Select(mapping => mapping.TemplateSourceId)
+                .ToHashSetAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (TemplateInitializationValidator.Validate(initialization, sourceIds) is { } initializationRefusal)
+            {
+                return Result.Failure<TemplateDraftPlan>(TemplateErrors.Invalid(initializationRefusal));
+            }
+
+            nextInitialization = TemplateInitializationJson.Write(initialization);
+        }
+
         var now = _clock.GetUtcNow();
         var updated = await _database.TemplateOperations
             .Where(candidate => candidate.Id == operationId
@@ -219,7 +259,8 @@ public sealed partial class TemplateStore
             .ExecuteUpdateAsync(
                 update => update
                     .SetProperty(candidate => candidate.DraftTitle, nextTitle)
-                    .SetProperty(candidate => candidate.DraftDescription, nextDescription),
+                    .SetProperty(candidate => candidate.DraftDescription, nextDescription)
+                    .SetProperty(candidate => candidate.DraftInitialization, nextInitialization),
                 cancellationToken)
             .ConfigureAwait(false);
         if (updated != 1)
@@ -230,6 +271,7 @@ public sealed partial class TemplateStore
 
         operation.DraftTitle = nextTitle;
         operation.DraftDescription = nextDescription;
+        operation.DraftInitialization = nextInitialization;
         return Result.Success(await DraftPlanAsync(operation, cancellationToken).ConfigureAwait(false));
     }
 
@@ -267,10 +309,6 @@ public sealed partial class TemplateStore
             .SingleAsync(candidate => candidate.Id == mapping.TargetItemId, cancellationToken)
             .ConfigureAwait(false);
         var nextProperties = properties ?? item.Properties;
-        if (item.ParentId is null)
-        {
-            nextProperties = ItemProperties.WithTitle(null, ItemProperties.ReadTitle(nextProperties));
-        }
         if (title is not null)
         {
             if (string.IsNullOrWhiteSpace(title) || title.Length > 200)
@@ -492,6 +530,24 @@ public sealed partial class TemplateStore
         TemplateId templateId,
         CancellationToken cancellationToken)
     {
+        var template = await _database.WorkspaceTemplates.AsNoTracking()
+            .Where(value => value.Id == templateId)
+            .Select(value => new { value.WorkspaceId })
+            .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (template is not null)
+        {
+            var objectKeys = await (from version in _database.FileVersions.AsNoTracking()
+                                    join item in _database.Items.IgnoreQueryFilters().AsNoTracking() on version.ItemId equals item.Id
+                                    where item.TenantId == Context.TenantId && item.TemplateId == templateId
+                                    select version.ObjectKey).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+            if (objectKeys.Length > 0)
+            {
+                await ObjectCleanupJobs.QueueBatchedAsync(
+                    _jobs, Context.TenantId, Context.PrincipalId, template.WorkspaceId,
+                    "template-delete", templateId.Value, _signer.GetCleanupNotBefore(), objectKeys,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
         while (true)
         {
             var itemIds = await _database.Items.IgnoreQueryFilters()

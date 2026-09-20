@@ -30,6 +30,13 @@ public interface ITemplateStagingStore
         IReadOnlyList<ItemId> writtenBodyItemIds,
         CancellationToken cancellationToken);
 
+    public ValueTask<Result<TemplateId>> FinalizeOperationAsync(
+        TemplateOperationId operationId,
+        IReadOnlyList<ItemId> writtenBodyItemIds,
+        IReadOnlyList<Guid>? externalReferenceTargets,
+        CancellationToken cancellationToken) =>
+        FinalizeOperationAsync(operationId, writtenBodyItemIds, cancellationToken);
+
     public ValueTask<Result<bool>> AbortOperationAsync(
         TemplateOperationId operationId,
         CancellationToken cancellationToken);

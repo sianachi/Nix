@@ -232,6 +232,7 @@ public sealed class FileStore(
             MediaType = request.DetectedMediaType,
             ByteLength = request.ByteLength,
             Sha256 = request.Sha256,
+            ObjectReady = true,
             Previewable = request.Previewable,
             PixelWidth = request.PixelWidth,
             PixelHeight = request.PixelHeight,
@@ -330,9 +331,53 @@ public sealed class FileStore(
         {
             return null;
         }
-        var versions = await database.FileVersions.AsNoTracking().Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId).OrderByDescending(candidate => candidate.Version).ToListAsync(cancellationToken).ConfigureAwait(false);
+        var versions = await database.FileVersions.AsNoTracking().Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.ObjectReady).OrderByDescending(candidate => candidate.Version).ToListAsync(cancellationToken).ConfigureAwait(false);
         var mapped = versions.Select(version => ToVersion(version, version.Id == body.CurrentVersionId)).ToArray();
-        return new FileRecord(itemId.Value, body.WorkspaceId.Value, mapped.Single(version => version.Current), mapped);
+        var current = mapped.SingleOrDefault(version => version.Current);
+        return current is null ? null : new FileRecord(itemId.Value, body.WorkspaceId.Value, current, mapped);
+    }
+
+    public async ValueTask<IReadOnlyList<FileVersionSourceRecord>?> AuthorizeVersionHistoryAsync(
+        ItemId itemId,
+        CancellationToken cancellationToken)
+    {
+        var context = Context;
+        var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(
+            candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId,
+            cancellationToken).ConfigureAwait(false);
+        var item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+        if (body is null || item is not { Type: "file" }
+            || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        var versions = await database.FileVersions.AsNoTracking()
+            .Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId)
+            .OrderBy(candidate => candidate.Version)
+            .Take(101)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (versions.Count is < 1 or > 100
+            || versions.Any(version => !version.ObjectReady)
+            || versions[0].Version != 1
+            || versions.Where((version, index) => version.Version != index + 1).Any()
+            || versions.Count(version => version.Id == body.CurrentVersionId) != 1)
+        {
+            return null;
+        }
+
+        return versions.Select(version => new FileVersionSourceRecord(
+            version.Id.Value,
+            version.Version,
+            version.ObjectKey,
+            version.FileName,
+            PreviewMediaType(version.FileName, version.MediaType, version.ByteLength) ?? version.MediaType,
+            version.ByteLength,
+            version.Sha256,
+            Previewable(version.FileName, version.MediaType, version.ByteLength, version.Previewable),
+            version.PixelWidth,
+            version.PixelHeight,
+            version.Id == body.CurrentVersionId)).ToArray();
     }
 
     public async ValueTask<FileDownloadRecord?> AuthorizeDownloadAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken)
@@ -346,7 +391,7 @@ public sealed class FileStore(
             return null;
         }
         var wanted = versionId ?? body.CurrentVersionId;
-        var version = await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted, cancellationToken).ConfigureAwait(false);
+        var version = await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted && candidate.ObjectReady, cancellationToken).ConfigureAwait(false);
         return version is null
             ? null
             : new(

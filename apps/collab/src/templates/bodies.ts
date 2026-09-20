@@ -34,6 +34,22 @@ export interface WorkerExecutionFence {
   readonly kind: 'import.commit' | 'template.commit';
 }
 
+export interface TemplateBodyBindings {
+  readonly textBindings?: Readonly<Record<string, string>> | undefined;
+  readonly referenceMappings?: ReadonlyMap<string, string | null> | undefined;
+  readonly stubUnknown?: boolean | undefined;
+  readonly onReferenceInventory?:
+    | ((inventory: {
+        sourceItemId: string;
+        targetItemId: string;
+        externalTargetIds: readonly string[];
+      }) => void)
+    | undefined;
+}
+
+const TEMPLATE_INPUT_KEY = /^[a-z][a-z0-9_-]{0,63}$/;
+const TEMPLATE_TEXT_EXPANSION_BYTES = 100_000;
+
 /** Applies the exact Collab materialization and durable-update ceilings used during commit. */
 export function validateArchiveBodies(
   bundles: readonly Pick<
@@ -62,23 +78,36 @@ export function validateArchiveBodies(
   }
 }
 
-/** Copies staged bodies as fresh Yjs histories while preserving only portable item references. */
+/** Copies staged bodies as fresh Yjs histories and preserves external identities for policy review. */
 export async function copyBodies(
   pool: Pool,
   authorization: OperationItemAuthorization,
   copies: readonly BodyCopy[],
   itemMappings: ReadonlyMap<string, string>,
+  options: TemplateBodyBindings = {},
 ): Promise<readonly string[]> {
   assertStagedWrite(authorization);
   return await withTenantScope(pool, scopeOf(authorization), async (sql) => {
     const sourceStates = await loadSourceStates(
       sql,
       authorization.tenantId,
-      copies.map((copy) => copy.sourceItemId),
+      copies.flatMap((copy) => [copy.sourceItemId, copy.targetItemId]),
     );
     const fresh: FreshState[] = [];
     try {
       for (const copy of copies) {
+        const staged = sourceStates.get(copy.targetItemId);
+        if (staged !== undefined) {
+          const stagedBody = strategyFor(copy.itemType).materialize(staged).json;
+          options.onReferenceInventory?.({
+            sourceItemId: copy.sourceItemId,
+            targetItemId: copy.targetItemId,
+            externalTargetIds: inventoryItemReferences(stagedBody).filter(
+              (targetId) => !isMappedItem(targetId, itemMappings),
+            ),
+          });
+          continue;
+        }
         const source = sourceStates.get(copy.sourceItemId);
         if (source === undefined) {
           throw new TemplateBodyError(
@@ -87,10 +116,20 @@ export async function copyBodies(
           );
         }
         const body = strategyFor(copy.itemType).materialize(source).json;
+        options.onReferenceInventory?.({
+          sourceItemId: copy.sourceItemId,
+          targetItemId: copy.targetItemId,
+          externalTargetIds: inventoryItemReferences(body).filter(
+            (targetId) => !isMappedItem(targetId, itemMappings),
+          ),
+        });
         fresh.push({
           targetItemId: copy.targetItemId,
           itemType: copy.itemType,
-          state: fromMaterialized(copy.itemType, remapItemReferences(body, itemMappings, true)),
+          state: fromMaterialized(
+            copy.itemType,
+            transformTemplateBody(copy.itemType, body, itemMappings, options),
+          ),
         });
       }
       await persistFreshStates(sql, authorization, fresh);
@@ -116,7 +155,7 @@ export async function writeArchiveBodies(
     const fresh = writes.map((write) => ({
       targetItemId: write.targetItemId,
       itemType: write.itemType,
-      state: documentFromArchiveBody(write.itemType, remapBody(write.body, itemMappings)),
+      state: documentFromArchiveBody(write.itemType, remapBody(write.body, itemMappings, false)),
     }));
     try {
       await persistFreshStates(sql, authorization, fresh);
@@ -460,14 +499,18 @@ function isSheetItemType(itemType: string): boolean {
   return itemType === SHEET_ITEM_TYPE || itemType === 'sheet';
 }
 
-function remapBody(body: ItemBody, mappings: ReadonlyMap<string, string>): ItemBody {
+function remapBody(
+  body: ItemBody,
+  mappings: ReadonlyMap<string, string>,
+  stubUnknown: boolean,
+): ItemBody {
   if ('prosemirror' in body) {
-    return { ...body, prosemirror: remapItemReferences(body.prosemirror, mappings, true) };
+    return { ...body, prosemirror: remapItemReferences(body.prosemirror, mappings, stubUnknown) };
   }
   if ('canvas' in body) {
-    return { ...body, canvas: remapItemReferences(body.canvas, mappings, true) };
+    return { ...body, canvas: remapItemReferences(body.canvas, mappings, stubUnknown) };
   }
-  return { ...body, sheet: remapItemReferences(body.sheet, mappings, true) };
+  return { ...body, sheet: remapItemReferences(body.sheet, mappings, stubUnknown) };
 }
 
 /** Remaps declared Nix item/file references and leaves arbitrary UUID-valued user data untouched. */
@@ -475,15 +518,47 @@ export function remapItemReferences(
   value: unknown,
   mappings: ReadonlyMap<string, string>,
   stubUnknown = false,
+  referenceMappings: ReadonlyMap<string, string | null> = new Map(),
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) => remapItemReferences(entry, mappings, stubUnknown));
+    return value.map((entry) =>
+      remapItemReferences(entry, mappings, stubUnknown, referenceMappings),
+    );
   }
   if (!isRecord(value)) return value;
 
   const mapped: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    mapped[key] = remapItemReferences(child, mappings, stubUnknown);
+    if (key === 'marks' && Array.isArray(child)) {
+      mapped[key] = child.flatMap((mark) => {
+        if (!isRecord(mark) || mark.type !== 'link' || !isRecord(mark.attrs)) {
+          return [remapItemReferences(mark, mappings, stubUnknown, referenceMappings)];
+        }
+        const href = mark.attrs.href;
+        if (!isNixItemLink(href)) {
+          return [remapItemReferences(mark, mappings, stubUnknown, referenceMappings)];
+        }
+        const itemId = nixItemId(href);
+        if (itemId === null)
+          return [remapItemReferences(mark, mappings, stubUnknown, referenceMappings)];
+        const hasMapping = mappings.has(itemId) || referenceMappings.has(itemId);
+        const replacement = mappings.has(itemId)
+          ? mappings.get(itemId)
+          : referenceMappings.get(itemId);
+        if (replacement === null || (!hasMapping && stubUnknown)) return [];
+        if (replacement !== undefined) {
+          return [
+            {
+              ...mark,
+              attrs: { ...mark.attrs, href: nixItemLink(replacement) },
+            },
+          ];
+        }
+        return [remapItemReferences(mark, mappings, stubUnknown, referenceMappings)];
+      });
+    } else {
+      mapped[key] = remapItemReferences(child, mappings, stubUnknown, referenceMappings);
+    }
   }
   if (
     (value.type === 'itemBlock' || value.type === 'reference') &&
@@ -492,10 +567,13 @@ export function remapItemReferences(
   ) {
     const target = value.attrs.targetId;
     if (typeof target === 'string') {
-      const replacement = mappings.get(target);
+      const hasMapping = mappings.has(target) || referenceMappings.has(target);
+      const replacement = mappings.has(target)
+        ? mappings.get(target)
+        : referenceMappings.get(target);
       mapped.attrs = {
         ...record(mapped.attrs),
-        targetId: replacement ?? (stubUnknown ? null : target),
+        targetId: hasMapping ? (replacement ?? null) : stubUnknown ? null : target,
       };
     }
   }
@@ -510,9 +588,88 @@ export function remapItemReferences(
     }
   }
 
-  remapCanvasMarker(value, mapped, mappings, stubUnknown);
-  remapTransitionalCanvasReference(value, mapped, mappings, stubUnknown);
+  remapCanvasMarker(value, mapped, mappings, stubUnknown, referenceMappings);
+  remapTransitionalCanvasReference(value, mapped, mappings, stubUnknown, referenceMappings);
   return mapped;
+}
+
+/** Finds declared external item links while their original ids are still present in the body. */
+export function inventoryItemReferences(value: unknown): readonly string[] {
+  const found = new Set<string>();
+  visitRecords(value, (recordValue) => {
+    if (
+      (recordValue.type === 'itemBlock' || recordValue.type === 'reference') &&
+      isRecord(recordValue.attrs) &&
+      (recordValue.type === 'itemBlock' || recordValue.attrs.kind === 'item') &&
+      typeof recordValue.attrs.targetId === 'string'
+    ) {
+      found.add(recordValue.attrs.targetId);
+    }
+    if (Array.isArray(recordValue.marks)) {
+      for (const mark of recordValue.marks) {
+        if (
+          isRecord(mark) &&
+          mark.type === 'link' &&
+          isRecord(mark.attrs) &&
+          isNixItemLink(mark.attrs.href)
+        ) {
+          const itemId = nixItemId(mark.attrs.href);
+          if (itemId !== null) found.add(itemId);
+        }
+      }
+    }
+    if (
+      isRecord(recordValue.customData) &&
+      isRecord(recordValue.customData.nix) &&
+      recordValue.customData.nix.kind === 'item' &&
+      typeof recordValue.customData.nix.itemId === 'string'
+    ) {
+      found.add(recordValue.customData.nix.itemId);
+    }
+    if (
+      recordValue.type === 'card' &&
+      typeof recordValue.itemId === 'string' &&
+      !hasCanonicalCanvasMarker(recordValue, 'item')
+    ) {
+      found.add(recordValue.itemId);
+    }
+  });
+  return [...found];
+}
+
+/** Applies Core-resolved plain-text bindings and item-reference policy before a body is staged. */
+export function transformTemplateBody(
+  itemType: string,
+  value: unknown,
+  itemMappings: ReadonlyMap<string, string>,
+  options: TemplateBodyBindings = {},
+): unknown {
+  // Capture, editing, and archive hydration preserve unresolved markers. Core supplies a bindings
+  // map only for application, where every marker must resolve before the body is materialized.
+  const withText =
+    options.textBindings === undefined
+      ? value
+      : substituteTemplateBodyText(itemType, value, options.textBindings);
+  return remapItemReferences(
+    withText,
+    itemMappings,
+    options.stubUnknown ?? true,
+    options.referenceMappings ?? new Map(),
+  );
+}
+
+/** Replaces only explicit prose, canvas text and literal sheet cells. */
+export function substituteTemplateBodyText(
+  itemType: string,
+  value: unknown,
+  bindings: Readonly<Record<string, string>>,
+): unknown {
+  const expanded = { bytes: 0 };
+  if (itemType === 'canvas') return substituteCanvasText(value, bindings, expanded);
+  if (itemType === 'spreadsheet' || itemType === 'sheet') {
+    return substituteSheetText(value, bindings, expanded);
+  }
+  return substituteProseMirrorText(value, bindings, expanded, false);
 }
 
 /**
@@ -526,6 +683,7 @@ function remapCanvasMarker(
   mapped: Record<string, unknown>,
   mappings: ReadonlyMap<string, string>,
   stubUnknown: boolean,
+  referenceMappings: ReadonlyMap<string, string | null>,
 ): void {
   if (!isRecord(value.customData) || !isRecord(value.customData.nix)) return;
   const marker = value.customData.nix;
@@ -533,7 +691,10 @@ function remapCanvasMarker(
     return;
   }
 
-  const replacement = mappings.get(marker.itemId);
+  const replacement =
+    marker.kind === 'item' && !mappings.has(marker.itemId)
+      ? referenceMappings.get(marker.itemId)
+      : mappings.get(marker.itemId);
   if (replacement === undefined && !stubUnknown) return;
 
   const customData = record(mapped.customData);
@@ -546,7 +707,8 @@ function remapCanvasMarker(
   };
 
   if (marker.kind === 'item' && isNixItemLink(value.link)) {
-    mapped.link = replacement === undefined ? null : nixItemLink(replacement);
+    mapped.link =
+      replacement === undefined || replacement === null ? null : nixItemLink(replacement);
   }
   if (marker.kind === 'item' && value.type === 'card' && typeof value.itemId === 'string') {
     mapped.itemId = replacement ?? '';
@@ -568,17 +730,20 @@ function remapTransitionalCanvasReference(
   mapped: Record<string, unknown>,
   mappings: ReadonlyMap<string, string>,
   stubUnknown: boolean,
+  referenceMappings: ReadonlyMap<string, string | null>,
 ): void {
   if (
     value.type === 'card' &&
     typeof value.itemId === 'string' &&
     !hasCanonicalCanvasMarker(value, 'item')
   ) {
-    const replacement = mappings.get(value.itemId);
-    if (replacement !== undefined) mapped.itemId = replacement;
+    const replacement = mappings.has(value.itemId)
+      ? mappings.get(value.itemId)
+      : referenceMappings.get(value.itemId);
+    if (replacement !== undefined && replacement !== null) mapped.itemId = replacement;
     else if (stubUnknown) mapped.itemId = '';
     if (isNixItemLink(value.link)) {
-      if (replacement !== undefined) mapped.link = nixItemLink(replacement);
+      if (replacement !== undefined && replacement !== null) mapped.link = nixItemLink(replacement);
       else if (stubUnknown) mapped.link = null;
     }
   }
@@ -606,8 +771,175 @@ function isNixItemLink(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('nix://item/');
 }
 
+function nixItemId(href: string): string | null {
+  try {
+    const itemId = decodeURIComponent(href.slice('nix://item/'.length));
+    return itemId.length === 0 ? null : itemId;
+  } catch {
+    return null;
+  }
+}
+
 function nixItemLink(itemId: string): string {
   return `nix://item/${encodeURIComponent(itemId)}`;
+}
+
+function substituteProseMirrorText(
+  value: unknown,
+  bindings: Readonly<Record<string, string>>,
+  expanded: { bytes: number },
+  insideCode: boolean,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => substituteProseMirrorText(entry, bindings, expanded, insideCode));
+  }
+  if (!isRecord(value)) return value;
+  const nodeType = typeof value.type === 'string' ? value.type : '';
+  const code = insideCode || nodeType === 'codeBlock' || nodeType === 'code';
+  const mapped: Record<string, unknown> = { ...value };
+  if (
+    nodeType === 'text' &&
+    !code &&
+    typeof value.text === 'string' &&
+    !hasProtectedTextMark(value)
+  ) {
+    mapped.text = expandTemplateText(value.text, bindings, expanded);
+    return mapped;
+  }
+  if (Array.isArray(value.content)) {
+    mapped.content = value.content.map((entry) =>
+      substituteProseMirrorText(entry, bindings, expanded, code),
+    );
+  }
+  return mapped;
+}
+
+function hasProtectedTextMark(value: Record<string, unknown>): boolean {
+  return (
+    Array.isArray(value.marks) &&
+    value.marks.some((mark) => isRecord(mark) && (mark.type === 'link' || mark.type === 'code'))
+  );
+}
+
+function substituteCanvasText(
+  value: unknown,
+  bindings: Readonly<Record<string, string>>,
+  expanded: { bytes: number },
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => substituteCanvasText(entry, bindings, expanded));
+  }
+  if (!isRecord(value)) return value;
+  const mapped: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    mapped[key] = substituteCanvasText(child, bindings, expanded);
+  }
+  if (value.type === 'text') {
+    for (const key of ['text', 'originalText'] as const) {
+      if (typeof value[key] === 'string') {
+        mapped[key] = expandTemplateText(value[key], bindings, expanded);
+      }
+    }
+  }
+  return mapped;
+}
+
+function substituteSheetText(
+  value: unknown,
+  bindings: Readonly<Record<string, string>>,
+  expanded: { bytes: number },
+): unknown {
+  if (!isRecord(value) || !isRecord(value.cells)) return value;
+  const cells: Record<string, unknown> = { ...value.cells };
+  for (const [cell, rawCell] of Object.entries(value.cells)) {
+    if (typeof rawCell !== 'string' || rawCell.startsWith('=')) continue;
+    const raw = expandTemplateText(rawCell, bindings, expanded);
+    cells[cell] = raw.startsWith('=') ? `'${raw}` : raw;
+  }
+  return { ...value, cells };
+}
+
+function expandTemplateText(
+  text: string,
+  bindings: Readonly<Record<string, string>>,
+  expanded: { bytes: number },
+): string {
+  const output: string[] = [];
+  let cursor = 0;
+  let addedBytes = 0;
+  while (cursor < text.length) {
+    const open = text.indexOf('{{', cursor);
+    const closeWithoutOpen = text.indexOf('}}', cursor);
+    if (closeWithoutOpen >= 0 && (open < 0 || closeWithoutOpen < open)) {
+      throw new TemplateBodyError(
+        'template.input_binding_invalid',
+        'A template text field contains an unmatched closing input marker.',
+      );
+    }
+    if (open < 0) {
+      output.push(text.slice(cursor));
+      break;
+    }
+    output.push(text.slice(cursor, open));
+    const close = text.indexOf('}}', open + 2);
+    if (close < 0) {
+      throw new TemplateBodyError(
+        'template.input_binding_invalid',
+        'A template text field contains an unclosed input marker.',
+      );
+    }
+    const key = text.slice(open + 2, close);
+    if (!TEMPLATE_INPUT_KEY.test(key)) {
+      throw new TemplateBodyError(
+        'template.input_binding_invalid',
+        'A template text field contains an invalid input key.',
+      );
+    }
+    const replacement = Object.hasOwn(bindings, key) ? bindings[key] : undefined;
+    if (typeof replacement !== 'string') {
+      throw new TemplateBodyError(
+        'template.input_binding_missing',
+        `The template body uses input "${key}" but Core did not resolve it.`,
+      );
+    }
+    addedBytes += Math.max(
+      0,
+      Buffer.byteLength(replacement, 'utf8') -
+        Buffer.byteLength(text.slice(open, close + 2), 'utf8'),
+    );
+    output.push(replacement);
+    cursor = close + 2;
+  }
+  const result = output.join('');
+  expanded.bytes += addedBytes;
+  if (expanded.bytes > TEMPLATE_TEXT_EXPANSION_BYTES) {
+    throw new TemplateBodyError(
+      'template.text_expansion_too_large',
+      'Template text substitutions exceed the supported body expansion size.',
+    );
+  }
+  return result;
+}
+
+function isMappedItem(targetId: string, mappings: ReadonlyMap<string, string>): boolean {
+  if (mappings.has(targetId)) return true;
+  for (const mappedTarget of mappings.values()) {
+    if (mappedTarget === targetId) return true;
+  }
+  return false;
+}
+
+function visitRecords(
+  value: unknown,
+  visitor: (recordValue: Record<string, unknown>) => void,
+): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) visitRecords(entry, visitor);
+    return;
+  }
+  if (!isRecord(value)) return;
+  visitor(value);
+  for (const entry of Object.values(value)) visitRecords(entry, visitor);
 }
 
 function scopeOf(authorization: OperationItemAuthorization): TenantScope {

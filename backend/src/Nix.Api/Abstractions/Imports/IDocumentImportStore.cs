@@ -56,7 +56,19 @@ public sealed record StageDocumentImport(
     DocumentImportId ImportId,
     string PlanSha256,
     string SourceSha256,
-    IReadOnlyList<ImportEnvelopePlan> Items);
+    IReadOnlyList<ImportEnvelopePlan> Items,
+    IReadOnlyList<ImportFileVersionPlan>? FileVersions = null);
+
+public sealed record ImportFileVersionPlan(
+    string SourceItemId,
+    int Version,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight);
 
 public sealed record DocumentImportRecord(
     Guid Id,
@@ -109,7 +121,31 @@ public sealed record DocumentImportItemMapping(
 public sealed record DocumentImportStageRecord(
     Guid ImportId,
     Guid RootItemId,
-    IReadOnlyList<DocumentImportItemMapping> Items);
+    IReadOnlyList<DocumentImportItemMapping> Items,
+    IReadOnlyList<DocumentImportFileVersionMapping>? FileVersions = null);
+
+public sealed record DocumentImportFileVersionMapping(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion);
+
+public sealed record DocumentImportFileVersionAuthorization(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion,
+    string ObjectKey,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool ObjectReady);
+
+public sealed record DocumentImportFileVersionsPage(
+    IReadOnlyList<DocumentImportFileVersionAuthorization> Files,
+    Guid? NextAfterTransferId,
+    bool Complete);
 
 public sealed record DocumentImportObjectRecord(
     string SourceId,
@@ -149,6 +185,13 @@ public interface IDocumentImportStore
     public ValueTask<DocumentImportRecord?> CompleteTemplateAsync(CompleteTemplateImport request, CancellationToken cancellationToken);
     public ValueTask<bool> CompleteManagedBatchAsync(IReadOnlyList<DocumentImportId> importIds, CancellationToken cancellationToken);
     public ValueTask<DocumentImportStageRecord?> StageAsync(StageDocumentImport request, CancellationToken cancellationToken);
+    public ValueTask<IReadOnlyList<DocumentImportFileVersionMapping>?> StageTemplateFileVersionsAsync(
+        DocumentImportId id,
+        IReadOnlyList<ImportFileVersionPlan> fileVersions,
+        IReadOnlyList<(string SourceItemId, ItemId TargetItemId)> targets,
+        CancellationToken cancellationToken);
+    public ValueTask<DocumentImportFileVersionsPage?> AuthorizeFileVersionsAsync(DocumentImportId id, string executionId, Guid? afterTransferId, int limit, CancellationToken cancellationToken);
+    public ValueTask<bool> CompleteFileVersionsAsync(DocumentImportId id, string executionId, IReadOnlyList<Guid> transferIds, CancellationToken cancellationToken);
     public ValueTask<DocumentImportObjectRecord?> AuthorizeObjectUploadAsync(DocumentImportId id, string sourceId, CancellationToken cancellationToken);
     public ValueTask<bool> MarkObjectReadyAsync(DocumentImportId id, string sourceId, long byteLength, string sha256, CancellationToken cancellationToken);
     public ValueTask<DocumentImportStageRecord?> AuthorizeBodyWritesAsync(DocumentImportId id, CancellationToken cancellationToken);

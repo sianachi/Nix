@@ -105,9 +105,29 @@ describe('the template API boundary', () => {
     expect(detail.root.schema).toEqual({
       inherit: false,
       properties: [
-        { key: 'status', label: 'Status', type: 'select', options: [], required: false },
+        {
+          key: 'status',
+          label: 'Status',
+          type: 'select',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: null,
+          source: null,
+        },
       ],
-      declared: [{ key: 'status', label: 'Status', type: 'select', options: [], required: false }],
+      declared: [
+        {
+          key: 'status',
+          label: 'Status',
+          type: 'select',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: null,
+          source: null,
+        },
+      ],
     });
     expect(detail.root.views?.views[0]).toMatchObject({
       id: 'board',

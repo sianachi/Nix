@@ -68,9 +68,11 @@ internal static class DocumentImportEndpoints
         imports.MapGet("/preview", GetPreviewExecution);
         imports.MapPost("/preview/complete", CompletePreviewExecution);
         imports.MapGet("/commit", GetCommitExecution);
-        imports.MapPost("/stage", StageExecution).WithRequestBodyLimit(16L * 1024 * 1024);
+        imports.MapPost("/stage", StageExecution).WithRequestBodyLimit(40L * 1024 * 1024);
         imports.MapGet("/objects/capability", AuthorizeObjectExecution);
         imports.MapPost("/objects/complete", CompleteObjectExecution);
+        imports.MapGet("/file-versions/authorization", AuthorizeFileVersionsExecution);
+        imports.MapPost("/file-versions/complete", CompleteFileVersionsExecution);
         imports.MapGet("/bodies/authorization", AuthorizeBodiesExecution);
         imports.MapPost("/finalize", FinalizeExecution);
         imports.MapPost("/reject", RejectExecution);
@@ -317,7 +319,7 @@ internal static class DocumentImportEndpoints
         {
             return TypedResults.Problem(NotFound(context));
         }
-        await ObjectCleanupJobs.QueueAsync(
+        await ObjectCleanupJobs.QueueBatchedAsync(
             jobs,
             scoped.TenantId,
             scoped.PrincipalId,
@@ -479,7 +481,10 @@ internal static class DocumentImportEndpoints
                 DocumentImportId.From(importId),
                 request.PlanSha256,
                 request.SourceSha256,
-                request.Items.Select(ToPlan).ToArray()),
+                request.Items.Select(ToPlan).ToArray(),
+                request.FileVersions?.Select(value => new ImportFileVersionPlan(
+                    value.SourceItemId, value.Version, value.FileName, value.MediaType,
+                    value.ByteLength, value.Sha256, value.Previewable, value.PixelWidth, value.PixelHeight)).ToArray()),
             context.RequestAborted).ConfigureAwait(false);
         if (result is null)
         {
@@ -497,7 +502,59 @@ internal static class DocumentImportEndpoints
                 value.TargetItemId,
                 value.ItemType,
                 value.BodyRequired,
-                value.ObjectReady)).ToArray()));
+                value.ObjectReady)).ToArray(),
+            result.FileVersions?.Select(value => new DocumentImportStageFileVersionResponse(
+                value.TransferId, value.SourceItemId, value.TargetItemId, value.TargetVersion)).ToArray()));
+    }
+
+    private static async Task<IResult> AuthorizeFileVersionsExecution(
+        Guid importId, Guid? afterTransferId, int limit, HttpContext context,
+        [FromServices] IDocumentImportStore imports, [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session, [FromServices] S3CapabilitySigner signer)
+    {
+        var executionId = context.Request.Headers[WorkerExecutionMiddleware.ExecutionHeaderName].ToString();
+        if (!signer.IsConfigured || limit is < 1 or > 100
+            || await OwnedExecution(importId, context, imports, jobs, session,
+                static kind => kind == "import.commit").ConfigureAwait(false) is null)
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+
+        var rows = await imports.AuthorizeFileVersionsAsync(DocumentImportId.From(importId), executionId,
+            afterTransferId, limit, context.RequestAborted).ConfigureAwait(false);
+        if (rows is null)
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+
+        var files = rows.Files.Select(row => new DocumentImportFileVersionCapabilityResponse(
+            row.TransferId, row.SourceItemId, row.TargetItemId, row.TargetVersion,
+            row.FileName, row.MediaType, row.ByteLength, row.Sha256,
+            row.ObjectReady ? null : signer.PutImmutableVerified(row.ObjectKey, row.ByteLength, row.Sha256).Url,
+            row.ObjectReady ? null : signer.Get(row.ObjectKey).Url, row.ObjectReady)).ToArray();
+        return TypedResults.Ok(new DocumentImportFileVersionsAuthorizationResponse(
+            importId, files, rows.NextAfterTransferId, rows.Complete));
+    }
+
+    private static async Task<IResult> CompleteFileVersionsExecution(
+        Guid importId, CompleteDocumentImportFileVersionsRequest request, HttpContext context,
+        [FromServices] IDocumentImportStore imports, [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session, [FromServices] IWorkerDispatchStore dispatch)
+    {
+        var executionId = context.Request.Headers[WorkerExecutionMiddleware.ExecutionHeaderName].ToString();
+        if (request.TransferIds.Count is < 1 or > 100
+            || request.TransferIds.Distinct().Count() != request.TransferIds.Count
+            || await OwnedExecution(importId, context, imports, jobs, session,
+                static kind => kind == "import.commit").ConfigureAwait(false) is null
+            || !await imports.CompleteFileVersionsAsync(DocumentImportId.From(importId), executionId,
+                request.TransferIds, context.RequestAborted).ConfigureAwait(false))
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+
+        return await ExecutionStillLive(context, dispatch).ConfigureAwait(false)
+            ? TypedResults.Ok(new CompleteDocumentImportFileVersionsResponse(importId, request.TransferIds))
+            : TypedResults.Problem(ExecutionLost(context));
     }
 
     private static async Task<IResult> AuthorizeObjectExecution(
@@ -529,7 +586,7 @@ internal static class DocumentImportEndpoints
             return TypedResults.Problem(NotFound(context));
         }
         var read = signer.Get(mapping.ObjectKey);
-        var upload = signer.PutImmutable(mapping.ObjectKey, mapping.ByteLength);
+        var upload = signer.PutImmutableVerified(mapping.ObjectKey, mapping.ByteLength, mapping.Sha256);
         var delete = signer.Delete(mapping.ObjectKey);
         return TypedResults.Ok(new DocumentImportObjectCapabilityResponse(
             sourceId,
@@ -689,7 +746,7 @@ internal static class DocumentImportEndpoints
         }
         var scoped = session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
-        await ObjectCleanupJobs.QueueAsync(
+        await ObjectCleanupJobs.QueueBatchedAsync(
             jobs,
             scoped.TenantId,
             scoped.PrincipalId,

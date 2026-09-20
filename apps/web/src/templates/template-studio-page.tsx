@@ -8,7 +8,7 @@ import {
   useSearchParams,
 } from 'react-router';
 
-import { isCanceledError, isNixApiError } from '@nix/api-client';
+import { emptyTemplateInitialization, isCanceledError, isNixApiError } from '@nix/api-client';
 
 import { useApiClient } from '../api/api-client-provider';
 import type { CollabSync } from '../editor/collab-sync';
@@ -21,6 +21,7 @@ import {
   captureTemplate,
   discardTemplateEditDraft,
   preflightTemplate,
+  resumeTemplateFileTransfer,
   saveTemplateEditDraft,
   templateById,
   templateCaptureSourceSchema,
@@ -30,16 +31,19 @@ import {
   updateTemplateEditDraftItem,
   type TemplateDetail,
   type TemplateEditDraft,
+  type TemplateInitialization,
   type TemplatePreflight,
 } from './template-api';
 import { useTemplateLibrary } from './template-library-context';
 import {
   distinctViewKinds,
+  authoredRootTitle,
   draftScope,
   editedRootFacts,
   modeFromPath,
   newDraft,
   readDraft,
+  rootTitleHasBindings,
   storageKey,
   TEMPLATE_STUDIO_STEPS,
   type CaptureFacts,
@@ -101,6 +105,7 @@ function TemplateStudio(): ReactNode {
   const [loadVersion, setLoadVersion] = useState(0);
   const [preflight, setPreflight] = useState<TemplatePreflight | null>(null);
   const [working, setWorking] = useState(false);
+  const [copyingFiles, setCopyingFiles] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -140,15 +145,41 @@ function TemplateStudio(): ReactNode {
               return;
             }
           }
-          loadedEditDraft ??= await client.execute(
-            beginTemplateEditDraft(templateId, editAttemptKey),
-            { signal: controller.signal },
-          );
+          if (loadedEditDraft === null) {
+            const endpoint = beginTemplateEditDraft(templateId, editAttemptKey);
+            let first = await client.execute(endpoint, { signal: controller.signal });
+            if (first.fileTransferPending === true) {
+              const receipt: TemplateDraft = {
+                ...initialDraft,
+                idempotencyKey: editAttemptKey,
+                operationId: first.operationId,
+                fileTransferJobId: first.fileTransferJobId ?? null,
+              };
+              browserSessionStorage()?.setItem(key, JSON.stringify(receipt));
+              setDraft(receipt);
+              setCopyingFiles(true);
+              try {
+                first = await resumeTemplateFileTransfer(
+                  client,
+                  first,
+                  () => client.execute(endpoint, { signal: controller.signal }),
+                  controller.signal,
+                );
+              } finally {
+                setCopyingFiles(false);
+              }
+              const completedReceipt = { ...receipt, fileTransferJobId: null };
+              browserSessionStorage()?.setItem(key, JSON.stringify(completedReceipt));
+              setDraft(completedReceipt);
+            }
+            loadedEditDraft = first;
+          }
           setEditOperation(loadedEditDraft);
           setStaleEditDraft(false);
         }
         if (!recoveredDraft) {
-          const seeded = newDraft(loaded.title, scope);
+          const seeded = newDraft(authoredRootTitle(loaded), scope);
+          const initialization = loadedEditDraft?.initialization ?? loaded.initialization;
           setDraft({
             ...seeded,
             description: loadedEditDraft?.description ?? loaded.description ?? '',
@@ -159,6 +190,12 @@ function TemplateStudio(): ReactNode {
             expiresAt: loadedEditDraft?.expiresAt ?? null,
             selectedSourceId: loadedEditDraft?.root.sourceId ?? null,
             title: loadedEditDraft?.title ?? seeded.title,
+            initialization,
+            inputValues: Object.fromEntries(
+              initialization.inputs.flatMap((input) =>
+                input.defaultValue === null ? [] : [[input.key, input.defaultValue]],
+              ),
+            ),
           });
         } else if (loadedEditDraft !== null) {
           setDraft((current) => ({
@@ -171,6 +208,7 @@ function TemplateStudio(): ReactNode {
         setLoading(false);
       } catch (reason) {
         if (isCanceledError(reason)) return;
+        setCopyingFiles(false);
         if (mode === 'edit' && isNixApiError(reason) && reason.status === 409) {
           setEditConflict(
             templateFailure(
@@ -192,6 +230,7 @@ function TemplateStudio(): ReactNode {
     client,
     editAttemptKey,
     initialDraft,
+    key,
     loadVersion,
     mode,
     recoveredDraft,
@@ -246,9 +285,32 @@ function TemplateStudio(): ReactNode {
     heading.focus();
   }, [step]);
 
+  if (mode === 'edit' && draft.fileTransferJobId !== null && error !== null) {
+    return (
+      <StudioNotice title="Template files need attention" detail={error} attention>
+        <Button
+          onClick={() => {
+            setError(null);
+            setLoading(true);
+            setLoadVersion((current) => current + 1);
+          }}
+        >
+          Retry file copy
+        </Button>
+      </StudioNotice>
+    );
+  }
+
   if (loading) {
     return (
-      <StudioNotice title="Loading template" detail="Reading its fields, views, and contents." />
+      <StudioNotice
+        title={copyingFiles ? 'Copying template files' : 'Loading template'}
+        detail={
+          copyingFiles
+            ? 'Your file-copy receipt is saved in this tab. The template opens when Core confirms the copies.'
+            : 'Reading its fields, views, and contents.'
+        }
+      />
     );
   }
 
@@ -427,6 +489,17 @@ function TemplateStudio(): ReactNode {
 
   async function prepareReview(): Promise<boolean> {
     if ((mode !== 'create' && mode !== 'apply') || templateId === undefined) return true;
+    const initialization = template?.initialization ?? emptyTemplateInitialization;
+    const missingInput = initialization.inputs.find(
+      (input) => input.required && requestInputValue(input, draft.inputValues).trim().length === 0,
+    );
+    if (missingInput !== undefined) {
+      setError(`Enter ${missingInput.label} to continue.`);
+      queueMicrotask(() => {
+        stepMainRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      });
+      return false;
+    }
     setWorking(true);
     setError(null);
     activeOperation.current?.abort();
@@ -437,7 +510,18 @@ function TemplateStudio(): ReactNode {
         preflightTemplate(templateId, {
           mode: mode === 'create' ? 'create' : 'merge',
           ...(mode === 'apply' && itemId !== undefined ? { targetItemId: itemId } : {}),
-          ...(mode === 'create' ? { parentItemId, title: draft.title.trim() } : {}),
+          ...(mode === 'create'
+            ? {
+                parentItemId,
+                ...(template !== null &&
+                !draft.titleOverridden &&
+                rootTitleHasBindings(template.root.title)
+                  ? {}
+                  : { title: draft.title.trim() }),
+              }
+            : {}),
+          inputs: requestTemplateInputs(initialization, draft.inputValues),
+          ...(template === null ? {} : { expectedRevision: template.revision }),
         }),
         { signal: controller.signal },
       );
@@ -474,24 +558,42 @@ function TemplateStudio(): ReactNode {
     activeOperation.current = controller;
     try {
       if (mode === 'capture' && sourceItemId !== null) {
-        await client.execute(
-          captureTemplate({
-            workspaceId,
-            sourceItemId,
-            title: draft.title.trim(),
-            description: draft.description.trim() || null,
-            includeBody: draft.includeBody,
-            includeChildren: draft.includeChildren,
-            idempotencyKey: draft.idempotencyKey,
-          }),
-          { signal: controller.signal },
+        const endpoint = captureTemplate({
+          workspaceId,
+          sourceItemId,
+          title: draft.title.trim(),
+          description: draft.description.trim() || null,
+          includeBody: draft.includeBody,
+          includeChildren: draft.includeChildren,
+          idempotencyKey: draft.idempotencyKey,
+        });
+        const first = await client.execute(endpoint, { signal: controller.signal });
+        if (first.fileTransferPending === true) {
+          const receipt = { ...draft, fileTransferJobId: first.fileTransferJobId ?? null };
+          browserSessionStorage()?.setItem(key, JSON.stringify(receipt));
+          setDraft(receipt);
+          setCopyingFiles(true);
+        }
+        await resumeTemplateFileTransfer(
+          client,
+          first,
+          () => client.execute(endpoint, { signal: controller.signal }),
+          controller.signal,
         );
+        if (first.fileTransferPending === true) setCopyingFiles(false);
         if (controller.signal.aborted || activeOperation.current !== controller) return;
         complete(`/w/${workspaceId}/templates`);
         return;
       }
 
-      if (mode === 'edit' && template !== null && editOperation !== null) {
+      if (mode === 'edit') {
+        if (template === null || editOperation === null) {
+          throw new Error(
+            'The template edit session is not ready. Reload the template before saving.',
+          );
+        }
+        const editableTemplate = template;
+        const activeEdit = editOperation;
         const invalidEdit = Object.values(draft.itemEdits).find(
           (itemEdit) => itemEdit.title.trim().length === 0,
         );
@@ -500,15 +602,16 @@ function TemplateStudio(): ReactNode {
           return;
         }
         await client.execute(
-          updateTemplateEditDraft(template.id, editOperation.operationId, {
+          updateTemplateEditDraft(editableTemplate.id, activeEdit.operationId, {
             title: draft.title.trim(),
             description: draft.description.trim() || null,
+            initialization: draft.initialization,
           }),
           { signal: controller.signal },
         );
         for (const [sourceId, itemEdit] of Object.entries(draft.itemEdits)) {
           await client.execute(
-            updateTemplateEditDraftItem(template.id, editOperation.operationId, sourceId, {
+            updateTemplateEditDraftItem(editableTemplate.id, activeEdit.operationId, sourceId, {
               title: itemEdit.title.trim(),
               schema: itemEdit.schema ?? null,
               views: itemEdit.views ?? null,
@@ -517,7 +620,7 @@ function TemplateStudio(): ReactNode {
           );
           if (controller.signal.aborted || activeOperation.current !== controller) return;
         }
-        await client.execute(saveTemplateEditDraft(template, editOperation.operationId), {
+        await client.execute(saveTemplateEditDraft(editableTemplate, activeEdit.operationId), {
           signal: controller.signal,
         });
         if (controller.signal.aborted || activeOperation.current !== controller) return;
@@ -526,21 +629,47 @@ function TemplateStudio(): ReactNode {
       }
 
       if (templateId !== undefined) {
-        const result = await client.execute(
-          applyStoredTemplate({
-            templateId,
-            mode: mode === 'apply' ? 'merge' : 'create',
-            ...(mode === 'apply' && itemId !== undefined ? { targetItemId: itemId } : {}),
-            ...(mode === 'create' ? { parentItemId, title: draft.title.trim() } : {}),
-            idempotencyKey: draft.idempotencyKey,
-          }),
-          { signal: controller.signal },
+        const endpoint = applyStoredTemplate({
+          templateId,
+          mode: mode === 'apply' ? 'merge' : 'create',
+          ...(mode === 'apply' && itemId !== undefined ? { targetItemId: itemId } : {}),
+          ...(mode === 'create'
+            ? {
+                parentItemId,
+                ...(template !== null &&
+                !draft.titleOverridden &&
+                rootTitleHasBindings(template.root.title)
+                  ? {}
+                  : { title: draft.title.trim() }),
+              }
+            : {}),
+          inputs: requestTemplateInputs(
+            template?.initialization ?? emptyTemplateInitialization,
+            draft.inputValues,
+          ),
+          ...(preflight === null ? {} : { expectedRevision: preflight.templateRevision }),
+          idempotencyKey: draft.idempotencyKey,
+        });
+        const first = await client.execute(endpoint, { signal: controller.signal });
+        if (first.fileTransferPending === true) {
+          const receipt = { ...draft, fileTransferJobId: first.fileTransferJobId ?? null };
+          browserSessionStorage()?.setItem(key, JSON.stringify(receipt));
+          setDraft(receipt);
+          setCopyingFiles(true);
+        }
+        const result = await resumeTemplateFileTransfer(
+          client,
+          first,
+          () => client.execute(endpoint, { signal: controller.signal }),
+          controller.signal,
         );
+        if (first.fileTransferPending === true) setCopyingFiles(false);
         if (controller.signal.aborted || activeOperation.current !== controller) return;
         complete(`/w/${workspaceId}?item=${encodeURIComponent(result.targetItemId)}`);
       }
     } catch (reason) {
       if (controller.signal.aborted || isCanceledError(reason)) return;
+      setCopyingFiles(false);
       setError(templateFailure(reason, 'This template could not be saved.'));
     } finally {
       if (activeOperation.current === controller) {
@@ -608,6 +737,13 @@ function TemplateStudio(): ReactNode {
       destination={destination}
       step={step}
       working={working}
+      statusMessage={
+        copyingFiles
+          ? 'Copying files. Your receipt is saved so you can retry with the same request.'
+          : draft.fileTransferJobId === null
+            ? null
+            : 'A file copy is pending. Retry this setup to resume the same request.'
+      }
       previewing={previewing}
       error={error}
       discarding={discarding}
@@ -657,7 +793,12 @@ function TemplateStudio(): ReactNode {
           draft={draft}
           destination={destination}
           targetTitle={targetTitle}
-          onChange={setDraft}
+          initialization={template?.initialization ?? null}
+          itemOptions={tree.items}
+          onChange={(next) => {
+            setDraft(next);
+            setPreflight(null);
+          }}
         />
       ) : step === 1 ? (
         <Contents
@@ -666,6 +807,7 @@ function TemplateStudio(): ReactNode {
           template={template}
           editOperation={editOperation}
           bodySync={bodySync}
+          itemOptions={tree.items}
           onBodySync={setBodySync}
           onChange={setDraft}
         />
@@ -681,5 +823,25 @@ function TemplateStudio(): ReactNode {
         />
       )}
     </TemplateStudioShell>
+  );
+}
+
+function requestInputValue(
+  input: TemplateInitialization['inputs'][number],
+  values: Readonly<Record<string, string | null>>,
+): string {
+  if (Object.hasOwn(values, input.key)) return values[input.key] ?? '';
+  return input.defaultValue ?? '';
+}
+
+function requestTemplateInputs(
+  initialization: TemplateInitialization,
+  values: Readonly<Record<string, string | null>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    initialization.inputs.flatMap((input) => {
+      if (Object.hasOwn(values, input.key)) return [[input.key, values[input.key] ?? '']];
+      return input.defaultValue === null ? [] : [[input.key, input.defaultValue]];
+    }),
   );
 }
