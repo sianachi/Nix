@@ -29,7 +29,7 @@ public sealed class PurgeWorkspaceHandler(
             .ConfigureAwait(false);
         var context = session.Current
             ?? throw new InvalidOperationException("No session context was established for workspace purge.");
-        await ObjectCleanupJobs.QueueAsync(
+        await ObjectCleanupJobs.QueueBatchedAsync(
             jobs,
             context.TenantId,
             context.PrincipalId,

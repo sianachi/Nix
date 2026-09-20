@@ -182,6 +182,8 @@ public sealed partial class TemplateStore
                 .Select(group => new { OperationId = group.Key, Count = group.Count() })
                 .ToDictionaryAsync(row => row.OperationId, row => row.Count, cancellationToken)
                 .ConfigureAwait(false);
+        var operationsWithUnreadyFiles = await OperationsWithUnreadyCopiesAsync(
+            suppliedOperationIds, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow();
         foreach (var imported in managedEntries)
         {
@@ -229,6 +231,11 @@ public sealed partial class TemplateStore
                     TemplateErrors.BodiesIncomplete(
                         $"The staged bodies for managed template '{imported.StableKey}' do not match its plan."));
             }
+            if (operationsWithUnreadyFiles.Contains(operation.Id))
+            {
+                return Result.Failure<ManagedTemplateBatchResult>(TemplateErrors.Conflict(
+                    $"Template file copies for managed template '{imported.StableKey}' are not complete."));
+            }
         }
 
         if (suppliedOperationIds.Count > 0)
@@ -270,6 +277,7 @@ public sealed partial class TemplateStore
             catalog.Description = operation.DraftDescription;
             catalog.ManagedSource = operation.ManagedSource;
             catalog.SourceDigest = operation.SourceDigest;
+            catalog.Initialization = operation.DraftInitialization;
             catalog.LastModifiedBy = Context.PrincipalId;
             catalog.LastModifiedAt = now;
             if (previousRoot is not null)

@@ -18,6 +18,12 @@ describe('nixctl mcp workspace tools', () => {
     try {
       const tools = await connected.client.listTools();
       expect(tools.tools.map((tool) => tool.name)).toEqual([
+        'begin_template_draft',
+        'get_template_draft',
+        'update_template_draft',
+        'update_template_draft_item',
+        'save_template_draft',
+        'discard_template_draft',
         'list_workspaces',
         'create_workspace',
         'rename_workspace',
@@ -27,6 +33,8 @@ describe('nixctl mcp workspace tools', () => {
         'accept_workspace_invitation',
         'decline_workspace_invitation',
         'revoke_workspace_invitation',
+        'get_operation',
+        'cancel_template_archive_import',
         'list_workspace_members',
         'set_habit',
         'set_habit_status',
@@ -35,12 +43,24 @@ describe('nixctl mcp workspace tools', () => {
         'undo_habit_check_in',
         'change_workspace_member_role',
         'remove_workspace_member',
+        'list_workspace_assignable_principals',
         'leave_workspace',
         'import_document',
         'upload_file',
         'replace_file',
         'list_file_versions',
         'download_file',
+        'list_templates',
+        'get_template',
+        'capture_template',
+        'preflight_template_application',
+        'apply_template',
+        'set_template_initialization',
+        'preview_template_archive_import',
+        'get_template_archive_import',
+        'commit_template_archive_import',
+        'export_template_archive',
+        'resume_template_file_copy',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
@@ -109,6 +129,211 @@ describe('nixctl mcp workspace tools', () => {
           body: { completed: true, quantity: 2 },
         },
       ]);
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('preflights template input on Core and applies through the distinct Collab origin', async () => {
+    const collab = 'http://collab.nix.test';
+    const templateId = '33333333-3333-4333-8333-333333333333';
+    const sourceId = '11111111-1111-4111-8111-111111111111';
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', (url: string) => {
+      urls.push(url);
+      if (url === `${API}/api/v1/templates/${templateId}`) {
+        return Response.json({
+          id: templateId,
+          workspaceId: WORKSPACE,
+          title: 'Project seed',
+          description: null,
+          origin: 'user',
+          revision: 7,
+          includeBody: false,
+          includeChildren: false,
+          fieldCount: 0,
+          viewCount: 0,
+          childCount: 0,
+          viewKinds: [],
+          capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+          updatedAt: '2026-09-20T09:00:00Z',
+          initialization: { version: 1, inputs: [], rules: [], references: [] },
+          root: {
+            sourceId,
+            itemType: 'note',
+            title: 'Project seed',
+            seq: '1',
+            properties: {},
+            schema: { properties: [], declared: [], inherit: false },
+            views: null,
+            hasBody: false,
+            recurrence: null,
+            children: [],
+          },
+        });
+      }
+      if (url === `${API}/api/v1/templates/${templateId}/preflight`) {
+        return Response.json({
+          templateId,
+          templateRevision: 8,
+          mode: 'create',
+          additions: { fields: 0, views: 0, items: 1 },
+          conflicts: [],
+          canApply: true,
+          initializationPreview: [],
+          resolvedInputs: {},
+          textBindings: {},
+          referenceMappings: {},
+        });
+      }
+      if (url === `${collab}/templates/applications`) {
+        return Response.json({
+          applicationId: '55555555-5555-4555-8555-555555555555',
+          templateId,
+          targetItemId: sourceId,
+          alreadyApplied: false,
+          createdItems: [{ sourceId, itemId: sourceId, itemType: 'note' }],
+          resolvedInputs: {},
+          textBindings: {},
+          referenceMappings: {},
+          writtenTargetItemIds: [],
+          operationId: '44444444-4444-4444-8444-444444444444',
+        });
+      }
+      throw new Error(`Unexpected route: ${url}`);
+    });
+
+    const connected = await connect(
+      'owner',
+      () =>
+        Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        ),
+      collab,
+    );
+    try {
+      const result = await connected.client.callTool({
+        name: 'apply_template',
+        arguments: { templateId, mode: 'create', inputs: {} },
+      });
+      expect(result.isError).not.toBe(true);
+      const content = result.content as readonly {
+        readonly type: string;
+        readonly text?: string;
+      }[];
+      expect(
+        JSON.parse(content[0]?.type === 'text' ? (content[0].text ?? '{}') : '{}'),
+      ).toMatchObject({
+        application: { applicationId: '55555555-5555-4555-8555-555555555555' },
+        resume: { expectedRevision: 8 },
+      });
+      expect(urls).toContain(`${API}/api/v1/templates/${templateId}/preflight`);
+      expect(urls).toContain(`${collab}/templates/applications`);
+      expect(urls).not.toContain(`${collab}/collab/templates/applications`);
+      expect(urls).not.toContain(`${API}/collab/templates/applications`);
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('resumes a pending template draft from Core and replays the original begin command', async () => {
+    const collab = 'http://collab.nix.test';
+    const templateId = '33333333-3333-4333-8333-333333333333';
+    const operationId = '44444444-4444-4444-8444-444444444444';
+    const jobId = '55555555-5555-4555-8555-555555555555';
+    const sourceId = '11111111-1111-4111-8111-111111111111';
+    const collabBodies: unknown[] = [];
+    const urls: string[] = [];
+    let beginCount = 0;
+    const fetchImpl: FetchImpl = (url, init) => {
+      urls.push(url);
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      if (url === `${collab}/templates/${templateId}/drafts`) {
+        collabBodies.push(typeof init?.body === 'string' ? JSON.parse(init.body) : null);
+        beginCount += 1;
+        return Promise.resolve(
+          Response.json(
+            {
+              operationId,
+              templateId,
+              fileTransferJobId: beginCount === 1 ? jobId : null,
+              fileTransferPending: beginCount === 1,
+              title: 'Project seed',
+              description: null,
+              initialization: { version: 1, inputs: [], rules: [], references: [] },
+              expiresAt: '2026-09-20T10:00:00Z',
+              root: {
+                sourceId,
+                itemType: 'note',
+                title: 'Project seed',
+                seq: '1',
+                properties: {},
+                schema: null,
+                views: null,
+                hasBody: false,
+                recurrence: null,
+                children: [],
+              },
+              itemMappings: [],
+              bodyCopies: [],
+            },
+            { status: beginCount === 1 ? 202 : 201 },
+          ),
+        );
+      }
+      if (url === `${API}/api/v1/operations/${jobId}`) {
+        return Promise.resolve(
+          Response.json({
+            id: jobId,
+            kind: 'template.files.copy',
+            status: 'completed',
+            result: null,
+            errorCode: null,
+            errorDetail: null,
+            attempts: 1,
+            cancellationRequested: false,
+            createdAt: '2026-09-20T09:00:00Z',
+            completedAt: '2026-09-20T09:00:01Z',
+          }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected route: ${url}`));
+    };
+
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl, collab);
+    try {
+      const result = await connected.client.callTool({
+        name: 'begin_template_draft',
+        arguments: { templateId, idempotencyKey: 'draft-resume-key' },
+      });
+      expect(result.isError, JSON.stringify({ result, urls, collabBodies })).not.toBe(true);
+      expect(beginCount).toBe(1);
+      const receiptText =
+        (result.content as readonly { type: string; text?: string }[])[0]?.text ?? '{}';
+      const receipt = JSON.parse(receiptText) as {
+        resume: { kind: string; jobId: string; request: unknown };
+      };
+      expect(receipt.resume).toMatchObject({
+        kind: 'draft',
+        jobId,
+        request: { idempotencyKey: 'draft-resume-key', templateId },
+      });
+      const resumed = await connected.client.callTool({
+        name: 'resume_template_file_copy',
+        arguments: receipt.resume,
+      });
+      expect(resumed.isError, JSON.stringify(resumed)).not.toBe(true);
+      expect(beginCount).toBe(2);
+      expect(collabBodies).toEqual([
+        { idempotencyKey: 'draft-resume-key' },
+        { idempotencyKey: 'draft-resume-key' },
+      ]);
+      expect(urls).toContain(`${API}/api/v1/operations/${jobId}`);
     } finally {
       await connected.close();
     }
@@ -183,7 +408,7 @@ describe('nixctl mcp workspace tools', () => {
   });
 });
 
-async function connect(profileName: string, fetchImpl: FetchImpl) {
+async function connect(profileName: string, fetchImpl: FetchImpl, collabUrl?: string) {
   const server = await createWorkspaceMcpServer({
     profileName,
     resolve: (requestedProfile) =>
@@ -191,6 +416,7 @@ async function connect(profileName: string, fetchImpl: FetchImpl) {
         openSession({
           profile: {
             apiUrl: API,
+            ...(collabUrl === undefined ? {} : { collabUrl }),
             token: requestedProfile === 'owner' ? 'nixpat_owner' : 'nixpat_outsider',
           },
           fetchImpl,

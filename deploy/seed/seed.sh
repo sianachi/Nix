@@ -7,6 +7,7 @@
 #
 # Usage (from anywhere):
 #   deploy/seed/seed.sh
+#   NIX_TEMPLATE_BOOT_WORKSPACE_ID=<uuid> deploy/seed/seed.sh
 #
 # Requires the core profile to be up:
 #   docker compose -f deploy/compose.dev.yml --profile core up -d
@@ -75,6 +76,7 @@ oidc_client_id=""
 oidc_project_id=""
 dev_user_id=""
 template_boot_service_user_id=""
+template_boot_workspace_id="${NIX_TEMPLATE_BOOT_WORKSPACE_ID:-a1000000-0000-4000-8000-000000000001}"
 oidc_env="$(cd "$script_dir/.." && pwd)/.zitadel/oidc.generated.env"
 if [ -f "$oidc_env" ]; then
   # shellcheck disable=SC1090
@@ -94,6 +96,7 @@ if [ "$(psql_super -d "$db_name" -tAc "SELECT to_regclass('public.tenant') IS NO
     -v oidc_project_id="$oidc_project_id" \
     -v dev_user_id="$dev_user_id" \
     -v template_boot_service_user_id="$template_boot_service_user_id" \
+    -v template_boot_workspace_id="$template_boot_workspace_id" \
     -f /nix-seed/seed_application_data.sql
   echo "seed: provisioning shipped template presets"
   psql_super -d "$db_name" -f /nix-seed/seed_template_presets.sql

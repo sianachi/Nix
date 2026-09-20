@@ -31,6 +31,8 @@ export type FetchImpl = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface SessionOptions {
   readonly profile: Profile;
+  /** Optional pre-minted bearer session, for service principals using an approved external flow. */
+  readonly bearerToken?: string;
   readonly now?: () => number;
   readonly fetchImpl?: FetchImpl;
 }
@@ -95,6 +97,14 @@ export function createPatTokenProvider(options: SessionOptions): TokenProvider {
   };
 }
 
+/** Uses a caller-supplied short-lived bearer as-is; Core remains the authority for its identity. */
+export function createBearerTokenProvider(token: string): TokenProvider {
+  return {
+    getAccessToken: () => token,
+    refreshAccessToken: () => Promise.resolve(token),
+  };
+}
+
 /**
  * The endpoints retained by a profile. New durable operations use Core; collaboration remains the
  * direct note-body boundary, and the media URL remains only for profile compatibility.
@@ -128,7 +138,10 @@ export interface Session {
  * @returns The session.
  */
 export function openSession(options: SessionOptions): Session {
-  const tokens = createPatTokenProvider(options);
+  const tokens =
+    options.bearerToken === undefined
+      ? createPatTokenProvider(options)
+      : createBearerTokenProvider(options.bearerToken);
   const endpoints = endpointsFor(options.profile);
   // The resource descriptors carry the full `/api/v1/...` path, so the base is Core's origin.
   const client = createNixClient({ baseUrl: endpoints.apiUrl, tokens });

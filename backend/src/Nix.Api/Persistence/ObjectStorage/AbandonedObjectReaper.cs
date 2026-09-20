@@ -150,7 +150,7 @@ public sealed class AbandonedObjectReaper(
         {
             return false;
         }
-        await ObjectCleanupJobs.QueueAsync(
+        await ObjectCleanupJobs.QueueBatchedAsync(
             jobs,
             TenantId.From(candidate.TenantId),
             PrincipalId.From(candidate.ActorId),

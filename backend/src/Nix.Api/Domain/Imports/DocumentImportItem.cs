@@ -15,7 +15,7 @@ public sealed class DocumentImportItem
     public required string ItemType { get; init; }
     public required string FinalLifecycleState { get; init; }
     public required bool BodyRequired { get; init; }
-    public FileVersionId? FileVersionId { get; init; }
-    public string? ObjectKey { get; init; }
+    public FileVersionId? FileVersionId { get; set; }
+    public string? ObjectKey { get; set; }
     public required bool ObjectReady { get; set; }
 }

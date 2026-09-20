@@ -47,6 +47,7 @@ internal static class TemplateMapping
             summary.ViewKinds,
             summary.Capabilities,
             summary.UpdatedAt,
+            Initialization(snapshot.Template.Initialization),
             Item(snapshot.Root));
     }
 
@@ -73,6 +74,7 @@ internal static class TemplateMapping
             Object(item.Properties),
             schema,
             Views(item.Views),
+            Object(item.Recurrence),
             item.HasBody,
             item.Children.Select(child => Item(child, effective)).ToArray());
     }
@@ -83,7 +85,10 @@ internal static class TemplateMapping
             property.Label,
             PropertyTypes.ToText(property.Type),
             property.Options,
-            property.Required);
+            property.Required,
+            property.Expression,
+            property.Aggregate is { } aggregate ? RollupAggregates.ToText(aggregate) : null,
+            property.Source);
 
     private static TemplateStoredViewsResponse? Views(string? json)
     {
@@ -173,4 +178,26 @@ internal static class TemplateMapping
             return null;
         }
     }
+
+    internal static TemplateInitialization Initialization(string? json)
+    {
+        if (!TemplateInitializationJson.TryRead(json, out var initialization, out var refusal))
+        {
+            throw new InvalidOperationException($"The stored template initialization definition is invalid: {refusal}");
+        }
+
+        return initialization;
+    }
+
+    internal static TemplateInitializationPreviewResponse Preview(TemplateInitializedItem item) =>
+        new(item.SourceId, item.Title, Object(item.Properties), Object(item.Recurrence));
+
+    internal static TemplateApplicationResolution ResolutionOrEmpty(TemplateApplicationResolution? resolution) =>
+        resolution ?? new TemplateApplicationResolution(
+            0,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            new Dictionary<Guid, Guid?>(),
+            new Dictionary<string, TemplateInitializationInputType>(StringComparer.Ordinal),
+            []);
 }

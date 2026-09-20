@@ -28,7 +28,8 @@ public sealed record TemplateItemSnapshot(
     string? Schema,
     string? Views,
     bool HasBody,
-    IReadOnlyList<TemplateItemSnapshot> Children);
+    IReadOnlyList<TemplateItemSnapshot> Children,
+    string? Recurrence = null);
 
 /// <summary>A complete catalog entry and its active hidden item tree.</summary>
 public sealed record TemplateDetailSnapshot(
@@ -72,7 +73,8 @@ public sealed record TemplateDraftPlan(
     DateTimeOffset ExpiresAt,
     TemplateItemSnapshot Root,
     IReadOnlyList<TemplateItemMapping> ItemMappings,
-    IReadOnlyList<TemplateBodyCopy> BodyCopies);
+    IReadOnlyList<TemplateBodyCopy> BodyCopies,
+    TemplateInitialization? Initialization = null);
 
 /// <summary>One staged or unchanged member of an atomic managed catalog update.</summary>
 public sealed record ManagedTemplateFinalization(
@@ -112,7 +114,23 @@ public sealed record TemplateApplicationPlan(
     bool AlreadyApplied,
     IReadOnlyList<TemplateItemMapping> CreatedItems,
     IReadOnlyList<TemplateItemMapping> ItemMappings,
-    IReadOnlyList<TemplateBodyCopy> BodyCopies);
+    IReadOnlyList<TemplateBodyCopy> BodyCopies,
+    TemplateApplicationResolution? Resolution = null,
+    IReadOnlyList<TemplateInitializedItem>? InitializationPreview = null);
+
+/// <summary>Server-authoritative values and mappings resolved for an application.</summary>
+public sealed record TemplateApplicationResolution(
+    int TemplateRevision,
+    IReadOnlyDictionary<string, string> Values,
+    IReadOnlyDictionary<string, string> TextBindings,
+    IReadOnlyDictionary<Guid, Guid?> ReferenceMappings,
+    IReadOnlyDictionary<string, TemplateInitializationInputType> InputTypes,
+    IReadOnlyList<string> UsedInputKeys);
+
+/// <summary>The immutable resolution and preview retained for application retries.</summary>
+public sealed record TemplateStoredApplicationResolution(
+    TemplateApplicationResolution Resolution,
+    IReadOnlyList<TemplateInitializedItem> InitializationPreview);
 
 /// <summary>Authorization context for a staging item body.</summary>
 public sealed record TemplateOperationAuthorization(
@@ -158,7 +176,8 @@ public sealed record TemplateExportItem(
     string? Properties,
     string? Schema,
     string? Views,
-    bool HasBody);
+    bool HasBody,
+    string? Recurrence = null);
 
 /// <summary>Caller-scoped snapshot used to assemble a template-profile archive.</summary>
 public sealed record TemplateExportSnapshot(
@@ -171,7 +190,34 @@ public sealed record TemplateExportSnapshot(
     int Revision,
     bool IncludeBody,
     bool IncludeChildren,
-    IReadOnlyList<TemplateExportItem> Items);
+    IReadOnlyList<TemplateExportItem> Items,
+    TemplateInitialization? Initialization = null,
+    IReadOnlyList<TemplateExportFile>? Files = null);
+
+/// <summary>Current ready file metadata for an authorized template export.</summary>
+public sealed record TemplateExportFile(
+    Guid FileVersionId,
+    Guid SourceId,
+    int Version,
+    bool Current,
+    string ObjectKey,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight);
+
+/// <summary>One active template file version authorized for a just-in-time download capability.</summary>
+public sealed record TemplateExportFileDownload(string ObjectKey);
+
+/// <summary>One bounded page of immutable file-history metadata for a pinned template revision.</summary>
+public sealed record TemplateExportFilesPage(
+    int Revision,
+    IReadOnlyList<TemplateExportFile> Files,
+    Guid? NextAfterFileVersionId,
+    bool Complete);
 
 /// <summary>Metadata attached to one validated template-profile import.</summary>
 public sealed record TemplateImportDescriptor(
@@ -182,7 +228,8 @@ public sealed record TemplateImportDescriptor(
     string? ManagedSource,
     string Digest,
     bool IncludeBody,
-    bool IncludeChildren);
+    bool IncludeChildren,
+    TemplateInitialization? Initialization = null);
 
 /// <summary>One parent-first item envelope accepted from the hostile-file validation boundary.</summary>
 public sealed record TemplateImportItem(
@@ -194,7 +241,8 @@ public sealed record TemplateImportItem(
     string? Properties,
     string? Schema,
     string? Views,
-    bool HasBody);
+    bool HasBody,
+    string? Recurrence = null);
 
 /// <summary>Server-owned additions and conflicts shown before applying a template.</summary>
 public sealed record TemplatePreflight(
@@ -204,4 +252,6 @@ public sealed record TemplatePreflight(
     int ViewAdditions,
     int ItemAdditions,
     IReadOnlyList<string> Conflicts,
-    bool CanApply);
+    bool CanApply,
+    TemplateApplicationResolution? Resolution = null,
+    IReadOnlyList<TemplateInitializedItem>? InitializationPreview = null);

@@ -48,6 +48,8 @@ export interface ImportValidationResult {
 export interface CaptureResult {
   readonly templateId: string;
   readonly operationId: string;
+  readonly fileTransferJobId: string | null;
+  readonly fileTransferPending: boolean;
   readonly writtenTargetItemIds: readonly string[];
 }
 
@@ -96,6 +98,7 @@ export interface TemplateService {
     token: string,
     templateId: string,
     exportedAt: Date,
+    signal?: AbortSignal,
   ): Promise<PreparedTemplateExport>;
 }
 
@@ -127,6 +130,16 @@ export function createTemplateService(options: {
     },
     async capture(token, request) {
       const begun = await options.core.beginCapture(token, request);
+      if (begun.fileTransferPending) {
+        return {
+          templateId: begun.templateId,
+          operationId: begun.operationId,
+          fileTransferJobId: begun.fileTransferJobId,
+          fileTransferPending: true,
+          writtenTargetItemIds: [],
+        };
+      }
+      const externalReferenceTargets = new Set<string>();
       return await stage(
         token,
         'captures',
@@ -145,9 +158,26 @@ export function createTemplateService(options: {
             authorization,
             begun.bodyCopies,
             mapping(begun.itemMappings),
+            {
+              stubUnknown: false,
+              onReferenceInventory: ({ externalTargetIds }) => {
+                for (const targetId of externalTargetIds) externalReferenceTargets.add(targetId);
+                if (externalReferenceTargets.size > 2_000) {
+                  throw new TemplateBodyError(
+                    'template.reference_limit_exceeded',
+                    'The captured template has too many external item references.',
+                  );
+                }
+              },
+            },
           );
         },
-        { templateId: begun.templateId },
+        {
+          templateId: begun.templateId,
+          fileTransferJobId: begun.fileTransferJobId,
+          fileTransferPending: false,
+        },
+        () => [...externalReferenceTargets].sort(),
       );
     },
 
@@ -197,6 +227,7 @@ export function createTemplateService(options: {
 
     async beginDraft(token, templateId, idempotencyKey) {
       const begun = await options.core.beginDraft(token, templateId, idempotencyKey);
+      if (begun.fileTransferPending) return begun;
       try {
         if (begun.bodyCopies.length > 0) {
           const first = begun.bodyCopies[0];
@@ -211,6 +242,7 @@ export function createTemplateService(options: {
             authorization,
             begun.bodyCopies,
             mapping(begun.itemMappings),
+            { stubUnknown: false },
           );
         }
         return begun;
@@ -229,6 +261,13 @@ export function createTemplateService(options: {
       options.core.patchDraftItem(token, templateId, operationId, sourceId, body),
     async saveDraft(token, templateId, operationId) {
       const draft = await options.core.getDraft(token, templateId, operationId);
+      if (draft.fileTransferPending) {
+        throw new CoreTemplateError(
+          409,
+          'template.file_transfer_pending',
+          'Template files are still being prepared. Resume the draft after the file transfer completes.',
+        );
+      }
       const itemIds = draft.itemMappings.map((item) => item.itemId);
       // Stop cached, new and in-flight authorization before body rooms begin sealing. The fence
       // remains fail-closed across an ambiguous Core response; only a proven refusal reopens it.
@@ -261,6 +300,13 @@ export function createTemplateService(options: {
 
     async apply(token, request) {
       const begun = await options.core.beginApplication(token, request);
+      if (begun.fileTransferPending) {
+        return {
+          ...begun,
+          operationId: begun.applicationId,
+          writtenTargetItemIds: [],
+        };
+      }
       return await stage(
         token,
         'applications',
@@ -279,19 +325,25 @@ export function createTemplateService(options: {
             authorization,
             begun.bodyCopies,
             mapping(begun.itemMappings),
+            {
+              stubUnknown: true,
+              textBindings: begun.textBindings,
+              referenceMappings: new Map(Object.entries(begun.referenceMappings)),
+            },
           );
         },
         begun,
       );
     },
 
-    exportTemplate: (token, templateId, exportedAt) =>
+    exportTemplate: (token, templateId, exportedAt, signal) =>
       prepareTemplateArchive({
         core: options.core,
         pool: options.pool,
         token,
         templateId,
         exportedAt,
+        ...(signal === undefined ? {} : { signal }),
       }),
   };
 
@@ -301,10 +353,17 @@ export function createTemplateService(options: {
     operationId: string,
     write: () => Promise<readonly string[]>,
     result: TResult,
+    externalReferenceTargets?: () => readonly string[],
   ): Promise<TResult & { operationId: string; writtenTargetItemIds: readonly string[] }> {
     try {
       const writtenTargetItemIds = await write();
-      await options.core.finalize(token, kind, operationId, writtenTargetItemIds);
+      await options.core.finalize(
+        token,
+        kind,
+        operationId,
+        writtenTargetItemIds,
+        externalReferenceTargets?.(),
+      );
       return { ...result, operationId, writtenTargetItemIds };
     } catch (error) {
       await safeAbort(token, kind, operationId);
@@ -400,6 +459,12 @@ function importPlan(request: ImportedTemplate): object {
       digest: request.digest,
       includeBody: request.profile.includeBody,
       includeChildren: request.profile.includeChildren,
+      initialization: request.profile.initialization ?? {
+        version: 1,
+        inputs: [],
+        rules: [],
+        references: [],
+      },
     },
     items: request.bundles.map((bundle) => ({
       sourceId: bundle.id,
@@ -410,6 +475,7 @@ function importPlan(request: ImportedTemplate): object {
       properties: bundle.properties,
       schema: importSchema(request, bundle),
       views: bundle.views,
+      recurrence: bundle.recurrence ?? null,
       hasBody: bundle.body !== null,
     })),
   };

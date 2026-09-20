@@ -11,7 +11,10 @@ public readonly record struct PreflightTemplateApplication(
     TemplateId TemplateId,
     TemplateApplicationMode Mode,
     ItemId? TargetItemId,
-    ItemId? ParentItemId) : IQuery<Result<TemplatePreflight>>;
+    ItemId? ParentItemId,
+    string? Title = null,
+    IReadOnlyDictionary<string, string>? Inputs = null,
+    int? ExpectedRevision = null) : IQuery<Result<TemplatePreflight>>;
 
 /// <summary>Plans a template application without mutating its target.</summary>
 public sealed class PreflightTemplateApplicationHandler(ITemplateCatalogStore templates)
@@ -26,5 +29,8 @@ public sealed class PreflightTemplateApplicationHandler(ITemplateCatalogStore te
             query.Mode,
             query.TargetItemId,
             query.ParentItemId,
+            query.Title,
+            query.Inputs,
+            query.ExpectedRevision,
             cancellationToken);
 }

@@ -32,6 +32,8 @@ function core(overrides: Partial<CoreTemplateClient> = {}): {
   const capture: CaptureBegin = {
     operationId: OPERATION,
     templateId: TEMPLATE,
+    fileTransferJobId: null,
+    fileTransferPending: false,
     bodyCopies: [],
     itemMappings: [],
   };
@@ -45,11 +47,16 @@ function core(overrides: Partial<CoreTemplateClient> = {}): {
   const application: ApplicationBegin = {
     applicationId: OPERATION,
     templateId: TEMPLATE,
+    fileTransferJobId: null,
+    fileTransferPending: false,
     targetItemId: ROOT,
     alreadyApplied: false,
     createdItems: [],
     bodyCopies: [],
     itemMappings: [],
+    resolvedInputs: {},
+    textBindings: {},
+    referenceMappings: {},
   };
   const client: CoreTemplateClient = {
     beginCapture: (_token, body) => {
@@ -94,6 +101,9 @@ function core(overrides: Partial<CoreTemplateClient> = {}): {
     authorizeDraftItem: () => Promise.reject(new Error('No draft was planned.')),
     authorizeTemplateItem: () => Promise.reject(new Error('No export was planned.')),
     getTemplateExport: () => Promise.reject(new Error('No export was planned.')),
+    getTemplateExportFiles: () => Promise.reject(new Error('No export files were planned.')),
+    getTemplateExportFileCapability: () =>
+      Promise.reject(new Error('No export capability was planned.')),
     ...overrides,
   };
   return { client, calls };
@@ -200,10 +210,15 @@ describe('staged template orchestration', () => {
           applicationId: OPERATION,
           templateId: TEMPLATE,
           targetItemId: ROOT,
+          fileTransferJobId: null,
+          fileTransferPending: false,
           alreadyApplied: true,
           createdItems: [],
           bodyCopies: [],
           itemMappings: [],
+          resolvedInputs: {},
+          textBindings: {},
+          referenceMappings: {},
         }),
     });
     const service = createTemplateService({ pool: unusedPool, core: fake.client });
@@ -383,8 +398,11 @@ function bodylessDraft(): TemplateDraft {
   return {
     operationId: OPERATION,
     templateId: TEMPLATE,
+    fileTransferJobId: null,
+    fileTransferPending: false,
     title: 'Project',
     description: null,
+    initialization: { version: 1, inputs: [], rules: [], references: [] },
     expiresAt: '2026-08-17T12:00:00Z',
     root: {
       sourceId: ROOT,
@@ -395,6 +413,7 @@ function bodylessDraft(): TemplateDraft {
       schema: null,
       views: null,
       hasBody: false,
+      recurrence: null,
       children: [],
     },
     itemMappings: [{ sourceId: TEMPLATE, itemId: ROOT, itemType: 'note' }],
@@ -405,6 +424,7 @@ function bodylessDraft(): TemplateDraft {
 function importedTemplate(): {
   manifest: ArchiveManifest;
   bundles: readonly ItemBundle[];
+  files: readonly [];
   profile: TemplateArchiveProfile;
   digest: string;
   workspaceId: string;
@@ -494,6 +514,7 @@ function importedTemplate(): {
   return {
     manifest,
     bundles: [bundle],
+    files: [],
     profile,
     digest: 'a'.repeat(64),
     workspaceId: WORKSPACE,

@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
+using Nix.Domain.Recurrence;
 using Nix.Domain.Views;
 
 namespace Nix.Domain.Templates;
@@ -472,6 +473,19 @@ public sealed class TemplateDefinitionValidator
             {
                 return refusal;
             }
+
+            if (item.Recurrence is not null
+                && (RecurrenceRuleJson.Read(item.Recurrence) is null
+                    || !RecurrenceRuleJson.IsWithinBounds(item.Recurrence)))
+            {
+                return $"Template item '{item.SourceId}' has an invalid recurrence rule.";
+            }
+        }
+
+        if (descriptor.Initialization is { } initialization
+            && TemplateInitializationValidator.Validate(initialization, seen) is { } initializationRefusal)
+        {
+            return initializationRefusal;
         }
 
         return null;

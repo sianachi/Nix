@@ -18,6 +18,7 @@ import {
   listInvitations,
   listInvitees,
   listMembers,
+  listAssignablePrincipalsPage,
   listWorkspaces,
   openDailyNote,
   removeMember,
@@ -70,6 +71,20 @@ describe('the workspaces resource', () => {
       method: 'DELETE',
       path: `/api/v1/workspaces/${WORKSPACE_ID}/members/${PRINCIPAL_ID}`,
       invalidates: [['workspaces', WORKSPACE_ID, 'members']],
+    });
+  });
+
+  it('lists bounded assignable direct and group-derived principals', () => {
+    expect(
+      listAssignablePrincipalsPage(WORKSPACE_ID, {
+        query: 'Ada',
+        limit: 25,
+        cursor: PRINCIPAL_ID,
+      }),
+    ).toMatchObject({
+      operation: 'workspaces.principals.list.page',
+      path: `/api/v1/workspaces/${WORKSPACE_ID}/principals`,
+      query: { query: 'Ada', limit: 25, cursor: PRINCIPAL_ID },
     });
   });
 

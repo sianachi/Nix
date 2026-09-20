@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Nix.Domain.Templates;
 
 namespace Nix.Features.Templates;
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(TemplateCatalogResponse))]
 [JsonSerializable(typeof(TemplateDetailResponse))]
 [JsonSerializable(typeof(TemplateItemResponse))]
@@ -27,4 +29,11 @@ namespace Nix.Features.Templates;
 [JsonSerializable(typeof(TemplateOperationAuthorizationResponse))]
 [JsonSerializable(typeof(TemplateItemAuthorizationResponse))]
 [JsonSerializable(typeof(TemplateExportResponse))]
+[JsonSerializable(typeof(TemplateExportFileResponse))]
+[JsonSerializable(typeof(TemplateExportFilesPageResponse))]
+[JsonSerializable(typeof(TemplateExportFileCapabilityResponse))]
+[JsonSerializable(typeof(TemplateInitialization))]
+[JsonSerializable(typeof(TemplateInitializationInput))]
+[JsonSerializable(typeof(TemplateInitializationRule))]
+[JsonSerializable(typeof(TemplateReferenceRule))]
 internal sealed partial class TemplateJsonContext : JsonSerializerContext;

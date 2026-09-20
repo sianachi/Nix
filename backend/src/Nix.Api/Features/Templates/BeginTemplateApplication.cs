@@ -13,7 +13,9 @@ public readonly record struct BeginTemplateApplication(
     ItemId? TargetItemId,
     ItemId? ParentItemId,
     string? Title,
-    string IdempotencyKey) : ICommand<TemplateApplicationPlan>;
+    string IdempotencyKey,
+    IReadOnlyDictionary<string, string>? Inputs = null,
+    int? ExpectedRevision = null) : ICommand<TemplateApplicationPlan>;
 
 /// <summary>Begins an atomic create or merge application.</summary>
 public sealed class BeginTemplateApplicationHandler(ITemplateApplicationStore applications)
@@ -30,5 +32,7 @@ public sealed class BeginTemplateApplicationHandler(ITemplateApplicationStore ap
             command.ParentItemId,
             command.Title,
             command.IdempotencyKey,
+            command.Inputs,
+            command.ExpectedRevision,
             cancellationToken);
 }

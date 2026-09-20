@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 
 import type { CollabSync } from '../editor/collab-sync';
 import { NoteEditor } from '../editor/note-editor';
-import type { PropertyDefinition, View } from '../views/core/container-model';
+import type { EffectiveSchema, PropertyDefinition, View } from '../views/core/container-model';
 import { PROPERTY_TYPES } from '../views/core/property-types';
 import { StructuredViewConfiguration } from '../views/core/structured-view-configuration';
 import { findViewKind } from '../views/core/view-kinds';
@@ -31,7 +31,7 @@ export function templateDraftDocumentPath(
 
 export interface TemplateItemEdit {
   readonly title: string;
-  readonly schema: TemplateItem['schema'];
+  readonly schema: EffectiveSchema | null;
   readonly views: TemplateItem['views'];
 }
 

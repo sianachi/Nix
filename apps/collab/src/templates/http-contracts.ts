@@ -3,8 +3,15 @@ import {
   validateTemplateArchive,
   type ArchiveManifest,
   type ItemBundle,
+  type ReadArchiveResult,
+  type TemplateInitialization,
   type TemplateArchiveProfile,
 } from '@nix/export';
+import {
+  templateApplicationRequestSchema,
+  templateInitializationSchema,
+  type TemplateApplicationRequest,
+} from '@nix/api-client';
 
 export interface CaptureRequest {
   readonly workspaceId: string;
@@ -16,18 +23,12 @@ export interface CaptureRequest {
   readonly idempotencyKey: string;
 }
 
-export interface ApplicationRequest {
-  readonly templateId: string;
-  readonly mode: 'merge' | 'create';
-  readonly targetItemId?: string | undefined;
-  readonly parentItemId?: string | null | undefined;
-  readonly title?: string | undefined;
-  readonly idempotencyKey: string;
-}
+export type ApplicationRequest = TemplateApplicationRequest;
 
 export interface ImportedTemplate {
   readonly manifest: ArchiveManifest;
   readonly bundles: readonly ItemBundle[];
+  readonly files: ReadArchiveResult['files'];
   readonly profile: TemplateArchiveProfile;
   readonly digest: string;
   readonly workspaceId: string;
@@ -48,6 +49,7 @@ export interface StagedImport {
 export interface DraftMetadataPatch {
   readonly title?: string | null | undefined;
   readonly description?: string | null | undefined;
+  readonly initialization?: TemplateInitialization | undefined;
 }
 
 export interface BeginDraftRequest {
@@ -114,29 +116,14 @@ export function parseApplicationRequest(value: unknown): ApplicationRequest {
     'template.application_invalid',
     'A template application request is required.',
   );
-  const templateId = requiredUuid(body.templateId);
-  const idempotencyKey = requiredText(body.idempotencyKey);
-  if (
-    templateId === null ||
-    idempotencyKey === null ||
-    (body.mode !== 'merge' && body.mode !== 'create') ||
-    !optionalUuid(body.targetItemId) ||
-    !optionalNullableUuid(body.parentItemId) ||
-    !optionalText(body.title)
-  ) {
+  const parsed = templateApplicationRequestSchema.safeParse(body);
+  if (!parsed.success) {
     throw invalid(
       'template.application_invalid',
-      'A template, mode, valid destination and idempotency key are required.',
+      'A template, mode, valid destination, inputs and idempotency key are required.',
     );
   }
-  return {
-    templateId,
-    mode: body.mode,
-    ...(body.targetItemId === undefined ? {} : { targetItemId: body.targetItemId }),
-    ...(body.parentItemId === undefined ? {} : { parentItemId: body.parentItemId }),
-    ...(body.title === undefined ? {} : { title: body.title }),
-    idempotencyKey,
-  };
+  return parsed.data;
 }
 
 export function parseImportedTemplate(value: unknown): ImportedTemplate {
@@ -145,7 +132,7 @@ export function parseImportedTemplate(value: unknown): ImportedTemplate {
     'template.import_invalid',
     'A validated template import plan is required.',
   );
-  let archive: { readonly manifest: ArchiveManifest; readonly bundles: readonly ItemBundle[] };
+  let archive: ReadArchiveResult;
   try {
     archive = parseArchiveObject({ manifest: body.manifest, bundles: body.bundles });
   } catch {
@@ -174,7 +161,9 @@ export function parseImportedTemplate(value: unknown): ImportedTemplate {
       validatedProfile.name !== profile.name ||
       validatedProfile.description !== profile.description ||
       validatedProfile.includeBody !== profile.includeBody ||
-      validatedProfile.includeChildren !== profile.includeChildren
+      validatedProfile.includeChildren !== profile.includeChildren ||
+      JSON.stringify(validatedProfile.initialization ?? null) !==
+        JSON.stringify(profile.initialization ?? null)
     ) {
       throw invalid(
         'template.import_invalid',
@@ -189,6 +178,7 @@ export function parseImportedTemplate(value: unknown): ImportedTemplate {
   return {
     manifest: archive.manifest,
     bundles: archive.bundles,
+    files: archive.files,
     profile,
     digest,
     workspaceId,
@@ -210,6 +200,11 @@ export function parseDraftMetadataPatch(value: unknown): DraftMetadataPatch {
   return {
     ...(body.title === undefined ? {} : { title: body.title }),
     ...(body.description === undefined ? {} : { description: body.description }),
+    ...(body.initialization === undefined
+      ? {}
+      : {
+          initialization: parseDraftInitialization(body.initialization),
+        }),
   };
 }
 
@@ -324,7 +319,18 @@ function templateProfile(value: unknown): TemplateArchiveProfile | null {
     description: profile.description,
     includeBody: profile.includeBody,
     includeChildren: profile.includeChildren,
+    ...(profile.initialization === undefined
+      ? {}
+      : { initialization: parseDraftInitialization(profile.initialization) }),
   };
+}
+
+function parseDraftInitialization(value: unknown): TemplateInitialization {
+  const parsed = templateInitializationSchema.safeParse(value);
+  if (!parsed.success) {
+    throw invalid('template.draft_invalid', 'Template initialization metadata is invalid.');
+  }
+  return parsed.data;
 }
 
 function requestRecord(value: unknown, code: string, detail: string): Record<string, unknown> {
@@ -345,14 +351,6 @@ function requiredUuid(value: unknown): string | null {
 
 function requiredText(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function optionalUuid(value: unknown): value is string | undefined {
-  return value === undefined || requiredUuid(value) !== null;
-}
-
-function optionalNullableUuid(value: unknown): value is string | null | undefined {
-  return value === undefined || value === null || requiredUuid(value) !== null;
 }
 
 function optionalText(value: unknown): value is string | undefined {

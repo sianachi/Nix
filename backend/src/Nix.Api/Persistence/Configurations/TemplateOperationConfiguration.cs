@@ -28,6 +28,7 @@ internal sealed class TemplateOperationConfiguration : IEntityTypeConfiguration<
         builder.Property(operation => operation.ActorId).HasColumnName("actor_id");
         builder.Property(operation => operation.DraftTitle).HasColumnName("draft_title").HasMaxLength(200);
         builder.Property(operation => operation.DraftDescription).HasColumnName("draft_description").HasMaxLength(1000);
+        builder.Property(operation => operation.DraftInitialization).HasColumnName("draft_initialization").HasColumnType("jsonb");
         builder.Property(operation => operation.ManagedSource).HasColumnName("managed_source").HasMaxLength(500);
         builder.Property(operation => operation.SourceDigest).HasColumnName("source_digest").HasMaxLength(128);
         builder.Property(operation => operation.State)

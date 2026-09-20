@@ -16,6 +16,25 @@ public interface ITemplateApplicationStore
         string idempotencyKey,
         CancellationToken cancellationToken);
 
+    public ValueTask<Result<TemplateApplicationPlan>> BeginApplicationAsync(
+        TemplateId templateId,
+        TemplateApplicationMode mode,
+        ItemId? targetItemId,
+        ItemId? parentItemId,
+        string? title,
+        string idempotencyKey,
+        IReadOnlyDictionary<string, string>? inputs,
+        int? expectedRevision,
+        CancellationToken cancellationToken) =>
+        BeginApplicationAsync(
+            templateId,
+            mode,
+            targetItemId,
+            parentItemId,
+            title,
+            idempotencyKey,
+            cancellationToken);
+
     public ValueTask<Result<ItemId>> FinalizeApplicationAsync(
         TemplateApplicationId applicationId,
         IReadOnlyList<ItemId> writtenBodyItemIds,

@@ -88,13 +88,6 @@ public sealed partial class TemplateStore
                 TemplateErrors.Invalid($"A template may contain at most {MaximumTemplateItems:N0} items."));
         }
 
-        if (ContainsFileItems(source)
-            || (!includeChildren
-                && await HasFileItemsInTreeAsync(sourceItemId, cancellationToken).ConfigureAwait(false)))
-        {
-            return Result.Failure<TemplateCapturePlan>(TemplateErrors.FileAttachmentsUnsupported());
-        }
-
         if (_validator.Depth(source, sourceItemId) > MaximumTemplateDepth)
         {
             return Result.Failure<TemplateCapturePlan>(
@@ -212,6 +205,18 @@ public sealed partial class TemplateStore
         });
         _database.TemplateOperationItems.AddRange(mappings);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var fileTransfers = await PrepareTemplateFilesAsync(operationId, mappings, cancellationToken)
+            .ConfigureAwait(false);
+        if (fileTransfers.IsFailure)
+        {
+            return Result.Failure<TemplateCapturePlan>(fileTransfers.Error);
+        }
+
+        if (fileTransfers.Value.Count > 0)
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await RebuildClosureAsync(staged.Select(item => item.Id), cancellationToken).ConfigureAwait(false);
 
         return Result.Success(new TemplateCapturePlan(
@@ -252,11 +257,6 @@ public sealed partial class TemplateStore
         if (_validator.ValidateImport(descriptor, items) is { } refusal)
         {
             return Result.Failure<TemplateImportPlan>(TemplateErrors.Invalid(refusal));
-        }
-
-        if (items.Any(item => string.Equals(item.ItemType, "file", StringComparison.OrdinalIgnoreCase)))
-        {
-            return Result.Failure<TemplateImportPlan>(TemplateErrors.FileAttachmentsUnsupported());
         }
 
         if (descriptor.Origin == TemplateOrigin.Managed
@@ -405,11 +405,10 @@ public sealed partial class TemplateStore
                 Type = item.ItemType,
                 ParentId = item.ParentSourceId is { } parent ? targetIds[parent] : null,
                 Seq = item.Seq,
-                Properties = ItemProperties.WithTitle(
-                    item.ParentSourceId is null ? null : item.Properties,
-                    item.Title),
+                Properties = ItemProperties.WithTitle(item.Properties, item.Title),
                 Schema = item.Schema,
                 Views = item.Views,
+                Recurrence = item.Recurrence,
                 TemplateId = catalog.Id,
                 TemplateSourceId = item.SourceId,
                 LifecycleState = ItemLifecycleState.Provisioning,
@@ -460,6 +459,9 @@ public sealed partial class TemplateStore
             ActorId = Context.PrincipalId,
             DraftTitle = descriptor.Title,
             DraftDescription = descriptor.Description,
+            DraftInitialization = descriptor.Initialization is null
+                ? null
+                : TemplateInitializationJson.Write(descriptor.Initialization),
             ManagedSource = descriptor.ManagedSource,
             SourceDigest = descriptor.Digest,
             State = TemplateOperationState.Provisioning,
@@ -515,6 +517,12 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateId>(TemplateErrors.Conflict("This template operation is no longer active."));
         }
 
+        if (await HasUnreadyCopiesAsync("operation", operation.Id.Value, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<TemplateId>(TemplateErrors.Conflict(
+                "Template file copies must be complete before the operation can be finalized."));
+        }
+
         var operationMappings = await _database.TemplateOperationItems
             .Where(mapping => mapping.OperationId == operationId)
             .ToListAsync(cancellationToken)
@@ -560,6 +568,7 @@ public sealed partial class TemplateStore
         {
             template.Title = operation.DraftTitle!;
             template.Description = operation.DraftDescription;
+            template.Initialization = operation.DraftInitialization;
         }
         else if (operation.Kind == TemplateOperationKind.Import)
         {
@@ -567,6 +576,7 @@ public sealed partial class TemplateStore
             template.Description = operation.DraftDescription;
             template.ManagedSource = operation.ManagedSource;
             template.SourceDigest = operation.SourceDigest;
+            template.Initialization = operation.DraftInitialization;
         }
         if (previousRoot is not null)
         {

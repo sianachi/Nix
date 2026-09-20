@@ -90,7 +90,19 @@ public sealed record CompleteDocumentImportPreviewRequest(
 public sealed record StageDocumentImportRequest(
     string PlanSha256,
     string SourceSha256,
-    IReadOnlyList<StageDocumentImportItemRequest> Items);
+    IReadOnlyList<StageDocumentImportItemRequest> Items,
+    IReadOnlyList<StageDocumentImportFileVersionRequest>? FileVersions = null);
+
+public sealed record StageDocumentImportFileVersionRequest(
+    string SourceItemId,
+    int Version,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    bool Previewable,
+    int? PixelWidth,
+    int? PixelHeight);
 
 public sealed record StageDocumentImportItemRequest(
     string SourceId,
@@ -119,7 +131,36 @@ public sealed record StageDocumentImportFileRequest(
 public sealed record DocumentImportStageResponse(
     Guid ImportId,
     Guid RootItemId,
-    IReadOnlyList<DocumentImportStageItemResponse> Items);
+    IReadOnlyList<DocumentImportStageItemResponse> Items,
+    IReadOnlyList<DocumentImportStageFileVersionResponse>? FileTransfers = null);
+
+public sealed record DocumentImportStageFileVersionResponse(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion);
+
+public sealed record DocumentImportFileVersionsAuthorizationResponse(
+    Guid ImportId,
+    IReadOnlyList<DocumentImportFileVersionCapabilityResponse> Files,
+    Guid? NextAfterTransferId,
+    bool Complete);
+
+public sealed record DocumentImportFileVersionCapabilityResponse(
+    Guid TransferId,
+    string SourceItemId,
+    Guid TargetItemId,
+    int TargetVersion,
+    string FileName,
+    string MediaType,
+    long ByteLength,
+    string Sha256,
+    Uri? UploadUrl,
+    Uri? VerifyUrl,
+    bool Ready);
+
+public sealed record CompleteDocumentImportFileVersionsRequest(IReadOnlyList<Guid> TransferIds);
+public sealed record CompleteDocumentImportFileVersionsResponse(Guid ImportId, IReadOnlyList<Guid> CompletedTransferIds);
 
 public sealed record DocumentImportStageItemResponse(
     string SourceId,
@@ -163,10 +204,16 @@ public sealed record RejectDocumentImportRequest(string Code);
 [JsonSerializable(typeof(WorkerDocumentImportCommitResponse))]
 [JsonSerializable(typeof(CompleteDocumentImportPreviewRequest))]
 [JsonSerializable(typeof(StageDocumentImportRequest))]
+[JsonSerializable(typeof(StageDocumentImportFileVersionRequest))]
 [JsonSerializable(typeof(StageDocumentImportItemRequest))]
 [JsonSerializable(typeof(StageDocumentImportFileRequest))]
 [JsonSerializable(typeof(DocumentImportStageResponse))]
 [JsonSerializable(typeof(DocumentImportStageItemResponse))]
+[JsonSerializable(typeof(DocumentImportStageFileVersionResponse))]
+[JsonSerializable(typeof(DocumentImportFileVersionsAuthorizationResponse))]
+[JsonSerializable(typeof(DocumentImportFileVersionCapabilityResponse))]
+[JsonSerializable(typeof(CompleteDocumentImportFileVersionsRequest))]
+[JsonSerializable(typeof(CompleteDocumentImportFileVersionsResponse))]
 [JsonSerializable(typeof(DocumentImportObjectCapabilityResponse))]
 [JsonSerializable(typeof(CompleteDocumentImportObjectRequest))]
 [JsonSerializable(typeof(DocumentImportBodyAuthorizationResponse))]

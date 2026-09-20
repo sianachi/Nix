@@ -10,7 +10,8 @@ public readonly record struct UpdateTemplateDraft(
     TemplateId TemplateId,
     TemplateOperationId OperationId,
     string? Title,
-    string? Description) : ICommand<TemplateDraftPlan>;
+    string? Description,
+    TemplateInitialization? Initialization = null) : ICommand<TemplateDraftPlan>;
 
 /// <summary>Updates editable template metadata.</summary>
 public sealed class UpdateTemplateDraftHandler(ITemplateDraftStore drafts)
@@ -25,5 +26,6 @@ public sealed class UpdateTemplateDraftHandler(ITemplateDraftStore drafts)
             command.OperationId,
             command.Title,
             command.Description,
+            command.Initialization,
             cancellationToken);
 }

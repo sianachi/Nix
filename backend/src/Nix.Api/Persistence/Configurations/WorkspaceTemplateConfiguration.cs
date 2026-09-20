@@ -24,6 +24,7 @@ internal sealed class WorkspaceTemplateConfiguration : IEntityTypeConfiguration<
         builder.Property(template => template.PendingRootItemId).HasColumnName("pending_root_item_id");
         builder.Property(template => template.StableKey).HasColumnName("stable_key").HasMaxLength(160);
         builder.Property(template => template.ProfileKey).HasColumnName("profile_key").HasMaxLength(160);
+        builder.Property(template => template.Initialization).HasColumnName("initialization").HasColumnType("jsonb");
         builder.Property(template => template.Origin)
             .HasColumnName("origin")
             .HasConversion(new EnumConverters.TemplateOriginConverter());

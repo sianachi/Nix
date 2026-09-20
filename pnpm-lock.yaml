@@ -69,6 +69,9 @@ importers:
 
   apps/collab:
     dependencies:
+      '@nix/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nix/editor-schema':
         specifier: workspace:*
         version: link:../../packages/editor-schema
@@ -443,6 +446,9 @@ importers:
       '@nix/sheet':
         specifier: workspace:*
         version: link:../sheet
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
@@ -539,6 +545,18 @@ importers:
       yjs:
         specifier: ^13.6.31
         version: 13.6.31
+
+  packages/template-catalog:
+    dependencies:
+      '@nix/editor-schema':
+        specifier: workspace:*
+        version: link:../editor-schema
+      '@nix/export':
+        specifier: workspace:*
+        version: link:../export
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
 
   packages/ui:
     dependencies:
@@ -6546,8 +6564,7 @@ snapshots:
       outvariant: 1.4.3
       strict-event-emitter: 0.5.1
 
-  '@noble/hashes@2.4.0':
-    optional: true
+  '@noble/hashes@2.4.0': {}
 
   '@open-draft/deferred-promise@2.2.0': {}
 
@@ -7769,7 +7786,7 @@ snapshots:
       magic-string: 0.30.21
       sirv: 3.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
+      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
       ws: 8.21.1
     optionalDependencies:
       playwright: 1.62.0

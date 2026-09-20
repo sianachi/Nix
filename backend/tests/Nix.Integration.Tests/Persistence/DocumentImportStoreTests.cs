@@ -31,6 +31,36 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task Large_object_cleanup_sets_use_bounded_idempotent_batches()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var ownerId = Guid.NewGuid();
+        var keys = Enumerable.Range(0, 10_003)
+            .Select(index => $"tenant/{TestTenants.Alpha:D}/file-version/{index:D5}")
+            .ToArray();
+        var excludedPublishedKey = "tenant/published-template/file-version/keep";
+        var jobs = work.Resolve<IWorkerJobStore>();
+        var queued = await ObjectCleanupJobs.QueueBatchedAsync(
+            jobs, TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.PrincipalId,
+            WorkspaceId.From(TestTenants.AlphaWorkspace), "template-delete", ownerId,
+            DateTimeOffset.UtcNow, keys, Cancellation);
+
+        Assert.Equal(2, queued.Count);
+        var payloads = queued.Select(job => Assert.IsType<ObjectCleanupJobPayload>(JsonSerializer.Deserialize(
+            job.Payload, ObjectCleanupJsonContext.Default.ObjectCleanupJobPayload))).ToArray();
+        Assert.All(payloads, payload => Assert.InRange(payload.ObjectKeys.Count, 1, 10_002));
+        var flattened = payloads.SelectMany(payload => payload.ObjectKeys).ToArray();
+        Assert.Equal(keys.Order(StringComparer.Ordinal), flattened);
+        Assert.DoesNotContain(excludedPublishedKey, flattened);
+
+        var replay = await ObjectCleanupJobs.QueueBatchedAsync(
+            jobs, TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.PrincipalId,
+            WorkspaceId.From(TestTenants.AlphaWorkspace), "template-delete", ownerId,
+            DateTimeOffset.UtcNow, keys, Cancellation);
+        Assert.Equal(queued.Select(job => job.Id), replay.Select(job => job.Id));
+    }
+
+    [Fact]
     public async Task A_complete_txt_plan_publishes_the_note_and_retained_source_atomically()
     {
         DocumentImportRecord operation;
@@ -125,6 +155,56 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
             var sourceItemId = ItemId.From(stage.Items.Single(mapping => mapping.SourceId == "original").TargetItemId);
             Assert.Single(indexEvents, value => value.ItemId == sourceItemId);
         }
+    }
+
+    [Fact]
+    public async Task Archive_file_history_stages_fresh_versions_and_completes_in_fenced_pages()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "history.nix", 8);
+        var note = new ImportEnvelopePlan("note", null, 0, "History", "note", null, null, null,
+            "active", true, null);
+        var file = new ImportEnvelopePlan("asset", "note", 0, "asset.bin", "file", null, null, null,
+            "active", false, null);
+        var histories = new[]
+        {
+            new ImportFileVersionPlan("asset", 1, "asset.bin", "application/octet-stream", 4,
+                new string('c', 64), false, null, null),
+            new ImportFileVersionPlan("asset", 2, "asset.bin", "application/octet-stream", 7,
+                new string('d', 64), false, null, null),
+        };
+        var stage = Assert.IsType<DocumentImportStageRecord>(await imports.StageAsync(
+            new StageDocumentImport(DocumentImportId.From(operation.Id), new string('b', 64), digest,
+                [note, file], histories), Cancellation));
+        Assert.Collection(stage.FileVersions!,
+            first => Assert.Equal(1, first.TargetVersion),
+            second => Assert.Equal(2, second.TargetVersion));
+        var originalFileTarget = stage.Items.Single(value => value.SourceId == "asset").TargetItemId;
+        var currentBody = await work.DbContext.FileBodies.IgnoreQueryFilters().SingleAsync(
+            value => value.ItemId == ItemId.From(originalFileTarget), Cancellation);
+        var current = await work.DbContext.FileVersions.IgnoreQueryFilters().SingleAsync(
+            value => value.Id == currentBody.CurrentVersionId, Cancellation);
+        Assert.Equal(2, current.Version);
+        Assert.False(current.ObjectReady);
+        Assert.Null(await imports.FinalizeAsync(DocumentImportId.From(operation.Id), Cancellation));
+
+        var executionId = Guid.NewGuid().ToString("D");
+        var firstPage = Assert.IsType<DocumentImportFileVersionsPage>(await imports.AuthorizeFileVersionsAsync(
+            DocumentImportId.From(operation.Id), executionId, null, 1, Cancellation));
+        Assert.Single(firstPage.Files);
+        Assert.False(firstPage.Complete);
+        Assert.True(await imports.CompleteFileVersionsAsync(DocumentImportId.From(operation.Id), executionId,
+            [firstPage.Files[0].TransferId], Cancellation));
+        var secondPage = Assert.IsType<DocumentImportFileVersionsPage>(await imports.AuthorizeFileVersionsAsync(
+            DocumentImportId.From(operation.Id), executionId, firstPage.NextAfterTransferId, 1, Cancellation));
+        Assert.Single(secondPage.Files);
+        Assert.True(secondPage.Complete);
+        Assert.True(await imports.CompleteFileVersionsAsync(DocumentImportId.From(operation.Id), executionId,
+            [secondPage.Files[0].TransferId], Cancellation));
+        Assert.True(await work.DbContext.FileVersions.AsNoTracking().AnyAsync(
+            value => value.Id == current.Id && value.ObjectReady, Cancellation));
+        Assert.Equal(2, await work.DbContext.FileVersions.AsNoTracking().CountAsync(
+            value => value.ItemId == ItemId.From(originalFileTarget) && value.ObjectReady, Cancellation));
     }
 
     [Fact]
@@ -405,6 +485,7 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
             Cancellation));
 
         var sourceId = Guid.NewGuid();
+        var sourceFileId = Guid.NewGuid();
         var stagedResult = await templates.BeginImportAsync(
             WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
             "template-archive-attempt",
@@ -417,7 +498,10 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
                 digest,
                 IncludeBody: false,
                 IncludeChildren: false),
-            [new TemplateImportItem(sourceId, null, "note", "Portable template", 1024, null, null, null, false)],
+            [
+                new TemplateImportItem(sourceId, null, "note", "Portable template", 1024, null, null, null, false),
+                new TemplateImportItem(sourceFileId, sourceId, "file", "Attachment", 1, null, null, null, false),
+            ],
             Cancellation);
         Assert.True(stagedResult.IsSuccess, stagedResult.Error.Message);
         var staged = stagedResult.Value;
@@ -433,12 +517,40 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
         Assert.Equal(DocumentImportStatuses.Staging, stagingAttempt.Status);
         Assert.Equal(staged.OperationId?.Value, stagingAttempt.TemplateOperationId);
 
+        var filePlan = new ImportFileVersionPlan(sourceFileId.ToString("D"), 1, "attachment.bin",
+            "application/octet-stream", 8, new string('c', 64), false, null, null);
+        var targetPairs = staged.ItemMappings.Select(mapping =>
+            (mapping.SourceId.ToString("D"), mapping.ItemId)).ToArray();
+        var fileMappings = Assert.IsAssignableFrom<IReadOnlyList<DocumentImportFileVersionMapping>>(
+            await imports.StageTemplateFileVersionsAsync(DocumentImportId.From(attempt.Id),
+                [filePlan], targetPairs, Cancellation));
+        await work.CommitAsync(Cancellation);
+
+        await using var replayWork = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, Cancellation);
+        var replayImports = replayWork.Resolve<IDocumentImportStore>();
+        var replayTemplates = replayWork.Resolve<ITemplateStagingStore>();
+        var replayCatalog = replayWork.Resolve<ITemplateCatalogStore>();
+        var replayedFileMappings = Assert.IsAssignableFrom<IReadOnlyList<DocumentImportFileVersionMapping>>(
+            await replayImports.StageTemplateFileVersionsAsync(DocumentImportId.From(attempt.Id),
+                [filePlan], targetPairs, Cancellation));
+        Assert.Equal(fileMappings, replayedFileMappings);
+        var authorization = Assert.IsType<DocumentImportFileVersionsPage>(await replayImports.AuthorizeFileVersionsAsync(
+            DocumentImportId.From(attempt.Id), "template-commit-attempt", null, 100, Cancellation));
+        Assert.Single(authorization.Files);
+        Assert.False(authorization.Files[0].ObjectReady);
+        Assert.True(await replayImports.CompleteFileVersionsAsync(DocumentImportId.From(attempt.Id),
+            "template-commit-attempt", [authorization.Files[0].TransferId], Cancellation));
+        Assert.True(await replayWork.DbContext.FileVersions.AsNoTracking().AnyAsync(
+            version => version.ItemId == ItemId.From(fileMappings[0].TargetItemId) && version.ObjectReady,
+            Cancellation));
+
         if (staged.OperationId is { } operationId)
         {
-            var finalized = await templates.FinalizeOperationAsync(operationId, [], Cancellation);
+            var finalized = await replayTemplates.FinalizeOperationAsync(operationId, [], Cancellation);
             Assert.True(finalized.IsSuccess, finalized.Error.Message);
         }
-        var completed = Assert.IsType<DocumentImportRecord>(await imports.CompleteTemplateAsync(
+        var completed = Assert.IsType<DocumentImportRecord>(await replayImports.CompleteTemplateAsync(
             new CompleteTemplateImport(DocumentImportId.From(attempt.Id), [], Managed: false),
             Cancellation));
         Assert.Equal(DocumentImportStatuses.Completed, completed.Status);
@@ -447,12 +559,12 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
         Assert.Equal(digest, completed.TemplateDigest);
         Assert.Equal("[]", completed.TemplateWrittenTargetItemIds);
 
-        var deleted = await templateCatalog.DeleteAsync(staged.TemplateId, Cancellation);
+        var deleted = await replayCatalog.DeleteAsync(staged.TemplateId, Cancellation);
         Assert.True(deleted.IsSuccess, deleted.Error.Message);
-        Assert.False(await work.DbContext.WorkspaceTemplates.AnyAsync(
+        Assert.False(await replayWork.DbContext.WorkspaceTemplates.AnyAsync(
             template => template.Id == staged.TemplateId,
             Cancellation));
-        var retainedHistory = Assert.IsType<DocumentImportRecord>(await imports.GetAsync(
+        var retainedHistory = Assert.IsType<DocumentImportRecord>(await replayImports.GetAsync(
             DocumentImportId.From(attempt.Id),
             Cancellation));
         Assert.Equal(staged.TemplateId.Value, retainedHistory.TemplateId);

