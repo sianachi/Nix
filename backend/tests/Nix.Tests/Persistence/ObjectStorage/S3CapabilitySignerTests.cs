@@ -137,6 +137,28 @@ public sealed class S3CapabilitySignerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Worker_verified_uploads_use_the_storage_endpoint_while_public_verified_uploads_keep_the_public_origin()
+    {
+        var options = Options();
+        options.Endpoint = new Uri("https://objects.internal.test/storage/team%20one");
+        options.PublicOrigin = new Uri("https://objects.example.test:9443");
+        var signer = new S3CapabilitySigner(options, new FixedTimeProvider(Instant));
+
+        var worker = signer.PutImmutableVerifiedForWorker("files/object", 42, new string('a', 64)).Url;
+        var publicUpload = signer.PutImmutableVerified("files/object", 42, new string('a', 64)).Url;
+
+        Assert.Equal("https://objects.internal.test", worker.GetLeftPart(UriPartial.Authority));
+        Assert.Equal("/storage/team%20one/nix-objects/files/object", worker.AbsolutePath);
+        Assert.Contains(
+            "X-Amz-SignedHeaders=content-length%3Bhost%3Bif-none-match%3Bx-amz-checksum-sha256",
+            worker.Query,
+            StringComparison.Ordinal);
+        Assert.Equal("https://objects.example.test:9443", publicUpload.GetLeftPart(UriPartial.Authority));
+        Assert.Equal(worker.AbsolutePath, publicUpload.AbsolutePath);
+        Assert.NotEqual(worker.Query, publicUpload.Query);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("/absolute")]

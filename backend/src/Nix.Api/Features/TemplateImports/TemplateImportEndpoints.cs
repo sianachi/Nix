@@ -693,7 +693,7 @@ internal static class TemplateImportEndpoints
         var files = page.Files.Select(file => new TemplateImportFileVersionCapabilityResponse(
             file.TransferId, file.SourceItemId, file.TargetItemId, file.TargetVersion,
             file.FileName, file.MediaType, file.ByteLength, file.Sha256,
-            file.ObjectReady ? null : signer.PutImmutableVerified(file.ObjectKey, file.ByteLength, file.Sha256).Url,
+            file.ObjectReady ? null : signer.PutImmutableVerifiedForWorker(file.ObjectKey, file.ByteLength, file.Sha256).Url,
             file.ObjectReady ? null : signer.Get(file.ObjectKey).Url, file.ObjectReady)).ToArray();
         return TypedResults.Ok(new TemplateImportFileVersionsAuthorizationResponse(
             importId, files, page.NextAfterTransferId, page.Complete));
