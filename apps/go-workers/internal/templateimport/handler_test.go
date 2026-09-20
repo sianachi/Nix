@@ -226,7 +226,7 @@ func TestCommitStagesAndStreamsV2ArchiveFileBeforeCompletingImport(t *testing.T)
 				t.Fatal("Core was asked to complete file transfer before archive bytes were uploaded")
 			}
 			fileCompleted.Store(true)
-			writeStrictJSON(response, map[string]any{"importId": testImportID, "completed": true})
+			writeStrictJSON(response, map[string]any{"importId": testImportID, "completedTransferIds": []string{testTransferID}})
 		case "/objects/file":
 			if request.Method == http.MethodPut {
 				if request.Header.Get("If-None-Match") != "*" || request.Header.Get("X-Amz-Checksum-Sha256") == "" || request.ContentLength != int64(len(fileBytes)) {

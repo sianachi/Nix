@@ -214,14 +214,14 @@ func TestImportFileVersionRoutesMatchWorkerExecutionMounts(t *testing.T) {
 			}
 			_, _ = response.Write([]byte(`{"importId":"` + importID + `","files":[],"complete":true}`))
 		case request.Method == http.MethodPost && request.URL.Path == "/internal/worker-executions/template-imports/"+importID+"/files/complete":
-			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completed":true}`))
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completedTransferIds":["20000000-0000-4000-8000-000000000002"]}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/internal/worker-executions/imports/"+importID+"/file-versions/authorization":
 			if request.URL.Query().Get("limit") != "25" {
 				t.Fatalf("document file plan query = %s", request.URL.RawQuery)
 			}
 			_, _ = response.Write([]byte(`{"importId":"` + importID + `","files":[],"complete":true}`))
 		case request.Method == http.MethodPost && request.URL.Path == "/internal/worker-executions/imports/"+importID+"/file-versions/complete":
-			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completed":true}`))
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completedTransferIds":["20000000-0000-4000-8000-000000000002"]}`))
 		default:
 			t.Errorf("unexpected import file request: %s %s", request.Method, request.URL.Path)
 			response.WriteHeader(http.StatusNotFound)

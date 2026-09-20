@@ -214,6 +214,120 @@ describe('nixctl import --dry-run', () => {
 });
 
 describe('nixctl import', () => {
+  it('returns a resumable worker receipt without waiting, committing, or cancelling', async () => {
+    const { env, done } = await withProfile();
+    const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-no-wait-'));
+    const file = join(dir, 'resume.txt');
+    await writeFile(file, 'Resume me.\n', 'utf8');
+    const importId = 'a1111111-1111-4111-8111-111111111111';
+    const operationId = 'a2222222-2222-4222-8222-222222222222';
+    let uploadUrlSeen = false;
+    let operationRead = false;
+    let commitSeen = false;
+    let cancelSeen = false;
+    server.use(
+      http.post(`${API}/api/v1/imports`, () =>
+        HttpResponse.json({
+          id: importId,
+          status: 'pending_upload',
+          uploadUrl: 'http://127.0.0.1:9445/private-capability?signature=secret',
+          capabilityExpiresAt: '2026-09-01T00:10:00Z',
+          expiresAt: '2026-09-01T01:00:00Z',
+        }),
+      ),
+      http.put('http://127.0.0.1:9445/private-capability', () => {
+        uploadUrlSeen = true;
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.post(`${API}/api/v1/imports/${importId}/preview`, () =>
+        HttpResponse.json(
+          {
+            id: operationId,
+            kind: 'import.preview.txt',
+            status: 'queued',
+            result: null,
+            errorCode: null,
+            errorDetail: null,
+            attempts: 0,
+            cancellationRequested: false,
+            createdAt: '2026-09-01T00:00:00Z',
+            completedAt: null,
+          },
+          { status: 202 },
+        ),
+      ),
+      http.get(`${API}/api/v1/operations/:operationId`, () => {
+        operationRead = true;
+        return HttpResponse.json({});
+      }),
+      http.post(`${API}/api/v1/imports/${importId}/commit`, () => {
+        commitSeen = true;
+        return HttpResponse.json({});
+      }),
+      http.delete(`${API}/api/v1/imports/${importId}`, () => {
+        cancelSeen = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const stderr: string[] = [];
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
+        return true;
+      });
+    try {
+      const printed = (await capture((json) =>
+        runImport('default', { path: file, workspaceId: WS, dryRun: false, noWait: true }, json, {
+          env,
+        }),
+      )) as Record<string, unknown>;
+      expect(printed).toMatchObject({
+        importId,
+        operationId,
+        phase: 'preview',
+        operationStatus: 'queued',
+      });
+      expect(uploadUrlSeen).toBe(true);
+      expect(operationRead).toBe(false);
+      expect(commitSeen).toBe(false);
+      expect(cancelSeen).toBe(false);
+      expect(JSON.stringify(printed)).not.toContain('signature');
+      expect(stderr.join('')).toContain(`importId=${importId}`);
+      expect(stderr.join('')).not.toContain('uploadUrl');
+    } finally {
+      stderrSpy.mockRestore();
+      await rm(dir, { recursive: true, force: true });
+      await done();
+    }
+  });
+
+  it('rejects incompatible no-wait flags before resolving a session', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-no-wait-flags-'));
+    const file = join(dir, 'notes.txt');
+    const markdown = join(dir, 'notes.md');
+    await writeFile(file, 'text', 'utf8');
+    await writeFile(markdown, 'text', 'utf8');
+    const env = { XDG_CONFIG_HOME: join(dir, 'missing-config') };
+    await expect(
+      runImport(
+        'default',
+        { path: file, workspaceId: WS, dryRun: true, noWait: true },
+        outputOptions(true),
+        { env },
+      ),
+    ).rejects.toThrow('--no-wait cannot be combined with --dry-run');
+    await expect(
+      runImport(
+        'default',
+        { path: markdown, workspaceId: WS, dryRun: false, noWait: true },
+        outputOptions(true),
+        { env },
+      ),
+    ).rejects.toThrow('--no-wait is available only');
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('streams a TXT document through the durable worker and publishes its subtree atomically', async () => {
     const { env, done } = await withProfile();
     const dir = await mkdtemp(join(tmpdir(), 'nixctl-import-document-'));
