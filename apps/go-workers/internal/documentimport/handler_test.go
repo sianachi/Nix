@@ -3,6 +3,7 @@ package documentimport
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -97,6 +98,11 @@ func TestCommitRevalidatesStagesWritesBodiesAndFinalizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sourceSHA256, err := hex.DecodeString(sourceDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedStorageChecksum := base64.StdEncoding.EncodeToString(sourceSHA256)
 	rootTarget := "22222222-2222-4222-8222-222222222222"
 	fileTarget := "33333333-3333-4333-8333-333333333333"
 	var staged workerapi.DocumentImportStageRequest
@@ -128,6 +134,9 @@ func TestCommitRevalidatesStagesWritesBodiesAndFinalizes(t *testing.T) {
 			case http.MethodPut:
 				if request.Header.Get("If-None-Match") != "*" {
 					t.Fatal("the source original was not published immutably")
+				}
+				if request.Header.Get("X-Amz-Checksum-Sha256") != expectedStorageChecksum {
+					t.Fatalf("storage checksum = %q", request.Header.Get("X-Amz-Checksum-Sha256"))
 				}
 				publishedSource, _ = io.ReadAll(request.Body)
 				response.WriteHeader(http.StatusNoContent)
