@@ -310,7 +310,7 @@ func (handler *Handler) uploadFile(ctx context.Context, importID string, source 
 		return errors.New("Core returned a capability for the wrong file")
 	}
 	digest := sha256.New()
-	uploadErr := handler.transfer.UploadCreateOnly(
+	uploadErr := handler.transfer.UploadCreateOnlyVerified(
 		ctx,
 		capability.UploadURL,
 		item.File.MediaType,

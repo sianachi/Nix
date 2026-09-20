@@ -530,7 +530,7 @@ internal static class DocumentImportEndpoints
         var files = rows.Files.Select(row => new DocumentImportFileVersionCapabilityResponse(
             row.TransferId, row.SourceItemId, row.TargetItemId, row.TargetVersion,
             row.FileName, row.MediaType, row.ByteLength, row.Sha256,
-            row.ObjectReady ? null : signer.PutImmutableVerifiedForWorker(row.ObjectKey, row.ByteLength, row.Sha256).Url,
+            row.ObjectReady ? null : signer.PutImmutableVerified(row.ObjectKey, row.ByteLength, row.Sha256).Url,
             row.ObjectReady ? null : signer.Get(row.ObjectKey).Url, row.ObjectReady)).ToArray();
         return TypedResults.Ok(new DocumentImportFileVersionsAuthorizationResponse(
             importId, files, rows.NextAfterTransferId, rows.Complete));
@@ -586,7 +586,7 @@ internal static class DocumentImportEndpoints
             return TypedResults.Problem(NotFound(context));
         }
         var read = signer.Get(mapping.ObjectKey);
-        var upload = signer.PutImmutableVerifiedForWorker(mapping.ObjectKey, mapping.ByteLength, mapping.Sha256);
+        var upload = signer.PutImmutableVerified(mapping.ObjectKey, mapping.ByteLength, mapping.Sha256);
         var delete = signer.Delete(mapping.ObjectKey);
         return TypedResults.Ok(new DocumentImportObjectCapabilityResponse(
             sourceId,

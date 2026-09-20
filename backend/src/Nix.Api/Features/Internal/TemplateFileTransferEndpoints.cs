@@ -80,7 +80,7 @@ internal static class TemplateFileTransferEndpoints
                 }
 
                 var download = signer.Get(transfer.SourceObjectKey);
-                var upload = signer.PutImmutableVerifiedForWorker(
+                var upload = signer.PutImmutableVerified(
                     transfer.TargetObjectKey,
                     transfer.ByteLength,
                     transfer.Sha256);

@@ -397,7 +397,7 @@ internal static class ExportEndpoints
             clock.GetUtcNow().Add(AttemptCleanupDelay),
             [key],
             context.RequestAborted).ConfigureAwait(false);
-        var upload = signer.PutImmutableVerifiedForWorker(key, byteLength, sha256);
+        var upload = signer.PutImmutableVerified(key, byteLength, sha256);
         var read = signer.Get(key);
         var delete = signer.Delete(key);
         var expiresAt = new[] { upload.ExpiresAt, read.ExpiresAt, delete.ExpiresAt }.Min();

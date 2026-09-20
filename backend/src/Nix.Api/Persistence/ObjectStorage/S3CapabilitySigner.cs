@@ -68,14 +68,7 @@ public sealed class S3CapabilitySigner
     }
 
     /// <summary>Signs an immutable upload whose bytes object storage verifies by SHA-256.</summary>
-    public ObjectCapability PutImmutableVerified(string key, long byteLength, string sha256) =>
-        PutImmutableVerified(key, byteLength, sha256, originOverride: null);
-
-    /// <summary>Signs a verified immutable upload for a worker using the configured storage endpoint.</summary>
-    public ObjectCapability PutImmutableVerifiedForWorker(string key, long byteLength, string sha256) =>
-        PutImmutableVerified(key, byteLength, sha256, _options.Endpoint);
-
-    private ObjectCapability PutImmutableVerified(string key, long byteLength, string sha256, Uri? originOverride)
+    public ObjectCapability PutImmutableVerified(string key, long byteLength, string sha256)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(byteLength);
         if (sha256 is not { Length: 64 } || sha256.Any(character => !char.IsAsciiHexDigit(character)))
@@ -90,8 +83,7 @@ public sealed class S3CapabilitySigner
                 ["content-length"] = byteLength.ToString(CultureInfo.InvariantCulture),
                 ["if-none-match"] = "*",
                 ["x-amz-checksum-sha256"] = Convert.ToBase64String(Convert.FromHexString(sha256)),
-            },
-            originOverride: originOverride);
+            });
     }
 
     /// <summary>Signs a read capability.</summary>
@@ -127,8 +119,7 @@ public sealed class S3CapabilitySigner
         string method,
         string key,
         IReadOnlyDictionary<string, string>? responseParameters = null,
-        IReadOnlyDictionary<string, string>? requestHeaders = null,
-        Uri? originOverride = null)
+        IReadOnlyDictionary<string, string>? requestHeaders = null)
     {
         if (_options.Endpoint is null)
         {
@@ -141,7 +132,7 @@ public sealed class S3CapabilitySigner
         var day = timestamp[..8];
         var scope = $"{day}/{_options.Region}/s3/aws4_request";
         var canonicalPath = CanonicalPath(_options.Endpoint, _options.Bucket, key);
-        var publicOrigin = originOverride ?? _options.PublicOrigin ?? _options.Endpoint;
+        var publicOrigin = _options.PublicOrigin ?? _options.Endpoint;
         var headers = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
             ["host"] = publicOrigin.Authority,
