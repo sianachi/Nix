@@ -1,8 +1,11 @@
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import {
   ARCHIVE_FORMAT,
-  ARCHIVE_FORMAT_VERSION,
+  FILE_ARCHIVE_FORMAT_VERSION,
   TEMPLATE_PROFILE_VERSION,
+  type ArchiveFileBytes,
+  type ArchiveFileVersionEntry,
+  type TemplateInitialization as ArchiveTemplateInitialization,
   type ArchiveManifest,
   type ItemBody,
   type ItemBundle,
@@ -17,7 +20,14 @@ import { streamInTenantScope } from '../db/tenant-scope.ts';
 import { strategyFor } from '../documents/body-kinds.ts';
 import { loadDocument } from '../documents/service.ts';
 import { remapItemReferences, TemplateBodyError } from './bodies.ts';
-import type { CoreTemplateClient, TemplateExportItem, TemplateExportSnapshot } from './core.ts';
+import type {
+  CoreTemplateClient,
+  TemplateExportFile,
+  TemplateExportItem,
+  TemplateExportSnapshot,
+} from './core.ts';
+
+const FILE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 
 type PortableTemplateExportItem = Omit<TemplateExportItem, 'schema'> & {
   readonly schema: SchemaSnapshot | null;
@@ -30,6 +40,7 @@ type PortableTemplateExportSnapshot = Omit<TemplateExportSnapshot, 'items'> & {
 export interface PreparedTemplateExport {
   readonly manifest: ArchiveManifest;
   readonly bundles: AsyncGenerator<ItemBundle>;
+  readonly files: AsyncGenerator<ArchiveFileBytes, void, unknown>;
   readonly title: string;
 }
 
@@ -39,9 +50,16 @@ export async function prepareTemplateArchive(options: {
   readonly token: string;
   readonly templateId: string;
   readonly exportedAt: Date;
+  readonly signal?: AbortSignal;
 }): Promise<PreparedTemplateExport> {
   const snapshot = normalizeSchemas(
     await options.core.getTemplateExport(options.token, options.templateId),
+  );
+  const exportedFiles = await templateExportFiles(
+    options.core,
+    options.token,
+    options.templateId,
+    snapshot.revision,
   );
   const root = snapshot.items[0];
   if (root?.parentSourceId !== null) {
@@ -58,9 +76,24 @@ export async function prepareTemplateArchive(options: {
 
   const portableIds = new Map(snapshot.items.map((item) => [item.itemId, item.sourceId]));
   const exportedAt = options.exportedAt.toISOString();
+  const files = [...exportedFiles].sort(
+    (left, right) => left.sourceId.localeCompare(right.sourceId) || left.version - right.version,
+  );
+  const fileDescriptors: ArchiveFileVersionEntry[] = files.map((file) => ({
+    itemId: file.sourceId,
+    version: file.version,
+    current: file.current,
+    fileName: file.fileName,
+    mediaType: file.mediaType,
+    byteLength: file.byteLength,
+    sha256: file.sha256,
+    previewable: file.previewable,
+    pixelWidth: file.pixelWidth,
+    pixelHeight: file.pixelHeight,
+  }));
   const manifest: ArchiveManifest = {
     format: ARCHIVE_FORMAT,
-    formatVersion: ARCHIVE_FORMAT_VERSION,
+    formatVersion: FILE_ARCHIVE_FORMAT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     profile: {
       kind: 'template',
@@ -70,6 +103,7 @@ export async function prepareTemplateArchive(options: {
       description: snapshot.description ?? '',
       includeBody: snapshot.includeBody,
       includeChildren: snapshot.includeChildren,
+      initialization: portableInitialization(snapshot.initialization),
     },
     exportedAt,
     root: root.sourceId,
@@ -82,6 +116,7 @@ export async function prepareTemplateArchive(options: {
       title: item.title,
       type: item.itemType,
     })),
+    files: fileDescriptors,
     omitted: [],
     loss: [],
   };
@@ -90,6 +125,154 @@ export async function prepareTemplateArchive(options: {
     manifest,
     title: snapshot.title,
     bundles: templateBundles(options.pool, authorization, snapshot, portableIds, exportedAt),
+    files: templateFileBytes(
+      options.core,
+      options.token,
+      options.templateId,
+      snapshot.revision,
+      files,
+      options.signal,
+    ),
+  };
+}
+
+async function* templateFileBytes(
+  core: CoreTemplateClient,
+  token: string,
+  templateId: string,
+  revision: number,
+  files: readonly TemplateExportFile[],
+  signal?: AbortSignal,
+): AsyncGenerator<ArchiveFileBytes, void, unknown> {
+  for (const file of files) {
+    const requestSignal =
+      signal === undefined
+        ? AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS)
+        : AbortSignal.any([signal, AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS)]);
+    const capability = await core.getTemplateExportFileCapability(
+      token,
+      templateId,
+      file.fileVersionId,
+      revision,
+      requestSignal,
+    );
+    const response = await fetch(capability.downloadUrl, {
+      signal: requestSignal,
+      redirect: 'error',
+    });
+    if (!response.ok || response.body === null) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new TemplateBodyError(
+        'template.file_download_failed',
+        `The bytes for template file ${file.sourceId} version ${String(file.version)} could not be read.`,
+      );
+    }
+    yield {
+      itemId: file.sourceId,
+      version: file.version,
+      chunks: responseChunks(response.body, requestSignal),
+    };
+  }
+}
+
+async function templateExportFiles(
+  core: CoreTemplateClient,
+  token: string,
+  templateId: string,
+  snapshotRevision: number,
+): Promise<readonly TemplateExportFile[]> {
+  const files: TemplateExportFile[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  let revision: number | undefined;
+  for (;;) {
+    const page = await core.getTemplateExportFiles(token, templateId, cursor, revision);
+    if (
+      page.revision !== snapshotRevision ||
+      (revision !== undefined && page.revision !== revision)
+    ) {
+      throw new TemplateBodyError(
+        'template.export_changed',
+        'The template changed during export; retry the export.',
+      );
+    }
+    revision ??= page.revision;
+    if (page.files.length > 100 || files.length + page.files.length > 20_000) {
+      throw new TemplateBodyError(
+        'template.export_invalid',
+        'The template file history exceeds archive limits.',
+      );
+    }
+    files.push(...page.files);
+    if (page.complete) return files;
+    const next = page.nextAfterFileVersionId;
+    if (next === null || cursors.has(next)) {
+      throw new TemplateBodyError(
+        'template.export_invalid',
+        'Core returned an invalid template file cursor.',
+      );
+    }
+    cursors.add(next);
+    cursor = next;
+  }
+}
+
+async function* responseChunks(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
+  let complete = false;
+  const cancel = () => {
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) {
+        complete = true;
+        return;
+      }
+      yield next.value;
+    }
+  } finally {
+    signal.removeEventListener('abort', cancel);
+    if (!complete) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function portableInitialization(
+  initialization: TemplateExportSnapshot['initialization'],
+): ArchiveTemplateInitialization {
+  return {
+    version: 1,
+    inputs: initialization.inputs.map((input) => ({ ...input })),
+    rules: initialization.rules.map((rule) => {
+      const base = { sourceId: rule.sourceId, propertyKey: rule.propertyKey, kind: rule.kind };
+      if (rule.kind === 'set') return { ...base, value: rule.value };
+      if (rule.kind === 'input') return { ...base, inputKey: rule.inputKey };
+      if (rule.kind === 'relativeDate') {
+        return {
+          ...base,
+          inputKey: rule.inputKey,
+          offsetDays: rule.offsetDays,
+          timeOfDay: rule.timeOfDay,
+          timeZone: rule.timeZone,
+        };
+      }
+      return base;
+    }),
+    references: initialization.references.map((reference) =>
+      reference.policy === 'replace'
+        ? {
+            sourceItemId: reference.sourceItemId,
+            policy: reference.policy,
+            inputKey: reference.inputKey,
+          }
+        : { sourceItemId: reference.sourceItemId, policy: reference.policy },
+    ),
   };
 }
 
@@ -116,7 +299,7 @@ async function* templateBundles(
         body = archiveBody(
           item.itemType,
           doc.schema_version,
-          remapItemReferences(materialized, portableIds, true),
+          remapItemReferences(materialized, portableIds, false),
         );
       }
       yield {
@@ -132,6 +315,7 @@ async function* templateBundles(
         properties: item.properties,
         schema: item.schema,
         views: item.views,
+        recurrence: item.recurrence,
         viewRows: [],
         viewRowsTruncated: false,
         body,

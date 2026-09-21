@@ -112,6 +112,7 @@ public static class NixTables
 
     /// <summary>Stable source-to-target mappings for applications.</summary>
     public const string TemplateApplicationItem = "template_application_item";
+    public const string TemplateFileTransfer = "template_file_transfer";
 
     /// <summary>Backend-owned asynchronous worker jobs.</summary>
     public const string WorkerJob = "worker_job";
@@ -124,6 +125,7 @@ public static class NixTables
     public const string FileUpload = "file_upload";
     public const string DocumentImport = "document_import";
     public const string DocumentImportItem = "document_import_item";
+    public const string DocumentImportFileVersion = "document_import_file_version";
     public const string PluginPublisher = "plugin_publisher";
     public const string PluginComponent = "plugin_component";
     public const string PluginInstallation = "plugin_installation";
@@ -168,6 +170,7 @@ public static class NixTables
         TemplateOperationItem,
         TemplateApplication,
         TemplateApplicationItem,
+        TemplateFileTransfer,
         WorkerJob,
         WorkerOutboxEvent,
         FileBody,
@@ -175,6 +178,7 @@ public static class NixTables
         FileUpload,
         DocumentImport,
         DocumentImportItem,
+        DocumentImportFileVersion,
         PluginPublisher,
         PluginComponent,
         PluginInstallation,
@@ -249,6 +253,7 @@ public static class NixTables
             [TemplateOperationItem] = FullDml,
             [TemplateApplication] = FullDml,
             [TemplateApplicationItem] = FullDml,
+            [TemplateFileTransfer] = FullDml,
             [WorkerJob] = FullDml,
             [WorkerOutboxEvent] = FullDml,
             [FileBody] = FullDml,
@@ -256,6 +261,7 @@ public static class NixTables
             [FileUpload] = FullDml,
             [DocumentImport] = FullDml,
             [DocumentImportItem] = FullDml,
+            [DocumentImportFileVersion] = FullDml,
             [PluginPublisher] = ImmutableRegistration,
             [PluginComponent] = ImmutableRegistration,
             // Only enabled and updated_at carry column-level UPDATE. A table-level grant would

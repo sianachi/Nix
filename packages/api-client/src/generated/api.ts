@@ -245,6 +245,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/principals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Active principals who can be assigned in a workspace */
+    get: operations['ListWorkspaceAssignablePrincipals'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/invitees': {
     parameters: {
       query?: never;
@@ -1776,6 +1793,10 @@ export interface components {
       items: components['schemas']['WorkspaceMemberResponse'][];
       nextCursor: null | string;
     };
+    CursorPageOfWorkspacePrincipalResponse: {
+      items: components['schemas']['WorkspacePrincipalResponse'][];
+      nextCursor: null | string;
+    };
     CursorPageOfWorkspaceResponse: {
       items: components['schemas']['WorkspaceResponse'][];
       nextCursor: null | string;
@@ -2575,6 +2596,7 @@ export interface components {
       capabilities: components['schemas']['TemplateCapabilitiesResponse'];
       /** Format: date-time */
       updatedAt: string;
+      initialization: components['schemas']['TemplateInitialization'];
       root: components['schemas']['TemplateItemResponse'];
     };
     TemplateFilterResponse: {
@@ -2624,6 +2646,7 @@ export interface components {
       description: string;
       includeBody: boolean;
       includeChildren: boolean;
+      initialization?: unknown;
     };
     TemplateImportResponse: {
       /** Format: uuid */
@@ -2664,6 +2687,41 @@ export interface components {
       /** Format: date-time */
       expiresAt: string;
     };
+    TemplateInitialization: {
+      /** Format: int32 */
+      version: number | string;
+      inputs: components['schemas']['TemplateInitializationInput'][];
+      rules: components['schemas']['TemplateInitializationRule'][];
+      references: components['schemas']['TemplateReferenceRule'][];
+    };
+    TemplateInitializationInput: {
+      key: string;
+      label: string;
+      type: components['schemas']['TemplateInitializationInputType'];
+      required: boolean;
+      defaultValue?: null | string;
+    };
+    TemplateInitializationInputType: unknown;
+    TemplateInitializationPreviewResponse: {
+      /** Format: uuid */
+      sourceId: string;
+      title: string;
+      properties: null | components['schemas']['JsonObject'];
+      recurrence: null | components['schemas']['JsonObject'];
+    };
+    TemplateInitializationRule: {
+      /** Format: uuid */
+      sourceId: string;
+      propertyKey: string;
+      kind: components['schemas']['TemplateInitializationRuleKind'];
+      value?: unknown;
+      inputKey?: null | string;
+      /** Format: int32 */
+      offsetDays?: null | number | string;
+      timeOfDay?: null | string;
+      timeZone?: null | string;
+    };
+    TemplateInitializationRuleKind: unknown;
     TemplateInteractiveFormResponse: {
       pages: components['schemas']['TemplateFormPageResponse'][];
       titleMode: string;
@@ -2680,6 +2738,7 @@ export interface components {
       properties: null | components['schemas']['JsonObject'];
       schema: null | components['schemas']['TemplatePropertySchemaResponse'];
       views: null | components['schemas']['TemplateStoredViewsResponse'];
+      recurrence: null | components['schemas']['JsonObject'];
       hasBody: boolean;
       children: components['schemas']['TemplateItemResponse'][];
     };
@@ -2695,14 +2754,31 @@ export interface components {
       /** Format: uuid */
       parentItemId: null | string;
       title: null | string;
+      inputs?: null | {
+        [key: string]: string;
+      };
+      /** Format: int32 */
+      expectedRevision?: null | number | string;
     };
     TemplatePreflightResponse: {
       /** Format: uuid */
       templateId: string;
+      /** Format: int32 */
+      templateRevision: number | string;
       mode: components['schemas']['TemplateApplicationModeResponse'];
       additions: components['schemas']['TemplateAdditionsResponse'];
       conflicts: string[];
       canApply: boolean;
+      resolvedInputs: {
+        [key: string]: string;
+      };
+      initializationPreview: components['schemas']['TemplateInitializationPreviewResponse'][];
+      textBindings: {
+        [key: string]: string;
+      };
+      referenceMappings: {
+        [key: string]: null | string;
+      };
     };
     TemplatePropertyDefinitionResponse: {
       key: string;
@@ -2710,11 +2786,21 @@ export interface components {
       type: string;
       options: string[];
       required: boolean;
+      expression: null | string;
+      aggregate: null | string;
+      source: null | string;
     };
     TemplatePropertySchemaResponse: {
       properties: components['schemas']['TemplatePropertyDefinitionResponse'][];
       declared: components['schemas']['TemplatePropertyDefinitionResponse'][];
       inherit: boolean;
+    };
+    TemplateReferencePolicy: unknown;
+    TemplateReferenceRule: {
+      /** Format: uuid */
+      sourceItemId: string;
+      policy: components['schemas']['TemplateReferencePolicy'];
+      inputKey?: null | string;
     };
     TemplateStoredViewsResponse: {
       views: components['schemas']['TemplateViewResponse'][];
@@ -2896,6 +2982,12 @@ export interface components {
       canChangeRole: boolean;
       canRemove: boolean;
       assignableRoles: string[];
+    };
+    WorkspacePrincipalResponse: {
+      /** Format: uuid */
+      principalId: string;
+      displayName: string;
+      kind: string;
     };
     WorkspaceResponse: {
       /** Format: uuid */
@@ -3608,6 +3700,41 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['CursorPageOfWorkspaceMemberResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListWorkspaceAssignablePrincipals: {
+    parameters: {
+      query?: {
+        query?: string;
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CursorPageOfWorkspacePrincipalResponse'];
         };
       };
       /** @description Unprocessable Entity */

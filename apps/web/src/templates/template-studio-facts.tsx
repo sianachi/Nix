@@ -49,6 +49,87 @@ export function Review({
               {conflict}
             </Text>
           ))}
+          {preflight.initializationPreview.length ? (
+            <div
+              className="mt-3 flex flex-col gap-3 border-t border-divider pt-3"
+              aria-label="Resolved template preview"
+            >
+              <Text variant="h3" as="h3">
+                Resolved items
+              </Text>
+              {preflight.initializationPreview.map((item) => {
+                const source = findTemplateItem(template?.root ?? null, item.sourceId);
+                const rules = draft.initialization.rules.filter(
+                  (rule) => rule.sourceId === item.sourceId,
+                );
+                const rows = Object.entries(item.properties ?? {}).map(([key, value]) => {
+                  const rule = rules.find((candidate) => candidate.propertyKey === key);
+                  const label =
+                    source?.schema?.properties.find((property) => property.key === key)?.label ??
+                    key;
+                  const display =
+                    rule?.kind === 'input'
+                      ? (preflight.textBindings[rule.inputKey] ?? value)
+                      : value;
+                  return { key, label, value: readableValue(display) };
+                });
+                return (
+                  <div key={item.sourceId} className="flex flex-col gap-1">
+                    <Text variant="bodySmall">{item.title}</Text>
+                    {rows.map((row) => (
+                      <TemplateFact key={row.key} label={row.label} value={row.value} />
+                    ))}
+                    {item.recurrence === null ? null : (
+                      <TemplateFact label="Repeats" value={readableRecurrence(item.recurrence)} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+          {draft.initialization.references.length > 0 ? (
+            <div className="flex flex-col gap-1 border-t border-divider pt-3">
+              <Text variant="bodySmall">External link handling</Text>
+              <TemplateFact
+                label="Kept"
+                value={String(
+                  draft.initialization.references.filter((entry) => entry.policy === 'retain')
+                    .length,
+                )}
+              />
+              <TemplateFact
+                label="Cleared"
+                value={String(
+                  draft.initialization.references.filter((entry) => entry.policy === 'omit').length,
+                )}
+              />
+              <TemplateFact
+                label="Replaced"
+                value={String(
+                  draft.initialization.references.filter((entry) => entry.policy === 'replace')
+                    .length,
+                )}
+              />
+              {draft.initialization.references.some((entry) => entry.policy === 'retain') ? (
+                <Text variant="caption" tone="muted">
+                  Kept links must be readable in the destination workspace.
+                </Text>
+              ) : null}
+            </div>
+          ) : null}
+          {preflight.initializationPreview.some((item) => {
+            const source = findTemplateItem(template?.root ?? null, item.sourceId);
+            return (
+              source?.schema?.properties.some((property) =>
+                ['completion', 'dueDate', 'startDate', 'assignee'].includes(property.type),
+              ) ?? false
+            );
+          }) ? (
+            <Text variant="caption" tone="muted">
+              Completion resets to No; due dates, start dates, and assignees clear unless setup
+              rules preserve or replace them.
+            </Text>
+          ) : null}
         </Blueprint>
       )}
       {mode === 'edit' ? (
@@ -57,6 +138,37 @@ export function Review({
         </Text>
       ) : null}
     </section>
+  );
+}
+
+function findTemplateItem(
+  item: TemplateDetail['root'] | null,
+  sourceId: string,
+): TemplateDetail['root'] | null {
+  if (item === null) return null;
+  if (item.sourceId === sourceId) return item;
+  for (const child of item.children) {
+    const found = findTemplateItem(child, sourceId);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function readableValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(readableValue).join(', ');
+  return value === null || value === undefined ? 'Empty' : 'Set';
+}
+
+function readableRecurrence(value: unknown): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'Configured';
+  const rule = value as Record<string, unknown>;
+  const frequency = typeof rule.frequency === 'string' ? rule.frequency : null;
+  const until = typeof rule.until === 'string' ? rule.until : null;
+  return (
+    [frequency, until === null ? null : `through ${until}`].filter(Boolean).join(' · ') ||
+    'Configured'
   );
 }
 

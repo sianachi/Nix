@@ -64,6 +64,7 @@ internal static class ExportEndpoints
         exports.MapGet("", GetWorkerSource);
         exports.MapGet("/destination", GetWorkerDestination);
         exports.MapGet("/images/{itemId:guid}", GetWorkerImage);
+        ExportFileEndpoints.MapWorkerExecutions(exports);
     }
 
     private static ExportFormatCatalogResponse Formats(
@@ -411,7 +412,7 @@ internal static class ExportEndpoints
             expiresAt));
     }
 
-    private static async ValueTask<string?> ExactExecution(
+    internal static async ValueTask<string?> ExactExecution(
         Guid routeJobId,
         HttpContext context,
         IWorkerDispatchStore dispatch)
@@ -460,7 +461,7 @@ internal static class ExportEndpoints
         return (job, scoped);
     }
 
-    private static bool TryReadState(
+    internal static bool TryReadState(
         WorkerJobRecord job,
         out ExportJobPayload payload,
         out WorkerExportResult? result)

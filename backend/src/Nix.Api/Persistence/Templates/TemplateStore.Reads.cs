@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Templates;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Audit;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -242,6 +243,21 @@ public sealed partial class TemplateStore
             return;
         }
 
+        var root = await _database.Items.IgnoreQueryFilters().AsNoTracking()
+            .Where(item => item.Id == rootItemId)
+            .Select(item => new { item.WorkspaceId, item.TemplateId })
+            .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var objectKeys = await _database.FileVersions.AsNoTracking()
+            .Where(version => itemIds.Contains(version.ItemId))
+            .Select(version => version.ObjectKey).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (root is not null && objectKeys.Length > 0)
+        {
+            await ObjectCleanupJobs.QueueBatchedAsync(
+                _jobs, Context.TenantId, Context.PrincipalId, root.WorkspaceId,
+                "template-revision", rootItemId.Value, _signer.GetCleanupNotBefore(), objectKeys,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         await _database.ItemClosure
             .Where(edge => itemIds.Contains(edge.AncestorId) || itemIds.Contains(edge.DescendantId))
             .ExecuteDeleteAsync(cancellationToken)
@@ -375,7 +391,8 @@ public sealed partial class TemplateStore
             item.Schema,
             item.Views,
             bodies.Contains(item.Id),
-            children[item.Id].OrderBy(child => child.Seq).Select(Build).ToArray());
+            children[item.Id].OrderBy(child => child.Seq).Select(Build).ToArray(),
+            item.Recurrence);
 
         return Build(items.Single(item => item.ParentId is null));
     }

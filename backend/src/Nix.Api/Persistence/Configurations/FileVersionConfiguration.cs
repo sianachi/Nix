@@ -21,6 +21,7 @@ internal sealed class FileVersionConfiguration : IEntityTypeConfiguration<FileVe
         builder.Property(version => version.MediaType).HasColumnName("media_type").HasMaxLength(160);
         builder.Property(version => version.ByteLength).HasColumnName("byte_length");
         builder.Property(version => version.Sha256).HasColumnName("sha256").HasMaxLength(64);
+        builder.Property(version => version.ObjectReady).HasColumnName("object_ready").HasDefaultValue(true);
         builder.Property(version => version.PixelWidth).HasColumnName("pixel_width");
         builder.Property(version => version.PixelHeight).HasColumnName("pixel_height");
         builder.Property(version => version.Previewable).HasColumnName("previewable");

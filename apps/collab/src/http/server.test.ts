@@ -6,6 +6,7 @@ import type { TokenValidator } from '../auth/token.ts';
 import type { CoreClient } from '../core/client.ts';
 import type { ImportBodyService } from '../imports/bodies.ts';
 import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
+import type { TemplateService } from '../templates/service.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
@@ -58,6 +59,7 @@ function server(overrides: {
   core?: CoreClient;
   importBodies?: ImportBodyService;
   templateImportBodies?: TemplateImportBodyService;
+  templates?: TemplateService;
 }) {
   return createServer({
     pool: overrides.pool ?? refusingPool,
@@ -73,6 +75,7 @@ function server(overrides: {
     ...(overrides.templateImportBodies === undefined
       ? {}
       : { templateImportBodies: overrides.templateImportBodies }),
+    ...(overrides.templates === undefined ? {} : { templates: overrides.templates }),
   });
 }
 
@@ -95,6 +98,40 @@ describe('the collaboration service HTTP surface', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ status: 'healthy' });
+  });
+
+  it('forwards draft initialization through the authenticated template HTTP route', async () => {
+    const initialization = {
+      version: 1 as const,
+      inputs: [
+        {
+          key: 'lead',
+          label: 'Project lead',
+          type: 'member' as const,
+          required: true,
+          defaultValue: ITEM,
+        },
+      ],
+      rules: [],
+      references: [],
+    };
+    let patchReceived: unknown;
+    const templates = {
+      patchDraft: (_token: string, _templateId: string, _operationId: string, body: unknown) => {
+        patchReceived = body;
+        return Promise.resolve({ initialization });
+      },
+    } as unknown as TemplateService;
+    const app = track(server({ templates }));
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/templates/${ITEM}/drafts/${ITEM}`,
+      headers: { authorization: 'Bearer valid' },
+      payload: { initialization },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(patchReceived).toEqual({ initialization });
+    expect(response.json()).toEqual({ initialization });
   });
 
   it('refuses a request with no bearer token', async () => {

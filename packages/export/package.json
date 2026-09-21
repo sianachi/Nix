@@ -25,6 +25,7 @@
   "dependencies": {
     "@nix/editor-schema": "workspace:*",
     "@nix/sheet": "workspace:*",
+    "@noble/hashes": "2.4.0",
     "fflate": "^0.8.2"
   },
   "devDependencies": {

@@ -28,6 +28,9 @@ public sealed class WorkspaceTemplate
     /// <summary>Gets the portable profile key preserved across archive round trips.</summary>
     public required string ProfileKey { get; init; }
 
+    /// <summary>Gets the optional versioned initialization definition for new applications.</summary>
+    public string? Initialization { get; set; }
+
     /// <summary>Gets where the catalog entry is governed.</summary>
     public required TemplateOrigin Origin { get; init; }
 

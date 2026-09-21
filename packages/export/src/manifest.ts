@@ -18,6 +18,18 @@ export const ARCHIVE_FORMAT = 'nix-archive';
  */
 export const ARCHIVE_FORMAT_VERSION = 1;
 
+/** Archive v2 adds bounded, checksummed file-version entries while keeping v1 readable. */
+export const FILE_ARCHIVE_FORMAT_VERSION = 2;
+
+/** Shared Nix archive ceilings; ZIP entry count includes its manifest and item bundles. */
+export const MAX_ARCHIVE_ENTRIES = 100_001;
+export const MAX_ARCHIVE_ITEMS = 10_000;
+export const MAX_TEMPLATE_ARCHIVE_ENTRIES = 20_201;
+export const MAX_TEMPLATE_ARCHIVE_ITEMS = 200;
+
+/** A single item cannot contribute an unbounded number of historical file versions to an archive. */
+export const MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM = 100;
+
 /** The manifest's entry name. Always the first entry written, so a reader can stream. */
 export const MANIFEST_ENTRY = 'manifest.json';
 
@@ -41,6 +53,41 @@ export interface TemplateArchiveProfile {
   /** Whether the template root's own body was captured; descendants retain their selected bodies. */
   readonly includeBody: boolean;
   readonly includeChildren: boolean;
+  /** Additive initialization metadata; absent/null means an older uninitialized template. */
+  readonly initialization?: TemplateInitialization | null;
+}
+
+/** Portable template initialization metadata; Core remains authoritative for semantic validation. */
+export interface TemplateInitialization {
+  readonly version: 1;
+  readonly inputs: readonly TemplateInitializationInput[];
+  readonly rules: readonly TemplateInitializationRule[];
+  readonly references: readonly TemplateReferenceRule[];
+}
+
+export interface TemplateInitializationInput {
+  readonly key: string;
+  readonly label: string;
+  readonly type: 'text' | 'date' | 'member' | 'item';
+  readonly required: boolean;
+  readonly defaultValue?: string | null | undefined;
+}
+
+export interface TemplateInitializationRule {
+  readonly sourceId: string;
+  readonly propertyKey: string;
+  readonly kind: 'keep' | 'clear' | 'set' | 'input' | 'relativeDate';
+  readonly value?: unknown;
+  readonly inputKey?: string | null | undefined;
+  readonly offsetDays?: number | null | undefined;
+  readonly timeOfDay?: string | null | undefined;
+  readonly timeZone?: string | null | undefined;
+}
+
+export interface TemplateReferenceRule {
+  readonly sourceItemId: string;
+  readonly policy: 'retain' | 'omit' | 'replace';
+  readonly inputKey?: string | null | undefined;
 }
 
 /** Where an item's payload lives, given its identifier in the source workspace. */
@@ -240,8 +287,40 @@ export interface ArchiveManifest {
   /** Every item in the archive, parents before children, siblings in `seq` order. */
   readonly items: readonly ArchiveItemEntry[];
 
+  /**
+   * File metadata is present only in format v2. Each descriptor maps to the deterministic zip
+   * entry `files/<itemId>/<version>.bin`; archive data never chooses its own entry path.
+   */
+  readonly files?: readonly ArchiveFileVersionEntry[];
+
   readonly omitted: readonly Omission[];
   readonly loss: readonly LossEntry[];
+}
+
+/** Metadata for one immutable file version. Every file item has one current version. */
+export interface ArchiveFileVersionEntry {
+  readonly itemId: string;
+  readonly version: number;
+  readonly current: boolean;
+  readonly fileName: string;
+  readonly mediaType: string;
+  readonly byteLength: number;
+  readonly sha256: string;
+  readonly previewable: boolean;
+  readonly pixelWidth: number | null;
+  readonly pixelHeight: number | null;
+}
+
+/** The archive payload for one descriptor; bytes are held for one entry at a time by writers. */
+export interface ArchiveFileBytes {
+  readonly itemId: string;
+  readonly version: number;
+  readonly chunks: AsyncIterable<Uint8Array>;
+}
+
+/** Returns the only permitted zip path for a file version. */
+export function fileVersionEntryName(itemId: string, version: number): string {
+  return `files/${itemId}/${String(version)}.bin`;
 }
 
 /** An item's payload: what it is, what it carries, and what it says about its children. */
@@ -256,6 +335,8 @@ export interface ItemBundle {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly properties: Readonly<Record<string, unknown>>;
+  /** Recurrence metadata added after archive v1 shipped; absent means the item does not repeat. */
+  readonly recurrence?: unknown;
 
   /** What this item declares for its children, or null when it declares nothing. */
   readonly schema: SchemaSnapshot | null;

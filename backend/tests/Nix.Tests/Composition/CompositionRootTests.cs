@@ -1,8 +1,10 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Messaging;
 using Nix.Persistence;
+using Nix.Persistence.ObjectStorage;
 
 namespace Nix.Tests.Composition;
 
@@ -43,6 +45,7 @@ public sealed class CompositionRootTests
 
         var services = new ServiceCollection();
         services.AddNixPersistence(RuntimeConnectionString);
+        services.AddNixObjectStorage(new ConfigurationBuilder().Build());
 
         var registeredImplementationTypes = new HashSet<Type>(
             services.Select(descriptor => descriptor.ImplementationType).OfType<Type>());
@@ -72,6 +75,7 @@ public sealed class CompositionRootTests
     {
         var services = new ServiceCollection();
         services.AddNixPersistence(RuntimeConnectionString);
+        services.AddNixObjectStorage(new ConfigurationBuilder().Build());
 
         var handlerServiceTypes = services
             .Select(descriptor => descriptor.ServiceType)
@@ -98,10 +102,11 @@ public sealed class CompositionRootTests
                 "Nix.Features.Templates",
                 StringComparison.Ordinal))
             .ToHashSet();
-        Assert.Equal(26, templateHandlers.Count);
+        Assert.Equal(28, templateHandlers.Count);
 
         var services = new ServiceCollection();
         services.AddNixPersistence(RuntimeConnectionString);
+        services.AddNixObjectStorage(new ConfigurationBuilder().Build());
         var handlerServices = services
             .Where(descriptor => descriptor.ImplementationType is { } implementation
                 && templateHandlers.Contains(implementation))
@@ -130,7 +135,7 @@ public sealed class CompositionRootTests
             .Where(method => method.ReturnType == typeof(Task<IResult>))
             .ToArray();
 
-        Assert.Equal(25, routeMethods.Length);
+        Assert.Equal(27, routeMethods.Length);
         Assert.All(routeMethods, method =>
         {
             var dependencies = method.GetParameters().Select(parameter => parameter.ParameterType).ToArray();

@@ -24,6 +24,9 @@ internal sealed class TemplateApplicationConfiguration : IEntityTypeConfiguratio
         builder.Property(application => application.TargetItemId).HasColumnName("target_item_id");
         builder.Property(application => application.ParentItemId).HasColumnName("parent_item_id");
         builder.Property(application => application.RequestedTitle).HasColumnName("requested_title").HasMaxLength(200);
+        builder.Property(application => application.TemplateRevision).HasColumnName("template_revision");
+        builder.Property(application => application.ResolvedInputs).HasColumnName("resolved_inputs").HasColumnType("jsonb");
+        builder.Property(application => application.RequestFingerprint).HasColumnName("request_fingerprint").HasMaxLength(128);
         builder.Property(application => application.Mode)
             .HasColumnName("mode")
             .HasConversion(new EnumConverters.TemplateApplicationModeConverter());

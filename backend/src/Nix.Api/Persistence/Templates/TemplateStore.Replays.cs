@@ -229,7 +229,8 @@ public sealed partial class TemplateStore
             mappings.Where(mapping => mapping.BodyRequired).Select(mapping => new TemplateBodyCopy(
                 mapping.SourceItemId!.Value,
                 mapping.TargetItemId,
-                mapping.ItemType)).ToArray());
+                mapping.ItemType)).ToArray(),
+            ReadInitializationOrThrow(operation.DraftInitialization));
     }
 
     private async ValueTask ReleaseExpiredDraftAsync(
@@ -353,6 +354,14 @@ public sealed partial class TemplateStore
             .Where(mapping => mapping.ApplicationId == application.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        TemplateApplicationResolution? resolution = null;
+        IReadOnlyList<TemplateInitializedItem>? preview = null;
+        if (TryReadStoredResolution(application.ResolvedInputs, out var stored))
+        {
+            resolution = stored!.Resolution;
+            preview = stored.InitializationPreview;
+        }
+
         return new TemplateApplicationPlan(
             application.Id,
             application.TemplateId,
@@ -370,6 +379,8 @@ public sealed partial class TemplateStore
                 && application.State != TemplateOperationState.Active).Select(mapping => new TemplateBodyCopy(
                 mapping.SourceItemId,
                 mapping.TargetItemId,
-                mapping.ItemType)).ToArray());
+                mapping.ItemType)).ToArray(),
+            resolution,
+            preview);
     }
 }

@@ -1,10 +1,17 @@
-import { Zip, ZipDeflate } from 'fflate';
+import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 import {
   ARCHIVE_FORMAT,
+  MAX_ARCHIVE_ENTRIES,
+  MAX_ARCHIVE_ITEMS,
+  MAX_TEMPLATE_ARCHIVE_ENTRIES,
+  MAX_TEMPLATE_ARCHIVE_ITEMS,
   MANIFEST_ENTRY,
   isArchiveSafeId,
+  fileVersionEntryName,
   itemEntryName,
+  type ArchiveFileBytes,
   type ArchiveManifest,
   type ItemBundle,
 } from './manifest.js';
@@ -33,11 +40,24 @@ import {
 export async function* writeArchive(input: {
   readonly manifest: ArchiveManifest;
   readonly bundles: AsyncIterable<ItemBundle>;
+  /** Required in manifest order when v2 file descriptors are present. */
+  readonly files?: AsyncIterable<ArchiveFileBytes>;
 }): AsyncGenerator<Uint8Array> {
   const { manifest, bundles } = input;
 
   if (manifest.format !== ARCHIVE_FORMAT) {
     throw new Error(`An archive manifest must declare format '${ARCHIVE_FORMAT}'.`);
+  }
+
+  const templateProfile = manifest.profile !== undefined;
+  const maxItems = templateProfile ? MAX_TEMPLATE_ARCHIVE_ITEMS : MAX_ARCHIVE_ITEMS;
+  const maxEntries = templateProfile ? MAX_TEMPLATE_ARCHIVE_ENTRIES : MAX_ARCHIVE_ENTRIES;
+  if (manifest.items.length < 1 || manifest.items.length > maxItems) {
+    throw new Error(`A Nix archive must contain between 1 and ${String(maxItems)} items.`);
+  }
+  const entryCount = 1 + manifest.items.length + (manifest.files?.length ?? 0);
+  if (entryCount > maxEntries) {
+    throw new Error(`A Nix archive cannot contain more than ${String(maxEntries)} entries.`);
   }
 
   // Archive v1 has no file-byte entry. Check the manifest before constructing the zip so a file
@@ -67,6 +87,7 @@ export async function* writeArchive(input: {
   const mtime = new Date(manifest.exportedAt);
 
   const expected = new Set(manifest.items.map((entry) => entry.id));
+  const fileItemIds = new Set((manifest.files ?? []).map((entry) => entry.itemId));
   const written = new Set<string>();
 
   yield* addEntry(zip, queue, state, MANIFEST_ENTRY, encodeJson(manifest), mtime);
@@ -84,7 +105,7 @@ export async function* writeArchive(input: {
       throw new Error(`The bundle for ${bundle.id} was produced twice.`);
     }
 
-    assertBundleHasNoUnportableFiles(bundle);
+    assertBundleHasNoUnportableFiles(bundle, manifest.formatVersion, fileItemIds);
 
     written.add(bundle.id);
     yield* addEntry(zip, queue, state, itemEntryName(bundle.id), encodeJson(bundle), mtime);
@@ -97,8 +118,75 @@ export async function* writeArchive(input: {
     );
   }
 
+  const expectedFiles = manifest.files ?? [];
+  let fileIndex = 0;
+  if (input.files !== undefined) {
+    for await (const file of input.files) {
+      const descriptor = expectedFiles.at(fileIndex);
+      if (descriptor?.itemId !== file.itemId || descriptor.version !== file.version) {
+        throw new Error('The file bytes do not match the manifest file-version order.');
+      }
+      yield* addFileEntry(
+        zip,
+        queue,
+        state,
+        fileVersionEntryName(file.itemId, file.version),
+        file.chunks,
+        descriptor.byteLength,
+        descriptor.sha256,
+        mtime,
+      );
+      fileIndex += 1;
+    }
+  }
+  if (fileIndex !== expectedFiles.length) {
+    throw new Error(
+      `The manifest lists ${String(expectedFiles.length)} file versions but ${String(fileIndex)} were written.`,
+    );
+  }
   zip.end();
   yield* drain(queue, state);
+}
+
+async function* addFileEntry(
+  zip: Zip,
+  queue: Uint8Array[],
+  state: { failure: Error | null },
+  name: string,
+  chunks: AsyncIterable<Uint8Array>,
+  expectedLength: number,
+  expectedDigest: string,
+  mtime: Date,
+): AsyncGenerator<Uint8Array> {
+  const entry = new ZipPassThrough(name);
+  entry.mtime = mtime;
+  zip.add(entry);
+  const digest = sha256.create();
+  let length = 0;
+  for await (const chunk of chunks) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new TypeError(`File entry ${name} emitted a non-byte chunk.`);
+    }
+    length += chunk.byteLength;
+    if (length > expectedLength) {
+      throw new Error(`File entry ${name} exceeds its declared byte length.`);
+    }
+    digest.update(chunk);
+    entry.push(chunk, false);
+    yield* drain(queue, state);
+  }
+  if (length !== expectedLength) {
+    throw new Error(`File entry ${name} has a different byte length than its manifest.`);
+  }
+  if (toHex(digest.digest()) !== expectedDigest) {
+    throw new Error(`File entry ${name} has a different SHA-256 digest than its manifest.`);
+  }
+  entry.push(new Uint8Array(), true);
+  yield* drain(queue, state);
+}
+
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
 /** Adds one entry and yields whatever the zip emitted for it. */

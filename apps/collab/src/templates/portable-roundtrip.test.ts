@@ -9,6 +9,7 @@ import {
   type ArchiveManifest,
   type ItemBody,
   type ItemBundle,
+  type ReadArchiveResult,
   type ViewSnapshot,
   type ViewsSnapshot,
 } from '@nix/export';
@@ -100,6 +101,12 @@ function sourceManifest(): ArchiveManifest {
       description: 'Exercises every portable template field.',
       includeBody: false,
       includeChildren: true,
+      initialization: {
+        version: 1,
+        inputs: [{ key: 'project_name', label: 'Project name', type: 'text', required: true }],
+        rules: [],
+        references: [],
+      },
     },
     exportedAt: '2026-08-16T12:00:00.000Z',
     root: SOURCE.root,
@@ -166,7 +173,7 @@ function sourceBundles(): readonly ItemBundle[] {
             {
               type: 'paragraph',
               content: [
-                { type: 'text', text: 'See ' },
+                { type: 'text', text: 'See {{project_name}} ' },
                 {
                   type: 'reference',
                   attrs: { kind: 'item', targetId: SOURCE.canvas, label: 'Sketch' },
@@ -356,7 +363,7 @@ function allViews(): ViewsSnapshot {
 async function archiveRoundTrip(
   manifest: ArchiveManifest,
   bundles: readonly ItemBundle[],
-): Promise<{ manifest: ArchiveManifest; bundles: readonly ItemBundle[] }> {
+): Promise<ReadArchiveResult> {
   // eslint-disable-next-line @typescript-eslint/require-await -- the archive writer deliberately accepts a streaming source.
   async function* source(): AsyncGenerator<ItemBundle> {
     yield* bundles;

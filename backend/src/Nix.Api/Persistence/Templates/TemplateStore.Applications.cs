@@ -20,6 +20,26 @@ namespace Nix.Persistence.Templates;
 public sealed partial class TemplateStore
 {
     /// <summary>Stages an idempotent create or merge application.</summary>
+    public ValueTask<Result<TemplateApplicationPlan>> BeginApplicationAsync(
+        TemplateId templateId,
+        TemplateApplicationMode mode,
+        ItemId? targetItemId,
+        ItemId? parentItemId,
+        string? title,
+        string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        BeginApplicationAsync(
+            templateId,
+            mode,
+            targetItemId,
+            parentItemId,
+            title,
+            idempotencyKey,
+            null,
+            null,
+            cancellationToken);
+
+    /// <summary>Stages the same server-resolved initialization plan returned by preflight.</summary>
     public async ValueTask<Result<TemplateApplicationPlan>> BeginApplicationAsync(
         TemplateId templateId,
         TemplateApplicationMode mode,
@@ -27,6 +47,8 @@ public sealed partial class TemplateStore
         ItemId? parentItemId,
         string? title,
         string idempotencyKey,
+        IReadOnlyDictionary<string, string>? inputs,
+        int? expectedRevision,
         CancellationToken cancellationToken)
     {
         var requestedTitle = title?.Trim();
@@ -57,6 +79,7 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateApplicationPlan>(
                 TemplateErrors.Conflict("This idempotency key belongs to another template operation."));
         }
+
         await _database.Entry(template).ReloadAsync(cancellationToken).ConfigureAwait(false);
         if (template.State != TemplateState.Active || template.RootItemId is null)
         {
@@ -71,20 +94,26 @@ public sealed partial class TemplateStore
             .ConfigureAwait(false);
         if (existingApplication is not null)
         {
-            var effectiveTitle = requestedTitle ?? template.Title;
             if (existingApplication.TemplateId != templateId
                 || existingApplication.Mode != mode
                 || (mode == TemplateApplicationMode.Merge
                     && existingApplication.TargetItemId != targetItemId)
                 || (mode == TemplateApplicationMode.Create
-                    && (existingApplication.ParentItemId != parentItemId
-                        || !string.Equals(
-                            existingApplication.RequestedTitle,
-                            effectiveTitle,
-                            StringComparison.Ordinal))))
+                    && existingApplication.ParentItemId != parentItemId)
+                || (requestedTitle is not null
+                    && !string.Equals(existingApplication.RequestedTitle, requestedTitle, StringComparison.Ordinal))
+                || (expectedRevision is { } replayRevision
+                    && replayRevision != existingApplication.TemplateRevision))
             {
-                return Result.Failure<TemplateApplicationPlan>(
-                    TemplateErrors.Conflict("This idempotency key belongs to a different template application."));
+                return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Conflict(
+                    "This idempotency key belongs to a different template application."));
+            }
+
+            if (TryReadStoredResolution(existingApplication.ResolvedInputs, out var storedResolution)
+                && !ReplayInputsMatch(storedResolution!.Resolution, inputs))
+            {
+                return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Conflict(
+                    "This idempotency key was already used with different initialization inputs."));
             }
 
             if (existingApplication.State == TemplateOperationState.Provisioning)
@@ -96,7 +125,7 @@ public sealed partial class TemplateStore
                 {
                     var destination = await LockRegularItemAsync(requiredDestination, cancellationToken)
                         .ConfigureAwait(false);
-                    if (destination is null || destination.WorkspaceId != template.WorkspaceId)
+                    if (destination is null || destination.WorkspaceId != existingApplication.WorkspaceId)
                     {
                         return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Conflict(
                             "The destination for this template application was deleted or is no longer active."));
@@ -113,20 +142,27 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid("The template has no active root."));
         }
-        if (ContainsFileItems(source))
-        {
-            return Result.Failure<TemplateApplicationPlan>(TemplateErrors.FileAttachmentsUnsupported());
-        }
-        // Applying a captured template: its source came from a workspace, so it is tolerated the
-        // same way it was at capture - a template that saved must be applyable.
+
         if (_validator.ValidateTemplateTree(source, tolerateViewDrift: true) is { } templateConflict)
         {
             return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid(templateConflict));
         }
 
+        if (mode == TemplateApplicationMode.Create && targetItemId is not null)
+        {
+            return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid(
+                "A create application cannot include a merge target."));
+        }
+
+        if (mode == TemplateApplicationMode.Merge && parentItemId is not null)
+        {
+            return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Invalid(
+                "A merge application cannot include a create parent."));
+        }
+
         var rootSource = source[0];
-        Item targetRoot;
         var now = _clock.GetUtcNow();
+        Item? targetRoot = null;
         if (mode == TemplateApplicationMode.Merge)
         {
             if (targetItemId is not { } existingId)
@@ -135,38 +171,24 @@ public sealed partial class TemplateStore
             }
 
             await LockTemplateApplicationAsync(templateId, existingId, cancellationToken).ConfigureAwait(false);
-            var existing = await LockRegularItemAsync(existingId, cancellationToken).ConfigureAwait(false);
-            if (existing is null || existing.WorkspaceId != template.WorkspaceId)
+            targetRoot = await LockRegularItemAsync(existingId, cancellationToken).ConfigureAwait(false);
+            if (targetRoot is null || targetRoot.WorkspaceId != template.WorkspaceId)
             {
                 return Result.Failure<TemplateApplicationPlan>(TemplateErrors.NotFound("No such target is visible."));
             }
-
-            targetRoot = existing;
         }
-        else
+        else if (parentItemId is { } parent)
         {
-            if (parentItemId is { } parent)
+            var parentItem = await LockRegularItemAsync(parent, cancellationToken).ConfigureAwait(false);
+            if (parentItem is null || parentItem.WorkspaceId != template.WorkspaceId)
             {
-                var parentItem = await LockRegularItemAsync(parent, cancellationToken).ConfigureAwait(false);
-                if (parentItem is null || parentItem.WorkspaceId != template.WorkspaceId)
-                {
-                    return Result.Failure<TemplateApplicationPlan>(
-                        TemplateErrors.NotFound("No such destination is visible."));
-                }
+                return Result.Failure<TemplateApplicationPlan>(
+                    TemplateErrors.NotFound("No such destination is visible."));
             }
-
-            targetRoot = CloneRegularItem(
-                rootSource,
-                parentItemId,
-                ItemId.Create(),
-                requestedTitle ?? template.Title,
-                now);
-            _database.Items.Add(targetRoot);
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
         TemplateMergePlan? mergePlan = null;
-        if (mode == TemplateApplicationMode.Merge)
+        if (targetRoot is not null)
         {
             var effectiveTargetSchema = await _schemas.ResolveForItemAsync(targetRoot.Id, cancellationToken)
                 .ConfigureAwait(false);
@@ -183,11 +205,10 @@ public sealed partial class TemplateStore
             }
         }
 
-        var sourceBodies = await BodyItemIdsAsync(source.Select(item => item.Id), cancellationToken).ConfigureAwait(false);
         var priorResult = mode == TemplateApplicationMode.Merge
             ? await PriorTargetMapAsync(
                 templateId,
-                targetRoot.Id,
+                targetRoot!.Id,
                 template.WorkspaceId,
                 source.Select(item => item.TemplateSourceId!.Value).ToArray(),
                 cancellationToken).ConfigureAwait(false)
@@ -196,31 +217,74 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateApplicationPlan>(priorResult.Error);
         }
+
         var prior = priorResult.Value;
-        var targets = new Dictionary<Guid, ItemId>
+        var existingBySource = new Dictionary<Guid, ItemId>();
+        if (targetRoot is not null)
         {
-            [rootSource.TemplateSourceId!.Value] = targetRoot.Id,
+            existingBySource[rootSource.TemplateSourceId!.Value] = targetRoot.Id;
+            foreach (var pair in prior)
+            {
+                existingBySource[pair.Key] = pair.Value;
+            }
+        }
+
+        var prepared = await PrepareApplicationAsync(
+            template,
+            source,
+            mode,
+            targetRoot?.Id,
+            parentItemId,
+            title,
+            inputs,
+            existingBySource,
+            expectedRevision,
+            cancellationToken).ConfigureAwait(false);
+        if (prepared.IsFailure)
+        {
+            return Result.Failure<TemplateApplicationPlan>(prepared.Error);
+        }
+
+        var sourceBodies = prepared.Value.SourceBodyIds;
+        var targetItems = new Dictionary<Guid, ItemId>
+        {
+            [rootSource.TemplateSourceId!.Value] = targetRoot?.Id ?? ItemId.Create(),
         };
         foreach (var pair in prior)
         {
-            targets[pair.Key] = pair.Value;
+            targetItems[pair.Key] = pair.Value;
+        }
+
+        var initializedBySource = prepared.Value.Preview.ToDictionary(item => item.SourceId);
+        var staged = new List<Item>();
+        if (mode == TemplateApplicationMode.Create)
+        {
+            var rootInitialization = initializedBySource[rootSource.TemplateSourceId!.Value];
+            targetRoot = CloneRegularItem(
+                rootSource,
+                parentItemId,
+                targetItems[rootSource.TemplateSourceId!.Value],
+                prepared.Value.ResolvedCreateTitle!,
+                now,
+                rootInitialization);
+            staged.Add(targetRoot);
         }
 
         var applicationId = TemplateApplicationId.Create();
-        var staged = new List<Item>();
         var mappings = new List<TemplateApplicationItem>(source.Count);
         foreach (var item in source)
         {
             var sourceId = item.TemplateSourceId!.Value;
             var isRoot = item.Id == rootSource.Id;
             var created = isRoot && mode == TemplateApplicationMode.Create;
-            if (!targets.TryGetValue(sourceId, out var targetId))
+            if (!targetItems.TryGetValue(sourceId, out var targetId))
             {
                 var parentSource = source.Single(candidate => candidate.Id == item.ParentId);
-                var parentTarget = targets[parentSource.TemplateSourceId!.Value];
+                var parentTarget = targetItems[parentSource.TemplateSourceId!.Value];
                 targetId = ItemId.Create();
-                targets[sourceId] = targetId;
-                staged.Add(CloneRegularItem(item, parentTarget, targetId, ItemProperties.ReadTitle(item.Properties), now));
+                targetItems[sourceId] = targetId;
+                var initialized = initializedBySource[sourceId];
+                staged.Add(CloneRegularItem(item, parentTarget, targetId, initialized.Title, now, initialized));
                 created = true;
             }
 
@@ -241,35 +305,46 @@ public sealed partial class TemplateStore
             });
         }
 
-        if (staged.Count > 0)
-        {
-            _database.Items.AddRange(staged);
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        _database.TemplateApplications.Add(new TemplateApplication
+        _database.Items.AddRange(staged);
+        var application = new TemplateApplication
         {
             Id = applicationId,
             TenantId = Context.TenantId,
             WorkspaceId = template.WorkspaceId,
             TemplateId = templateId,
-            TargetItemId = targetRoot.Id,
+            TargetItemId = targetRoot!.Id,
             ParentItemId = mode == TemplateApplicationMode.Create ? parentItemId : null,
-            RequestedTitle = mode == TemplateApplicationMode.Create ? requestedTitle ?? template.Title : null,
+            RequestedTitle = mode == TemplateApplicationMode.Create
+                ? requestedTitle ?? template.Title
+                : null,
+            TemplateRevision = prepared.Value.Resolution.TemplateRevision,
+            ResolvedInputs = WriteStoredResolution(prepared.Value.Resolution, prepared.Value.Preview),
+            RequestFingerprint = prepared.Value.RequestFingerprint,
             Mode = mode,
             IdempotencyKey = idempotencyKey,
             ActorId = Context.PrincipalId,
             State = TemplateOperationState.Provisioning,
             CreatedAt = now,
             ExpiresAt = now + StagingLifetime,
-        });
+        };
+        _database.TemplateApplications.Add(application);
         _database.TemplateApplicationItems.AddRange(mappings);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        if (staged.Count > 0 || mode == TemplateApplicationMode.Create)
+        var fileTransfers = await PrepareApplicationFilesAsync(applicationId, mappings, cancellationToken)
+            .ConfigureAwait(false);
+        if (fileTransfers.IsFailure)
         {
-            await RebuildClosureAsync(
-                staged.Select(item => item.Id).Append(targetRoot.Id),
-                cancellationToken).ConfigureAwait(false);
+            return Result.Failure<TemplateApplicationPlan>(fileTransfers.Error);
+        }
+
+        if (fileTransfers.Value.Count > 0)
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (staged.Count > 0)
+        {
+            await RebuildClosureAsync(staged.Select(item => item.Id), cancellationToken).ConfigureAwait(false);
         }
 
         var bodyCopies = mappings.Where(mapping => mapping.BodyRequired).Select(mapping =>
@@ -293,7 +368,9 @@ public sealed partial class TemplateStore
                 mapping.SourceItemId.Value,
                 mapping.TargetItemId,
                 source.Single(item => item.Id == mapping.SourceItemId).Type)).ToArray(),
-            bodyCopies));
+            bodyCopies,
+            prepared.Value.Resolution,
+            prepared.Value.Preview));
     }
 
     /// <summary>Atomically exposes a staged application and merges the root envelope.</summary>
@@ -325,6 +402,22 @@ public sealed partial class TemplateStore
         if (application.State != TemplateOperationState.Provisioning || application.ExpiresAt <= _clock.GetUtcNow())
         {
             return Result.Failure<ItemId>(TemplateErrors.Conflict("This template application is no longer active."));
+        }
+
+        var access = await RecheckApplicationResolutionAccessAsync(
+            application.WorkspaceId,
+            application.ResolvedInputs,
+            cancellationToken).ConfigureAwait(false);
+        if (access.IsFailure)
+        {
+            return Result.Failure<ItemId>(access.Error);
+        }
+
+        if (await HasUnreadyCopiesAsync("application", application.Id.Value, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return Result.Failure<ItemId>(TemplateErrors.Conflict(
+                "Template file copies must be complete before the application can be finalized."));
         }
 
         await LockTemplateApplicationAsync(

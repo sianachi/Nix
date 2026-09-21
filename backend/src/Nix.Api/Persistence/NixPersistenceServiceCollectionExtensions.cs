@@ -219,6 +219,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IPublicFormStore, PublicFormStore>();
         services.AddScoped<IPersonalAccessTokens, PersonalAccessTokenStore>();
         services.AddScoped<WorkspaceAdministrationStore>();
+        services.AddScoped<WorkspacePrincipalDirectoryStore>();
         services.AddSingleton<TemplateDefinitionValidator>();
         services.AddSingleton<TemplateMergePlanner>();
         services.AddScoped<TemplateStore>();
@@ -228,6 +229,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ITemplateApplicationStore>(provider => provider.GetRequiredService<TemplateStore>());
         services.AddScoped<ITemplateManagedStore>(provider => provider.GetRequiredService<TemplateStore>());
         services.AddScoped<ITemplateAuthorizationStore>(provider => provider.GetRequiredService<TemplateStore>());
+        services.AddScoped<ITemplateFileTransferStore>(provider => provider.GetRequiredService<TemplateStore>());
 
         // The use cases below take a clock, so this registration owes them one. TryAdd rather than
         // Add: a host that wants a controllable clock registers its own first and keeps it, while a
@@ -305,6 +307,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<RestoreWorkspace, WorkspaceSnapshot>, RestoreWorkspaceHandler>();
         services.AddScoped<ICommandHandler<PurgeWorkspace, bool>, PurgeWorkspaceHandler>();
         services.AddScoped<IQueryHandler<ListWorkspaceMembers, IReadOnlyList<WorkspaceMemberSnapshot>>, ListWorkspaceMembersHandler>();
+        services.AddScoped<IQueryHandler<ListWorkspaceAssignablePrincipals, IReadOnlyList<WorkspacePrincipalSnapshot>>, ListWorkspaceAssignablePrincipalsHandler>();
         services.AddScoped<IQueryHandler<ListWorkspaceInvitees, IReadOnlyList<WorkspaceInviteeSnapshot>>, ListWorkspaceInviteesHandler>();
         services.AddScoped<IQueryHandler<ListWorkspaceInvitations, IReadOnlyList<WorkspaceInvitationSnapshot>>, ListWorkspaceInvitationsHandler>();
         services.AddScoped<ICommandHandler<InviteWorkspaceMember, WorkspaceInvitationSnapshot>, InviteWorkspaceMemberHandler>();
@@ -325,6 +328,8 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<DeleteTemplate, bool>, DeleteTemplateHandler>();
         services.AddScoped<IQueryHandler<PreflightTemplateApplication, Result<TemplatePreflight>>, PreflightTemplateApplicationHandler>();
         services.AddScoped<IQueryHandler<ExportTemplate, Result<TemplateExportSnapshot>>, ExportTemplateHandler>();
+        services.AddScoped<IQueryHandler<ExportTemplateFiles, Result<TemplateExportFilesPage>>, ExportTemplateFilesHandler>();
+        services.AddScoped<IQueryHandler<AuthorizeTemplateExportFile, TemplateExportFileDownload?>, AuthorizeTemplateExportFileHandler>();
         services.AddScoped<ICommandHandler<BeginTemplateDraft, TemplateDraftPlan>, BeginTemplateDraftHandler>();
         services.AddScoped<IQueryHandler<GetTemplateDraft, Result<TemplateDraftPlan>>, GetTemplateDraftHandler>();
         services.AddScoped<ICommandHandler<UpdateTemplateDraft, TemplateDraftPlan>, UpdateTemplateDraftHandler>();

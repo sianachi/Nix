@@ -25,6 +25,7 @@ import {
   listWorkspaceInvitations,
   listWorkspaceInvitees,
   listWorkspaceMembers,
+  listWorkspaceAssignablePrincipals,
   listWorkspaces,
   purgeWorkspace,
   removeWorkspaceMember,
@@ -61,12 +62,38 @@ import {
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import { runImport } from './commands/import.ts';
+import {
+  cancelDocumentImport,
+  commitDocumentImport,
+  getDocumentImport,
+} from './commands/document-import.ts';
 import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts';
+import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
-import { outputOptions, printError, ExitCode } from './output.ts';
+import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
 import { petCommand, type PetOptions } from './commands/pets.ts';
 import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
+import {
+  applyTemplate,
+  captureTemplate,
+  cancelTemplateArchiveImport,
+  commitTemplateArchive,
+  exportTemplateArchive,
+  getTemplate,
+  getTemplateImport,
+  listTemplates,
+  beginTemplateDraft,
+  getTemplateDraft,
+  updateTemplateDraftFromFile,
+  updateTemplateDraftItemFromFile,
+  saveTemplateDraft,
+  discardTemplateDraft,
+  resumeTemplateOperation,
+  preflightTemplate,
+  previewTemplateArchive,
+  updateTemplateInitialization,
+} from './commands/templates.ts';
 
 interface GlobalFlags {
   readonly profile: string | undefined;
@@ -172,6 +199,16 @@ export function buildProgram(): Command {
     });
 
   const ws = program.command('ws').description('The workspaces a token can reach.');
+
+  program
+    .command('operation')
+    .description('Inspect a durable operation visible to the current profile.')
+    .command('get <operationId>')
+    .description('Read the current state of an authorized operation.')
+    .action(async (operationId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getOperation(flags.profile, operationId, outputOptions(flags.json)));
+    });
 
   ws.command('list')
     .description('List one page of workspaces the profile can reach.')
@@ -334,6 +371,28 @@ export function buildProgram(): Command {
         listWorkspaceMembers(flags.profile, workspaceId, options, outputOptions(flags.json)),
       );
     });
+  ws.command('principals <workspaceId>')
+    .description('List active direct and group-derived principals available for assignment.')
+    .option('--query <text>', 'filter display names by text')
+    .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(
+      async (
+        workspaceId: string,
+        options: PageCliOptions & { query?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          listWorkspaceAssignablePrincipals(
+            flags.profile,
+            workspaceId,
+            options,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
   ws.command('role <workspaceId> <principalId>')
     .requiredOption('--role <role>', 'owner, editor, or viewer')
     .description('Change a member role.')
@@ -394,6 +453,411 @@ export function buildProgram(): Command {
     .action(async (_options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => runWorkspaceMcpServer(flags.profile));
+    });
+
+  const template = program
+    .command('template')
+    .description('List, capture, initialize, and apply workspace templates.');
+
+  const draft = template
+    .command('draft')
+    .description('Open and manage a resumable editable template draft.');
+  draft
+    .command('begin <templateId>')
+    .description('Copy a template into a draft and wait for any file transfer to finish.')
+    .option('--idempotency-key <key>', 'reuse a key to resume the same draft copy')
+    .option('--no-wait', 'return a resumable receipt while files copy in the background')
+    .action(
+      async (
+        templateId: string,
+        options: { idempotencyKey?: string; wait?: boolean },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          beginTemplateDraft(
+            flags.profile,
+            templateId,
+            {
+              ...(options.idempotencyKey === undefined
+                ? {}
+                : { idempotencyKey: options.idempotencyKey }),
+              noWait: options.wait === false,
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  draft
+    .command('show <templateId> <operationId>')
+    .description('Read the current draft tree and metadata.')
+    .action(
+      async (templateId: string, operationId: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          getTemplateDraft(flags.profile, templateId, operationId, outputOptions(flags.json)),
+        );
+      },
+    );
+  draft
+    .command('update <templateId> <operationId>')
+    .description('Patch draft title, description, or initialization from a JSON file.')
+    .requiredOption('--file <path>', 'JSON object containing the draft metadata patch')
+    .action(
+      async (
+        templateId: string,
+        operationId: string,
+        options: { file: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          updateTemplateDraftFromFile(
+            flags.profile,
+            templateId,
+            operationId,
+            options.file,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  draft
+    .command('update-item <templateId> <operationId> <sourceId>')
+    .description('Patch one draft item from a JSON file.')
+    .requiredOption('--file <path>', 'JSON object containing the item patch')
+    .action(
+      async (
+        templateId: string,
+        operationId: string,
+        sourceId: string,
+        options: { file: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          updateTemplateDraftItemFromFile(
+            flags.profile,
+            templateId,
+            operationId,
+            sourceId,
+            options.file,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+  draft
+    .command('save <templateId> <operationId>')
+    .description('Publish the completed draft as the new template revision.')
+    .action(
+      async (templateId: string, operationId: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          saveTemplateDraft(flags.profile, templateId, operationId, outputOptions(flags.json)),
+        );
+      },
+    );
+  draft
+    .command('discard <templateId> <operationId>')
+    .description('Discard an unfinished draft and its copied bodies.')
+    .action(
+      async (templateId: string, operationId: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          discardTemplateDraft(flags.profile, templateId, operationId, outputOptions(flags.json)),
+        );
+      },
+    );
+  template
+    .command('resume <receiptPath>')
+    .description('Poll a template file-copy job and replay its original idempotent command.')
+    .action(async (receiptPath: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        resumeTemplateOperation(flags.profile, receiptPath, outputOptions(flags.json)),
+      );
+    });
+
+  template
+    .command('list <workspaceId>')
+    .description('List templates visible in a workspace.')
+    .action(async (workspaceId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listTemplates(flags.profile, workspaceId, outputOptions(flags.json)));
+    });
+
+  template
+    .command('show <templateId>')
+    .description('Read one template and its initialization questions.')
+    .action(async (templateId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getTemplate(flags.profile, templateId, outputOptions(flags.json)));
+    });
+
+  template
+    .command('capture <workspaceId> <sourceItemId>')
+    .description('Capture an item tree as a reusable template.')
+    .requiredOption('--title <title>', 'template name')
+    .option('--idempotency-key <key>', 'reuse a key to resume a pending capture')
+    .option('--description <text>', 'when this starting point is useful')
+    .option('--include-body', 'copy body content', false)
+    .option('--include-children', 'copy readable descendants', false)
+    .option('--no-wait', 'return a resumable receipt while files copy in the background')
+    .action(
+      async (
+        workspaceId: string,
+        sourceItemId: string,
+        options: {
+          title: string;
+          description?: string;
+          idempotencyKey?: string;
+          includeBody?: boolean;
+          includeChildren?: boolean;
+          wait?: boolean;
+        },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          captureTemplate(
+            flags.profile,
+            {
+              workspaceId,
+              sourceItemId,
+              title: options.title,
+              includeBody: options.includeBody === true,
+              includeChildren: options.includeChildren === true,
+              ...(options.description === undefined ? {} : { description: options.description }),
+              ...(options.idempotencyKey === undefined
+                ? {}
+                : { idempotencyKey: options.idempotencyKey }),
+            },
+            outputOptions(flags.json),
+            undefined,
+            undefined,
+            options.wait !== false,
+          ),
+        );
+      },
+    );
+
+  template
+    .command('initialize <templateId>')
+    .description('Replace a template’s setup questions and field rules from a JSON file.')
+    .requiredOption('--file <path>', 'strict version 1 initialization JSON')
+    .option('--title <title>', 'rename the template')
+    .option('--description <text>', 'update its description')
+    .option('--idempotency-key <key>', 'reuse a key to resume a pending draft update')
+    .option('--no-wait', 'return a resumable receipt while files copy in the background')
+    .action(
+      async (
+        templateId: string,
+        options: {
+          file: string;
+          title?: string;
+          description?: string;
+          idempotencyKey?: string;
+          wait?: boolean;
+        },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          updateTemplateInitialization(
+            flags.profile,
+            templateId,
+            options.file,
+            {
+              ...(options.title === undefined ? {} : { title: options.title }),
+              ...(options.description === undefined ? {} : { description: options.description }),
+              ...(options.idempotencyKey === undefined
+                ? {}
+                : { idempotencyKey: options.idempotencyKey }),
+            },
+            outputOptions(flags.json),
+            undefined,
+            options.wait !== false,
+          ),
+        );
+      },
+    );
+
+  template
+    .command('apply <templateId>')
+    .description('Preflight and apply a template to an item or as a new child.')
+    .requiredOption('--mode <mode>', 'merge or create')
+    .option('--target <itemId>', 'existing item for merge mode')
+    .option('--parent <itemId>', 'parent item for create mode')
+    .option('--title <title>', 'title for the created item')
+    .option(
+      '--input <key=value>',
+      'answer one setup question; repeat for each answer',
+      collectOption,
+      [],
+    )
+    .option('--expected-revision <revision>', 'refuse a changed template revision', parseInteger)
+    .option('--idempotency-key <key>', 'reuse a key to resume a pending application')
+    .option('--no-wait', 'return a resumable receipt while files copy in the background')
+    .action(
+      async (
+        templateId: string,
+        options: {
+          mode: 'merge' | 'create';
+          target?: string;
+          parent?: string;
+          title?: string;
+          input?: string[];
+          expectedRevision?: number;
+          idempotencyKey?: string;
+          wait?: boolean;
+        },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          applyTemplate(
+            flags.profile,
+            {
+              templateId,
+              mode: options.mode,
+              ...(options.target === undefined ? {} : { targetItemId: options.target }),
+              ...(options.parent === undefined ? {} : { parentItemId: options.parent }),
+              ...(options.title === undefined ? {} : { title: options.title }),
+              ...(options.input === undefined
+                ? {}
+                : { inputs: parseTemplateInputPairs(options.input) }),
+              ...(options.expectedRevision === undefined
+                ? {}
+                : { expectedRevision: options.expectedRevision }),
+              ...(options.idempotencyKey === undefined
+                ? {}
+                : { idempotencyKey: options.idempotencyKey }),
+            },
+            outputOptions(flags.json),
+            undefined,
+            options.wait !== false,
+          ),
+        );
+      },
+    );
+
+  template
+    .command('preflight <templateId>')
+    .description('Resolve setup questions and preview a template without creating items.')
+    .requiredOption('--mode <mode>', 'merge or create')
+    .option('--target <itemId>', 'existing item for merge mode')
+    .option('--parent <itemId>', 'parent item for create mode')
+    .option('--title <title>', 'title for the created item')
+    .option(
+      '--input <key=value>',
+      'answer one setup question; repeat for each answer',
+      collectOption,
+      [],
+    )
+    .option('--expected-revision <revision>', 'preview only this template revision', parseInteger)
+    .action(
+      async (
+        templateId: string,
+        options: {
+          mode: 'merge' | 'create';
+          target?: string;
+          parent?: string;
+          title?: string;
+          input?: string[];
+          expectedRevision?: number;
+        },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          preflightTemplate(
+            flags.profile,
+            {
+              templateId,
+              mode: options.mode,
+              ...(options.target === undefined ? {} : { targetItemId: options.target }),
+              ...(options.parent === undefined ? {} : { parentItemId: options.parent }),
+              ...(options.title === undefined ? {} : { title: options.title }),
+              ...(options.input === undefined
+                ? {}
+                : { inputs: parseTemplateInputPairs(options.input) }),
+              ...(options.expectedRevision === undefined
+                ? {}
+                : { expectedRevision: options.expectedRevision }),
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  template
+    .command('import <workspaceId> <path>')
+    .description('Upload a portable template archive and print its validated preview and digest.')
+    .option('--idempotency-key <key>', 'reuse a key to resume the same archive preview')
+    .action(
+      async (
+        workspaceId: string,
+        path: string,
+        options: { idempotencyKey?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          previewTemplateArchive(
+            flags.profile,
+            workspaceId,
+            path,
+            options,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  template
+    .command('import-commit <importId> <digest>')
+    .description('Publish a previewed template archive using the exact digest returned by import.')
+    .action(async (importId: string, digest: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        commitTemplateArchive(flags.profile, importId, digest, outputOptions(flags.json)),
+      );
+    });
+
+  template
+    .command('import-get <importId>')
+    .description('Read the current state of an authorized template archive import.')
+    .action(async (importId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getTemplateImport(flags.profile, importId, outputOptions(flags.json)));
+    });
+
+  template
+    .command('import-cancel <importId>')
+    .description('Cancel an authorized template archive import and its pending worker execution.')
+    .option('--yes', 'confirm cancellation of this import', false)
+    .action(async (importId: string, options: { yes?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      if (options.yes !== true) {
+        throw new Error('Pass --yes to confirm cancellation of this template archive import.');
+      }
+      await run(() =>
+        cancelTemplateArchiveImport(flags.profile, importId, outputOptions(flags.json)),
+      );
+    });
+
+  template
+    .command('export <templateId>')
+    .description('Download a portable template archive from the authorized Collab service.')
+    .requiredOption('-o, --out <path>', 'write the archive here')
+    .action(async (templateId: string, options: { out: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        exportTemplateArchive(flags.profile, templateId, options.out, outputOptions(flags.json)),
+      );
     });
 
   const note = program.command('note').description("A note's body, as Markdown.");
@@ -764,20 +1228,62 @@ export function buildProgram(): Command {
     .requiredOption('--workspace <id>', 'the workspace to import into')
     .option('--parent <id>', 'the container to import under (default: workspace root)')
     .option('--dry-run', 'print the mapping report without creating anything', false)
-    .action(async (path: string, options: ImportCliOptions, command: Command) => {
+    .option('--no-wait', 'return a resumable receipt after the preview is queued')
+    .action(
+      async (path: string, options: ImportCliOptions & { wait?: boolean }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          runImport(
+            flags.profile,
+            {
+              path,
+              workspaceId: options.workspace,
+              parentId: options.parent,
+              dryRun: options.dryRun === true,
+              noWait: options.wait === false,
+            },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  const documentImport = program
+    .command('document-import')
+    .description('Inspect and resume durable document imports.');
+  documentImport
+    .command('get <importId>')
+    .description('Read durable document import state.')
+    .action(async (importId: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
-      await run(() =>
-        runImport(
-          flags.profile,
-          {
-            path,
-            workspaceId: options.workspace,
-            parentId: options.parent,
-            dryRun: options.dryRun === true,
-          },
+      await run(async () => {
+        printResult(await getDocumentImport(flags.profile, importId), outputOptions(flags.json));
+      });
+    });
+  documentImport
+    .command('commit <importId>')
+    .description('Commit a preview-ready document import.')
+    .option('--no-wait', 'return a resumable receipt while the import commits')
+    .action(async (importId: string, options: { wait?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        printResult(
+          await commitDocumentImport(flags.profile, importId, options.wait !== false),
           outputOptions(flags.json),
-        ),
-      );
+        );
+      });
+    });
+  documentImport
+    .command('cancel <importId>')
+    .description('Cancel a durable document import.')
+    .option('--yes', 'confirm cancellation of this import', false)
+    .action(async (importId: string, options: { yes?: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      if (options.yes !== true)
+        throw new Error('Pass --yes to confirm cancellation of this import.');
+      await run(async () => {
+        printResult(await cancelDocumentImport(flags.profile, importId), outputOptions(flags.json));
+      });
     });
 
   const file = program
@@ -1088,6 +1594,29 @@ function parseSeqArg(value: string): number {
     throw new Error(`'${value}' is not a valid sequence number.`);
   }
   return seq;
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function parseTemplateInputPairs(entries: readonly string[]): Readonly<Record<string, string>> {
+  const values: Record<string, string> = {};
+  for (const entry of entries) {
+    const separator = entry.indexOf('=');
+    if (separator < 1) {
+      throw new Error(`Template input '${entry}' must use key=value syntax.`);
+    }
+    const key = entry.slice(0, separator);
+    if (Object.hasOwn(values, key)) {
+      throw new Error(`Template input '${key}' was supplied more than once.`);
+    }
+    values[key] = entry.slice(separator + 1);
+  }
+  if (Object.keys(values).length > 100) {
+    throw new Error('A template accepts at most 100 inputs.');
+  }
+  return values;
 }
 
 interface ImportCliOptions {

@@ -9,7 +9,8 @@ namespace Nix.Features.Templates;
 /// <summary>Publishes a completed capture or import stage.</summary>
 public readonly record struct FinalizeTemplateOperation(
     TemplateOperationId OperationId,
-    IReadOnlyList<ItemId> WrittenTargetItemIds) : ICommand<TemplateId>;
+    IReadOnlyList<ItemId> WrittenTargetItemIds,
+    IReadOnlyList<Guid>? ExternalReferenceTargets = null) : ICommand<TemplateId>;
 
 /// <summary>Publishes a completed capture or import stage.</summary>
 public sealed class FinalizeTemplateOperationHandler(ITemplateStagingStore stages)
@@ -22,5 +23,6 @@ public sealed class FinalizeTemplateOperationHandler(ITemplateStagingStore stage
         stages.FinalizeOperationAsync(
             command.OperationId,
             command.WrittenTargetItemIds,
+            command.ExternalReferenceTargets,
             cancellationToken);
 }

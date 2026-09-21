@@ -17,6 +17,8 @@ public sealed class FileVersion
     public required string MediaType { get; init; }
     public required long ByteLength { get; init; }
     public required string Sha256 { get; init; }
+    /// <summary>Whether direct-to-object-store publication has been verified for this version.</summary>
+    public bool ObjectReady { get; set; } = true;
     public int? PixelWidth { get; init; }
     public int? PixelHeight { get; init; }
     public required bool Previewable { get; init; }

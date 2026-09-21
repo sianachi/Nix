@@ -284,10 +284,19 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
           return problem(reply, 404, 'template_not_found', 'No such template.');
         }
         try {
+          const controller = new AbortController();
+          const abortExport = () => {
+            controller.abort(new Error('The export client disconnected.'));
+          };
+          request.raw.once('aborted', abortExport);
+          reply.raw.once('close', () => {
+            if (!reply.raw.writableEnded) abortExport();
+          });
           const prepared = await templates.exportTemplate(
             token,
             templateId,
             deps.now?.() ?? new Date(),
+            controller.signal,
           );
           return await reply
             .type('application/zip')

@@ -66,7 +66,8 @@ export async function status(
   output: OutputOptions,
   deps: { readonly fetchImpl?: FetchImpl; readonly env?: NodeJS.ProcessEnv } = {},
 ): Promise<void> {
-  const resolved = await resolveProfile(profileName, deps.env ?? process.env);
+  const env = deps.env ?? process.env;
+  const resolved = await resolveProfile(profileName, env);
   if (resolved === null) {
     throw new Error(
       profileName === undefined
@@ -77,6 +78,7 @@ export async function status(
 
   const session = openSession({
     profile: resolved.profile,
+    ...(env.NIX_SESSION_TOKEN === undefined ? {} : { bearerToken: env.NIX_SESSION_TOKEN }),
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
   const principal = await whoami(session, deps.fetchImpl);

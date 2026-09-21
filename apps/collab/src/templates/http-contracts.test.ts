@@ -116,6 +116,24 @@ describe('the collaboration template HTTP contracts', () => {
     });
   });
 
+  it('preserves versioned initialization metadata in a draft patch', () => {
+    const initialization = {
+      version: 1,
+      inputs: [
+        { key: 'lead', label: 'Project lead', type: 'member', required: true, defaultValue: ITEM },
+      ],
+      rules: [],
+      references: [],
+    };
+    expect(parseDraftMetadataPatch({ initialization })).toEqual({ initialization });
+    expect(caught(() => parseDraftMetadataPatch({ initialization: { version: 2 } }))).toMatchObject(
+      {
+        status: 400,
+        code: 'template.draft_invalid',
+      },
+    );
+  });
+
   it('copies only declared draft item fields across the HTTP boundary', () => {
     expect(
       parseDraftItemPatch({

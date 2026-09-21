@@ -370,6 +370,19 @@ internal static class M0SchemaSeed
                             'files/upload/{slug}', 'completed', NULL, {item}, now() + interval '1 hour',
                             now(), now());
 
+                    IF to_regclass('public.template_file_transfer') IS NOT NULL THEN
+                        INSERT INTO template_file_transfer
+                            (transfer_id, tenant_id, workspace_id, operation_id, application_id,
+                             source_item_id, target_item_id, target_version_id, source_object_key,
+                             file_name, media_type, byte_length, sha256, previewable, pixel_width,
+                             pixel_height, execution_id)
+                        VALUES ({invitation}, {tenant}, {workspace}, {templateOperation}, NULL,
+                                {item}, {item}, {templateSource}, 'files/seed/{slug}', '{slug}.bin',
+                                'application/octet-stream', 4,
+                                repeat('{(slug == "alpha" ? "a" : "b")}', 64), false, NULL, NULL,
+                                NULL);
+                    END IF;
+
                     IF to_regclass('public.document_import') IS NOT NULL THEN
                         INSERT INTO document_import
                             (import_id, tenant_id, workspace_id, actor_id, upload_id, parent_id,
@@ -391,6 +404,19 @@ internal static class M0SchemaSeed
                              object_key, object_ready)
                         VALUES ({templateOperation}, 'root', {tenant}, NULL, {item}, 'folder',
                                 'active', false, NULL, NULL, true);
+
+                        IF to_regclass('public.document_import_file_version') IS NOT NULL THEN
+                            INSERT INTO document_import_file_version
+                                (transfer_id, tenant_id, import_id, source_item_id, target_item_id,
+                                 file_version_id, object_key, file_name, media_type, byte_length,
+                                 sha256, previewable, pixel_width, pixel_height, object_ready,
+                                 execution_id)
+                            VALUES ({provider}, {tenant}, {templateOperation}, 'root', {item},
+                                    {templateSource}, 'files/seed/{slug}', '{slug}.bin',
+                                    'application/octet-stream', 4,
+                                    repeat('{(slug == "alpha" ? "a" : "b")}', 64), false, NULL,
+                                    NULL, true, NULL);
+                        END IF;
                     END IF;
                 END IF;
             END

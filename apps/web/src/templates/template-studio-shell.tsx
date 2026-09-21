@@ -17,6 +17,7 @@ export function TemplateStudioShell({
   destination,
   step,
   working,
+  statusMessage,
   previewing,
   error,
   discarding,
@@ -42,6 +43,7 @@ export function TemplateStudioShell({
   readonly destination: string;
   readonly step: number;
   readonly working: boolean;
+  readonly statusMessage: string | null;
   readonly previewing: boolean;
   readonly error: string | null;
   readonly discarding: boolean;
@@ -130,6 +132,11 @@ export function TemplateStudioShell({
         >
           <div className="mx-auto flex max-w-2xl flex-col gap-5">
             {children}
+            {statusMessage === null ? null : (
+              <Text variant="bodySmall" role="status" className="bg-surface px-3 py-2">
+                {statusMessage}
+              </Text>
+            )}
             {error === null ? null : (
               <Text variant="bodySmall" role="alert" className="bg-surface px-3 py-2">
                 {error}

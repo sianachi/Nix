@@ -6,18 +6,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+
+	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 )
 
 const Version = 1
 
 type Plan struct {
-	Version      int      `json:"version"`
-	Format       string   `json:"format"`
-	Title        string   `json:"title"`
-	SourceSHA256 string   `json:"sourceSha256"`
-	Items        []Item   `json:"items"`
-	Loss         []string `json:"loss"`
-	Omissions    []string `json:"omissions"`
+	Version      int                           `json:"version"`
+	Format       string                        `json:"format"`
+	Title        string                        `json:"title"`
+	SourceSHA256 string                        `json:"sourceSha256"`
+	Items        []Item                        `json:"items"`
+	FileVersions []nixarchive.FileVersionEntry `json:"fileVersions,omitempty"`
+	Loss         []string                      `json:"loss"`
+	Omissions    []string                      `json:"omissions"`
 }
 
 type Item struct {
@@ -27,6 +30,7 @@ type Item struct {
 	Title               string          `json:"title"`
 	ItemType            string          `json:"itemType"`
 	Properties          json.RawMessage `json:"properties,omitempty"`
+	Recurrence          json.RawMessage `json:"recurrence,omitempty"`
 	Schema              json.RawMessage `json:"schema,omitempty"`
 	Views               json.RawMessage `json:"views,omitempty"`
 	FinalLifecycleState string          `json:"finalLifecycleState"`
@@ -77,6 +81,9 @@ func Encode(plan Plan, maxBytes int64) ([]byte, string, error) {
 	if plan.Version != Version || plan.Format == "" || plan.SourceSHA256 == "" || len(plan.Items) == 0 {
 		return nil, "", errors.New("import plan is incomplete")
 	}
+	if err := validatePlanFileVersions(plan.FileVersions, plan.Items); err != nil {
+		return nil, "", err
+	}
 	body, err := json.Marshal(plan)
 	if err != nil {
 		return nil, "", err
@@ -105,5 +112,19 @@ func Decode(body []byte, expectedDigest string, limits Limits) (Plan, error) {
 	if plan.Version != Version || len(plan.Items) == 0 || len(plan.Items) > limits.MaxItems {
 		return Plan{}, errors.New("import plan version or item count is unsupported")
 	}
+	if err := validatePlanFileVersions(plan.FileVersions, plan.Items); err != nil {
+		return Plan{}, err
+	}
 	return plan, nil
+}
+
+func validatePlanFileVersions(files []nixarchive.FileVersionEntry, items []Item) error {
+	if files == nil {
+		return nil
+	}
+	manifestItems := make([]nixarchive.ManifestItem, 0, len(items))
+	for _, item := range items {
+		manifestItems = append(manifestItems, nixarchive.ManifestItem{ID: item.SourceID, Type: item.ItemType})
+	}
+	return nixarchive.ValidateFileVersions(files, manifestItems)
 }

@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Persistence;
+using Nix.Persistence.ObjectStorage;
 
 namespace Nix.Integration.Tests.Harness;
 
@@ -35,6 +37,7 @@ internal sealed class NixPersistenceHost : IAsyncDisposable
     {
         var services = new ServiceCollection();
         services.AddNixPersistence(connectionString);
+        services.AddNixObjectStorage(new ConfigurationBuilder().Build());
 
         if (testInterceptor is not null)
         {

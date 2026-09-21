@@ -37,6 +37,9 @@ public sealed class TemplateOperation
     /// <summary>Gets the requested catalog description for capture/edit request equivalence.</summary>
     public string? DraftDescription { get; set; }
 
+    /// <summary>Gets the initialization definition being edited in a user-template draft.</summary>
+    public string? DraftInitialization { get; set; }
+
     /// <summary>Gets the managed source being staged by an import.</summary>
     public string? ManagedSource { get; set; }
 

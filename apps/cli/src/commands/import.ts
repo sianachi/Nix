@@ -52,6 +52,8 @@ export interface ImportOptions {
   readonly parentId?: string | undefined;
   /** Map and validate without writing anything - the preview before the commit. */
   readonly dryRun: boolean;
+  /** Return after the worker accepts the preview job, leaving the durable import recoverable. */
+  readonly noWait?: boolean;
 }
 
 /** One source file or directory, resolved to what the import will make of it. */
@@ -109,6 +111,7 @@ export async function runImport(
   execution: {
     readonly writeResult?: (value: unknown) => void;
     readonly setExitCode?: boolean;
+    readonly onDocumentImportStarted?: (importId: string) => void;
   } = {},
 ): Promise<void> {
   const writeResult =
@@ -121,8 +124,24 @@ export async function runImport(
   const failed: FailedEntry[] = [];
 
   const documentFormat = asDocumentFormat(options.path);
+  if (options.noWait === true && options.dryRun) {
+    throw new Error('--no-wait cannot be combined with --dry-run.');
+  }
+  if (options.noWait === true && documentFormat === null) {
+    throw new Error('--no-wait is available only for PDF, DOCX, TXT, and Nix document imports.');
+  }
   if (documentFormat !== null) {
-    await runWorkerDocumentImport(profileName, options, documentFormat, deps, writeResult);
+    await runWorkerDocumentImport(
+      profileName,
+      options,
+      documentFormat,
+      deps,
+      writeResult,
+      execution.onDocumentImportStarted ??
+        ((importId) => {
+          process.stderr.write(`Document import started: importId=${importId}\n`);
+        }),
+    );
     return;
   }
   const root = await plan(options.path, skipped, failed);
@@ -343,6 +362,7 @@ async function runWorkerDocumentImport(
   format: 'nix' | 'docx' | 'pdf' | 'txt',
   deps: SessionDeps,
   writeResult: (value: unknown) => void,
+  onStarted?: (importId: string) => void,
 ): Promise<void> {
   const info = await stat(options.path);
   if (!info.isFile() || info.size > 100 * 1024 * 1024)
@@ -364,6 +384,7 @@ async function runWorkerDocumentImport(
       }),
     );
     importId = initiated.id;
+    onStarted?.(importId);
     if (initiated.uploadUrl === null) {
       throw new Error('The import upload capability is no longer available.');
     }
@@ -393,6 +414,21 @@ async function runWorkerDocumentImport(
       throw new Error(`The document object upload was refused (${String(uploaded.status)}).`);
     }
     const previewJob = await session.client.execute(imports.previewDocumentImport(importId));
+    if (options.noWait === true) {
+      const durableImportId = importId;
+      importId = null;
+      writeResult({
+        atomic: true,
+        workspaceId: options.workspaceId,
+        parentId: options.parentId ?? null,
+        importId: durableImportId,
+        operationId: previewJob.id,
+        phase: 'preview',
+        operationStatus: previewJob.status,
+      });
+      // The import is durable and intentionally remains available for get/commit/cancel.
+      return;
+    }
     await operations.waitForOperation(session.client, previewJob.id);
     const preview = await session.client.query(imports.documentImportById(importId), {
       forceRefresh: true,

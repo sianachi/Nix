@@ -1,6 +1,12 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { templateCatalogSchema, templateDetailSchema } from './templates.js';
+import {
+  templateCatalogSchema,
+  templateDetailSchema,
+  templateInitializationSchema,
+  templatePreflightRequestSchema,
+} from './templates.js';
 
 const TEMPLATE = {
   id: 'a1111111-1111-4111-8111-111111111111',
@@ -20,6 +26,26 @@ const TEMPLATE = {
 } as const;
 
 describe('the template schemas', () => {
+  it('accepts the shared v1 archive and Core wire fixture', () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL('../../../../fixtures/template-initialization-v1.json', import.meta.url),
+        'utf8',
+      ),
+    ) as unknown;
+    if (typeof fixture !== 'object' || fixture === null || Array.isArray(fixture)) {
+      throw new Error('The shared template initialization fixture must be an object.');
+    }
+
+    const parsed = templateInitializationSchema.parse(fixture);
+    expect(parsed).toMatchObject(fixture);
+    expect(parsed.inputs.find((input) => input.key === 'start_date')?.defaultValue).toBeNull();
+    const relativeDateRule = parsed.rules.find(
+      (rule) => rule.kind === 'relativeDate' && rule.propertyKey === 'recurrence.until',
+    );
+    expect(relativeDateRule).toMatchObject({ timeOfDay: null, timeZone: null });
+  });
+
   it('accepts the integer string representation published by the generated contract', () => {
     const catalog = templateCatalogSchema.parse({
       templates: [TEMPLATE],
@@ -31,6 +57,120 @@ describe('the template schemas', () => {
       fieldCount: 1,
       viewCount: 1,
       childCount: 0,
+    });
+  });
+
+  it('validates versioned inputs, explicit property rules, and external reference policies', () => {
+    const initialization = templateInitializationSchema.parse({
+      version: 1,
+      inputs: [
+        { key: 'start', label: 'Start date', type: 'date', required: true },
+        { key: 'owner', label: 'Project lead', type: 'member', required: true },
+        { key: 'related', label: 'Related item', type: 'item', required: false },
+      ],
+      rules: [
+        {
+          sourceId: 'a2111111-1111-4111-8111-111111111111',
+          propertyKey: 'due_date',
+          kind: 'relativeDate',
+          inputKey: 'start',
+          offsetDays: 7,
+        },
+        {
+          sourceId: 'a2111111-1111-4111-8111-111111111111',
+          propertyKey: 'assignee',
+          kind: 'input',
+          inputKey: 'owner',
+        },
+        {
+          sourceId: 'a2111111-1111-4111-8111-111111111111',
+          propertyKey: 'completion',
+          kind: 'set',
+          value: false,
+        },
+      ],
+      references: [
+        {
+          sourceItemId: 'a3111111-1111-4111-8111-111111111111',
+          policy: 'replace',
+          inputKey: 'related',
+        },
+        { sourceItemId: 'a4111111-1111-4111-8111-111111111111', policy: 'omit' },
+      ],
+    });
+
+    expect(initialization.rules[0]).toMatchObject({ kind: 'relativeDate', offsetDays: 7 });
+    expect(initialization.references[0]).toMatchObject({ policy: 'replace', inputKey: 'related' });
+  });
+
+  it('rejects duplicate and mismatched initialization rules and missing set values', () => {
+    const sourceId = 'a2111111-1111-4111-8111-111111111111';
+    const valid = {
+      version: 1,
+      inputs: [{ key: 'start', label: 'Start', type: 'text', required: true }],
+      rules: [
+        {
+          sourceId,
+          propertyKey: 'due_date',
+          kind: 'relativeDate',
+          inputKey: 'start',
+          offsetDays: 1,
+        },
+      ],
+      references: [],
+    };
+    expect(templateInitializationSchema.safeParse(valid).success).toBe(false);
+    expect(
+      templateInitializationSchema.safeParse({
+        version: 1,
+        inputs: [],
+        rules: [{ sourceId, propertyKey: 'completion', kind: 'set' }],
+        references: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      templateInitializationSchema.safeParse({
+        version: 1,
+        inputs: [
+          { key: 'owner', label: 'Owner', type: 'member', required: true },
+          { key: 'start', label: 'Start', type: 'date', required: true },
+        ],
+        rules: [
+          {
+            sourceId,
+            propertyKey: 'due_date',
+            kind: 'relativeDate',
+            inputKey: 'start',
+            offsetDays: 1,
+          },
+          { sourceId, propertyKey: 'due_date', kind: 'clear' },
+        ],
+        references: [
+          {
+            sourceItemId: 'a3111111-1111-4111-8111-111111111111',
+            policy: 'replace',
+            inputKey: 'start',
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps server revision and submitted inputs on the preflight wire request', () => {
+    expect(
+      templatePreflightRequestSchema.parse({
+        mode: 'create',
+        title: 'Project',
+        inputs: { name: 'Q4' },
+        expectedRevision: 3,
+      }),
+    ).toEqual({
+      mode: 'create',
+      targetItemId: null,
+      parentItemId: null,
+      title: 'Project',
+      inputs: { name: 'Q4' },
+      expectedRevision: 3,
     });
   });
 
@@ -59,9 +199,29 @@ describe('the template schemas', () => {
     expect(detail.root.schema).toEqual({
       inherit: false,
       properties: [
-        { key: 'status', label: 'Status', type: 'select', options: [], required: false },
+        {
+          key: 'status',
+          label: 'Status',
+          type: 'select',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: null,
+          source: null,
+        },
       ],
-      declared: [{ key: 'status', label: 'Status', type: 'select', options: [], required: false }],
+      declared: [
+        {
+          key: 'status',
+          label: 'Status',
+          type: 'select',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: null,
+          source: null,
+        },
+      ],
     });
     expect(detail.root.views?.views[0]).toMatchObject({
       id: 'board',

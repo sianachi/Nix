@@ -16,6 +16,7 @@ const CHILD: TemplateItem = {
   views: null,
   children: [],
   hasBody: false,
+  recurrence: null,
 };
 
 const ROOT: TemplateItem = {
@@ -28,6 +29,7 @@ const ROOT: TemplateItem = {
   views: null,
   children: [CHILD],
   hasBody: false,
+  recurrence: null,
 };
 
 function EditableTree(): ReactNode {

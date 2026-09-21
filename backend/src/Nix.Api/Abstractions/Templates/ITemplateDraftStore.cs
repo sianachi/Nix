@@ -23,6 +23,15 @@ public interface ITemplateDraftStore
         string? description,
         CancellationToken cancellationToken);
 
+    public ValueTask<Result<TemplateDraftPlan>> UpdateDraftMetadataAsync(
+        TemplateId templateId,
+        TemplateOperationId operationId,
+        string? title,
+        string? description,
+        TemplateInitialization? initialization,
+        CancellationToken cancellationToken) =>
+        UpdateDraftMetadataAsync(templateId, operationId, title, description, cancellationToken);
+
     public ValueTask<Result<TemplateItemSnapshot>> UpdateDraftItemAsync(
         TemplateId templateId,
         TemplateOperationId operationId,

@@ -4,30 +4,50 @@ import {
   parseDocument,
   requiredSchemaVersion,
 } from '@nix/editor-schema';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { SHEET_ITEM_TYPE, SHEET_SCHEMA_VERSION, checkSheetSnapshot } from '@nix/sheet';
 import { Unzip, UnzipInflate, UnzipPassThrough, type UnzipFile } from 'fflate';
 
 import {
   ARCHIVE_FORMAT,
   ARCHIVE_FORMAT_VERSION,
+  FILE_ARCHIVE_FORMAT_VERSION,
+  MAX_ARCHIVE_ENTRIES,
+  MAX_ARCHIVE_ITEMS,
+  MAX_TEMPLATE_ARCHIVE_ENTRIES,
+  MAX_TEMPLATE_ARCHIVE_ITEMS,
+  MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM,
   MANIFEST_ENTRY,
   TEMPLATE_PROFILE_VERSION,
   isArchiveSafeId,
+  fileVersionEntryName,
+  type ArchiveFileVersionEntry,
   type ArchiveItemEntry,
   type ArchiveManifest,
   type ItemBody,
   type ItemBundle,
   type SchemaSnapshot,
   type TemplateArchiveProfile,
+  type TemplateInitialization,
+  type TemplateInitializationInput,
+  type TemplateInitializationRule,
+  type TemplateReferenceRule,
   type ViewRowSnapshot,
   type ViewSnapshot,
   type ViewsSnapshot,
 } from './manifest.js';
+import {
+  assertBundleHasNoUnportableFiles,
+  assertManifestHasNoUnportableFiles,
+  validateFileVersionEntries,
+} from './file-portability.js';
 
 /** Bounds applied while bytes are still compressed and before JSON is trusted. */
 export interface ArchiveReadLimits {
   readonly maxInputBytes: number;
   readonly maxEntryBytes: number;
+  /** Independent ceiling for raw file-version entries; JSON entries keep the smaller bound. */
+  readonly maxFileEntryBytes?: number;
   readonly maxUncompressedBytes: number;
   readonly maxEntries: number;
   readonly maxItems: number;
@@ -37,9 +57,10 @@ export interface ArchiveReadLimits {
 export const TEMPLATE_ARCHIVE_LIMITS: ArchiveReadLimits = {
   maxInputBytes: 64 * 1024 * 1024,
   maxEntryBytes: 8 * 1024 * 1024,
+  maxFileEntryBytes: 64 * 1024 * 1024,
   maxUncompressedBytes: 64 * 1024 * 1024,
-  maxEntries: 201,
-  maxItems: 200,
+  maxEntries: MAX_TEMPLATE_ARCHIVE_ENTRIES,
+  maxItems: MAX_TEMPLATE_ARCHIVE_ITEMS,
   maxCompressionRatio: 100,
 };
 
@@ -61,6 +82,10 @@ export interface ReadArchiveOptions {
 export interface ReadArchiveResult {
   readonly manifest: ArchiveManifest;
   readonly bundles: readonly ItemBundle[];
+  readonly files: readonly {
+    readonly descriptor: ArchiveFileVersionEntry;
+    readonly bytes: Uint8Array;
+  }[];
 }
 
 /**
@@ -76,7 +101,7 @@ export function parseArchiveObject(
   value: unknown,
   maxItems = TEMPLATE_ARCHIVE_LIMITS.maxItems,
 ): ReadArchiveResult {
-  if (!Number.isSafeInteger(maxItems) || maxItems <= 0) {
+  if (!Number.isSafeInteger(maxItems) || maxItems <= 0 || maxItems > MAX_ARCHIVE_ITEMS) {
     throw new TypeError('The archive object item limit must be a positive safe integer.');
   }
   if (!record(value) || !Array.isArray(value.bundles) || value.bundles.length > maxItems) {
@@ -99,10 +124,11 @@ export function parseArchiveObject(
     bundles.set(bundle.id, bundle);
   }
 
-  validateWholeArchive(manifest, bundles);
+  validateWholeArchive(manifest, bundles, null);
   return {
     manifest,
     bundles: manifest.items.map((entry) => requiredBundle(bundles, entry.id)),
+    files: [],
   };
 }
 
@@ -139,6 +165,7 @@ export async function readArchive(
   let failure: ArchiveReadError | null = null;
   let manifest: ArchiveManifest | null = null;
   const bundles = new Map<string, ItemBundle>();
+  const fileEntries = new Map<string, Uint8Array>();
   const names = new Set<string>();
   const pending = new Set<string>();
   const currentFailure = (): ArchiveReadError | null => failure;
@@ -177,7 +204,8 @@ export async function readArchive(
         );
       }
       const entryItemId = file.name === MANIFEST_ENTRY ? null : itemIdFromEntryName(file.name);
-      if (file.name !== MANIFEST_ENTRY && entryItemId === null) {
+      const fileEntry = fileVersionFromEntryName(file.name);
+      if (file.name !== MANIFEST_ENTRY && entryItemId === null && fileEntry === null) {
         throw refusal(
           'archive.invalid_entry_name',
           `The archive entry "${file.name}" is not a manifest or item payload.`,
@@ -189,10 +217,14 @@ export async function readArchive(
           `The archive entry "${file.name}" uses an unsupported compression method.`,
         );
       }
-      if (file.originalSize !== undefined && file.originalSize > limits.maxEntryBytes) {
+      const entryLimit =
+        fileEntry === null
+          ? limits.maxEntryBytes
+          : (limits.maxFileEntryBytes ?? limits.maxUncompressedBytes);
+      if (file.originalSize !== undefined && file.originalSize > entryLimit) {
         throw refusal(
           'archive.entry_too_large',
-          `The archive entry "${file.name}" is larger than ${String(limits.maxEntryBytes)} bytes.`,
+          `The archive entry "${file.name}" is larger than ${String(entryLimit)} bytes.`,
         );
       }
       if (
@@ -208,7 +240,7 @@ export async function readArchive(
 
       names.add(file.name);
       pending.add(file.name);
-      readEntry(file, limits.maxEntryBytes, (bytes) => {
+      readEntry(file, entryLimit, (bytes) => {
         if (failure !== null) return;
         try {
           outputBytes += bytes.byteLength;
@@ -218,7 +250,6 @@ export async function readArchive(
               `The expanded archive is larger than ${String(limits.maxUncompressedBytes)} bytes.`,
             );
           }
-          const value = parseJson(bytes, file.name);
           if (file.name === MANIFEST_ENTRY) {
             if (manifest !== null) {
               throw refusal(
@@ -226,8 +257,17 @@ export async function readArchive(
                 `The archive contains ${MANIFEST_ENTRY} more than once.`,
               );
             }
-            manifest = parseManifest(value, limits.maxItems);
+            manifest = parseManifest(parseJson(bytes, file.name), limits.maxItems);
+          } else if (fileEntry !== null) {
+            if (fileEntries.has(file.name)) {
+              throw refusal(
+                'archive.duplicate_entry',
+                `The archive contains "${file.name}" more than once.`,
+              );
+            }
+            fileEntries.set(file.name, bytes);
           } else {
+            const value = parseJson(bytes, file.name);
             const bundle = parseBundle(value, file.name);
             if (bundle.id !== entryItemId) {
               throw refusal(
@@ -303,10 +343,12 @@ export async function readArchive(
     throw refusal('archive.manifest_missing', `The archive does not contain ${MANIFEST_ENTRY}.`);
   }
 
-  validateWholeArchive(parsedManifest, bundles);
+  validateWholeArchive(parsedManifest, bundles, new Set(fileEntries.keys()));
+  const archiveFiles = verifyFileEntryBytes(parsedManifest, fileEntries);
   return {
     manifest: parsedManifest,
     bundles: parsedManifest.items.map((entry) => requiredBundle(bundles, entry.id)),
+    files: archiveFiles,
   };
 }
 
@@ -356,6 +398,13 @@ export function requireTemplateProfile(manifest: ArchiveManifest): TemplateArchi
 /** Proves the cross-entry rules a template needs before it may be staged. */
 export function validateTemplateArchive(archive: ReadArchiveResult): TemplateArchiveProfile {
   const profile = requireTemplateProfile(archive.manifest);
+  const sourceItemIds = new Set(archive.manifest.items.map((item) => item.id));
+  if (profile.initialization?.rules.some((rule) => !sourceItemIds.has(rule.sourceId)) === true) {
+    throw refusal(
+      'template.initialization_invalid',
+      'An initialization rule refers to an item outside the template tree.',
+    );
+  }
   const rootBundle = archive.bundles.find((bundle) => bundle.id === archive.manifest.root);
   if (!profile.includeBody && rootBundle !== undefined && rootBundle.body !== null) {
     throw refusal(
@@ -641,10 +690,22 @@ function parseManifest(value: unknown, maxItems: number): ArchiveManifest {
       `The manifest must declare format "${ARCHIVE_FORMAT}".`,
     );
   }
-  if (value.formatVersion !== ARCHIVE_FORMAT_VERSION) {
+  if (
+    value.formatVersion !== ARCHIVE_FORMAT_VERSION &&
+    value.formatVersion !== FILE_ARCHIVE_FORMAT_VERSION
+  ) {
     throw refusal(
       'archive.version_unsupported',
       `Archive format version ${String(value.formatVersion)} is not supported by this build.`,
+    );
+  }
+  if (
+    (value.formatVersion === ARCHIVE_FORMAT_VERSION && value.files !== undefined) ||
+    (value.formatVersion === FILE_ARCHIVE_FORMAT_VERSION && !Array.isArray(value.files))
+  ) {
+    throw refusal(
+      'archive.files_invalid',
+      'Archive v1 must not declare file entries and archive v2 must declare them.',
     );
   }
   const schemaVersion = value.schemaVersion;
@@ -692,6 +753,26 @@ function parseManifest(value: unknown, maxItems: number): ArchiveManifest {
   }
   const items = value.items.map(parseItemEntry);
   const profile = value.profile === undefined ? undefined : parseTemplateProfile(value.profile);
+  const files =
+    value.formatVersion === FILE_ARCHIVE_FORMAT_VERSION
+      ? (value.files as unknown[]).map(parseFileVersionEntry)
+      : undefined;
+  if (files !== undefined && files.length > maxItems * MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM) {
+    throw refusal(
+      'archive.too_many_file_versions',
+      'The archive declares more file versions than the supported limit.',
+    );
+  }
+  if (files !== undefined) {
+    try {
+      validateFileVersionEntries(files);
+    } catch (error) {
+      throw refusal(
+        'archive.files_invalid',
+        error instanceof Error ? error.message : 'File metadata is invalid.',
+      );
+    }
+  }
   return {
     format: value.format,
     formatVersion: value.formatVersion,
@@ -702,8 +783,39 @@ function parseManifest(value: unknown, maxItems: number): ArchiveManifest {
     rootEffectiveSchema: parseNullableSchema(value.rootEffectiveSchema, 'the manifest root'),
     includesDeleted: value.includesDeleted,
     items,
+    ...(files === undefined ? {} : { files }),
     omitted: value.omitted.map(parseOmission),
     loss: value.loss.map(parseLoss),
+  };
+}
+
+function parseFileVersionEntry(value: unknown): ArchiveFileVersionEntry {
+  if (
+    !record(value) ||
+    typeof value.itemId !== 'string' ||
+    typeof value.version !== 'number' ||
+    typeof value.current !== 'boolean' ||
+    typeof value.fileName !== 'string' ||
+    typeof value.mediaType !== 'string' ||
+    typeof value.byteLength !== 'number' ||
+    typeof value.sha256 !== 'string' ||
+    typeof value.previewable !== 'boolean' ||
+    !(value.pixelWidth === null || typeof value.pixelWidth === 'number') ||
+    !(value.pixelHeight === null || typeof value.pixelHeight === 'number')
+  ) {
+    throw refusal('archive.files_invalid', 'The manifest contains invalid file-version metadata.');
+  }
+  return {
+    itemId: value.itemId,
+    version: value.version,
+    current: value.current,
+    fileName: value.fileName,
+    mediaType: value.mediaType,
+    byteLength: value.byteLength,
+    sha256: value.sha256,
+    previewable: value.previewable,
+    pixelWidth: value.pixelWidth,
+    pixelHeight: value.pixelHeight,
   };
 }
 
@@ -770,7 +882,306 @@ function parseTemplateProfile(value: unknown): TemplateArchiveProfile {
     description,
     includeBody,
     includeChildren,
+    ...(value.initialization === undefined
+      ? {}
+      : { initialization: parseTemplateInitialization(value.initialization) }),
   };
+}
+
+function parseTemplateInitialization(value: unknown): TemplateInitialization | null {
+  if (value === null) return null;
+  if (
+    !record(value) ||
+    value.version !== 1 ||
+    !Array.isArray(value.inputs) ||
+    value.inputs.length > 100 ||
+    !Array.isArray(value.rules) ||
+    !Array.isArray(value.references) ||
+    value.rules.length + value.references.length > 2000 ||
+    !hasOnlyKeys(value, ['version', 'inputs', 'rules', 'references'])
+  ) {
+    throw refusal(
+      'template.initialization_invalid',
+      'The template initialization metadata is invalid.',
+    );
+  }
+
+  const inputs = value.inputs.map(parseTemplateInitializationInput);
+  const rules = value.rules.map(parseTemplateInitializationRule);
+  const references = value.references.map(parseTemplateReferenceRule);
+  const inputKeys = new Set<string>();
+  const inputsByKey = new Map(inputs.map((input) => [input.key, input]));
+  for (const input of inputs) {
+    if (
+      !/^[a-z][a-z0-9_-]{0,63}$/.test(input.key) ||
+      !shortText(input.label, 120) ||
+      inputKeys.has(input.key)
+    ) {
+      throw refusal(
+        'template.initialization_invalid',
+        'The template initialization inputs are invalid.',
+      );
+    }
+    inputKeys.add(input.key);
+    if (input.defaultValue != null && !validInitializationDefault(input.type, input.defaultValue)) {
+      throw refusal(
+        'template.initialization_invalid',
+        'A template initialization default value is invalid.',
+      );
+    }
+  }
+  const itemInputKeys = new Set(
+    inputs.filter((input) => input.type === 'item').map((input) => input.key),
+  );
+  const dateInputKeys = new Set(
+    inputs.filter((input) => input.type === 'date').map((input) => input.key),
+  );
+  const seenRules = new Set<string>();
+  for (const rule of rules) {
+    const identity = `${rule.sourceId}\0${rule.propertyKey}`;
+    if (
+      !isArchiveSafeId(rule.sourceId) ||
+      !shortText(rule.propertyKey, 160) ||
+      seenRules.has(identity)
+    ) {
+      throw refusal(
+        'template.initialization_invalid',
+        'The template initialization rules are invalid.',
+      );
+    }
+    seenRules.add(identity);
+    const hasValue = rule.value !== undefined && rule.value !== null;
+    const inputKey = rule.inputKey;
+    const offsetDays = rule.offsetDays;
+    const timeOfDay = rule.timeOfDay;
+    const timeZone = rule.timeZone;
+    const hasInput = inputKey !== undefined && inputKey !== null;
+    const hasOffset = offsetDays !== undefined && offsetDays !== null;
+    const hasTime = timeOfDay !== undefined && timeOfDay !== null;
+    const hasZone = timeZone !== undefined && timeZone !== null;
+    switch (rule.kind) {
+      case 'keep':
+      case 'clear':
+        if (hasValue || hasInput || hasOffset || hasTime || hasZone) {
+          throw refusal(
+            'template.initialization_invalid',
+            'Keep and clear rules must not carry value or date fields.',
+          );
+        }
+        break;
+      case 'set':
+        if (!hasValue || hasInput || hasOffset || hasTime || hasZone) {
+          throw refusal(
+            'template.initialization_invalid',
+            'A set rule must carry only a non-null literal value.',
+          );
+        }
+        if (
+          rule.propertyKey === 'recurrence.until' &&
+          (typeof rule.value !== 'string' || !validInitializationDefault('date', rule.value))
+        ) {
+          throw refusal(
+            'template.initialization_invalid',
+            'A set recurrence end rule requires an ISO calendar day value.',
+          );
+        }
+        break;
+      case 'input':
+        if (
+          hasValue ||
+          inputKey == null ||
+          !inputKeys.has(inputKey) ||
+          hasOffset ||
+          hasTime ||
+          hasZone
+        ) {
+          throw refusal(
+            'template.initialization_invalid',
+            'An input rule must refer only to a declared input.',
+          );
+        }
+        if (rule.propertyKey === 'recurrence.until' && inputsByKey.get(inputKey)?.type !== 'date') {
+          throw refusal(
+            'template.initialization_invalid',
+            'The recurrence end rule requires a date input.',
+          );
+        }
+        break;
+      case 'relativeDate':
+        if (
+          hasValue ||
+          inputKey == null ||
+          !dateInputKeys.has(inputKey) ||
+          offsetDays == null ||
+          !Number.isSafeInteger(offsetDays)
+        ) {
+          throw refusal(
+            'template.initialization_invalid',
+            'A relative-date rule requires a date input and integer offset.',
+          );
+        }
+        if (Math.abs(offsetDays) > 36500) {
+          throw refusal(
+            'template.initialization_invalid',
+            'A relative-date rule offset exceeds its supported bound.',
+          );
+        }
+        if (rule.propertyKey === 'recurrence.until') {
+          if (hasTime || hasZone)
+            throw refusal(
+              'template.initialization_invalid',
+              'The recurrence end rule accepts no time fields.',
+            );
+        } else if (
+          hasTime !== hasZone ||
+          (hasTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(timeOfDay)) ||
+          (hasZone && timeZone.trim().length === 0)
+        ) {
+          throw refusal(
+            'template.initialization_invalid',
+            'Relative timestamp rules require a valid time and time zone together.',
+          );
+        }
+        break;
+    }
+  }
+  const seenReferences = new Set<string>();
+  for (const reference of references) {
+    if (!isArchiveSafeId(reference.sourceItemId) || seenReferences.has(reference.sourceItemId)) {
+      throw refusal(
+        'template.initialization_invalid',
+        'The template reference policies are invalid.',
+      );
+    }
+    seenReferences.add(reference.sourceItemId);
+    if (
+      reference.policy === 'replace' &&
+      (reference.inputKey == null || !itemInputKeys.has(reference.inputKey))
+    ) {
+      throw refusal(
+        'template.initialization_invalid',
+        'A replacement reference requires a declared item input.',
+      );
+    }
+    if (reference.policy !== 'replace' && reference.inputKey != null) {
+      throw refusal(
+        'template.initialization_invalid',
+        'Retain and omit references must not carry an input key.',
+      );
+    }
+  }
+  return { version: 1, inputs, rules, references };
+}
+
+function validInitializationDefault(
+  type: TemplateInitializationInput['type'],
+  value: string,
+): boolean {
+  if (type === 'text') return value.length <= 4096;
+  if (type === 'date') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function parseTemplateInitializationInput(value: unknown): TemplateInitializationInput {
+  if (
+    !record(value) ||
+    typeof value.key !== 'string' ||
+    typeof value.label !== 'string' ||
+    !['text', 'date', 'member', 'item'].includes(String(value.type)) ||
+    typeof value.required !== 'boolean' ||
+    (value.defaultValue !== undefined &&
+      value.defaultValue !== null &&
+      typeof value.defaultValue !== 'string') ||
+    !hasOnlyKeys(value, ['key', 'label', 'type', 'required', 'defaultValue'])
+  ) {
+    throw refusal(
+      'template.initialization_invalid',
+      'The template initialization contains an invalid input.',
+    );
+  }
+  return {
+    key: value.key,
+    label: value.label,
+    type: value.type as TemplateInitializationInput['type'],
+    required: value.required,
+    ...(value.defaultValue === undefined ? {} : { defaultValue: value.defaultValue }),
+  };
+}
+
+function parseTemplateInitializationRule(value: unknown): TemplateInitializationRule {
+  if (
+    !record(value) ||
+    typeof value.sourceId !== 'string' ||
+    typeof value.propertyKey !== 'string' ||
+    !['keep', 'clear', 'set', 'input', 'relativeDate'].includes(String(value.kind)) ||
+    (value.inputKey !== undefined &&
+      value.inputKey !== null &&
+      typeof value.inputKey !== 'string') ||
+    (value.offsetDays !== undefined &&
+      value.offsetDays !== null &&
+      typeof value.offsetDays !== 'number') ||
+    (value.timeOfDay !== undefined &&
+      value.timeOfDay !== null &&
+      typeof value.timeOfDay !== 'string') ||
+    (value.timeZone !== undefined &&
+      value.timeZone !== null &&
+      typeof value.timeZone !== 'string') ||
+    !hasOnlyKeys(value, [
+      'sourceId',
+      'propertyKey',
+      'kind',
+      'value',
+      'inputKey',
+      'offsetDays',
+      'timeOfDay',
+      'timeZone',
+    ])
+  ) {
+    throw refusal(
+      'template.initialization_invalid',
+      'The template initialization contains an invalid rule.',
+    );
+  }
+  return {
+    sourceId: value.sourceId,
+    propertyKey: value.propertyKey,
+    kind: value.kind as TemplateInitializationRule['kind'],
+    ...(value.value === undefined ? {} : { value: value.value }),
+    ...(value.inputKey === undefined ? {} : { inputKey: value.inputKey }),
+    ...(value.offsetDays === undefined ? {} : { offsetDays: value.offsetDays }),
+    ...(value.timeOfDay === undefined ? {} : { timeOfDay: value.timeOfDay }),
+    ...(value.timeZone === undefined ? {} : { timeZone: value.timeZone }),
+  };
+}
+
+function parseTemplateReferenceRule(value: unknown): TemplateReferenceRule {
+  if (
+    !record(value) ||
+    typeof value.sourceItemId !== 'string' ||
+    !['retain', 'omit', 'replace'].includes(String(value.policy)) ||
+    (value.inputKey !== undefined &&
+      value.inputKey !== null &&
+      typeof value.inputKey !== 'string') ||
+    !hasOnlyKeys(value, ['sourceItemId', 'policy', 'inputKey'])
+  ) {
+    throw refusal(
+      'template.initialization_invalid',
+      'The template initialization contains an invalid reference policy.',
+    );
+  }
+  return {
+    sourceItemId: value.sourceItemId,
+    policy: value.policy as TemplateReferenceRule['policy'],
+    ...(value.inputKey === undefined ? {} : { inputKey: value.inputKey }),
+  };
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
 }
 
 function parseItemEntry(value: unknown): ArchiveItemEntry {
@@ -845,6 +1256,7 @@ function parseBundle(value: unknown, name: string): ItemBundle {
     createdAt,
     updatedAt,
     properties: value.properties,
+    ...(Object.hasOwn(value, 'recurrence') ? { recurrence: value.recurrence } : {}),
     schema: parseNullableSchema(value.schema, `item ${id}`),
     views: parseNullableViews(value.views, id),
     viewRows: value.viewRows.map((row) => parseViewRow(row, id)),
@@ -873,6 +1285,7 @@ const PROPERTY_TYPES = new Set([
   'completion',
   'priority',
   'estimate',
+  'assignee',
 ]);
 
 function parseNullableSchema(value: unknown, owner: string): SchemaSnapshot | null {
@@ -1232,7 +1645,31 @@ function stringArray(value: unknown): value is string[] {
 function validateWholeArchive(
   manifest: ArchiveManifest,
   bundles: ReadonlyMap<string, ItemBundle>,
+  fileEntryNames: ReadonlySet<string> | null,
 ): void {
+  try {
+    assertManifestHasNoUnportableFiles(manifest);
+  } catch (error) {
+    throw refusal(
+      'archive.file_bytes_unsupported',
+      error instanceof Error ? error.message : 'File metadata is invalid.',
+    );
+  }
+  const includedFileIds = new Set((manifest.files ?? []).map((entry) => entry.itemId));
+  if (fileEntryNames !== null) {
+    const expectedNames = new Set(
+      (manifest.files ?? []).map((entry) => fileVersionEntryName(entry.itemId, entry.version)),
+    );
+    if (
+      fileEntryNames.size !== expectedNames.size ||
+      [...expectedNames].some((name) => !fileEntryNames.has(name))
+    ) {
+      throw refusal(
+        'archive.file_entry_mismatch',
+        'The archive file entries do not match the manifest.',
+      );
+    }
+  }
   const seen = new Set<string>();
   const depths = new Map<string, number>();
   const declared = new Map(manifest.items.map((item) => [item.id, item]));
@@ -1261,6 +1698,14 @@ function validateWholeArchive(
     const bundle = bundles.get(entry.id);
     if (bundle === undefined)
       throw refusal('archive.bundle_missing', `The archive has no payload for item ${entry.id}.`);
+    try {
+      assertBundleHasNoUnportableFiles(bundle, manifest.formatVersion, includedFileIds);
+    } catch (error) {
+      throw refusal(
+        'archive.file_bytes_unsupported',
+        error instanceof Error ? error.message : 'File references are invalid.',
+      );
+    }
     if (
       bundle.parentId !== entry.parentId ||
       bundle.seq !== entry.seq ||
@@ -1283,6 +1728,46 @@ function validateWholeArchive(
   }
 }
 
+function verifyFileEntryBytes(
+  manifest: ArchiveManifest,
+  fileEntries: ReadonlyMap<string, Uint8Array>,
+): readonly { readonly descriptor: ArchiveFileVersionEntry; readonly bytes: Uint8Array }[] {
+  const descriptors = manifest.files ?? [];
+  if (fileEntries.size !== descriptors.length) {
+    throw refusal(
+      'archive.file_entry_mismatch',
+      'The archive file entries do not match the manifest.',
+    );
+  }
+  const files: { descriptor: ArchiveFileVersionEntry; bytes: Uint8Array }[] = [];
+  for (const descriptor of descriptors) {
+    const entryName = fileVersionEntryName(descriptor.itemId, descriptor.version);
+    const bytes = fileEntries.get(entryName);
+    if (bytes === undefined) {
+      throw refusal('archive.file_entry_missing', `The archive has no bytes for ${entryName}.`);
+    }
+    if (bytes.byteLength !== descriptor.byteLength) {
+      throw refusal(
+        'archive.file_length_mismatch',
+        `The file entry ${entryName} has a different byte length than its manifest.`,
+      );
+    }
+    if (sha256Hex(bytes) !== descriptor.sha256) {
+      throw refusal(
+        'archive.file_digest_mismatch',
+        `The file entry ${entryName} has a different SHA-256 digest than its manifest.`,
+      );
+    }
+    files.push({ descriptor, bytes });
+  }
+  return files;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  const digest = sha256(bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
 function safeEntryName(name: string): boolean {
   return (
     name.length > 0 &&
@@ -1296,6 +1781,19 @@ function itemIdFromEntryName(name: string): string | null {
   if (!name.startsWith('items/') || !name.endsWith('.json')) return null;
   const id = name.slice('items/'.length, -'.json'.length);
   return isArchiveSafeId(id) ? id : null;
+}
+
+function fileVersionFromEntryName(
+  name: string,
+): { readonly itemId: string; readonly version: number } | null {
+  const match = /^files\/([0-9a-f-]{36})\/([1-9][0-9]*)\.bin$/i.exec(name);
+  const itemId = match?.[1];
+  const versionText = match?.[2];
+  if (itemId === undefined || versionText === undefined || !isArchiveSafeId(itemId)) return null;
+  const version = Number(versionText);
+  return Number.isSafeInteger(version) && version <= MAX_ARCHIVE_FILE_VERSIONS_PER_ITEM
+    ? { itemId, version }
+    : null;
 }
 
 function isSheetItemType(itemType: string): boolean {
@@ -1319,8 +1817,23 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 function validateLimits(limits: ArchiveReadLimits): void {
-  if (Object.values(limits).some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+  if (
+    Object.values(limits).some(
+      (value) => value !== undefined && (!Number.isSafeInteger(value) || value <= 0),
+    )
+  ) {
     throw new TypeError('Archive read limits must be positive safe integers.');
+  }
+  if (limits.maxEntries > MAX_ARCHIVE_ENTRIES || limits.maxItems > MAX_ARCHIVE_ITEMS) {
+    throw new TypeError('Archive read limits exceed the shared Nix archive ceilings.');
+  }
+  if (
+    limits.maxItems <= MAX_TEMPLATE_ARCHIVE_ITEMS &&
+    limits.maxEntries > MAX_TEMPLATE_ARCHIVE_ENTRIES
+  ) {
+    throw new TypeError(
+      'Template archive read limits exceed the shared template archive ceilings.',
+    );
   }
 }
 

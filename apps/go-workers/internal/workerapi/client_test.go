@@ -196,6 +196,64 @@ func TestExecutionContextAddsLeaseProofOnlyToDomainRequests(t *testing.T) {
 	}
 }
 
+func TestImportFileVersionRoutesMatchWorkerExecutionMounts(t *testing.T) {
+	const jobID = "019946d1-fbc0-7a87-b27e-d2f16408c71c"
+	const executionID = "worker:019946d1-fbc1-7d99-9ce7-1c721b406ff2"
+	const importID = "10000000-0000-4000-8000-000000000001"
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		if request.Header.Get("X-Nix-Worker-Job-Id") != jobID || request.Header.Get("X-Nix-Worker-Execution-Id") != executionID {
+			t.Fatalf("execution proof missing from %s %s", request.Method, request.URL.Path)
+		}
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/internal/worker-executions/template-imports/"+importID+"/files/authorization":
+			if request.URL.Query().Get("limit") != "25" {
+				t.Fatalf("template file plan query = %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","files":[],"complete":true}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/internal/worker-executions/template-imports/"+importID+"/files/complete":
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completedTransferIds":["20000000-0000-4000-8000-000000000002"]}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/internal/worker-executions/imports/"+importID+"/file-versions/authorization":
+			if request.URL.Query().Get("limit") != "25" {
+				t.Fatalf("document file plan query = %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","files":[],"complete":true}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/internal/worker-executions/imports/"+importID+"/file-versions/complete":
+			_, _ = response.Write([]byte(`{"importId":"` + importID + `","completedTransferIds":["20000000-0000-4000-8000-000000000002"]}`))
+		default:
+			t.Errorf("unexpected import file request: %s %s", request.Method, request.URL.Path)
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "secret", "worker", time.Second)
+	ctx := WithExecution(context.Background(), jobID, executionID)
+	if _, err := client.GetTemplateImportFilePlan(ctx, importID, "", 25); err != nil {
+		t.Fatalf("template file plan: %v", err)
+	}
+	if err := client.CompleteTemplateImportFileBatch(ctx, importID, []string{"20000000-0000-4000-8000-000000000002"}); err != nil {
+		t.Fatalf("template file completion: %v", err)
+	}
+	if _, err := client.GetDocumentImportFilePlan(ctx, importID, "", 25); err != nil {
+		t.Fatalf("document file plan: %v", err)
+	}
+	if err := client.CompleteDocumentImportFileBatch(ctx, importID, []string{"20000000-0000-4000-8000-000000000002"}); err != nil {
+		t.Fatalf("document file completion: %v", err)
+	}
+	want := []string{
+		"GET /internal/worker-executions/template-imports/" + importID + "/files/authorization",
+		"POST /internal/worker-executions/template-imports/" + importID + "/files/complete",
+		"GET /internal/worker-executions/imports/" + importID + "/file-versions/authorization",
+		"POST /internal/worker-executions/imports/" + importID + "/file-versions/complete",
+	}
+	if fmt.Sprint(requests) != fmt.Sprint(want) {
+		t.Fatalf("requests = %v, want %v", requests, want)
+	}
+}
+
 func TestClientObtainsExportSourceAndSizedDestinationUnderTheExecution(t *testing.T) {
 	const jobID = "019946d1-fbc0-7a87-b27e-d2f16408c71b"
 	const executionID = "worker:019946d1-fbc1-7d99-9ce7-1c721b406ff1"

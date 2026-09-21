@@ -28,6 +28,15 @@ public sealed class TemplateApplication
     /// <summary>Gets the effective requested title for a create application.</summary>
     public string? RequestedTitle { get; init; }
 
+    /// <summary>Gets the template revision used to resolve this application.</summary>
+    public int TemplateRevision { get; init; }
+
+    /// <summary>Gets the canonical resolved values and authoritative body bindings.</summary>
+    public string? ResolvedInputs { get; init; }
+
+    /// <summary>Gets the deterministic fingerprint of the normalized request.</summary>
+    public string? RequestFingerprint { get; init; }
+
     /// <summary>Gets whether this merged or created.</summary>
     public required TemplateApplicationMode Mode { get; init; }
 
