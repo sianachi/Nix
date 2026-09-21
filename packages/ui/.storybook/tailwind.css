@@ -18,6 +18,7 @@
 /* The editor stories main.ts lists render the editor's own class strings (`prose.ts`), the page
    guides and the table tools; without this line those stories render with Tailwind's reset. */
 @source '../../../apps/web/src/editor';
+@source '../../../apps/web/src/plugins';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

@@ -22,35 +22,34 @@ import {
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
 
 describe('the exported page', () => {
-  it('is the one the PDF export prints', () => {
-    // The export cannot be imported from here, so its numbers are mirrored. This is what keeps
-    // the mirror honest: change the margins there and this names the constant to change here.
-    const styles = readFileSync(
-      join(repoRoot, 'packages', 'pdf-export', 'src', 'styles.ts'),
+  it('is the one the Go PDF exporter prints', () => {
+    // The exporter is Go and cannot be imported here, so its numbers are mirrored. This is what
+    // keeps the mirror honest: change the margin there and this names the constant to change
+    // here. It reads the Go source rather than `packages/pdf-export`, which nothing ships.
+    const source = readFileSync(
+      join(repoRoot, 'apps', 'go-workers', 'internal', 'exporter', 'pdf.go'),
       'utf8',
     );
-    expect(styles).toContain(`[${EXPORT_PAGE.margins.join(', ')}]`);
-    expect(styles).toContain(`BODY_SIZE = ${String(EXPORT_PAGE.bodySize)}`);
-    expect(styles).toContain(`lineHeight: ${String(EXPORT_PAGE.lineHeight)}`);
-
-    const converter = readFileSync(
-      join(repoRoot, 'packages', 'pdf-export', 'src', 'converter.ts'),
-      'utf8',
-    );
-    expect(converter).toContain(`pageSize: 'A4'`);
+    const [left, top, right, bottom] = EXPORT_PAGE.margins;
+    expect(new Set([left, top, right, bottom]).size, 'the Go margin is uniform').toBe(1);
+    expect(source).toContain(`const pdfMargin = ${String(left)}.0`);
+    expect(source).toContain(`fpdf.New("P", "pt", "A4", "")`);
+    expect(source).toContain(`pdf.SetFont("Nix", "", ${String(EXPORT_PAGE.bodySize)})`);
+    expect(source).toContain(`pdf.Write(size*${String(EXPORT_PAGE.lineHeight)}, pdfText(text))`);
   });
 });
 
 describe('the page height', () => {
-  it('is around sixty lines for the editor as shipped', () => {
-    // 13px body on 1.5 leading in a 65ch column. The A4 export holds about fifty lines of 84
-    // characters; the editor's line is shorter, so its page is taller in lines. What matters is
-    // the order of magnitude: a page of a few lines or a few thousand is a broken estimate.
+  it('is around fifty lines for the editor as shipped', () => {
+    // 13px body on 1.5 leading in a 65ch column. The A4 export holds about forty-six lines of
+    // eighty characters at 11pt; the editor's line is shorter, so its page is taller in lines.
+    // What matters is the order of magnitude: a page of a few lines or a few thousand is a
+    // broken estimate.
     const height = estimatedPageHeight({ width: 470, fontSize: 13, lineHeight: 19.5 });
     expect(height).not.toBeNull();
     const lines = (height ?? 0) / 19.5;
-    expect(lines).toBeGreaterThan(50);
-    expect(lines).toBeLessThan(80);
+    expect(lines).toBeGreaterThan(40);
+    expect(lines).toBeLessThan(70);
   });
 
   it('holds the same words at any width', () => {

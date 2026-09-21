@@ -7,6 +7,7 @@ import {
   LayoutTemplate,
   PanelRightClose,
   Save,
+  Clock,
   Settings2,
   Upload,
 } from 'lucide-react';
@@ -62,6 +63,8 @@ import { useTabTransfer } from '../tabs/use-tab-transfer';
 import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
+import { DocumentHistory } from '../history/document-history';
+import { historyPanelWidth } from '../layout/regions';
 import { ItemPanel } from '../panel/item-panel';
 import { browserStorage } from '../lib/browser-storage';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
@@ -448,6 +451,7 @@ export function OpenItem({
   const [moveOpen, setMoveOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const paneIndex = usePaneIndex();
@@ -590,6 +594,20 @@ export function OpenItem({
             Save as template
           </Button>
         ) : null}
+
+        {/* Before Settings: the document's past is about the document, and Settings is about
+              the item around it. */}
+        <Button
+          variant="ghost"
+          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          aria-expanded={historyOpen}
+          onClick={() => {
+            setHistoryOpen(!historyOpen);
+          }}
+        >
+          <Icon icon={Clock} size="sm" />
+          History
+        </Button>
 
         <Button
           variant="ghost"
@@ -788,6 +806,40 @@ export function OpenItem({
             </Dialog>
           ) : (
             <ItemPanel container={container} details={details} onClose={togglePanel} />
+          )
+        ) : null}
+
+        {/* The document's revisions, beside it on a wide window and over it on a narrow one - the
+            same two shapes the settings panel takes, for the same reasons. */}
+        {historyOpen ? (
+          overlayDetails ? (
+            <Dialog
+              open
+              title="History"
+              onClose={() => {
+                setHistoryOpen(false);
+              }}
+              presentation="workspace"
+              className="sm:max-w-2xl"
+            >
+              <DocumentHistory
+                itemId={itemId}
+                onClose={() => {
+                  setHistoryOpen(false);
+                }}
+              />
+            </Dialog>
+          ) : (
+            <div
+              className={`flex shrink-0 flex-col overflow-hidden border-l border-divider ${historyPanelWidth}`}
+            >
+              <DocumentHistory
+                itemId={itemId}
+                onClose={() => {
+                  setHistoryOpen(false);
+                }}
+              />
+            </div>
           )
         ) : null}
       </div>

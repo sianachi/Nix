@@ -8,8 +8,10 @@ import { createTouchedNotifier } from './core/touched.ts';
 import { createCoreTemplateClient } from './templates/core.ts';
 import { createTemplateService } from './templates/service.ts';
 import { connectDocumentLocks } from './db/advisory-lock.ts';
+import type { TenantScope } from './db/tenant-scope.ts';
 import { RateWindow } from './documents/limits.ts';
 import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
+import { startRetentionSweep } from './documents/retention.ts';
 import { createServer } from './http/server.ts';
 import { createImportBodyService } from './imports/bodies.ts';
 import { createCoreImportClient } from './imports/core.ts';
@@ -101,6 +103,12 @@ registry = createDocumentRegistry({
   }),
 });
 
+// The tenants this process has actually authorized a request for, since it started. The
+// retention sweep below reads this on every tick rather than enumerating tenants itself - a
+// per-tenant connection cannot see past its own tenant under row-level security, and this
+// service holds no role that bypasses it. See documents/retention.ts for the full reasoning.
+const activeScopes = new Map<string, TenantScope>();
+
 const app = createServer({
   pool,
   sessions,
@@ -110,6 +118,9 @@ const app = createServer({
   metrics,
   hub: registry,
   rateWindow,
+  onTenantSeen: (scope) => {
+    activeScopes.set(scope.tenantId, scope);
+  },
   templates: createTemplateService({
     pool,
     core: coreTemplates,
@@ -145,12 +156,25 @@ logHolder.write = (message) => {
   app.log.warn(message);
 };
 
+const retention = startRetentionSweep({
+  pool,
+  activeScopes: () => [...activeScopes.values()],
+  intervalMs: config.retentionSweepMs,
+  metrics,
+  log: (message) => {
+    app.log.info(message);
+  },
+});
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     // Close order is the drain order: stop accepting and tell every socket, drain the
     // registry (final flushes and snapshots), then release the pool and the lock session.
     // Dropping a connection mid-append would roll it back, which is correct but loses an
-    // edit somebody had already seen applied locally.
+    // edit somebody had already seen applied locally. The retention timer stops first -
+    // it holds nothing that needs draining, only a clock that must not fire into a pool
+    // that is about to close.
+    retention.stop();
     void app
       .close()
       .then(() => locks.close())

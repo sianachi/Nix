@@ -127,6 +127,16 @@ public sealed class NixDbContext : DbContext
     public DbSet<ContentSnapshot> ContentSnapshots => Set<ContentSnapshot>();
 
     /// <summary>
+    /// Gets the named versions.
+    /// </summary>
+    /// <remarks>
+    /// Readable here and not writable, for the same reason as the other content tables: naming a
+    /// version means pinning a snapshot, which the collaboration service is the only thing able to
+    /// produce.
+    /// </remarks>
+    public DbSet<ContentVersion> ContentVersions => Set<ContentVersion>();
+
+    /// <summary>
     /// Gets the item-to-item reference edges backlinks are read from.
     /// </summary>
     /// <remarks>
@@ -289,6 +299,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ContentDocConfiguration());
         modelBuilder.ApplyConfiguration(new ContentUpdateConfiguration());
         modelBuilder.ApplyConfiguration(new ContentSnapshotConfiguration());
+        modelBuilder.ApplyConfiguration(new ContentVersionConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLinkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());

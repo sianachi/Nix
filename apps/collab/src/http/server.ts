@@ -13,12 +13,25 @@ import {
   readScope,
   type PreparedExport,
 } from '../export/prepare.ts';
-import { withTenantScope } from '../db/tenant-scope.ts';
+import { withTenantScope, type TenantScope } from '../db/tenant-scope.ts';
 import { strategyFor } from '../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../documents/limits.ts';
 import { RateWindow } from '../documents/limits.ts';
-import { CATCH_UP_LIMIT, applyUpdate, describeSchema, openDocument } from '../documents/service.ts';
+import {
+  CATCH_UP_LIMIT,
+  applyUpdate,
+  describeSchema,
+  openDocument,
+  restoreDocument,
+} from '../documents/service.ts';
 import { updatesAfter } from '../db/documents.ts';
+import {
+  deleteNamedVersion,
+  listNamedVersions,
+  listRevisions,
+  nameVersion,
+  stateAt,
+} from '../db/history.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import { importBodyProblem, type ImportBodyService } from '../imports/bodies.ts';
 import { CoreImportError } from '../imports/core.ts';
@@ -85,6 +98,18 @@ export interface ServerDependencies {
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
   readonly hub?: SessionHub | undefined;
+
+  /**
+   * Told the tenant scope of every request this process successfully authorized.
+   *
+   * The retention sweep (`documents/retention.ts`, started from `index.ts`) has no way of its
+   * own to enumerate tenants - row-level security means a per-tenant connection cannot see past
+   * its own tenant, and this service holds no role that bypasses it. This is the one choke
+   * point every authorized request already passes through, so it is the cheapest place to
+   * remember which tenants this process has actually seen documents for. Optional, and a no-op
+   * when omitted: nothing here depends on it being wired up.
+   */
+  readonly onTenantSeen?: ((scope: TenantScope) => void) | undefined;
 }
 
 /**
@@ -792,6 +817,280 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     });
   });
 
+  /**
+   * Version history: revisions, a state at a sequence, restoring to it, and the names pinned
+   * to a revision. Six routes, one authorization path - every handler below starts with the
+   * same `establish` every other route in this file uses, so a permission change takes effect
+   * here exactly as promptly as it does on the update log itself.
+   */
+
+  app.get('/documents/:itemId/history', async (request: FastifyRequest, reply: FastifyReply) => {
+    const context = await establish(request, reply, deps);
+    if (context === null) {
+      return reply;
+    }
+
+    const query = request.query as { before?: string; limit?: string };
+    const before = parseOptionalSeq(query.before);
+    if (before === 'invalid') {
+      return problem(reply, 400, 'history_seq_invalid', "'before' must be a non-negative integer.");
+    }
+
+    return await withTenantScope(deps.pool, context.scope, async (sql) => {
+      const doc = await openDocument(
+        sql,
+        context.scope.tenantId,
+        context.itemId,
+        context.workspaceId,
+        newDocId,
+      );
+
+      if (doc === null) {
+        return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+      }
+
+      const page = await listRevisions(sql, context.scope.tenantId, doc.doc_id, {
+        ...(before === undefined ? {} : { before }),
+        limit: parseLimit(query.limit),
+      });
+
+      return reply.send({
+        revisions: page.revisions,
+        hasMore: page.hasMore,
+        headSeq: doc.head_seq,
+      });
+    });
+  });
+
+  app.get(
+    '/documents/:itemId/history/:seq',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const context = await establish(request, reply, deps);
+      if (context === null) {
+        return reply;
+      }
+
+      const { seq: rawSeq } = request.params as { itemId: string; seq: string };
+      const seq = parseSeqParam(rawSeq);
+      if (seq === null) {
+        return problem(reply, 400, 'history_seq_invalid', "'seq' must be a non-negative integer.");
+      }
+
+      return await withTenantScope(deps.pool, context.scope, async (sql) => {
+        const doc = await openDocument(
+          sql,
+          context.scope.tenantId,
+          context.itemId,
+          context.workspaceId,
+          newDocId,
+        );
+
+        if (doc === null) {
+          return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+        }
+
+        const state = await stateAt(sql, context.scope.tenantId, doc.doc_id, seq);
+        if (state === null) {
+          return problem(
+            reply,
+            404,
+            'history_state_unavailable',
+            'That state cannot be reconstructed: it is beyond the head, or its base has been pruned.',
+          );
+        }
+
+        // The same conversion the snapshot writer uses (`writeSnapshotNow`), so a client that
+        // renders `document` from a snapshot and `document` from this route never has to
+        // reconcile two different ideas of what a document looks like as JSON.
+        const materialized = strategyFor(context.bodyKind).materialize(state);
+
+        return reply.send({
+          seq,
+          document: materialized.json,
+          plaintext: materialized.plaintext,
+          headSeq: doc.head_seq,
+        });
+      });
+    },
+  );
+
+  app.post(
+    '/documents/:itemId/history/:seq/restore',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const context = await establish(request, reply, deps);
+      if (context === null) {
+        return reply;
+      }
+
+      if (!context.canWrite) {
+        const refusal = rejection('read_only', 'You may read this document but not change it.');
+        return problem(reply, refusal.status, refusal.code, refusal.detail);
+      }
+
+      const { seq: rawSeq } = request.params as { itemId: string; seq: string };
+      const seq = parseSeqParam(rawSeq);
+      if (seq === null) {
+        return problem(reply, 400, 'history_seq_invalid', "'seq' must be a non-negative integer.");
+      }
+
+      return await withTenantScope(deps.pool, context.scope, async (sql) => {
+        const doc = await openDocument(
+          sql,
+          context.scope.tenantId,
+          context.itemId,
+          context.workspaceId,
+          newDocId,
+        );
+
+        if (doc === null) {
+          return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+        }
+
+        const restored = await restoreDocument(sql, {
+          tenantId: context.scope.tenantId,
+          doc,
+          seq,
+          actorId: context.scope.principalId,
+          // A restore is one client-visible write; a fabricated identifier, not the
+          // requester's own client id, because a restore has no editor session behind it.
+          clientId: `restore:${randomUUID()}`,
+          strategy: strategyFor(context.bodyKind),
+        });
+
+        if (!restored.ok) {
+          return problem(reply, restored.error.status, restored.error.code, restored.error.detail);
+        }
+
+        return reply.send({ headSeq: restored.value.seq.toString() });
+      });
+    },
+  );
+
+  app.get('/documents/:itemId/versions', async (request: FastifyRequest, reply: FastifyReply) => {
+    const context = await establish(request, reply, deps);
+    if (context === null) {
+      return reply;
+    }
+
+    return await withTenantScope(deps.pool, context.scope, async (sql) => {
+      const doc = await openDocument(
+        sql,
+        context.scope.tenantId,
+        context.itemId,
+        context.workspaceId,
+        newDocId,
+      );
+
+      if (doc === null) {
+        return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+      }
+
+      const versions = await listNamedVersions(sql, context.scope.tenantId, doc.doc_id);
+      return reply.send({ versions });
+    });
+  });
+
+  app.post('/documents/:itemId/versions', async (request: FastifyRequest, reply: FastifyReply) => {
+    const context = await establish(request, reply, deps);
+    if (context === null) {
+      return reply;
+    }
+
+    if (!context.canWrite) {
+      const refusal = rejection('read_only', 'You may read this document but not change it.');
+      return problem(reply, refusal.status, refusal.code, refusal.detail);
+    }
+
+    const body = request.body as { seq?: unknown; name?: unknown } | undefined;
+    const seq = parseSeqBody(body?.seq);
+    if (seq === null) {
+      return problem(reply, 400, 'history_seq_invalid', "'seq' must be a non-negative integer.");
+    }
+
+    const name = typeof body?.name === 'string' ? body.name.trim() : null;
+    if (name === null || name.length < 1 || name.length > 120) {
+      return problem(reply, 400, 'version_name_invalid', "'name' must be 1 to 120 characters.");
+    }
+
+    return await withTenantScope(deps.pool, context.scope, async (sql) => {
+      const doc = await openDocument(
+        sql,
+        context.scope.tenantId,
+        context.itemId,
+        context.workspaceId,
+        newDocId,
+      );
+
+      if (doc === null) {
+        return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+      }
+
+      try {
+        const version = await nameVersion(
+          sql,
+          context.scope.tenantId,
+          doc.doc_id,
+          seq,
+          name,
+          context.scope.principalId,
+        );
+        return await reply.code(201).send(version);
+      } catch {
+        // nameVersion's only throw is "this state cannot be reconstructed" - beyond the head,
+        // or its base pruned - which is exactly what the read routes call
+        // `history_state_unavailable` for.
+        return problem(
+          reply,
+          404,
+          'history_state_unavailable',
+          'That state cannot be reconstructed: it is beyond the head, or its base has been pruned.',
+        );
+      }
+    });
+  });
+
+  app.delete(
+    '/documents/:itemId/versions/:seq',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const context = await establish(request, reply, deps);
+      if (context === null) {
+        return reply;
+      }
+
+      if (!context.canWrite) {
+        const refusal = rejection('read_only', 'You may read this document but not change it.');
+        return problem(reply, refusal.status, refusal.code, refusal.detail);
+      }
+
+      const { seq: rawSeq } = request.params as { itemId: string; seq: string };
+      const seq = parseSeqParam(rawSeq);
+      if (seq === null) {
+        return problem(reply, 400, 'history_seq_invalid', "'seq' must be a non-negative integer.");
+      }
+
+      return await withTenantScope(deps.pool, context.scope, async (sql) => {
+        const doc = await openDocument(
+          sql,
+          context.scope.tenantId,
+          context.itemId,
+          context.workspaceId,
+          newDocId,
+        );
+
+        if (doc === null) {
+          return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+        }
+
+        const removed = await deleteNamedVersion(sql, context.scope.tenantId, doc.doc_id, seq);
+        if (!removed) {
+          return problem(reply, 404, 'version_not_found', 'No such named version.');
+        }
+
+        return await reply.code(204).send();
+      });
+    },
+  );
+
   return app;
 }
 
@@ -973,12 +1272,15 @@ async function establish(
   }
 
   const authorization = result.value;
+  const scope = { tenantId: authorization.tenantId, principalId: authorization.principalId };
+  deps.onTenantSeen?.(scope);
+
   return {
     itemId,
     workspaceId: authorization.workspaceId,
     canWrite: authorization.canWrite,
     bodyKind: authorization.bodyKind,
-    scope: { tenantId: authorization.tenantId, principalId: authorization.principalId },
+    scope,
   };
 }
 
@@ -1010,6 +1312,57 @@ function parseSeq(value: string | undefined): bigint | null {
   }
 
   return BigInt(value);
+}
+
+const NON_NEGATIVE_INTEGER = /^\d+$/;
+
+/**
+ * A required `seq` from a URL path segment - the history route's `:seq`, always present as a
+ * string. Null for anything that is not a non-negative integer safe as a JS number, which is
+ * the unit `listRevisions`, `stateAt` and the rest of the history data layer already use it in.
+ */
+function parseSeqParam(value: string): number | null {
+  if (!NON_NEGATIVE_INTEGER.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/** The optional `before` cursor: undefined when absent, the parsed seq, or `'invalid'`. */
+function parseOptionalSeq(value: string | undefined): number | undefined | 'invalid' {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = parseSeqParam(value);
+  return parsed ?? 'invalid';
+}
+
+/** `seq` out of a JSON body, which may have arrived as a number or a numeric string. */
+function parseSeqBody(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    return parseSeqParam(value);
+  }
+  return null;
+}
+
+/** `limit`, clamped to the contract's 1..100 window. Anything unparseable is the default, 50. */
+function parseLimit(value: string | undefined): number {
+  if (value === undefined) {
+    return 50;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return 50;
+  }
+
+  return Math.min(100, Math.max(1, parsed));
 }
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;

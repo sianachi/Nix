@@ -311,6 +311,40 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("content_update", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Content.ContentVersion", b =>
+                {
+                    b.Property<Guid>("DocId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("doc_id");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("DocId", "Seq");
+
+                    b.HasIndex("TenantId", "DocId");
+
+                    b.ToTable("content_version", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Content.PetPreferences", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -2561,6 +2595,16 @@ namespace Nix.Persistence.Migrations.Generated
                 });
 
             modelBuilder.Entity("Nix.Domain.Content.ContentUpdate", b =>
+                {
+                    b.HasOne("Nix.Domain.Content.ContentDoc", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "DocId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Content.ContentVersion", b =>
                 {
                     b.HasOne("Nix.Domain.Content.ContentDoc", null)
                         .WithMany()

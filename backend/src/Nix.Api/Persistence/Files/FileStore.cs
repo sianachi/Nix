@@ -358,6 +358,47 @@ public sealed class FileStore(
                 Previewable(version.FileName, version.MediaType, version.ByteLength, version.Previewable));
     }
 
+    public async ValueTask RenameCurrentVersionAsync(ItemId itemId, string title, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        var context = Context;
+
+        // A non-file item, or a file item whose body is somehow missing, leaves nothing to rename
+        // here - the title write the caller made to the item row already stands on its own.
+        var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(
+            candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId,
+            cancellationToken).ConfigureAwait(false);
+        if (body is null)
+        {
+            return;
+        }
+
+        var currentFileName = await database.FileVersions.AsNoTracking()
+            .Where(version => version.TenantId == context.TenantId && version.Id == body.CurrentVersionId)
+            .Select(version => version.FileName)
+            .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (currentFileName is null)
+        {
+            return;
+        }
+
+        var renamed = FileNaming.RenamedFileName(title, currentFileName);
+        if (renamed is null || string.Equals(renamed, currentFileName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Same shape as ItemTree.UpdatePropertiesAsync: an ExecuteUpdate rather than a tracked
+        // load-and-save, so this runs as one statement inside the request's ambient transaction
+        // and lands in the same unit of work as the title write that triggered it.
+        await database.FileVersions
+            .Where(version => version.TenantId == context.TenantId && version.Id == body.CurrentVersionId)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(version => version.FileName, renamed),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private NixSessionContext Context => session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
     private Task<int> LockUploadAsync(FileUploadId id, CancellationToken cancellationToken)

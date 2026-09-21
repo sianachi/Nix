@@ -74,6 +74,15 @@ export interface CollabConfig {
    * revocation; this is the bound on how long a removed grant keeps a socket alive.
    */
   readonly reauthSeconds: number;
+
+  /**
+   * How often the version-history retention sweep runs, in milliseconds. 0 disables it.
+   *
+   * An hour by default: retention is measured in days, so a sweep does not need to be
+   * prompt the way a snapshot cadence does - it needs to eventually run, on every process
+   * that is up, against every tenant that process has seen documents for.
+   */
+  readonly retentionSweepMs: number;
 }
 
 /** One accepted issuer, with an optional JWKS location when it is not at the Zitadel default. */
@@ -117,6 +126,7 @@ export function readConfig(env: NodeJS.ProcessEnv): CollabConfig {
     idleEvictMs: Number(env.NIX_COLLAB_IDLE_EVICT_SECONDS ?? 300) * 1000,
     maxDocs: Number(env.NIX_COLLAB_MAX_DOCS ?? 200),
     maxResidentBytes: Number(env.NIX_COLLAB_MAX_RESIDENT_MB ?? 256) * 1024 * 1024,
+    retentionSweepMs: Number(env.NIX_COLLAB_RETENTION_SWEEP_MS ?? 3_600_000),
   };
 }
 

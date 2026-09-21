@@ -36,6 +36,12 @@ export interface CollabMetrics {
 
   /** Cached session authorizations, so a leak here is a graph rather than a surprise. */
   readonly authCacheSize: Gauge;
+
+  /** Rows the retention sweep has deleted, by kind: update or snapshot. */
+  readonly retentionDeletedTotal: Counter;
+
+  /** Documents the retention sweep could not prune, logged and skipped rather than fatal. */
+  readonly retentionFailuresTotal: Counter;
 }
 
 export function createMetrics(): CollabMetrics {
@@ -84,6 +90,17 @@ export function createMetrics(): CollabMetrics {
     authCacheSize: new Gauge({
       name: 'nix_collab_auth_cache_entries',
       help: 'Cached session authorizations.',
+      registers: [registry],
+    }),
+    retentionDeletedTotal: new Counter({
+      name: 'nix_collab_retention_deleted_total',
+      help: 'Rows the retention sweep has deleted, by kind.',
+      labelNames: ['kind'],
+      registers: [registry],
+    }),
+    retentionFailuresTotal: new Counter({
+      name: 'nix_collab_retention_failures_total',
+      help: 'Documents the retention sweep could not prune.',
       registers: [registry],
     }),
   };

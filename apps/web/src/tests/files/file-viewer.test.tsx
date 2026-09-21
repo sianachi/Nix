@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { NixClient } from '@nix/api-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -78,8 +79,49 @@ describe('the file item viewer', () => {
     render(<FileViewer itemId={ITEM} />);
 
     expect(screen.queryByText(/unscanned attachment/i)).not.toBeInTheDocument();
-    expect(await screen.findByText('diagram.png')).toBeVisible();
+    // Named twice: once in the bar, once on the placard that stands in for a preview.
+    expect(await screen.findAllByText('diagram.png')).toHaveLength(2);
+    expect(screen.getByText(/no preview for this kind of file/i)).toBeVisible();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the facts and the versions in a drawer behind one button', async () => {
+    client = fakeClient(false);
+    vi.stubGlobal('fetch', vi.fn());
+    const user = userEvent.setup();
+
+    render(<FileViewer itemId={ITEM} />);
+    await screen.findAllByText('diagram.png');
+
+    // The checksum is not on the page until asked for.
+    expect(screen.queryByText('1'.repeat(64))).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'File details' })).not.toBeInTheDocument();
+
+    const details = screen.getByRole('button', { name: 'Details' });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    await user.click(details);
+
+    const drawer = screen.getByRole('complementary', { name: 'File details' });
+    expect(details).toHaveAttribute('aria-expanded', 'true');
+    expect(within(drawer).getByText('1'.repeat(64))).toBeVisible();
+    expect(within(drawer).getByText('Version 1')).toBeVisible();
+    expect(within(drawer).getByText('Current')).toBeVisible();
+    expect(within(drawer).getByRole('button', { name: 'Download version 1' })).toBeEnabled();
+
+    await user.click(details);
+    expect(screen.queryByRole('complementary', { name: 'File details' })).not.toBeInTheDocument();
+  });
+
+  it('names the file and its kind in the bar', async () => {
+    client = fakeClient(true, 'application/pdf');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('payload', { status: 200 }))),
+    );
+
+    render(<FileViewer itemId={ITEM} />);
+
+    expect(await screen.findByText('PDF · 7 B')).toBeVisible();
   });
 
   it('shows a loading state until the authorized image bytes become available', async () => {

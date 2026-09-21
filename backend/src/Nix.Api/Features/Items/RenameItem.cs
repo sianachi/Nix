@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
+using Nix.Abstractions.Files;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Messaging;
@@ -26,27 +27,32 @@ public sealed record RenameItem(ItemId ItemId, string Title) : ICommand<Item>;
 public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
 {
     private readonly IItemTree _tree;
+    private readonly IFileStore _files;
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="RenameItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
+    /// <param name="files">File storage, so a file item's rename also carries onto its file body.</param>
     /// <param name="permissions">Decides what the caller may change.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="clock">The clock.</param>
     public RenameItemHandler(
         IItemTree tree,
+        IFileStore files,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(clock);
 
         _tree = tree;
+        _files = files;
         _permissions = permissions;
         _session = session;
         _clock = clock;
@@ -85,6 +91,16 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
         await _tree
             .UpdatePropertiesAsync(itemId, properties, context.PrincipalId, now, cancellationToken)
             .ConfigureAwait(false);
+
+        // A file item's display name and its stored file name are two different things that
+        // happen to start out equal. Left alone after a rename, the file page's own bar (which
+        // reads the file version) and the tree (which reads the title) would disagree, and a
+        // download would keep serving the pre-rename name. Only a file body needs this: the store
+        // itself is a no-op for anything else, but the type check here avoids the round trip.
+        if (item.Type == "file")
+        {
+            await _files.RenameCurrentVersionAsync(itemId, title, cancellationToken).ConfigureAwait(false);
+        }
 
         // Re-read rather than constructing the updated shape here: the write went through the
         // store, and inventing what the row now looks like is how a response drifts from the row

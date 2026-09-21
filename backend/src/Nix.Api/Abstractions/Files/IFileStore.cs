@@ -47,4 +47,18 @@ public interface IFileStore
     public ValueTask<bool> CancelAsync(FileUploadId id, CancellationToken cancellationToken);
     public ValueTask<FileRecord?> GetAsync(ItemId itemId, CancellationToken cancellationToken);
     public ValueTask<FileDownloadRecord?> AuthorizeDownloadAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Carries an item rename onto its file body: the current version's stored file name follows
+    /// the new title, by <see cref="Nix.Domain.Files.FileNaming.RenamedFileName"/>'s rule.
+    /// </summary>
+    /// <param name="itemId">The renamed item. A no-op when it has no file body.</param>
+    /// <param name="title">The item's new title.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <remarks>
+    /// A store method rather than the handler reaching into <c>NixDbContext</c> itself: the file
+    /// store is the one place the file domain's storage shape is allowed to leak into, and every
+    /// other write to a file version already goes through it.
+    /// </remarks>
+    public ValueTask RenameCurrentVersionAsync(ItemId itemId, string title, CancellationToken cancellationToken);
 }

@@ -141,6 +141,12 @@ export const SIDEBAR_MAXIMUM_WIDTH = 480;
  */
 export const settingsPanelWidth = 'w-[340px] max-w-full';
 
+/**
+ * The history panel is wider than settings: it shows a revision rendered as a document beside
+ * a diff, and at the settings width a paragraph wraps to a ribbon nobody can compare.
+ */
+export const historyPanelWidth = 'w-[440px] max-w-full';
+
 /** Two document panes need room beyond the workspace sidebar. */
 export const NARROWEST_FOR_TWO_PANES = 1280;
 

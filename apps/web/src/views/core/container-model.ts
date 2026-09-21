@@ -270,7 +270,25 @@ export type View = Omit<
       | 'measure'
       | 'measureProperty'
     >
-  >;
+  > & {
+    /**
+     * For a drive: whether it draws as a list or a grid - `list` or `grid`.
+     *
+     * **Client-only, unlike every other per-kind field on this record.** `ViewDefinition.cs`'s
+     * survey for issue #54 scoped the drive kind's server work to the `ViewKind` entry and its
+     * descriptor alone; there is no `Layout` column on the stored record, so this field is not in
+     * `ViewSchema` and is not part of the read or write contract - `_viewContract` and
+     * `_viewRequestContract` below say nothing about it. It is still threaded through the same
+     * `ViewChoice` mechanism `cardSize` uses (see `view-kinds.tsx`) so the view editor offers a
+     * drive's layout the same way it offers a gallery's card size, and `toViewRequest`'s spread
+     * carries whatever is chosen along on write - but a server that does not recognise the key
+     * drops it, so a choice made here does not yet survive a reload. Giving it a real column,
+     * the way `cardSize` has one, is follow-up work; sorting it out for the kind's first draft
+     * would have been scope creep, and reaching for a fabricated field name would have been a
+     * distortion of the "one entry" promise the two per-kind tables share.
+     */
+    readonly layout?: string | null;
+  };
 
 /** Serializes an editable view draft to Core's generated write shape. */
 export function toViewRequest(view: View): ParsedView {

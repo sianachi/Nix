@@ -22,6 +22,7 @@ describe('configuration', () => {
     expect(config.flushMs).toBe(500);
     expect(config.flushBytes).toBe(64 * 1024);
     expect(config.idleEvictMs).toBe(300_000);
+    expect(config.retentionSweepMs).toBe(3_600_000);
   });
 
   it('accepts more than one audience, because one deployment mints more than one', () => {

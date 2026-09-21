@@ -16,6 +16,7 @@ export type StructuredRecipeId =
   | 'interactive-form'
   | 'query'
   | 'list'
+  | 'drive'
   | 'habit-tracker';
 
 export interface StructuredRecipe {
@@ -153,6 +154,20 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
       { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
       { key: 'owner', label: 'Owner', type: 'text', options: [], required: false },
     ],
+  },
+  {
+    id: 'drive',
+    label: 'Drive',
+    detail: 'Files and pages inside this item as a sortable list or a grid, with bulk actions.',
+    // In the sidebar's "New" menu as well as the Views pane: a drive is a thing a team makes
+    // on purpose, the way it makes a board, not only a way of looking at something it has.
+    menu: 'structured',
+    viewKind: 'drive',
+    defaultTitle: 'Untitled drive',
+    defaultViewName: 'Drive',
+    // No properties: a drive reads what an item already is - its kind, size and date - and
+    // asks nothing of its schema, which is what lets it sit on a folder of plain files.
+    properties: [],
   },
   {
     id: 'habit-tracker',

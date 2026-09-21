@@ -7,9 +7,11 @@
  * in the interface: the editor's measure and typeface are not the page's, and only a layout pass
  * with the export's own fonts could say exactly which word lands first on page three.
  *
- * **How the estimate is made.** The export page is A4 with fixed margins and a fixed body size
- * (`packages/pdf-export/src/styles.ts`; the numbers are mirrored here and a test keeps them in
- * agreement, because this package cannot depend on the export). Zoom that page until its body
+ * **How the estimate is made.** The export page is A4 with fixed margins and a fixed body size.
+ * The exporter that ships is the Go one (`apps/go-workers/internal/exporter/pdf.go`); its numbers
+ * are mirrored here and a test keeps them in agreement, because a browser bundle cannot read a Go
+ * constant. (`packages/pdf-export` is an earlier TypeScript renderer nothing imports; its
+ * different margins are not the ones a person's PDF has.) Zoom that page until its body
  * type is the size of the editor's, and the page becomes a rectangle in editor pixels. Text is
  * roughly an area: the same words fill the same number of square pixels whether the column is
  * wide or narrow. So a page's worth of editor column is that rectangle's area divided by the
@@ -24,15 +26,15 @@
  */
 
 /**
- * The exported page, in points. A4, with `PAGE_MARGINS` as `[left, top, right, bottom]` and the
- * body size and leading of the print stylesheet.
+ * The exported page, in points: A4, the Go exporter's uniform `pdfMargin`, and the body size and
+ * leading it writes paragraphs with (`SetFont("Nix", "", 11)` and `Write(size*1.45, ...)`).
  */
 export const EXPORT_PAGE = {
   width: 595.28,
   height: 841.89,
-  margins: [56, 56, 56, 64] as const,
-  bodySize: 10.5,
-  lineHeight: 1.35,
+  margins: [50, 50, 50, 50] as const,
+  bodySize: 11,
+  lineHeight: 1.45,
 } as const;
 
 /** The type area: the page less its margins. */

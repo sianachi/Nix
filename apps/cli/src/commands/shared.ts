@@ -38,3 +38,17 @@ export async function resolveSession(
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 }
+
+/**
+ * Mints the access token a command needs to speak to the collaboration service directly (as `note`
+ * and `history` do), rather than through the Core client that mints its own.
+ *
+ * @throws When the profile's token cannot be exchanged for a session.
+ */
+export async function requireAccessToken(session: Session): Promise<string> {
+  const token = await session.tokens.getAccessToken();
+  if (token === null) {
+    throw new Error('Could not obtain a session for this profile.');
+  }
+  return token;
+}

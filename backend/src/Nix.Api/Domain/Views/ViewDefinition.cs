@@ -109,6 +109,21 @@ public enum ViewKind
 
     /// <summary>Habit children arranged by local date with recorded progress.</summary>
     HabitTracker = 10,
+
+    /// <summary>A file-manager look at a container's children: rows or tiles, sortable, movable.</summary>
+    /// <remarks>
+    /// Issue #54's whole point: a drive is a way of looking at a container's children, exactly
+    /// like every other kind on this axis, and not a kind of item a folder gets created as. There
+    /// is no <c>Item.type == "folder"</c> anywhere in this codebase for the same reason there is
+    /// no such row here for one - what makes a child read as "a folder" is that it holds children,
+    /// which every item already can, not a body kind reserved for the purpose.
+    ///
+    /// Requirement-free like <see cref="List"/> and for the identical reason: with no schema at
+    /// all a drive still has titles, kinds and modified dates to draw. Its list/grid layout choice
+    /// and its sort are drawn client-side and are not modeled here - see the frontend registry's
+    /// own remarks on why that is this kind's honest scope for now.
+    /// </remarks>
+    Drive = 11,
 }
 
 /// <summary>
@@ -212,6 +227,10 @@ public static class ViewKinds
         new ViewKindDescriptor(ViewKind.Query, "query", Requirement: null),
 
         new ViewKindDescriptor(ViewKind.InteractiveForm, "interactive_form", Requirement: null),
+
+        // Like a list, and by the list's own argument: with nothing configured a drive still has
+        // titles, kinds and dates to draw from the effective schema and the items themselves.
+        new ViewKindDescriptor(ViewKind.Drive, "drive", Requirement: null),
 
         // The board's requirement, reused field for field, which is what makes switching a view
         // between the two lossless. Only the sentence differs, because the two kinds want

@@ -13,8 +13,16 @@ import {
   seedTenants,
   type TestTenant,
 } from '../db/testing.ts';
+import { listRevisions, stateAt } from '../db/history.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
-import { FRAGMENT_NAME, applyUpdate, loadDocument, openDocument } from './service.ts';
+import { canvasStrategy, noteStrategy } from './body-kinds.ts';
+import {
+  FRAGMENT_NAME,
+  applyUpdate,
+  loadDocument,
+  openDocument,
+  restoreDocument,
+} from './service.ts';
 
 /**
  * The collaboration service against real Postgres.
@@ -275,5 +283,157 @@ describe.skipIf(!DB_TESTS_ENABLED)('the collaboration service, against Postgres'
     expect(result.ok).toBe(false);
     expect(result.ok ? null : result.error.code).toBe('update_too_large');
     expect(result.ok ? null : result.error.status).toBe(413);
+  });
+
+  describe('restoreDocument', () => {
+    /** One evolving document: each call replaces its content and returns the diff update. */
+    function editor(): { rewriteTo: (text: string) => Uint8Array } {
+      const doc = new Y.Doc();
+
+      return {
+        rewriteTo(text: string): Uint8Array {
+          const fragment = doc.getXmlFragment(FRAGMENT_NAME);
+          doc.transact(() => {
+            fragment.delete(0, fragment.length);
+          });
+          prosemirrorJSONToYXmlFragment(
+            nixSchema,
+            { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+            fragment,
+          );
+
+          return Y.encodeStateAsUpdate(doc);
+        },
+      };
+    }
+
+    it('replaces the head with an old state as a new revision, keeping every old revision', async () => {
+      const tenant = TENANTS.alpha;
+      const doc = await open(tenant);
+      const ed = editor();
+
+      const seqs: bigint[] = [];
+      for (const text of ['first', 'second', 'third']) {
+        const applied = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+          applyUpdate(sql, {
+            tenantId: tenant.tenantId,
+            doc,
+            updateBytes: ed.rewriteTo(text),
+            actorId: tenant.principalId,
+            clientId: 'writer',
+            snapshotEvery: 0,
+          }),
+        );
+        if (!applied.ok) throw new Error(`Setup update was refused: ${applied.error.code}`);
+        seqs.push(applied.value.seq);
+      }
+
+      const targetSeq = seqs[1];
+      if (targetSeq === undefined) throw new Error('Expected a target sequence.');
+
+      const targetState = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        stateAt(sql, tenant.tenantId, doc.doc_id, Number(targetSeq)),
+      );
+      if (targetState === null) throw new Error('Expected the target state to reconstruct.');
+      const targetPlaintext = noteStrategy.materialize(targetState).plaintext;
+      expect(targetPlaintext).toBe('second');
+
+      // A different actor from the setup writes, so the restore lands as its own revision
+      // rather than coalescing into the run that wrote 'third' - matching the ordinary case
+      // where whoever restores is not whoever made the most recent edit.
+      const restorerId = '00000000-0000-4000-8000-0000000000aa';
+      const restored = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        restoreDocument(sql, {
+          tenantId: tenant.tenantId,
+          doc,
+          seq: Number(targetSeq),
+          actorId: restorerId,
+          clientId: 'restorer',
+        }),
+      );
+      if (!restored.ok) throw new Error(`Restore was refused: ${restored.error.code}`);
+
+      // The restore is a new revision, strictly after every prior write - not a rewind of the
+      // log, and not a no-op that happened to leave the head where it already was.
+      expect(restored.value.seq).toBeGreaterThan(seqs[2] ?? 0n);
+
+      const head = await withTenantScope(pool, scopeOf(tenant), async (sql) => {
+        const current = await findDocByItem(sql, tenant.tenantId, tenant.itemId);
+        if (current === null) throw new Error('The document disappeared.');
+        return await loadDocument(sql, tenant.tenantId, current);
+      });
+      expect(noteStrategy.materialize(head).plaintext).toBe(targetPlaintext);
+
+      // Restoring never deletes history: every prior revision is still exactly as
+      // reconstructable as it was before the restore ran.
+      for (const [index, text] of ['first', 'second', 'third'].entries()) {
+        const seq = seqs[index];
+        if (seq === undefined) throw new Error('Expected a sequence.');
+        const state = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+          stateAt(sql, tenant.tenantId, doc.doc_id, Number(seq)),
+        );
+        if (state === null) throw new Error('Expected the old state to reconstruct.');
+        expect(noteStrategy.materialize(state).plaintext).toBe(text);
+      }
+
+      const revisions = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        listRevisions(sql, tenant.tenantId, doc.doc_id, { limit: 10 }),
+      );
+      // The three original writes (one actor, one revision) plus the restore (a different
+      // actor, its own revision). Nothing about restoring collapsed or removed the earlier one.
+      expect(revisions.revisions).toHaveLength(2);
+      expect(revisions.revisions[0]?.actorId).toBe(restorerId);
+    });
+
+    it('refuses to restore a sequence beyond the head', async () => {
+      const tenant = TENANTS.alpha;
+      const doc = await open(tenant);
+      const ed = editor();
+
+      const applied = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        applyUpdate(sql, {
+          tenantId: tenant.tenantId,
+          doc,
+          updateBytes: ed.rewriteTo('only'),
+          actorId: tenant.principalId,
+          clientId: 'writer',
+          snapshotEvery: 0,
+        }),
+      );
+      if (!applied.ok) throw new Error(`Setup update was refused: ${applied.error.code}`);
+
+      const restored = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        restoreDocument(sql, {
+          tenantId: tenant.tenantId,
+          doc,
+          seq: Number(applied.value.seq) + 100,
+          actorId: tenant.principalId,
+          clientId: 'restorer',
+        }),
+      );
+
+      expect(restored.ok).toBe(false);
+      expect(restored.ok ? null : restored.error.code).toBe('history_state_unavailable');
+      expect(restored.ok ? null : restored.error.status).toBe(404);
+    });
+
+    it('refuses to restore a body kind with no fragment to restore into', async () => {
+      const tenant = TENANTS.alpha;
+      const doc = await open(tenant);
+
+      const restored = await withTenantScope(pool, scopeOf(tenant), (sql) =>
+        restoreDocument(sql, {
+          tenantId: tenant.tenantId,
+          doc,
+          seq: 0,
+          actorId: tenant.principalId,
+          clientId: 'restorer',
+          strategy: canvasStrategy,
+        }),
+      );
+
+      expect(restored.ok).toBe(false);
+      expect(restored.ok ? null : restored.error.code).toBe('history_state_unavailable');
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { SCHEMA_VERSION, nixSchema } from '@nix/editor-schema';
+import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import {
@@ -12,12 +13,13 @@ import {
   writeSnapshot,
   type ContentDocRow,
 } from '../db/documents.ts';
+import { stateAt } from '../db/history.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
-import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
+import { FRAGMENT_NAME, noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, type Rejection, rejection } from './limits.ts';
 import { boundSearchText } from './links.ts';
 
-export { FRAGMENT_NAME } from './body-kinds.ts';
+export { FRAGMENT_NAME };
 
 /** How many updates one catch-up returns. A client that is further behind asks again. */
 export const CATCH_UP_LIMIT = 500;
@@ -210,6 +212,103 @@ export async function applyUpdate(
   });
 
   return { ok: true, value: { seq, snapshotWritten } };
+}
+
+/**
+ * Replaces the live document with the state it held at `seq`, as one new revision.
+ *
+ * **A restore is a write, not a rewind.** It never touches the log or a prior snapshot - the
+ * state at `seq` is reconstructed by {@link stateAt}, poured into the *live* document inside
+ * one transaction, and the transaction's own diff is applied through exactly the path a REST
+ * update takes. That is what makes a restore ordinary to everything downstream: search,
+ * backlinks and every connected editor see it as an edit from `actorId`, because it is one -
+ * concretely, a very large one. History itself is unaffected; the revision this produces is
+ * simply the newest entry in it, and the state being restored *from* remains exactly as
+ * reachable as it was before.
+ *
+ * Only a note's prose fragment has a defined "content" to pour a reconstruction into - a
+ * canvas's elements and a sheet's cells are addressed by key, not replaced wholesale, and
+ * neither strategy implements the floor {@link BodyKindStrategy.repair} relies on for the same
+ * reason. Restoring either is refused with `history_state_unavailable` rather than attempted,
+ * which is honest: there is no fragment here for the old content to replace.
+ */
+export async function restoreDocument(
+  sql: ScopedQuery,
+  input: {
+    tenantId: string;
+    doc: ContentDocRow;
+    seq: number;
+    actorId: string;
+    clientId: string;
+    strategy?: BodyKindStrategy;
+  },
+): Promise<Appended> {
+  const strategy = input.strategy ?? noteStrategy;
+
+  if (strategy.kind !== noteStrategy.kind) {
+    return {
+      ok: false,
+      error: rejection(
+        'history_state_unavailable',
+        `Restoring is only supported for notes; this document is a ${strategy.kind}.`,
+      ),
+    };
+  }
+
+  const historical = await stateAt(sql, input.tenantId, input.doc.doc_id, input.seq);
+  if (historical === null) {
+    return {
+      ok: false,
+      error: rejection(
+        'history_state_unavailable',
+        `The state at sequence ${String(input.seq)} cannot be reconstructed: it is beyond ` +
+          'the head, or its base has been pruned.',
+      ),
+    };
+  }
+
+  const materialized = strategy.materialize(historical);
+  if (materialized.json === null || typeof materialized.json !== 'object') {
+    // The historical state was accepted onto the log at the time it was written, so this is
+    // not expected to happen - but a restore that produced an empty document because the old
+    // state quietly failed to parse would be a worse failure than refusing outright.
+    return {
+      ok: false,
+      error: rejection(
+        'history_state_unavailable',
+        `The state at sequence ${String(input.seq)} did not reconstruct as a document.`,
+      ),
+    };
+  }
+
+  const live = await loadDocument(sql, input.tenantId, input.doc);
+  const beforeRestore = Y.encodeStateVector(live);
+
+  // One transaction: the fragment's whole content goes out and the old content comes in
+  // without the live document ever being observable half-emptied, by anything reading the
+  // resident copy this transaction runs against or by whatever replays this diff elsewhere.
+  Y.transact(live, () => {
+    const fragment = live.getXmlFragment(FRAGMENT_NAME);
+    fragment.delete(0, fragment.length);
+    prosemirrorJSONToYXmlFragment(nixSchema, materialized.json, fragment);
+  });
+
+  // The diff since before the transaction, in Yjs's own portable form - it carries the
+  // transaction's operations under `live`'s client id and clock, so it merges correctly
+  // wherever it is applied next, which is the ordinary `applyUpdate` path immediately below.
+  const restoreUpdate = Y.encodeStateAsUpdate(live, beforeRestore);
+
+  return await applyUpdate(sql, {
+    tenantId: input.tenantId,
+    doc: input.doc,
+    updateBytes: restoreUpdate,
+    actorId: input.actorId,
+    clientId: input.clientId,
+    // Publish immediately, like every other REST write: a restore with no editor watching
+    // must still reach search and backlinks the moment it lands, not on the next open.
+    snapshotEvery: 1,
+    strategy,
+  });
 }
 
 /** What a merged document is checked against. */

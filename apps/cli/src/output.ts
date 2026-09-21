@@ -43,6 +43,40 @@ export function printResult(
 }
 
 /**
+ * Prints a compact table for a person watching a terminal: one header row, columns aligned to the
+ * widest cell, two spaces between columns. Nothing pipeable reads this - a script wants
+ * `printResult` instead - so it never has to be a real table renderer, just legible at a glance.
+ *
+ * @param headers The column headers, in order.
+ * @param rows Each row's cells, same order and length as `headers`.
+ * @param write Where it goes; the real stdout by default.
+ */
+export function printTable(
+  headers: readonly string[],
+  rows: readonly (readonly string[])[],
+  write: (line: string) => void = (line) => process.stdout.write(line),
+): void {
+  if (rows.length === 0) {
+    write(`${headers.join('  ')}\n(none)\n`);
+    return;
+  }
+
+  const widths = headers.map((header, column) =>
+    Math.max(header.length, ...rows.map((row) => (row[column] ?? '').length)),
+  );
+  const formatRow = (cells: readonly string[]): string =>
+    cells
+      .map((cell, column) => cell.padEnd(widths[column] ?? 0))
+      .join('  ')
+      .trimEnd();
+
+  write(`${formatRow(headers)}\n`);
+  for (const row of rows) {
+    write(`${formatRow(row)}\n`);
+  }
+}
+
+/**
  * The two things a failed command owes: a sentence on stderr, and an exit code a script can branch
  * on.
  */

@@ -74,6 +74,9 @@ public static class NixTables
     /// <summary>Materialisations of the update log. Derived, rebuildable, never authoritative.</summary>
     public const string ContentSnapshot = "content_snapshot";
 
+    /// <summary>A revision somebody named. Pins a snapshot so retention can never remove it.</summary>
+    public const string ContentVersion = "content_version";
+
     /// <summary>Item-to-item reference edges, extracted from documents. Derived, rebuildable.</summary>
     public const string ItemLink = "item_link";
 
@@ -152,6 +155,7 @@ public static class NixTables
         ContentDoc,
         ContentUpdate,
         ContentSnapshot,
+        ContentVersion,
         ItemLink,
         ItemSearch,
         CanvasLibrary,
@@ -275,6 +279,10 @@ public static class NixTables
             [ContentDoc] = ReadOnly,
             [ContentUpdate] = ReadOnly,
             [ContentSnapshot] = ReadOnly,
+
+            // Read-only for the same reason: a version names a point in a log only the
+            // collaboration service writes to, and pins a snapshot only it can produce.
+            [ContentVersion] = ReadOnly,
 
             // Read-only for the same reason as the content tables, one step further along: an edge
             // and a search vector are extracted from a materialised document, and materialising a

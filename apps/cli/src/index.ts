@@ -42,6 +42,13 @@ import {
   restoreItem,
 } from './commands/items.ts';
 import { readNote, writeNote } from './commands/notes.ts';
+import {
+  listHistory,
+  listHistoryVersions,
+  nameHistoryVersion,
+  restoreHistory,
+  showHistory,
+} from './commands/history.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, inspectViews, setViews } from './commands/views.ts';
 import { getSchema, setProps, setSchema } from './commands/structure.ts';
@@ -411,6 +418,91 @@ export function buildProgram(): Command {
       await run(() =>
         writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)),
       );
+    });
+
+  const history = program
+    .command('history')
+    .description("A document's revisions, named versions, and earlier states.");
+
+  history
+    .command('list <itemId>')
+    .description('List revisions, newest first.')
+    .option('--limit <n>', 'maximum revisions in this page (default 50, max 100)', parseInteger)
+    .option('--before <seq>', 'page backwards from this sequence number, exclusive', parseInteger)
+    .action(
+      async (itemId: string, options: { limit?: number; before?: number }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          listHistory(
+            flags.profile,
+            itemId,
+            { limit: options.limit, before: options.before },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  history
+    .command('show <itemId> <seq>')
+    .description('Show the document as it stood at one revision.')
+    .option('--markdown', 'render as Markdown instead of plaintext', false)
+    .action(
+      async (itemId: string, seq: string, options: { markdown?: boolean }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          showHistory(
+            flags.profile,
+            itemId,
+            parseSeqArg(seq),
+            { markdown: options.markdown === true },
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  history
+    .command('restore <itemId> <seq>')
+    .description('Replace the current document with its state at an earlier revision.')
+    .option('--yes', 'confirm this operation', false)
+    .action(async (itemId: string, seq: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        restoreHistory(
+          flags.profile,
+          itemId,
+          parseSeqArg(seq),
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  history
+    .command('name <itemId> <seq> <name>')
+    .description('Name a revision, pinning it so retention can never remove it.')
+    .action(
+      async (itemId: string, seq: string, name: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          nameHistoryVersion(
+            flags.profile,
+            itemId,
+            parseSeqArg(seq),
+            name,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  history
+    .command('versions <itemId>')
+    .description("List a document's named versions.")
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listHistoryVersions(flags.profile, itemId, outputOptions(flags.json)));
     });
 
   const viewsCmd = program
@@ -987,6 +1079,15 @@ interface ConfirmCliOptions {
 
 function parseInteger(value: string): number {
   return Number.parseInt(value, 10);
+}
+
+/** Parses a `<seq>` positional argument; a history `seq` is always a non-negative integer. */
+function parseSeqArg(value: string): number {
+  const seq = Number.parseInt(value, 10);
+  if (!Number.isInteger(seq) || seq < 0 || String(seq) !== value) {
+    throw new Error(`'${value}' is not a valid sequence number.`);
+  }
+  return seq;
 }
 
 interface ImportCliOptions {

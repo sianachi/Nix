@@ -92,7 +92,7 @@ export function EditorPreferencesSection(): ReactElement {
       </label>
       <Text as="p" variant="note" tone="muted">
         Draws a line where the PDF and Word exports would start a new page. The position is an
-        estimate from the A4 export's margins and type size; the exact break can move by a line.
+        estimate from the A4 export’s margins and type size; the exact break can move by a line.
       </Text>
       {!pageGuides.saved ? (
         <Text as="p" variant="note" role="alert">

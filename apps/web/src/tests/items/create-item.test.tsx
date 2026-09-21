@@ -171,7 +171,9 @@ describe('the new-item menu', () => {
     expect(screen.getByRole('menuitem', { name: /upload files/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /habit tracker/i })).toBeVisible();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(16);
+    // A drive is made on purpose, like a board, so it is offered here and not only as a view.
+    expect(screen.getByRole('menuitem', { name: /new drive in the workspace/i })).toBeVisible();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(17);
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
     expect(screen.queryByText('Overdue')).not.toBeInTheDocument();

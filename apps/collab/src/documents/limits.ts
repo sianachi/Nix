@@ -44,7 +44,8 @@ export type RejectionCode =
   | 'document_too_many_nodes'
   | 'document_too_large'
   | 'rate_limited'
-  | 'read_only';
+  | 'read_only'
+  | 'history_state_unavailable';
 
 export interface Rejection {
   readonly code: RejectionCode;
@@ -77,6 +78,12 @@ function statusFor(code: RejectionCode): number {
     case 'update_unreadable':
     case 'document_does_not_parse':
       return 422;
+    case 'history_state_unavailable':
+      // Not-found, matching the other reads of a state that cannot be reconstructed: `seq`
+      // named a real revision once, but its base - a snapshot, or the updates bridging it -
+      // has since been pruned, or the caller asked for a kind of body that never had a
+      // fragment to restore.
+      return 404;
   }
 }
 

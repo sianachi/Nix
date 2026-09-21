@@ -2,6 +2,7 @@ import {
   ChartColumnBig,
   ClipboardList,
   Columns3,
+  HardDrive,
   LayoutGrid,
   LayoutList,
   CalendarDays,
@@ -19,6 +20,12 @@ import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import { isDateShaped } from './property-types';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
+import {
+  DEFAULT_DRIVE_LAYOUT,
+  DRIVE_LAYOUTS,
+  DriveView,
+  type DriveLayout,
+} from '../drive/drive-view';
 import { FormView } from '../form/form-view';
 import { InteractiveFormView } from '../form/interactive-form-view';
 import { ListView } from '../list/list-view';
@@ -132,6 +139,7 @@ export interface ViewConfiguration {
 interface ChoiceTokens {
   readonly cardSize: CardSize;
   readonly measure: ChartMeasure;
+  readonly layout: DriveLayout;
 }
 
 type ChoiceField = keyof ChoiceTokens;
@@ -240,6 +248,12 @@ export const DEFAULT_CHART_MEASURE: ChartMeasure = 'count';
 const CHART_MEASURE_LABELS: Record<ChartMeasure, string> = {
   count: 'How many items',
   sum: 'Total of a property',
+};
+
+/** The word a person sees for each drive layout. */
+const DRIVE_LAYOUT_LABELS: Record<DriveLayout, string> = {
+  list: 'List',
+  grid: 'Grid',
 };
 
 export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
@@ -477,6 +491,29 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     ),
     configures: [],
     chooses: [],
+  },
+  {
+    // Issue #54: a drive is a *view* over any container's children, not a folder kind an item can
+    // be created as - the same lesson `board`/`gallery`/`chart` already teach, applied to the file
+    // manager shape. Requirement-free like a list: with no schema and no configuration, a drive
+    // still has titles, kinds and dates to draw. Not given a renderer in
+    // `packages/view-render/src/render.ts` - that table's fallback (a list with a note naming the
+    // kind) is the honest answer for an export today, and wiring a real one is separate work the
+    // header comment above already calls out.
+    kind: 'drive',
+    label: 'Drive',
+    icon: HardDrive,
+    render: (props) => <DriveView {...props} />,
+    configures: [],
+    chooses: [
+      {
+        field: 'layout',
+        label: 'Layout',
+        hint: 'List shows a sortable table of columns; grid shows large tiles.',
+        options: DRIVE_LAYOUTS.map((value) => ({ value, label: DRIVE_LAYOUT_LABELS[value] })),
+        fallback: DEFAULT_DRIVE_LAYOUT,
+      },
+    ],
   },
 ];
 
