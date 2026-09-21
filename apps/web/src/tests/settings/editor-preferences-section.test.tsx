@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
+import { usePageGuidePreference } from '../../editor/page-guide-preference';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
 
 describe('editor preferences', () => {
@@ -83,5 +84,24 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('status')).toHaveTextContent(/Vim basics may reset/i);
+  });
+});
+
+describe('page guides', () => {
+  it('are shown by default and can be switched off', async () => {
+    const user = userEvent.setup();
+    usePageGuidePreference.setState({ visibility: 'shown', saved: true });
+    render(<EditorPreferencesSection />);
+
+    const toggle = screen.getByRole('checkbox', { name: 'Show page guides' });
+    expect(toggle).toBeChecked();
+    expect(
+      screen.getByText(/where the PDF and Word exports would start a new page/i),
+    ).toBeVisible();
+
+    await user.click(toggle);
+
+    expect(usePageGuidePreference.getState().visibility).toBe('hidden');
+    expect(toggle).not.toBeChecked();
   });
 });

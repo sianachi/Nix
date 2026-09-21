@@ -6,7 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { TEXT_COLORS, TOGGLE_LEVELS, nixSchema } from '@nix/editor-schema';
 
 import { calloutClass, headingClass, proseClasses, proseRoot } from '../../editor/prose';
-import { DOCUMENT_HEADING_STEP, TOGGLE_SUMMARY_STEP } from '../../editor/prose-type';
+import {
+  DOCUMENT_HEADING_STEP,
+  DOCUMENT_SECONDARY_STEP,
+  TOGGLE_SUMMARY_STEP,
+} from '../../editor/prose-type';
 
 /**
  * The document's appearance, as class strings.
@@ -143,6 +147,15 @@ describe('the values these strings are built from', () => {
       expect(proseRoot).toContain(TOGGLE_SUMMARY_STEP[level]);
       expect(headingClass(level)).toContain(DOCUMENT_HEADING_STEP[level]);
     }
+  });
+
+  it('dresses the table from its wrapper, at the secondary step', () => {
+    // A resizable table is built by prosemirror-tables' own node view, which never receives the
+    // `table` entry of `proseClasses`; the look has to reach the element from the root. The
+    // step is spelled out with the variant, so this is what keeps it the secondary step.
+    expect(proseRoot).toContain(`[&_.tableWrapper>table]:${DOCUMENT_SECONDARY_STEP}`);
+    expect(proseRoot).toContain('[&_.tableWrapper>table]:w-full');
+    expect(proseRoot).toContain('[&_.tableWrapper]:overflow-x-auto');
   });
 
   it('keeps the document to a measure', () => {

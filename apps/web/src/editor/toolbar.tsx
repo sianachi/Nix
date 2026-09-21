@@ -1,5 +1,6 @@
 import { Button, Dialog } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
+import { TableSizePicker } from './table-size-picker';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
@@ -30,7 +31,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 
 /**
  * The formatting toolbar.
@@ -75,7 +76,7 @@ const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
 
 export interface ToolbarProps {
   readonly editor: Editor;
-  readonly compact?: boolean;
+  readonly compact?: boolean | undefined;
 
   /** Opens the editor-owned image form without making this toolbar own modal state. */
   readonly onInsertImage: () => void;
@@ -108,6 +109,8 @@ export function EditorToolbar({
 }: ToolbarProps): ReactNode {
   const [moreOpen, setMoreOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const tableInsertRef = useRef<HTMLDivElement | null>(null);
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
   // and React's strict mode does that on every mount in development. `destroy()` sets the
@@ -266,14 +269,24 @@ export function EditorToolbar({
       icon: ImageIcon,
       run: onInsertImage,
     },
-    {
-      id: 'table',
-      label: 'Insert table',
-      icon: TableIcon,
-      run: () =>
-        void editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-    },
   ];
+
+  /**
+   * The table insert, which in the full toolbar opens a size picker instead of inserting.
+   *
+   * The compact toolbar keeps the fixed three-by-three: its controls are a flat list in a
+   * dialog, where a grid to sweep with a pointer has neither the room nor the pointer.
+   */
+  const insertTable = (rows: number, cols: number): void =>
+    void editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+  const tableInsert: Control = {
+    id: 'table',
+    label: 'Insert table',
+    icon: TableIcon,
+    run: () => {
+      insertTable(3, 3);
+    },
+  };
 
   const history: readonly Control[] = [
     {
@@ -371,6 +384,7 @@ export function EditorToolbar({
       ...lists,
       ...marks.filter((control) => !['bold', 'italic'].includes(control.id)),
       ...inserts,
+      tableInsert,
       ...history,
       ...(inColumns ? columns : []),
       ...(inTable ? table : []),
@@ -480,6 +494,31 @@ export function EditorToolbar({
       <Group controls={marks} />
       <Separator />
       <Group controls={inserts} />
+      <div className="relative shrink-0" ref={tableInsertRef}>
+        <ToolbarButton
+          control={{
+            ...tableInsert,
+            run: () => {
+              setTablePickerOpen(!tablePickerOpen);
+            },
+          }}
+          expanded={tablePickerOpen}
+        />
+        {tablePickerOpen ? (
+          <div className="absolute left-0 z-20 max-sm:static">
+            <TableSizePicker
+              onPick={({ rows, cols }) => {
+                setTablePickerOpen(false);
+                insertTable(rows, cols);
+              }}
+              onDismiss={() => {
+                setTablePickerOpen(false);
+                tableInsertRef.current?.querySelector('button')?.focus();
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
       {onInsertItem !== undefined ? (
         <div className="relative shrink-0">
           <Button
@@ -583,13 +622,21 @@ function Group({
   );
 }
 
-function ToolbarButton({ control }: { readonly control: Control }): ReactNode {
+function ToolbarButton({
+  control,
+  expanded,
+}: {
+  readonly control: Control;
+  /** Only for a control that opens a layer, which has an open and a closed. */
+  readonly expanded?: boolean;
+}): ReactNode {
   const disabled = control.enabled === false;
 
   return (
     <button
       type="button"
       aria-label={control.label}
+      aria-expanded={expanded}
       aria-keyshortcuts={control.ariaShortcut}
       title={
         control.shortcut === undefined ? control.label : `${control.label} (${control.shortcut})`

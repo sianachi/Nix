@@ -1,4 +1,5 @@
 import { useMobileToolbarPreference } from '../editor/mobile-toolbar-preference';
+import { usePageGuidePreference } from '../editor/page-guide-preference';
 import { Field, Select, Text } from '@nix/ui';
 import type { ChangeEvent, ReactElement } from 'react';
 
@@ -13,6 +14,7 @@ const modeGuidance = {
 
 export function EditorPreferencesSection(): ReactElement {
   const toolbar = useMobileToolbarPreference();
+  const pageGuides = usePageGuidePreference();
   const mode = useKeyboardModeStore((state) => state.mode);
   const persistence = useKeyboardModeStore((state) => state.persistence);
   const keyboardModeSelected = useKeyboardModeStore((state) => state.keyboardModeSelected);
@@ -74,6 +76,27 @@ export function EditorPreferencesSection(): ReactElement {
       {!toolbar.saved ? (
         <Text as="p" variant="note" role="alert">
           The mobile toolbar preference applies to this session; browser storage is unavailable.
+        </Text>
+      ) : null}
+      <label className="flex min-h-11 items-center gap-3">
+        <input
+          type="checkbox"
+          checked={pageGuides.visibility === 'shown'}
+          onChange={(event) => {
+            pageGuides.setVisibility(event.target.checked ? 'shown' : 'hidden');
+          }}
+        />
+        <Text as="span" variant="bodySmall">
+          Show page guides
+        </Text>
+      </label>
+      <Text as="p" variant="note" tone="muted">
+        Draws a line where the PDF and Word exports would start a new page. The position is an
+        estimate from the A4 export's margins and type size; the exact break can move by a line.
+      </Text>
+      {!pageGuides.saved ? (
+        <Text as="p" variant="note" role="alert">
+          The page guide preference applies to this session; browser storage is unavailable.
         </Text>
       ) : null}
     </section>

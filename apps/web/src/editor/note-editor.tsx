@@ -46,7 +46,11 @@ import { useKeyboardModeStore } from './keyboard-mode-store';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
+import { usePageGuidePreference } from './page-guide-preference';
+import { PageGuides } from './page-guides-overlay';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
+import { TableControls } from './table-controls';
+import { TableMenu } from './table-menu';
 import { ReferenceMenu } from './reference-menu';
 import { ReferenceResolutionProvider } from './reference-resolution';
 import { ReferenceView } from './reference-view';
@@ -589,6 +593,10 @@ export function NoteEditor({
         // handles, the drop targeting, and the keys that give every gesture a keyboard. The
         // commands and the repair came in through `styledExtensions` above.
         ColumnControls,
+
+        // Where you are in a table, drawn: the current row, column and cell get a wash so the
+        // table menu's "delete row" is a thing a person can see the target of.
+        TableControls,
       ],
 
       // No `content`: the Yjs document is the source of truth, and seeding content here would
@@ -620,6 +628,10 @@ export function NoteEditor({
     },
     [fragment, awareness, handleFileDrop],
   );
+
+  const pageGuides = usePageGuidePreference((state) => state.visibility);
+  // State rather than a ref, so the overlay renders once the box exists rather than one render late.
+  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
 
   const activeVimMode = useEditorState({
     editor,
@@ -924,35 +936,45 @@ export function NoteEditor({
               >
                 <Icon icon={GripVertical} size="sm" />
               </DragHandle>
-              <EditorContent
-                editor={editor}
-                className="h-full"
-                onDragEnterCapture={(event) => {
-                  if (hasFilePayload(event)) setDropActive(true);
-                }}
-                onDragOverCapture={(event) => {
-                  if (hasFilePayload(event)) {
-                    event.preventDefault();
-                    setDropActive(true);
-                  }
-                }}
-                onDragLeaveCapture={(event) => {
-                  if (
-                    hasFilePayload(event) &&
-                    !event.currentTarget.contains(event.relatedTarget as Node | null)
-                  ) {
+              {/*
+            The positioned box the page guides are measured in. `h-full` keeps what
+            `EditorContent` had: the editor fills the viewport, so a click below a short note
+            still lands in it.
+          */}
+              <div ref={setSurface} className="relative h-full">
+                <EditorContent
+                  editor={editor}
+                  className="h-full"
+                  onDragEnterCapture={(event) => {
+                    if (hasFilePayload(event)) setDropActive(true);
+                  }}
+                  onDragOverCapture={(event) => {
+                    if (hasFilePayload(event)) {
+                      event.preventDefault();
+                      setDropActive(true);
+                    }
+                  }}
+                  onDragLeaveCapture={(event) => {
+                    if (
+                      hasFilePayload(event) &&
+                      !event.currentTarget.contains(event.relatedTarget as Node | null)
+                    ) {
+                      setDropActive(false);
+                    }
+                  }}
+                  onDropCapture={(event) => {
                     setDropActive(false);
-                  }
-                }}
-                onDropCapture={(event) => {
-                  setDropActive(false);
-                  if (handleFileDrop(editor.view, event.nativeEvent)) {
-                    event.stopPropagation();
-                  }
-                }}
-              />
+                    if (handleFileDrop(editor.view, event.nativeEvent)) {
+                      event.stopPropagation();
+                    }
+                  }}
+                />
+                {/* Where the exported pages would break, drawn over the text as it is written. */}
+                {pageGuides === 'shown' ? <PageGuides editor={editor} host={surface} /> : null}
+              </div>
               {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
               <BubbleMenu editor={editor} />
+              <TableMenu editor={editor} />
             </PaneViewport>
 
             {itemRequest !== null && workspaceId !== undefined ? (

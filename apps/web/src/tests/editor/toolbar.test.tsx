@@ -76,7 +76,10 @@ function editorStub(
   return { editor, ran };
 }
 
-function renderToolbar(options: Parameters<typeof editorStub>[0] = {}): {
+function renderToolbar(
+  options: Parameters<typeof editorStub>[0] = {},
+  props: { readonly compact?: boolean } = {},
+): {
   ran: string[];
   onInsertImage: ReturnType<typeof vi.fn>;
   onInsertLink: ReturnType<typeof vi.fn>;
@@ -92,6 +95,7 @@ function renderToolbar(options: Parameters<typeof editorStub>[0] = {}): {
   render(
     <EditorToolbar
       editor={editor}
+      compact={props.compact}
       onInsertImage={onInsertImage}
       onInsertLink={onInsertLink}
       onUndo={onUndo}
@@ -160,15 +164,44 @@ describe('running a command', () => {
     expect(ran).toEqual(['toggleBold', 'toggleBulletList', 'toggleBlockquote']);
   });
 
-  it('inserts a table with a header row', async () => {
+  it('inserts a table of the picked size, with a header row', async () => {
+    const user = userEvent.setup();
+    const { ran } = renderToolbar();
+
+    // The button opens the size picker rather than inserting; the size is the pick.
+    await user.click(screen.getByRole('button', { name: 'Insert table' }));
+    expect(screen.getByRole('button', { name: 'Insert table' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: '2 by 4 table' }));
+
+    // A table whose first row is not a header is a grid, and the schema carries tableHeader for
+    // exactly this reason.
+    expect(ran).toEqual(['insertTable({"rows":2,"cols":4,"withHeaderRow":true})']);
+    expect(screen.queryByRole('group', { name: 'Table size' })).not.toBeInTheDocument();
+  });
+
+  it('closes the size picker on Escape and returns the focus to its button', async () => {
     const user = userEvent.setup();
     const { ran } = renderToolbar();
 
     await user.click(screen.getByRole('button', { name: 'Insert table' }));
+    await user.keyboard('{Escape}');
 
-    // A table whose first row is not a header is a grid, and the schema carries tableHeader for
-    // exactly this reason.
-    expect(ran[0]).toContain('withHeaderRow":true');
+    expect(screen.queryByRole('group', { name: 'Table size' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Insert table' })).toHaveFocus();
+    expect(ran).toEqual([]);
+  });
+
+  it('inserts a three-by-three directly from the compact toolbar', async () => {
+    const user = userEvent.setup();
+    const { ran } = renderToolbar({}, { compact: true });
+
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('button', { name: 'Insert table' }));
+
+    expect(ran).toEqual(['insertTable({"rows":3,"cols":3,"withHeaderRow":true})']);
   });
 
   it('opens the image form instead of asking the browser for an address', async () => {

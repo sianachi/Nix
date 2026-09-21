@@ -45,6 +45,13 @@ import {
 const BLOCK_GAP = 'mt-4 first:mt-0';
 
 /**
+ * The table's type step, spelled with the wrapper variant in full: a variant-prefixed class has
+ * to appear complete in the source for Tailwind to emit it, so this cannot be composed from
+ * `DOCUMENT_SECONDARY_STEP` at runtime. `prose.test.ts` checks the two agree.
+ */
+const TABLE_TYPE_STEP = '[&_.tableWrapper>table]:text-base';
+
+/**
  * The editable element itself: the measure, the ground, and the pieces of the document that
  * ProseMirror draws rather than the schema.
  *
@@ -79,6 +86,29 @@ export const proseRoot = [
 
   // A cell selection, tinted rather than filled so the text inside stays legible on either ground.
   '[&_.selectedCell]:bg-accent/25',
+
+  // The table's wrapper, which the resizable table view draws around every table. It carries
+  // the block gap, so the table itself does not: an overflow container does not let a margin
+  // collapse through it, and a gap on both would be two gaps. The overflow is what lets a wide
+  // table scroll sideways inside a narrow pane rather than push the pane wider.
+  '[&_.tableWrapper]:mt-4 [&_.tableWrapper:first-child]:mt-0 [&_.tableWrapper]:overflow-x-auto',
+
+  // The table element itself, reached from the wrapper rather than through `proseClasses.table`
+  // because a resizable table never receives that entry: the table extension hands a resizable
+  // table to prosemirror-tables' own node view, and that view builds the `<table>` without the
+  // extension's `HTMLAttributes`. Every table in the app is resizable, so the entry below was a
+  // class nobody saw, and tables rendered at the width of their content with no outer edge.
+  // `table-fixed` is what makes the column widths prosemirror-tables writes into the colgroup
+  // stick; without it the browser re-balances the columns and a dragged edge appears to do
+  // nothing.
+  `[&_.tableWrapper>table]:w-full [&_.tableWrapper>table]:table-fixed [&_.tableWrapper>table]:border-collapse [&_.tableWrapper>table]:border [&_.tableWrapper>table]:border-divider ${TABLE_TYPE_STEP}`,
+
+  // Where you are in a table (`table-controls.ts`): the table the caret is in gets the accent
+  // edge, the row and the column of its cell a faint wash, and the cell itself a little more.
+  // A cell selection draws itself and is left alone, which is what the `:not` is for.
+  '[&_.is-active-table>table]:border-accent-400',
+  '[&_.is-active-row:not(.selectedCell)]:bg-foreground/4 [&_.is-active-column:not(.selectedCell)]:bg-foreground/4',
+  '[&_.is-active-cell:not(.selectedCell)]:bg-accent/10',
 
   // The text palette, selected on the attribute the mark writes. Descendant variants rather
   // than one class per colour because the mark's own class string cannot vary by attribute -
@@ -209,10 +239,17 @@ export const proseClasses: Readonly<Record<string, string>> = {
   // colgroup take effect; without it the browser re-measures from content and dragging a column
   // edge appears to do nothing. Borders live on the cells and rows and collapse into the table's
   // own frame, so the grid is drawn once rather than doubled at every seam.
-  table: `${BLOCK_GAP} w-full table-fixed border-collapse border border-divider ${DOCUMENT_SECONDARY_STEP}`,
+  // Kept for a table rendered without the resizable node view (a read-only preview, a test);
+  // in the editor the same look is applied from `proseRoot` - see the note there. The block gap
+  // is on the wrapper (see `proseRoot`), not here. The cells are `relative`
+  // because the column resize handle is positioned inside them: without it the handle lands
+  // against the nearest positioned ancestor, which is the pane, and the column edge appears to
+  // be draggable from somewhere else entirely.
+  table: `w-full table-fixed border-collapse border border-divider ${DOCUMENT_SECONDARY_STEP}`,
   tableRow: 'border-b border-divider',
-  tableHeader: 'border-r border-divider bg-surface px-3 py-2 text-left align-top font-semibold',
-  tableCell: 'border-r border-divider px-3 py-2 align-top',
+  tableHeader:
+    'relative border-r border-divider bg-surface px-3 py-2 text-left align-top font-semibold',
+  tableCell: 'relative border-r border-divider px-3 py-2 align-top',
 
   // A row of columns - below the medium breakpoint, a stack.
   //

@@ -19,7 +19,7 @@ type Set map[Service]bool
 
 func Parse(value string) (Set, error) {
 	roles := Set{}
-	for _, raw := range strings.Split(value, ",") {
+	for raw := range strings.SplitSeq(value, ",") {
 		candidate := Service(strings.TrimSpace(raw))
 		switch candidate {
 		case Import, Export, Index, Plugin:
