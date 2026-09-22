@@ -261,6 +261,7 @@ export type {
   PetMessage,
 } from './schemas/pets.js';
 export * as bookmarks from './resources/bookmarks.js';
+export * as locks from './resources/locks.js';
 export * as items from './resources/items.js';
 export * as workspaces from './resources/workspaces.js';
 export type { AssignableWorkspaceRole } from './resources/workspaces.js';

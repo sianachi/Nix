@@ -156,6 +156,7 @@ public sealed class JitMiddlewareTransactionIntegrationTests : IAsyncLifetime
                 services.GetRequiredService<IBrowserSessions>(),
                 services.GetRequiredService<IWorkerDispatchStore>(),
                 services.GetRequiredService<AccessTokenSessionContext>(),
+                services.GetRequiredService<CredentialSessionContext>(),
                 new UserInfoClient(userInfoClient, TimeSpan.FromSeconds(5)),
                 services.GetRequiredService<NixDispatcher>(),
                 TimeProvider.System,

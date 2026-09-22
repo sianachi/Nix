@@ -223,6 +223,30 @@ describe('buildManifest', () => {
     expect(manifest.includesDeleted).toBe(false);
     expect(manifest.root).toBe('root');
   });
+
+  it('names each locked body it leaves out, under the item that keeps its place in the tree', () => {
+    const child = item('child', { parentId: 'root', title: 'Diary' });
+    const manifest = buildManifest({
+      root,
+      tree: { items: [root, child], omitted: [] },
+      metadata: { schemas: new Map(), views: new Map(), viewRows: new Map() },
+      includeDeleted: false,
+      exportedAt: new Date('2026-09-22T10:00:00Z'),
+      locked: new Set(['child']),
+    });
+
+    // The item is still exported - its title and place are outside the lock - but the archive
+    // says its body is missing rather than carrying a null that reads as "never written".
+    expect(manifest.items.map((entry) => entry.id)).toEqual(['root', 'child']);
+    expect(manifest.omitted).toEqual([
+      {
+        id: null,
+        parentId: 'child',
+        reason: 'not-readable',
+        detail: 'The body of "Diary" is locked and was not included.',
+      },
+    ]);
+  });
 });
 
 /**

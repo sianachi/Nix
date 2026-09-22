@@ -274,6 +274,7 @@ public sealed class NixUnitOfWorkJitTests
             new StubBrowserSessions(),
             new UnusedWorkerDispatch(),
             new AccessTokenSessionContext(),
+            new CredentialSessionContext(),
             UserInfo,
             new NixDispatcher(new ServiceCollection().BuildServiceProvider()),
             TimeProvider.System,

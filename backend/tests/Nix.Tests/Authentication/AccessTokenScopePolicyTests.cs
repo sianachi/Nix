@@ -88,6 +88,15 @@ public sealed class AccessTokenScopePolicyTests
         ["PurgeItem"] = Requirement.Write,
         ["KeepItem"] = Requirement.Write,
         ["ReleaseItem"] = Requirement.Write,
+
+        // Reading whether a body is locked is a read. Unlocking, relocking and managing a lock are
+        // writes: an unlock issues a grant, and a read-only token opening bodies it was not given
+        // would be a read scope that reaches further than it says.
+        ["GetItemLock"] = Requirement.Read,
+        ["SetItemLock"] = Requirement.Write,
+        ["RemoveItemLock"] = Requirement.Write,
+        ["UnlockItem"] = Requirement.Write,
+        ["RelockItem"] = Requirement.Write,
         // Both recurrence writes are ordinary item edits under a token's write scope: setting a
         // rule changes what an item does, and completing an occurrence records work against it.
         // Neither is administrative - a token that may edit an item may schedule it.

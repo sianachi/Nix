@@ -170,7 +170,7 @@ public sealed class SearchIndexDispatchTests(
             httpClient,
             work.Resolve<INixSessionContextAccessor>(),
             "nix-items");
-        var search = new OpenSearchItemSearch(query, work.Resolve<ItemSearch>());
+        var search = new OpenSearchItemSearch(query, work.Resolve<ItemSearch>(), work.Resolve<IItemLocks>());
 
         var results = await search.FindAsync(
             "alpha",
@@ -182,6 +182,59 @@ public sealed class SearchIndexDispatchTests(
         Assert.Equal(M0SchemaSeed.Alpha.ItemId, result.Id.Value);
         Assert.Equal("folder", result.Type);
         Assert.Equal(currentTitle, result.Title);
+    }
+
+    /// <summary>
+    /// The index keeps a locked body until the worker handles the event locking it queued. Until
+    /// then a word from the body must not find the item - only its title may.
+    /// </summary>
+    [Theory]
+    [InlineData("secret", false)]
+    [InlineData("diary", true)]
+    public async Task OpenSearch_hits_on_a_locked_body_are_dropped_unless_the_title_matches(
+        string query,
+        bool expectHit)
+    {
+        await ExecuteAsMigratorAsync(
+            """
+            UPDATE item SET properties = jsonb_build_object('title', 'Diary')
+             WHERE tenant_id = @tenant_id AND id = @item_id;
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES (@item_id, @tenant_id,
+                    'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                    @principal_id, now());
+            """,
+            new NpgsqlParameter("tenant_id", M0SchemaSeed.Alpha.TenantId),
+            new NpgsqlParameter("item_id", M0SchemaSeed.Alpha.ItemId),
+            new NpgsqlParameter("principal_id", M0SchemaSeed.Alpha.PrincipalId));
+
+        // A stale index document that still matches on the locked body.
+        var response = $$$"""
+            {"hits":{"hits":[
+              {"_source":{"tenant_id":"{{{M0SchemaSeed.Alpha.TenantId:D}}}","workspace_id":"{{{M0SchemaSeed.Alpha.WorkspaceId:D}}}","item_id":"{{{M0SchemaSeed.Alpha.ItemId:D}}}","type":"note","title":"Diary","lifecycle_state":"active","hidden":false,"deleted":false}}
+            ]}}
+            """;
+        using var handler = new StaticOpenSearchHandler(response);
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://search.example.test/"),
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext,
+            Cancellation);
+        var search = new OpenSearchItemSearch(
+            new OpenSearchItemQueryClient(httpClient, work.Resolve<INixSessionContextAccessor>(), "nix-items"),
+            work.Resolve<ItemSearch>(),
+            work.Resolve<IItemLocks>());
+
+        var results = await search.FindAsync(
+            query,
+            [WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId)],
+            20,
+            Cancellation);
+
+        Assert.Equal(expectHit, results.Any(result => result.Id.Value == M0SchemaSeed.Alpha.ItemId));
     }
 
     [Fact]

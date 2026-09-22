@@ -18,6 +18,7 @@ import {
   strategyFor,
 } from '../documents/body-kinds.ts';
 import { findDocByItem } from '../db/documents.ts';
+import { lockedAmong } from '../db/locks.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
 import { loadDocument } from '../documents/service.ts';
 import type { CoreClient, CoreItem } from '../core/client.ts';
@@ -361,6 +362,8 @@ export function buildManifest(input: {
   readonly metadata: GatheredMetadata;
   readonly includeDeleted: boolean;
   readonly exportedAt: Date;
+  /** Items whose bodies are locked, and so are exported without one. See {@link lockedOmissions}. */
+  readonly locked?: ReadonlySet<string> | undefined;
 }): ArchiveManifest {
   const { root, tree, metadata, includeDeleted, exportedAt } = input;
 
@@ -381,11 +384,35 @@ export function buildManifest(input: {
       title: item.title,
       type: item.type,
     })),
-    omitted: tree.omitted,
+    omitted: [...tree.omitted, ...lockedOmissions(tree.items, input.locked)],
     // Empty, and that emptiness is the claim: `.nix` is the lossless format, so an entry here would
     // be a bug rather than a note.
     loss: [],
   };
+}
+
+/**
+ * Names every locked body the export leaves out.
+ *
+ * The item itself is exported - its title, properties and place in the tree are outside the lock -
+ * but its body is not, and an archive that calls itself lossless must say so rather than carry a
+ * `null` body that reads the same as a note nobody has opened. `id` is null and `parentId` names
+ * the locked item, the same shape as "this item had more than the export took": what is missing is
+ * *under* the item, not the item.
+ */
+export function lockedOmissions(
+  items: readonly CoreItem[],
+  locked: ReadonlySet<string> | undefined,
+): Omission[] {
+  if (locked === undefined || locked.size === 0) return [];
+  return items
+    .filter((item) => locked.has(item.id))
+    .map((item) => ({
+      id: null,
+      parentId: item.id,
+      reason: 'not-readable' as const,
+      detail: `The body of "${item.title}" is locked and was not included.`,
+    }));
 }
 
 /**
@@ -402,6 +429,22 @@ export async function* streamBundles(input: {
   readonly resolveEmbeddedItem?: ((id: string) => Promise<CoreItem | null>) | undefined;
 }): AsyncGenerator<ItemBundle> {
   const { sql, tenantId, items, metadata } = input;
+
+  // Read inside the scope the bodies are read in, rather than trusted from whatever the manifest
+  // was built with: an item locked between the two must still leave without its body. One query
+  // for the whole tree; an embedded source outside it is looked up once and remembered.
+  const inTree = new Set(items.map((item) => item.id));
+  const locked = new Set(await lockedAmong(sql, tenantId, [...inTree]));
+  const checkedOutside = new Set<string>();
+  async function isLocked(id: string): Promise<boolean> {
+    if (!inTree.has(id) && !checkedOutside.has(id)) {
+      checkedOutside.add(id);
+      for (const found of await lockedAmong(sql, tenantId, [id])) locked.add(found);
+    }
+    return locked.has(id);
+  }
+  const readUnlocked = async (source: CoreItem): Promise<ItemBundle['body']> =>
+    (await isLocked(source.id)) ? null : readBody(sql, tenantId, source);
 
   for (const item of items) {
     yield {
@@ -421,11 +464,14 @@ export async function* streamBundles(input: {
       viewRowsTruncated: metadata.viewRows.get(item.id)?.truncated ?? false,
       body:
         input.resolveEmbeddedItem === undefined
-          ? await readBody(sql, tenantId, item)
-          : await expandEmbeddedSections(await readBody(sql, tenantId, item), async (id) => {
+          ? await readUnlocked(item)
+          : await expandEmbeddedSections(await readUnlocked(item), async (id) => {
               const source = await input.resolveEmbeddedItem?.(id);
               if (source?.type !== 'note' || source.lifecycleState !== 'active') return null;
-              return { title: source.title, body: await readBody(sql, tenantId, source) };
+              // An embedded section is the source's body copied into this one, so a locked source
+              // stays out exactly as it would on its own.
+              const body = await readUnlocked(source);
+              return body === null ? null : { title: source.title, body };
             }),
     };
   }

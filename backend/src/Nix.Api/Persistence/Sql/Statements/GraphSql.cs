@@ -64,6 +64,11 @@ public static class GraphSql
     /// disclose that something is there, which for a graph is most of what there is to disclose.
     /// </para>
     /// <para>
+    /// <b>A locked item draws as a node with no outgoing edges.</b> Its edges were extracted from
+    /// its body, and drawing them would say what the locked body refers to. Edges <i>into</i> it
+    /// come from other bodies and stay.
+    /// </para>
+    /// <para>
     /// The ordering is stable so the same workspace draws the same way twice, and so the ceiling
     /// cuts the same items each time rather than a different subset per request. Nodes enter by
     /// <c>seq</c>, the workspace's own sibling order, so what survives a truncated read is the top
@@ -110,6 +115,11 @@ public static class GraphSql
             JOIN visible AS source ON source.id = link.source_item_id
             JOIN visible AS target ON target.id = link.target_item_id
             WHERE link.tenant_id = @tenant_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_lock
+                  WHERE item_lock.tenant_id = link.tenant_id
+                    AND item_lock.item_id = link.source_item_id
+              )
             ORDER BY link.source_item_id, link.target_item_id
             LIMIT @link_limit
         )

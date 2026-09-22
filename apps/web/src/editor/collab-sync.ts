@@ -55,6 +55,8 @@ const BARRIER_TIMEOUT_MS = 15_000;
 /** Close codes the provider reacts to by name. Everything else is a plain drop. */
 const CLOSE_UNAUTHENTICATED = 4401;
 const CLOSE_REVOKED = 4403;
+/** The item is visible but its body is locked to this session; the page shows the lock prompt. */
+const CLOSE_BODY_LOCKED = 4405;
 const CLOSE_SCHEMA_MISMATCH = 4409;
 const CLOSE_AT_CAPACITY = 4413;
 const CLOSE_OWNED_ELSEWHERE = 4423;
@@ -629,6 +631,10 @@ function classifyClose(code: number): { state: SyncState; delayMs?: number } {
     case CLOSE_REVOKED:
       // The fix is a fresh token, which the next connect fetches anyway.
       return { state: 'offline' };
+    case CLOSE_BODY_LOCKED:
+      // Retrying cannot open it - only an unlock can, and the page re-reads the lock and closes
+      // this editor itself. Back off rather than hammering a refusal that will not change.
+      return { state: 'offline', delayMs: 30_000 };
     case CLOSE_SCHEMA_MISMATCH:
       // This build is older than the document. Retrying will not change that; reloading
       // the app will, and the footer copy says so.

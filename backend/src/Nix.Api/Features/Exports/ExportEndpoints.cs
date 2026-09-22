@@ -84,6 +84,7 @@ internal static class ExportEndpoints
         [FromServices] IWorkerJobStore jobs,
         [FromServices] IItemTree tree,
         [FromServices] IPermissionResolver permissions,
+        [FromServices] IItemLocks locks,
         [FromServices] INixSessionContextAccessor session,
         [FromServices] S3CapabilitySigner signer,
         [FromServices] SelfIssuedTokenService tokens,
@@ -124,6 +125,27 @@ internal static class ExportEndpoints
             || !await permissions.CanReadWorkspaceAsync(item.WorkspaceId, context.RequestAborted).ConfigureAwait(false))
         {
             return Problem(context, 404, "exports.item_not_found", "Export source not found", "No such item is visible.");
+        }
+
+        // An export copies bodies out of Nix, which is exactly what a lock withholds, and it runs
+        // in a worker under a delegation that cannot hold an unlock. Refused up front rather than
+        // exported with holes: an archive missing a locked file's bytes is one the importer rejects,
+        // and a document export that silently drops a note is worse than one that says why it
+        // cannot run. The collaboration service also leaves locked bodies out of what it streams,
+        // so an item locked after this check still does not leave.
+        var locked = scope == "subtree"
+            ? await locks.AnyInSubtreeAsync(item.Id, context.RequestAborted).ConfigureAwait(false)
+            : (await locks.GetStateAsync(item.Id, context.RequestAborted).ConfigureAwait(false)).Locked;
+        if (locked)
+        {
+            return Problem(
+                context,
+                409,
+                "exports.item_locked",
+                "Export includes a locked item",
+                scope == "subtree"
+                    ? "This item or something under it is locked. Remove the lock, or export a part of the tree without it."
+                    : "A locked item cannot be exported. Remove its lock first.");
         }
 
         var scoped = session.Current

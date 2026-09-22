@@ -29,8 +29,12 @@ export interface Authorizer {
    * Null means refused - and refused is all a caller may learn. Core reports an item the
    * caller cannot see as not found, so "does not exist" and "not yours" are the same answer
    * there and must stay the same answer here.
+   *
+   * `'locked'` means the caller may see the item but its body is locked to this session. Core
+   * says so only after its read check, to somebody who could ask its lock route the same thing,
+   * so passing it on discloses nothing - and lets a client say "unlock it" rather than "missing".
    */
-  authorize(token: string, itemId: string): Promise<ItemAuthorization | null>;
+  authorize(token: string, itemId: string): Promise<ItemAuthorization | 'locked' | null>;
 }
 
 /**
@@ -57,7 +61,7 @@ export function createAuthorizer(options: {
   const timeoutMs = options.timeoutMs ?? 5_000;
 
   return {
-    async authorize(token: string, itemId: string): Promise<ItemAuthorization | null> {
+    async authorize(token: string, itemId: string): Promise<ItemAuthorization | 'locked' | null> {
       let response: Response;
       try {
         response = await doFetch(`${options.coreBaseUrl}/internal/authz/items/${itemId}`, {
@@ -75,6 +79,12 @@ export function createAuthorizer(options: {
       }
 
       if (!response.ok) {
+        if (response.status === 403) {
+          const refusal = (await response.json().catch(() => null)) as { code?: unknown } | null;
+          if (refusal?.code === 'internal.body_locked') {
+            return 'locked';
+          }
+        }
         return null;
       }
 

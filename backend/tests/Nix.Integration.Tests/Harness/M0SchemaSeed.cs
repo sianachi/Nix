@@ -74,6 +74,46 @@ internal static class M0SchemaSeed
         }
     }
 
+    /// <summary>
+    /// Locks each tenant's seeded item and issues one unlock grant, so the lock tables have a row
+    /// per tenant for the isolation theories to filter.
+    /// </summary>
+    /// <param name="fixture">The database fixture.</param>
+    /// <returns>A task that completes when both tenants' lock rows are present.</returns>
+    /// <remarks>
+    /// Separate from <see cref="SeedBothTenantsAsync"/> on purpose. A lock withholds the seeded
+    /// item's body from search, backlinks and the collaboration service's authorization, which
+    /// dozens of other suites exercise against that same item; seeding one for everybody would
+    /// change what each of them sees. Only the suites that need the rows ask for them.
+    /// </remarks>
+    public static async Task SeedItemLocksAsync(NixPostgresFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            foreach (var rows in new[] { Alpha, Beta })
+            {
+                var tenant = Literal(rows.TenantId);
+                var item = Literal(rows.ItemId);
+                var principal = Literal(rows.PrincipalId);
+                await RawSql.ExecuteAsync(
+                    connection,
+                    transaction: null,
+                    $"""
+                    INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+                    VALUES ({item}, {tenant},
+                            'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                            {principal}, now());
+
+                    INSERT INTO item_unlock (item_id, credential_id, tenant_id, principal_id, expires_at)
+                    VALUES ({item}, {principal}, {tenant}, {principal}, now() + interval '15 minutes');
+                    """);
+            }
+        }
+    }
+
     private static string InsertSqlFor(M0TenantRows rows)
     {
         // Insertion order follows the foreign keys: the tenant, then what hangs off it, then the

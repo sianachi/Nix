@@ -80,6 +80,18 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCapturePlan>(capacity.Error);
         }
 
+        // A template is a copy that outlives its source and is applied by whoever may use the
+        // template, so a locked body - a note's text or a file's bytes - would come out the other
+        // side unlocked. Refused before anything is staged, for the whole capture, rather than
+        // left to the collaboration service, which sees only document bodies and never file bytes.
+        var locked = includeChildren
+            ? await _locks.AnyInSubtreeAsync(sourceItemId, cancellationToken).ConfigureAwait(false)
+            : await _locks.IsLockedAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (locked)
+        {
+            return Result.Failure<TemplateCapturePlan>(TemplateErrors.SourceLocked());
+        }
+
         var source = await SourceTreeAsync(workspaceId, sourceItemId, includeChildren, cancellationToken)
             .ConfigureAwait(false);
         if (source.Count == 0 || source.Count > MaximumTemplateItems)

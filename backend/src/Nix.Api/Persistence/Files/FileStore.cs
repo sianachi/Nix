@@ -14,6 +14,7 @@ public sealed class FileStore(
     IItemTree tree,
     IPermissionResolver permissions,
     INixSessionContextAccessor session,
+    IItemLocks locks,
     TimeProvider clock) : IFileStore
 {
     private const long MaxFileBytes = 100L * 1024 * 1024;
@@ -47,6 +48,14 @@ public sealed class FileStore(
         if (request.DeclaredByteLength < 0 || request.DeclaredByteLength > MaxFileBytes)
         {
             throw new InvalidOperationException("The file exceeds the 100 MiB upload limit.");
+        }
+
+        // Replacing a locked file's bytes is writing its body, which a session that has not
+        // unlocked it may not do - the same rule the collaboration service applies to a document.
+        if (request.TargetItemId is { } target
+            && !await locks.MayReadBodyAsync(target, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
         }
 
         var now = clock.GetUtcNow();
@@ -325,9 +334,13 @@ public sealed class FileStore(
     {
         var context = Context;
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId, cancellationToken).ConfigureAwait(false);
+        // A file item's bytes are its body, so a lock withholds them like any other body: the
+        // metadata, the download capability and the version history are all refused until this
+        // credential has unlocked the item.
         if (body is null
             || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
-            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null)
+            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null
+            || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
@@ -347,7 +360,8 @@ public sealed class FileStore(
             cancellationToken).ConfigureAwait(false);
         var item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (body is null || item is not { Type: "file" }
-            || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false))
+            || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
+            || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
@@ -386,7 +400,8 @@ public sealed class FileStore(
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId, cancellationToken).ConfigureAwait(false);
         if (body is null
             || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
-            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null)
+            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null
+            || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }

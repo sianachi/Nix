@@ -32,7 +32,7 @@ export interface SessionAuthorization extends ItemAuthorization {
  */
 export type SessionResult =
   | { readonly ok: true; readonly value: SessionAuthorization }
-  | { readonly ok: false; readonly reason: 'unauthenticated' | 'refused' };
+  | { readonly ok: false; readonly reason: 'unauthenticated' | 'refused' | 'locked' };
 
 export interface SessionAuthenticator {
   /** Authenticates the token and authorizes it against the item, through the cache. */
@@ -156,7 +156,7 @@ export function createSessionAuthenticator(options: {
           return { ok: false, reason: 'unauthenticated' };
         }
 
-        let authorization: (ItemAuthorization & { resolvedItemId?: string }) | null;
+        let authorization: (ItemAuthorization & { resolvedItemId?: string }) | 'locked' | null;
         if (draft !== null && options.draftItems !== undefined) {
           const answer = await options.draftItems
             .authorize(token, draft.templateId, draft.operationId, draft.sourceId)
@@ -189,6 +189,10 @@ export function createSessionAuthenticator(options: {
               };
         } else {
           authorization = await options.authorizer.authorize(token, itemId);
+        }
+        if (authorization === 'locked') {
+          // Never cached: an unlock must take effect on the next attempt, not after the TTL.
+          return { ok: false, reason: 'locked' };
         }
         if (
           authorization === null ||

@@ -36,6 +36,9 @@ public static class RateLimitRefusal
     /// <summary>Name of the limiter on the personal-access-token exchange.</summary>
     public const string TokenExchangePolicyName = "token-exchange";
 
+    /// <summary>Name of the limiter on routes that check an item-lock password.</summary>
+    public const string LockPasswordPolicyName = "lock-password";
+
     /// <summary>Writes the 429 problem-details refusal with a <c>Retry-After</c> header, and logs it.</summary>
     /// <param name="context">The request being refused.</param>
     /// <param name="logger">Where the refusal is recorded.</param>

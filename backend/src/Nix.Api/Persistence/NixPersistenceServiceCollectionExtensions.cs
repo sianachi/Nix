@@ -24,6 +24,7 @@ using Nix.Features.Habits;
 using Nix.Features.Identity;
 using Nix.Features.Internal;
 using Nix.Features.Items;
+using Nix.Features.Locks;
 using Nix.Features.Pets;
 using Nix.Features.Properties;
 using Nix.Features.Query;
@@ -43,6 +44,7 @@ using Nix.Persistence.Habits;
 using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
+using Nix.Persistence.Locks;
 using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.Plugins;
 using Nix.Persistence.Properties;
@@ -130,6 +132,7 @@ public static class NixPersistenceServiceCollectionExtensions
         // and read by the one handler that reports a write capability to the collaboration
         // service. Interactive sessions never set it and it stays permissive.
         services.AddScoped<AccessTokenSessionContext>();
+        services.AddScoped<CredentialSessionContext>();
 
         services.AddScoped<RlsSessionContextInterceptor>();
         services.AddSingleton<RlsTransactionGuardInterceptor>();
@@ -216,6 +219,12 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IRecurrenceStore, RecurrenceStore>();
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
+        services.AddScoped<IItemLocks, ItemLockStore>();
+
+        // One per process: the backoff it keeps and the derivation ceiling it enforces are only
+        // meaningful if every request shares them.
+        services.TryAddSingleton(static provider =>
+            new LockPasswordGuard(provider.GetRequiredService<TimeProvider>()));
         services.AddScoped<IPublicFormStore, PublicFormStore>();
         services.AddScoped<IPersonalAccessTokens, PersonalAccessTokenStore>();
         services.AddScoped<WorkspaceAdministrationStore>();
@@ -294,6 +303,11 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetShelf, Result<ShelfResults>>, GetShelfHandler>();
         services.AddScoped<ICommandHandler<KeepItem, bool>, KeepItemHandler>();
         services.AddScoped<ICommandHandler<ReleaseItem, bool>, ReleaseItemHandler>();
+        services.AddScoped<IQueryHandler<GetItemLock, Result<ItemLockState>>, GetItemLockHandler>();
+        services.AddScoped<ICommandHandler<LockItem, bool>, LockItemHandler>();
+        services.AddScoped<ICommandHandler<RemoveItemLock, bool>, RemoveItemLockHandler>();
+        services.AddScoped<ICommandHandler<UnlockItem, DateTimeOffset>, UnlockItemHandler>();
+        services.AddScoped<ICommandHandler<RelockItem, bool>, RelockItemHandler>();
 
         services.AddScoped<ICommandHandler<CreateAccessToken, IssuedAccessToken>, CreateAccessTokenHandler>();
         services.AddScoped<IQueryHandler<ListAccessTokens, Result<IReadOnlyList<PersonalAccessToken>>>, ListAccessTokensHandler>();

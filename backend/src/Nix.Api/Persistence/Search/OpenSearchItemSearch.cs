@@ -11,15 +11,18 @@ public sealed class OpenSearchItemSearch : IItemSearch
 {
     private readonly OpenSearchItemQueryClient _queries;
     private readonly ItemSearch _postgres;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes the feature-flagged search adapter.</summary>
-    public OpenSearchItemSearch(OpenSearchItemQueryClient queries, ItemSearch postgres)
+    public OpenSearchItemSearch(OpenSearchItemQueryClient queries, ItemSearch postgres, IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(queries);
         ArgumentNullException.ThrowIfNull(postgres);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _queries = queries;
         _postgres = postgres;
+        _locks = locks;
     }
 
     /// <inheritdoc />
@@ -54,10 +57,30 @@ public sealed class OpenSearchItemSearch : IItemSearch
             return [];
         }
 
+        // The index drops a locked body once the worker handles the event locking it queued, but
+        // until then - or indefinitely, if that event is stuck - it can still match on the body.
+        // A locked item is kept only when its title matches, which is the one way the Postgres
+        // search can reach it too.
+        var lockedIds = new ItemId[authoritative.Count];
+        for (var index = 0; index < authoritative.Count; index++)
+        {
+            lockedIds[index] = authoritative[index].Id;
+        }
+
+        var locked = await _locks.LockedAmongAsync(lockedIds, cancellationToken).ConfigureAwait(false);
+
         var currentById = new Dictionary<ItemId, ItemDigest>(authoritative.Count);
         for (var index = 0; index < authoritative.Count; index++)
         {
-            currentById[authoritative[index].Id] = authoritative[index];
+            var digest = authoritative[index];
+            if (locked.Contains(digest.Id)
+                && (digest.Title is null
+                    || !digest.Title.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            currentById[digest.Id] = digest;
         }
 
         var results = new List<ItemDigest>(authoritative.Count);

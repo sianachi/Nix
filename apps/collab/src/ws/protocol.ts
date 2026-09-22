@@ -52,6 +52,8 @@ export const CLOSE_CODES = {
   revoked: 4403,
   /** No such item, or not one the caller may see. The uniform non-answer. */
   notFound: 4404,
+  /** The item is visible but its body is locked to this session. Unlock it through Core. */
+  bodyLocked: 4405,
   /** The client speaks an older schema version than the document is pinned to. */
   schemaMismatch: 4409,
   /** The server is at capacity and refused to load the document. Honest, not silent. */

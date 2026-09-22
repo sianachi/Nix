@@ -19,6 +19,7 @@ using Nix.Features.Habits;
 using Nix.Features.Health;
 using Nix.Features.Internal;
 using Nix.Features.Items;
+using Nix.Features.Locks;
 using Nix.Features.Operations;
 using Nix.Features.Permissions;
 using Nix.Features.Pets;
@@ -80,6 +81,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(QueryJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ChartJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(BookmarkJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(LockJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateFileTransfersJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(TemplateImportsJsonContext.Default);
@@ -191,6 +193,9 @@ var publicFormSubmissionsPerMinute = builder.Configuration.GetValue(
 var tokenExchangesPerMinute = builder.Configuration.GetValue(
     "Nix:RateLimits:TokenExchangesPerMinute",
     30);
+var lockPasswordAttemptsPerMinute = builder.Configuration.GetValue(
+    "Nix:RateLimits:LockPasswordAttemptsPerMinute",
+    20);
 
 // One window, named once: the limiter's window and the fallback the rejection reports are the same
 // interval by definition, and two literals would eventually disagree.
@@ -240,6 +245,21 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = tokenExchangesPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            }));
+
+    // Every route that checks an item-lock password. Partitioned by address alone, like the writes
+    // policy: each check costs a deliberately expensive key derivation, so the bound has to be on
+    // how much of that one client can ask for in total, not per item - a per-item window would let
+    // a client spread its guesses, and its CPU cost, across every item it can see. The window,
+    // together with the verifier's cost, is what makes guessing a short password slow.
+    options.AddPolicy<IPAddress>(RateLimitRefusal.LockPasswordPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey.For(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = lockPasswordAttemptsPerMinute,
                 Window = writesWindow,
                 QueueLimit = 0,
             }));
@@ -492,6 +512,7 @@ app.MapHabitTrackerEndpoints();
 app.MapQueryEndpoints();
 app.MapChartEndpoints();
 app.MapBookmarkEndpoints();
+app.MapLockEndpoints();
 app.MapPublicFormEndpoints();
 app.MapTemplateEndpoints();
 app.MapTokenEndpoints();

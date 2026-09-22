@@ -92,6 +92,12 @@ public static class NixTables
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
+    /// <summary>Passwords item bodies are held behind.</summary>
+    public const string ItemLock = "item_lock";
+
+    /// <summary>Short-lived per-credential grants past an item lock.</summary>
+    public const string ItemUnlock = "item_unlock";
+
     /// <summary>One revocable capability per published item view.</summary>
     public const string PublicFormLink = "public_form_link";
 
@@ -163,6 +169,8 @@ public static class NixTables
         CanvasLibrary,
         PetPreferences,
         Bookmark,
+        ItemLock,
+        ItemUnlock,
         PublicFormLink,
         PersonalAccessToken,
         WorkspaceTemplate,
@@ -247,6 +255,12 @@ public static class NixTables
             // A bookmark is personal state the application both reads and writes on the reader's
             // behalf: keeping one is the whole feature, and there is no other service that owns it.
             [Bookmark] = FullDml,
+
+            // Core alone sets, checks and removes locks, and issues and expires the grants past
+            // them. The collaboration service reads which items are locked (column-level, never
+            // the verifier) and nothing else.
+            [ItemLock] = FullDml,
+            [ItemUnlock] = FullDml,
             [PublicFormLink] = FullDml,
             [WorkspaceTemplate] = FullDml,
             [TemplateOperation] = FullDml,

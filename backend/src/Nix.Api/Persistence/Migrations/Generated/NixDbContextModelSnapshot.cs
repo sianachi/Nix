@@ -1565,6 +1565,63 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("item_search", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Locks.ItemLock", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<DateTimeOffset>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<Guid>("LockedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("locked_by");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ItemId");
+
+                    b.ToTable("item_lock", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Locks.ItemUnlock", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<Guid>("CredentialId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("credential_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("ItemId", "CredentialId");
+
+                    b.HasIndex("TenantId", "ItemId");
+
+                    b.ToTable("item_unlock", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Plugins.PluginCapabilityGrant", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -3141,6 +3198,26 @@ namespace Nix.Persistence.Migrations.Generated
                         .WithMany()
                         .HasForeignKey("TenantId", "ItemId")
                         .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Locks.ItemLock", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Locks.ItemUnlock", b =>
+                {
+                    b.HasOne("Nix.Domain.Locks.ItemLock", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -50,6 +50,7 @@ public sealed partial class TemplateStore :
     private readonly TemplateMergePlanner _mergePlanner;
     private readonly IWorkerJobStore _jobs;
     private readonly Nix.Persistence.ObjectStorage.S3CapabilitySigner _signer;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes the store.</summary>
     public TemplateStore(
@@ -61,7 +62,8 @@ public sealed partial class TemplateStore :
         TemplateDefinitionValidator validator,
         TemplateMergePlanner mergePlanner,
         IWorkerJobStore jobs,
-        Nix.Persistence.ObjectStorage.S3CapabilitySigner signer)
+        Nix.Persistence.ObjectStorage.S3CapabilitySigner signer,
+        IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -72,6 +74,7 @@ public sealed partial class TemplateStore :
         ArgumentNullException.ThrowIfNull(mergePlanner);
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(signer);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _database = database;
         _permissions = permissions;
@@ -82,6 +85,7 @@ public sealed partial class TemplateStore :
         _mergePlanner = mergePlanner;
         _jobs = jobs;
         _signer = signer;
+        _locks = locks;
     }
 
     private NixSessionContext Context => _session.Current

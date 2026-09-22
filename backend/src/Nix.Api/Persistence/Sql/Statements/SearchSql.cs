@@ -64,6 +64,13 @@ public static class SearchSql
     /// a bug.
     /// </para>
     /// <para>
+    /// <b>A locked item never matches on its body.</b> Matching is itself a read: a search that
+    /// found a locked note for a word would let anybody who can see the note learn, a word at a
+    /// time, what its body says. The title arm still reaches it, because the title is outside the
+    /// lock. Not relaxed for a credential that has the item unlocked - a search is a workspace-wide
+    /// question, and the answer should not change with which notes happen to be open.
+    /// </para>
+    /// <para>
     /// The title arm alone reaches items with no document body at all, which is most of a freshly
     /// imported workspace. Its rank is a constant rather than a computed one - a title match is
     /// ordered ahead of every body match by <c>title_matched</c> before rank is consulted at all,
@@ -111,6 +118,11 @@ public static class SearchSql
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
               AND item.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_lock
+                  WHERE item_lock.tenant_id = search.tenant_id
+                    AND item_lock.item_id = search.item_id
+              )
         ),
         ranked AS (
             SELECT item_id,
@@ -216,6 +228,10 @@ public static class SearchSql
     /// the count in the panel must not include it either.
     /// </para>
     /// <para>
+    /// A locked source is left out: an edge is extracted from the source's body, so "this locked
+    /// note links here, three times" is a sentence about what the locked body says.
+    /// </para>
+    /// <para>
     /// Ordered by <c>occurrences</c> so a document that discusses the target at length comes above
     /// one that mentions it once in passing, then by title so the order is stable, then by
     /// identifier because two items may share a title.
@@ -240,6 +256,11 @@ public static class SearchSql
           AND source.workspace_id = ANY(@workspace_ids)
           AND source.lifecycle_state = 'active'
           AND source.template_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM item_lock
+              WHERE item_lock.tenant_id = link.tenant_id
+                AND item_lock.item_id = link.source_item_id
+          )
           AND NOT EXISTS (
               SELECT 1
               FROM item_closure AS visibility_edge

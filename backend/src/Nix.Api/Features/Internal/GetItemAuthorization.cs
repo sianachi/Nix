@@ -38,27 +38,32 @@ public sealed class GetItemAuthorizationHandler : IQueryHandler<GetItemAuthoriza
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly AccessTokenSessionContext _scope;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes a new instance of the <see cref="GetItemAuthorizationHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the acting principal may do.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="scope">The scope ceiling, when a personal access token authenticated the call.</param>
+    /// <param name="locks">Item locks, and whether this credential has the item unlocked.</param>
     public GetItemAuthorizationHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        AccessTokenSessionContext scope)
+        AccessTokenSessionContext scope,
+        IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _tree = tree;
         _permissions = permissions;
         _session = session;
         _scope = scope;
+        _locks = locks;
     }
 
     /// <summary>Resolves the authorization.</summary>
@@ -88,6 +93,20 @@ public sealed class GetItemAuthorizationHandler : IQueryHandler<GetItemAuthoriza
         {
             return Result.Failure<ItemAuthorization>(
                 InternalErrors.NotFound($"No item {query.ItemId} is visible."));
+        }
+
+        // Everything the collaboration service serves for one item - the live document, its
+        // updates, its history and versions, the root of an export - is the body, so a locked body
+        // is refused here, in the one place they all ask. Only after the read check above: an item
+        // the caller cannot see is still just not found, and "locked" is said only to somebody who
+        // could already ask Core's lock route the same question.
+        var mayReadBody = await _locks
+            .MayReadBodyAsync(item.Id, cancellationToken)
+            .ConfigureAwait(false);
+        if (!mayReadBody)
+        {
+            return Result.Failure<ItemAuthorization>(
+                InternalErrors.BodyLocked($"The body of item {query.ItemId} is locked to this session."));
         }
 
         var mayWrite = await _permissions

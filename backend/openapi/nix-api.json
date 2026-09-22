@@ -4076,7 +4076,7 @@
           "Structure"
         ],
         "summary": "The views a container offers",
-        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
+        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form' and 'drive') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
         "operationId": "GetContainerViews",
         "parameters": [
           {
@@ -4117,7 +4117,7 @@
           "Structure"
         ],
         "summary": "Replace the views a container offers",
-        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
+        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
         "operationId": "SetContainerViews",
         "parameters": [
           {
@@ -5433,6 +5433,356 @@
         "responses": {
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/lock": {
+      "get": {
+        "tags": [
+          "Item locks"
+        ],
+        "summary": "Whether an item's body is locked, and whether this session has it open",
+        "description": "Returns whether the item's body is behind a password and, when it is, until when the calling browser session or access token has it unlocked. A lock withholds the body from anybody who has not unlocked it; it does not encrypt what is stored.",
+        "operationId": "GetItemLock",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemLockResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Item locks"
+        ],
+        "summary": "Lock an item's body behind a password, or change the password",
+        "description": "Locks the item's body, which needs write access. When the item is already locked this changes the password instead, which also needs 'currentPassword' and ends every other session's unlock. The calling session is left unlocked. Fails with 'locks.already_locked' when the item is locked and no current password is given, 'locks.wrong_password' when it does not match, and 'locks.password_invalid' when the new password is too short or too long.",
+        "operationId": "SetItemLock",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetItemLockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/lock/remove": {
+      "post": {
+        "tags": [
+          "Item locks"
+        ],
+        "summary": "Remove an item's lock",
+        "description": "Removes the lock, which needs write access and the password. A POST with a body rather than a DELETE, because the password must not travel in a URL.",
+        "operationId": "RemoveItemLock",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemLockPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/unlock": {
+      "post": {
+        "tags": [
+          "Item locks"
+        ],
+        "summary": "Open a locked item's body to this session for a while",
+        "description": "Checks the password and opens the item's body to the calling browser session or access token for fifteen minutes. Other sessions, including the caller's own elsewhere, stay locked.",
+        "operationId": "UnlockItem",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemLockPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnlockItemResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Item locks"
+        ],
+        "summary": "Close a locked item's body to this session again",
+        "description": "Ends the calling session's unlock before it runs out. Idempotent: relocking an item that is not unlocked, or not locked, succeeds.",
+        "operationId": "RelockItem",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -8182,6 +8532,36 @@
           }
         }
       },
+      "ItemLockPasswordRequest": {
+        "required": [
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemLockResponse": {
+        "required": [
+          "locked",
+          "unlockedUntil"
+        ],
+        "type": "object",
+        "properties": {
+          "locked": {
+            "type": "boolean"
+          },
+          "unlockedUntil": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "ItemPermissionsResponse": {
         "required": [
           "itemId",
@@ -9675,6 +10055,24 @@
           }
         }
       },
+      "SetItemLockRequest": {
+        "required": [
+          "password",
+          "currentPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "currentPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SetPluginEnabledRequest": {
         "required": [
           "enabled"
@@ -11152,6 +11550,12 @@
                 "$ref": "#/components/schemas/TemplateInteractiveFormResponse"
               }
             ]
+          },
+          "layout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11190,6 +11594,18 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "UnlockItemResponse": {
+        "required": [
+          "unlockedUntil"
+        ],
+        "type": "object",
+        "properties": {
+          "unlockedUntil": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -11415,6 +11831,12 @@
             "items": {
               "$ref": "#/components/schemas/HabitWidgetContract"
             }
+          },
+          "layout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11556,6 +11978,12 @@
             "items": {
               "$ref": "#/components/schemas/HabitWidgetContract"
             }
+          },
+          "layout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11972,6 +12400,9 @@
     },
     {
       "name": "Bookmarks"
+    },
+    {
+      "name": "Item locks"
     },
     {
       "name": "Templates"

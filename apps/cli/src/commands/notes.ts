@@ -13,7 +13,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { items } from '@nix/api-client';
-import { resolveSession, type SessionDeps } from './shared.ts';
+import { readStdin, resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
 /**
@@ -120,13 +120,4 @@ export async function writeNote(
     { id: itemId, written: true, updateBytes: result.bytes, markdownChanges: result.scan },
     output,
   );
-}
-
-/** Reads all of stdin as UTF-8, for `nixctl note write <id> < body.md`. */
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }

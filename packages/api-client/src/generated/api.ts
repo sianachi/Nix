@@ -1004,12 +1004,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query' and 'interactive_form') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form' and 'drive') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -1414,6 +1414,74 @@ export interface paths {
      * @description Takes an item off the calling principal's shelf. Idempotent, and deliberately not permission-checked: somebody who has lost access to an item must still be able to clear it off their own shelf, and refusing would disclose that the row is there. It can only ever remove the caller's own row.
      */
     delete: operations['ReleaseItem'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/lock': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Whether an item's body is locked, and whether this session has it open
+     * @description Returns whether the item's body is behind a password and, when it is, until when the calling browser session or access token has it unlocked. A lock withholds the body from anybody who has not unlocked it; it does not encrypt what is stored.
+     */
+    get: operations['GetItemLock'];
+    /**
+     * Lock an item's body behind a password, or change the password
+     * @description Locks the item's body, which needs write access. When the item is already locked this changes the password instead, which also needs 'currentPassword' and ends every other session's unlock. The calling session is left unlocked. Fails with 'locks.already_locked' when the item is locked and no current password is given, 'locks.wrong_password' when it does not match, and 'locks.password_invalid' when the new password is too short or too long.
+     */
+    put: operations['SetItemLock'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/lock/remove': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Remove an item's lock
+     * @description Removes the lock, which needs write access and the password. A POST with a body rather than a DELETE, because the password must not travel in a URL.
+     */
+    post: operations['RemoveItemLock'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/unlock': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Open a locked item's body to this session for a while
+     * @description Checks the password and opens the item's body to the calling browser session or access token for fifteen minutes. Other sessions, including the caller's own elsewhere, stay locked.
+     */
+    post: operations['UnlockItem'];
+    /**
+     * Close a locked item's body to this session again
+     * @description Ends the calling session's unlock before it runs out. Idempotent: relocking an item that is not unlocked, or not locked, succeeds.
+     */
+    delete: operations['RelockItem'];
     options?: never;
     head?: never;
     patch?: never;
@@ -2139,6 +2207,14 @@ export interface components {
       confirmationTitle: string;
       confirmationMessage: string;
     };
+    ItemLockPasswordRequest: {
+      password: string;
+    };
+    ItemLockResponse: {
+      locked: boolean;
+      /** Format: date-time */
+      unlockedUntil: null | string;
+    };
     ItemPermissionsResponse: {
       /** Format: uuid */
       itemId: string;
@@ -2515,6 +2591,10 @@ export interface components {
       /** Format: date-time */
       utcNow: string;
     };
+    SetItemLockRequest: {
+      password: string;
+      currentPassword: null | string;
+    };
     SetPluginEnabledRequest: {
       enabled: boolean;
     };
@@ -2843,11 +2923,11 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
-      layout: null | string;
       filters: components['schemas']['TemplateFilterResponse'][];
       companionViewId: null | string;
       companionPlacement: null | string;
       interactiveForm: null | components['schemas']['TemplateInteractiveFormResponse'];
+      layout?: null | string;
     };
     TokenExchangeRequest: {
       token: null | string;
@@ -2857,6 +2937,10 @@ export interface components {
       tokenType: string;
       /** Format: int64 */
       expiresInSeconds: number | string;
+    };
+    UnlockItemResponse: {
+      /** Format: date-time */
+      unlockedUntil: string;
     };
     UnplaceableCalendarResponse: {
       /** Format: uuid */
@@ -2892,7 +2976,6 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
-      layout: null | string;
       filters: null | components['schemas']['FilterRuleContract'][];
       companionViewId: null | string;
       companionPlacement: null | string;
@@ -2900,6 +2983,7 @@ export interface components {
       measure?: null | string;
       measureProperty?: null | string;
       habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
+      layout?: null | string;
     };
     ViewResponse: {
       id: string;
@@ -2915,7 +2999,6 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
-      layout: null | string;
       filters: components['schemas']['FilterRuleContract'][];
       companionViewId: null | string;
       companionPlacement: null | string;
@@ -2923,6 +3006,7 @@ export interface components {
       measure: null | string;
       measureProperty: null | string;
       habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
+      layout?: null | string;
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -7020,6 +7104,284 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  GetItemLock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemLockResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetItemLock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetItemLockRequest'];
+      };
+    };
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RemoveItemLock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ItemLockPasswordRequest'];
+      };
+    };
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  UnlockItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ItemLockPasswordRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UnlockItemResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RelockItem: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
       };
     };
   };

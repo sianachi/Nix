@@ -43,6 +43,12 @@ export {
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
+export {
+  itemLockSchema,
+  unlockItemResultSchema,
+  type ItemLock,
+  type UnlockItemResult,
+} from './locks.js';
 export { currentPrincipalSchema, type CurrentPrincipal } from './current-principal.js';
 export {
   backlinkSchema,

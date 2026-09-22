@@ -71,13 +71,14 @@ internal static class FileEndpoints
         [FromServices] IFileStore files,
         [FromServices] IItemTree tree,
         [FromServices] IPermissionResolver permissions,
+        [FromServices] IItemLocks locks,
         [FromServices] S3CapabilitySigner signer)
     {
         if (!signer.IsConfigured)
         {
             return StorageUnavailable(context);
         }
-        var upload = await BeginValidated(request, context, files, tree, permissions).ConfigureAwait(false);
+        var upload = await BeginValidated(request, context, files, tree, permissions, locks).ConfigureAwait(false);
         if (upload is null)
         {
             return TypedResults.Problem(Conflict(
@@ -108,7 +109,8 @@ internal static class FileEndpoints
         HttpContext context,
         IFileStore files,
         IItemTree tree,
-        IPermissionResolver permissions)
+        IPermissionResolver permissions,
+        IItemLocks locks)
     {
         if (!ValidName(request.FileName)
             || string.IsNullOrWhiteSpace(request.IdempotencyKey)
@@ -138,6 +140,13 @@ internal static class FileEndpoints
         {
             var targetItem = await tree.FindAsync(ItemId.From(target), context.RequestAborted).ConfigureAwait(false);
             if (targetItem is not { Type: "file" } || targetItem.WorkspaceId != workspaceId)
+            {
+                return new UploadAttempt(null, NotFound(context));
+            }
+
+            // A replacement writes the file's body; a locked one needs this session's unlock, and
+            // is refused like a file the caller cannot see rather than as a key conflict.
+            if (!await locks.MayReadBodyAsync(targetItem.Id, context.RequestAborted).ConfigureAwait(false))
             {
                 return new UploadAttempt(null, NotFound(context));
             }

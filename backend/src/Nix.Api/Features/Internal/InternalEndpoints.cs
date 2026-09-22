@@ -66,7 +66,9 @@ internal static class InternalEndpoints
     internal static ProblemDetails Problem(HttpContext httpContext, NixError error) =>
         ApiProblem.Create(
             httpContext,
-            StatusCodes.Status404NotFound,
+            error.Code == InternalErrors.BodyLockedCode
+                ? StatusCodes.Status403Forbidden
+                : StatusCodes.Status404NotFound,
             error.Code,
             "Request refused",
             error.Message);

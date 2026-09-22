@@ -25,6 +25,13 @@ public static class TemplateErrors
     /// <summary>A stable key or in-progress operation conflicts.</summary>
     public static NixError Conflict(string message) => new("templates.conflict", message);
 
+    /// <summary>Stable code for a capture that would copy a locked body into a template.</summary>
+    public const string SourceLockedCode = "templates.source_locked";
+
+    /// <summary>A capture that includes a locked item, whose body a template would carry unlocked.</summary>
+    public static NixError SourceLocked() =>
+        new(SourceLockedCode, "This item or something under it is locked. Remove the lock before saving it as a template.");
+
     /// <summary>Collab has not written exactly the bodies Core asked it to write.</summary>
     public static NixError BodiesIncomplete(string message) => new("templates.bodies_incomplete", message);
 }

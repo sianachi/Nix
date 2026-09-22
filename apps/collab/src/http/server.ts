@@ -1274,6 +1274,8 @@ async function establish(
   if (!result.ok) {
     if (result.reason === 'unauthenticated') {
       problem(reply, 401, 'unauthenticated', 'The token could not be validated.');
+    } else if (result.reason === 'locked') {
+      problem(reply, 403, 'body_locked', "This item's body is locked. Unlock it first.");
     } else {
       problem(reply, 404, 'document_not_found', 'No such item.');
     }

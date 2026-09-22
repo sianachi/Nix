@@ -42,6 +42,15 @@ import {
   renameItem,
   restoreItem,
 } from './commands/items.ts';
+import {
+  closeLock,
+  lockStatus,
+  openLock,
+  readPasswords,
+  removeLock,
+  setLock,
+} from './commands/locks.ts';
+import { readStdin } from './commands/shared.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import {
   listHistory,
@@ -1546,6 +1555,68 @@ export function buildProgram(): Command {
       await run(() =>
         restoreItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)),
       );
+    });
+
+  // A lock withholds an item's body until its password is presented; it does not encrypt it.
+  // Passwords come from stdin only, never an argument, which process lists and history would keep.
+  const lock = item
+    .command('lock')
+    .description("Read and manage an item's password lock. Passwords are read from stdin.");
+
+  lock
+    .command('status <itemId>')
+    .description('Whether the body is locked, and until when this profile has it open.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => lockStatus(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  lock
+    .command('set <itemId>')
+    .description(
+      'Lock the body with the password on stdin. With --change, stdin carries the current ' +
+        'password and then the new one, one per line.',
+    )
+    .option('--change', 'change the password of an existing lock', false)
+    .action(async (itemId: string, options: { change: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        const passwords = readPasswords(await readStdin(), options.change ? 2 : 1);
+        const [first = '', second] = passwords;
+        await (options.change
+          ? setLock(flags.profile, itemId, second ?? '', first, outputOptions(flags.json))
+          : setLock(flags.profile, itemId, first, undefined, outputOptions(flags.json)));
+      });
+    });
+
+  lock
+    .command('remove <itemId>')
+    .description('Remove the lock, given its password on stdin.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        const [password = ''] = readPasswords(await readStdin(), 1);
+        await removeLock(flags.profile, itemId, password, outputOptions(flags.json));
+      });
+    });
+
+  lock
+    .command('open <itemId>')
+    .description('Unlock the body for this profile, given the password on stdin.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        const [password = ''] = readPasswords(await readStdin(), 1);
+        await openLock(flags.profile, itemId, password, outputOptions(flags.json));
+      });
+    });
+
+  lock
+    .command('close <itemId>')
+    .description('Lock the body again for this profile before its unlock runs out.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => closeLock(flags.profile, itemId, outputOptions(flags.json)));
     });
 
   return program;

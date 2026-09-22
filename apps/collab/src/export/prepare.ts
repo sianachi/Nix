@@ -3,7 +3,8 @@ import type { ArchiveManifest, ItemBundle } from '@nix/export';
 import type { Pool } from 'pg';
 
 import type { CoreClient, CoreItem } from '../core/client.ts';
-import { streamInTenantScope, type TenantScope } from '../db/tenant-scope.ts';
+import { lockedAmong } from '../db/locks.ts';
+import { streamInTenantScope, withTenantScope, type TenantScope } from '../db/tenant-scope.ts';
 import {
   buildManifest,
   enumerateSubtree,
@@ -79,12 +80,23 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
 
   const metadata = await gatherMetadata(request.core, request.token, tree.items);
 
+  // For the manifest's account of what is missing. The bundle stream checks again in its own scope
+  // and is what actually withholds a body; this read only lets the archive say so up front.
+  const locked = await withTenantScope(request.pool, request.tenant, (sql) =>
+    lockedAmong(
+      sql,
+      request.tenant.tenantId,
+      tree.items.map((item) => item.id),
+    ),
+  );
+
   const manifest = buildManifest({
     root,
     tree,
     metadata,
     includeDeleted: request.includeDeleted,
     exportedAt: request.exportedAt,
+    locked,
   });
 
   return {

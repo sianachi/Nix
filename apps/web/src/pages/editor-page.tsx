@@ -8,6 +8,8 @@ import {
   PanelRightClose,
   Save,
   Clock,
+  Lock,
+  LockOpen,
   Settings2,
   Upload,
 } from 'lucide-react';
@@ -64,6 +66,9 @@ import { ContainerView } from '../views/core/container-view';
 import { DOCUMENT_VIEW, type View } from '../views/core/container-model';
 import { useContainer } from '../views/core/use-container';
 import { DocumentHistory } from '../history/document-history';
+import { LockDialog } from '../locks/lock-dialog';
+import { LockedBody } from '../locks/locked-body';
+import { useItemLock } from '../locks/use-item-lock';
 import { historyPanelWidth } from '../layout/regions';
 import { ItemPanel } from '../panel/item-panel';
 import { browserStorage } from '../lib/browser-storage';
@@ -453,7 +458,37 @@ export function OpenItem({
   const [exportOpen, setExportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [lockOpen, setLockOpen] = useState(false);
   const { getAccessToken } = useAuth();
+
+  // Whether the body may be drawn. Core refuses a locked body to a session that has not unlocked
+  // it; this is what lets the page say so, and close the body when the unlock runs out, instead of
+  // drawing an editor that cannot connect.
+  const lock = useItemLock(itemId);
+  const lockNoun = bodyNoun(bodyKind);
+  const lockButtonRef = useRef<HTMLButtonElement>(null);
+
+  // A dialog opened on an open body goes when the body closes - a relock or an expiry - rather
+  // than reappearing, with its fields reset, the next time the body opens.
+  if (lockOpen && !lock.open && lock.status !== 'loading') {
+    setLockOpen(false);
+  }
+
+  // The prompt unmounts when the right password is given; focus goes to the lock control that now
+  // stands for the open body, rather than to nothing.
+  const { unlock } = lock;
+  const unlockAndFocus = useCallback(
+    async (password: string): Promise<string | null> => {
+      const refused = await unlock(password);
+      if (refused === null) {
+        requestAnimationFrame(() => {
+          lockButtonRef.current?.focus();
+        });
+      }
+      return refused;
+    },
+    [unlock],
+  );
   const paneIndex = usePaneIndex();
 
   function togglePanel(): void {
@@ -596,18 +631,50 @@ export function OpenItem({
         ) : null}
 
         {/* Before Settings: the document's past is about the document, and Settings is about
-              the item around it. */}
-        <Button
-          variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
-          aria-expanded={historyOpen}
-          onClick={() => {
-            setHistoryOpen(!historyOpen);
-          }}
-        >
-          <Icon icon={Clock} size="sm" />
-          History
-        </Button>
+              the item around it. Absent while the body is locked: the history is the body. */}
+        {lock.open ? (
+          <Button
+            variant="ghost"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            aria-expanded={historyOpen}
+            onClick={() => {
+              setHistoryOpen(!historyOpen);
+            }}
+          >
+            <Icon icon={Clock} size="sm" />
+            History
+          </Button>
+        ) : null}
+
+        {/* Beside History because both are about the body. Offered only once the lock state is
+              known and the body is open: a closed body is unlocked from the body itself, where the
+              prompt stands in for it. */}
+        {lock.open ? (
+          <Button
+            ref={lockButtonRef}
+            variant="ghost"
+            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            aria-haspopup="dialog"
+            // A state word alone reads as a toggle; the label says what the control opens and
+            // when the body closes on its own.
+            aria-label={
+              lock.unlockedUntil === null
+                ? `Lock this ${lockNoun}`
+                : `Lock settings, open until ${clockTime(lock.unlockedUntil)}`
+            }
+            onClick={() => {
+              setLockOpen(true);
+            }}
+          >
+            <Icon icon={lock.locked ? LockOpen : Lock} size="sm" />
+            {lock.unlockedUntil === null ? 'Lock' : `Open until ${clockTime(lock.unlockedUntil)}`}
+          </Button>
+        ) : null}
+        {lock.closingSoon && lock.unlockedUntil !== null ? (
+          <Text variant="note" role="status" className="px-2 text-xs">
+            Locks again at {clockTime(lock.unlockedUntil)}
+          </Text>
+        ) : null}
 
         <Button
           variant="ghost"
@@ -713,7 +780,35 @@ export function OpenItem({
 
       <div className={`flex flex-1 ${paneClip}`}>
         <div className={paneColumn}>
-          {showingDocument ? (
+          {showingDocument && !lock.open ? (
+            lock.status === 'loading' ? (
+              <Text
+                variant="note"
+                as="div"
+                tone="muted"
+                role="status"
+                className="flex flex-1 items-center justify-center"
+              >
+                Loading…
+              </Text>
+            ) : lock.status === 'error' ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2">
+                <Text variant="note" tone="muted" role="alert">
+                  Could not check whether this {lockNoun} is locked.
+                </Text>
+                <Button variant="secondary" onClick={lock.retry}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <LockedBody
+                title={title}
+                noun={lockNoun}
+                reason={lock.closedReason}
+                onUnlock={unlockAndFocus}
+              />
+            )
+          ) : showingDocument ? (
             bodyKind === 'canvas' ? (
               <Suspense
                 fallback={
@@ -811,7 +906,7 @@ export function OpenItem({
 
         {/* The document's revisions, beside it on a wide window and over it on a narrow one - the
             same two shapes the settings panel takes, for the same reasons. */}
-        {historyOpen ? (
+        {historyOpen && lock.open ? (
           overlayDetails ? (
             <Dialog
               open
@@ -863,6 +958,20 @@ export function OpenItem({
           onClose={() => {
             setExportOpen(false);
           }}
+        />
+      ) : null}
+
+      {lockOpen && lock.open ? (
+        <LockDialog
+          title={title}
+          noun={lockNoun}
+          locked={lock.locked}
+          onClose={() => {
+            setLockOpen(false);
+          }}
+          onSetLock={lock.setLock}
+          onRemoveLock={lock.removeLock}
+          onRelock={lock.relock}
         />
       ) : null}
 
@@ -1088,4 +1197,23 @@ function CompanionViewPair({
       </section>
     </div>
   );
+}
+
+/** What a body is called in lock copy, by the kind that draws it. */
+function bodyNoun(bodyKind: string): string {
+  switch (bodyKind) {
+    case 'canvas':
+      return 'canvas';
+    case 'spreadsheet':
+      return 'spreadsheet';
+    case 'file':
+      return 'file';
+    default:
+      return 'note';
+  }
+}
+
+/** A clock time in the reader's own format, for when an unlock ends. */
+function clockTime(at: Date): string {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(at);
 }

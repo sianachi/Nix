@@ -106,6 +106,7 @@ public sealed class NixUnitOfWorkMiddleware
         IBrowserSessions browserSessions,
         IWorkerDispatchStore workerDispatch,
         AccessTokenSessionContext scopeContext,
+        CredentialSessionContext credentialContext,
         IUserInfoClient userInfo,
         NixDispatcher dispatcher,
         TimeProvider clock,
@@ -121,6 +122,7 @@ public sealed class NixUnitOfWorkMiddleware
         ArgumentNullException.ThrowIfNull(browserSessions);
         ArgumentNullException.ThrowIfNull(workerDispatch);
         ArgumentNullException.ThrowIfNull(scopeContext);
+        ArgumentNullException.ThrowIfNull(credentialContext);
         ArgumentNullException.ThrowIfNull(userInfo);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(clock);
@@ -335,6 +337,19 @@ public sealed class NixUnitOfWorkMiddleware
                 provisioningToken.Registration.Issuer,
                 provisioningToken.Subject);
         accessor.Set(NixSessionContext.ForTenant(validated.TenantId, scopedPrincipalId));
+
+        // The credential an item unlock is issued to and checked against. Only the two a person
+        // holds and can revoke: a worker delegation or a raw external token gets no grant, so a
+        // locked body stays closed to it.
+        switch (validated)
+        {
+            case ValidatedBrowserSessionToken browserCredential:
+                credentialContext.Set(browserCredential.BrowserSessionId.Value);
+                break;
+            case ValidatedCoreToken tokenCredential:
+                credentialContext.Set(tokenCredential.AccessTokenId.Value);
+                break;
+        }
 
         var transaction = await dbContext.Database
             .BeginTransactionAsync(context.RequestAborted)

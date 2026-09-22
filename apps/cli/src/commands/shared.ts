@@ -54,3 +54,12 @@ export async function requireAccessToken(session: Session): Promise<string> {
   }
   return token;
 }
+
+/** Reads all of stdin as UTF-8, for commands that take their input piped in. */
+export async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}

@@ -23,7 +23,7 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
         var unlimited = MutatingEndpoints()
             .Where(endpoint => !IsInternal(endpoint))
             .Where(endpoint => endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName
-                != ExpectedPolicy(endpoint.RoutePattern.RawText))
+                != ExpectedPolicy(endpoint))
             .Select(endpoint => endpoint.DisplayName)
             .ToList();
 
@@ -83,12 +83,22 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     /// The policy each mutating route is expected to carry. The two unauthenticated public
     /// surfaces carry their own windows; every other mutation shares the writes policy.
     /// </summary>
-    private static string ExpectedPolicy(string? routePattern) => routePattern switch
+    private static string ExpectedPolicy(RouteEndpoint endpoint) => endpoint.RoutePattern.RawText switch
     {
         "/public/v1/forms/{token}" => RateLimitRefusal.PublicFormsPolicyName,
         "/public/v1/auth/token" => RateLimitRefusal.TokenExchangePolicyName,
+
+        // Every route that checks an item-lock password carries the tighter lock policy instead.
+        // Relocking shares the unlock path but checks nothing, so it keeps the writes policy.
+        "/api/v1/items/{itemId:guid}/lock" or "/api/v1/items/{itemId:guid}/lock/remove" =>
+            RateLimitRefusal.LockPasswordPolicyName,
+        "/api/v1/items/{itemId:guid}/unlock" when !IsDelete(endpoint) =>
+            RateLimitRefusal.LockPasswordPolicyName,
         _ => RateLimitRefusal.WritesPolicyName,
     };
+
+    private static bool IsDelete(RouteEndpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("DELETE") == true;
 
     private List<RouteEndpoint> MutatingEndpoints() =>
         [.. Routes().Where(IsMutating)];

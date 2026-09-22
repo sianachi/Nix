@@ -204,6 +204,8 @@ function handleConnection(
     if (!result.ok) {
       if (result.reason === 'unauthenticated') {
         close(CLOSE_CODES.unauthenticated, 'The token could not be validated.');
+      } else if (result.reason === 'locked') {
+        close(CLOSE_CODES.bodyLocked, 'This document is locked. Unlock it first.');
       } else {
         close(CLOSE_CODES.notFound, 'No such document.');
       }
@@ -276,7 +278,11 @@ function handleConnection(
     }
 
     if (!rechecked.ok) {
-      close(CLOSE_CODES.revoked, 'This session is no longer authorized.');
+      if (rechecked.reason === 'locked') {
+        close(CLOSE_CODES.bodyLocked, 'This document was locked. Unlock it to keep editing.');
+      } else {
+        close(CLOSE_CODES.revoked, 'This session is no longer authorized.');
+      }
       return;
     }
 

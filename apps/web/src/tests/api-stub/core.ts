@@ -256,6 +256,12 @@ export interface StubOptions {
   /** Makes the shelf read fail. */
   readonly bookmarksFail?: boolean;
 
+  /**
+   * Items whose bodies are locked. The stub opens one when it is sent the password `hunter22`, the
+   * way Core would for the session that presented it.
+   */
+  readonly lockedItems?: readonly string[];
+
   /** Makes the calendar read fail with the refusal Core gives for an invisible workspace. */
   readonly calendarFails?: boolean;
 
@@ -462,6 +468,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     bookmarks = [],
     bookmarksHidden = 0,
     bookmarksFail = false,
+    lockedItems = [],
     calendarFails = false,
     calendarTruncated = false,
     views = {},
@@ -529,6 +536,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // follows it - a stub whose PUT is forgotten by the next GET tests the opposite of what a
   // bookmarking test means to.
   let kept = [...bookmarks];
+  const unlocked = new Set<string>();
 
   // The tokens the stub holds, newest first as the endpoint promises. Mutable for the reason
   // `known` is: a mint has to be visible to the list read that follows it, and a revocation has to
@@ -1040,6 +1048,32 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             ? json({ code: 'bookmarks.unavailable' }, 500)
             : json({ items: kept, hidden: bookmarksHidden }),
         );
+      }
+
+      // An item's lock as this session sees it. Every item is unlocked unless the test says
+      // otherwise, so a page that reads the lock before drawing a body draws it as before.
+      const lockRead = /\/api\/v1\/items\/([0-9a-f-]{36})\/(lock|unlock)$/.exec(parsedUrl.pathname);
+      if (lockRead !== null) {
+        const itemId = lockRead[1] ?? '';
+        const locked = lockedItems.includes(itemId);
+        if (lockRead[2] === 'lock' && method === 'GET') {
+          return Promise.resolve(
+            json({
+              locked,
+              unlockedUntil: locked && unlocked.has(itemId) ? '2099-01-01T00:00:00+00:00' : null,
+            }),
+          );
+        }
+        if (lockRead[2] === 'unlock' && method === 'POST') {
+          const body: unknown = typeof requestBody === 'string' ? JSON.parse(requestBody) : {};
+          const password =
+            typeof body === 'object' && body !== null && 'password' in body ? body.password : null;
+          if (password !== 'hunter22') {
+            return Promise.resolve(json({ code: 'locks.wrong_password' }, 403));
+          }
+          unlocked.add(itemId);
+          return Promise.resolve(json({ unlockedUntil: '2099-01-01T00:00:00+00:00' }));
+        }
       }
 
       // Keeping and releasing. The stub holds the shelf in memory so a test can press a control and

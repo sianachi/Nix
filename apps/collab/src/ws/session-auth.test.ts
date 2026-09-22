@@ -48,6 +48,26 @@ function counting(overrides?: { expiresAt?: number | null; authorize?: Authorize
 }
 
 describe('session authentication', () => {
+  it('reports a locked body as locked, and asks again next time so an unlock takes effect at once', async () => {
+    let locked = true;
+    let asked = 0;
+    const { tokens, authorizer } = counting({
+      authorize: () => {
+        asked += 1;
+        return Promise.resolve(locked ? 'locked' : GRANTED);
+      },
+    });
+    const sessions = createSessionAuthenticator({ tokens, authorizer, cacheTtlMs: 30_000 });
+
+    const refused = await sessions.authenticate('token', ITEM);
+    expect(refused).toEqual({ ok: false, reason: 'locked' });
+
+    locked = false;
+    const opened = await sessions.authenticate('token', ITEM);
+    expect(opened.ok).toBe(true);
+    expect(asked).toBe(2);
+  });
+
   it('answers from the cache within its lifetime, so a session does not cost a round trip per ask', async () => {
     let at = 1_000;
     const { tokens, authorizer, calls } = counting();

@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 
 import type { ContentDocRow } from '../db/documents.ts';
 import { withTenantScope, type ScopedQuery, type TenantScope } from '../db/tenant-scope.ts';
+import { lockedAmong } from '../db/locks.ts';
 import { CANVAS_ELEMENTS, FRAGMENT_NAME, strategyFor } from '../documents/body-kinds.ts';
 import { checkMergedDocument } from '../documents/service.ts';
 import { LIMITS } from '../documents/limits.ts';
@@ -88,6 +89,21 @@ export async function copyBodies(
 ): Promise<readonly string[]> {
   assertStagedWrite(authorization);
   return await withTenantScope(pool, scopeOf(authorization), async (sql) => {
+    // A template is a copy of its sources' bodies that outlives them and is applied by whoever may
+    // use the template, so a locked source would leave its lock behind. Refused rather than copied
+    // empty: a template that silently lost a note's text is worse than one that says why it cannot
+    // be made. Checked in the same scope the bodies are read in.
+    const locked = await lockedAmong(
+      sql,
+      authorization.tenantId,
+      copies.map((copy) => copy.sourceItemId),
+    );
+    if (locked.size > 0) {
+      throw new TemplateBodyError(
+        'template.source_locked',
+        'A locked item cannot be copied. Remove its lock first.',
+      );
+    }
     const sourceStates = await loadSourceStates(
       sql,
       authorization.tenantId,
