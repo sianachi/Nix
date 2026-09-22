@@ -255,6 +255,7 @@ export function viewForRecipe(
     coverProperty: recipe.viewKind === 'gallery' ? (first?.key ?? null) : null,
     endDateProperty: recipe.viewKind === 'timeline' ? (second?.key ?? null) : null,
     cardSize: recipe.viewKind === 'gallery' ? 'medium' : null,
+    layout: recipe.viewKind === 'drive' ? 'list' : null,
     filters: [...(recipe.filters ?? [])],
     companionViewId: null,
     companionPlacement: null,

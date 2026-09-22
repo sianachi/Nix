@@ -57,6 +57,7 @@ const view: View = {
   coverProperty: null,
   endDateProperty: null,
   cardSize: null,
+  layout: null,
   habitWidgets: [],
 };
 const habit = {

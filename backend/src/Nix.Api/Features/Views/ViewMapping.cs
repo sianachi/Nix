@@ -35,7 +35,8 @@ internal static class ViewMapping
             ToContract(view.InteractiveForm),
             view.Measure,
             view.MeasureProperty,
-            view.HabitWidgets.IsDefaultOrEmpty ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetContract(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))]);
+            view.HabitWidgets.IsDefaultOrEmpty ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetContract(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))],
+            view.Layout);
     }
 
     /// <summary>
@@ -86,7 +87,8 @@ internal static class ViewMapping
                     ToDomain(view.InteractiveForm),
                     view.Measure,
                     view.MeasureProperty,
-                    view.HabitWidgets is null ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetDefinition(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))]));
+                    view.HabitWidgets is null ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetDefinition(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))],
+                    view.Layout));
         }
 
         views = mapped.ToImmutable();

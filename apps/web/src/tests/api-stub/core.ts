@@ -2108,6 +2108,7 @@ function templateRoot(template: StubTemplate): Readonly<Record<string, unknown>>
           coverProperty: null,
           endDateProperty: null,
           cardSize: null,
+          layout: null,
           filters: [],
           companionViewId: null,
           companionPlacement: null,

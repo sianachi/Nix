@@ -90,6 +90,7 @@ public static class ViewDefinitionsJson
     private const string EndDatePropertyKey = "endDateProperty";
     private const string CoverPropertyKey = "coverProperty";
     private const string CardSizeKey = "cardSize";
+    private const string LayoutKey = "layout";
     private const string MeasureKey = "measure";
     private const string MeasurePropertyKey = "measureProperty";
     private const string ModeKey = "mode";
@@ -228,6 +229,11 @@ public static class ViewDefinitionsJson
                 entry[CardSizeKey] = view.CardSize;
             }
 
+            if (view.Layout is not null)
+            {
+                entry[LayoutKey] = view.Layout;
+            }
+
             if (view.SortBy is not null)
             {
                 entry[SortByKey] = view.SortBy;
@@ -343,7 +349,8 @@ public static class ViewDefinitionsJson
             ReadInteractiveForm(view[InteractiveFormKey]),
             ReadMeasure(view[MeasureKey]),
             ReadString(view[MeasurePropertyKey]),
-            ReadHabitWidgets(view["habitWidgets"]));
+            ReadHabitWidgets(view["habitWidgets"]),
+            ReadLayout(view[LayoutKey]));
     }
 
     private static ImmutableArray<HabitWidgetDefinition> ReadHabitWidgets(JsonNode? node)
@@ -431,6 +438,9 @@ public static class ViewDefinitionsJson
 
     private static string? ReadCardSize(JsonNode? node) =>
         ReadString(node) is { } size && GalleryCardSizes.IsValid(size) ? size : null;
+
+    private static string? ReadLayout(JsonNode? node) =>
+        ReadString(node) is { } layout && DriveLayouts.IsValid(layout) ? layout : null;
 
     private static ImmutableArray<string> ReadStrings(JsonNode? node)
     {

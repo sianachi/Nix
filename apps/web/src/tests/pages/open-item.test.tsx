@@ -47,6 +47,7 @@ const BOARD = {
   coverProperty: null,
   endDateProperty: null,
   cardSize: null,
+  layout: null,
 };
 
 describe('an item nobody has configured', () => {

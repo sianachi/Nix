@@ -36,6 +36,7 @@ const CAPTURE_VIEW = {
   coverProperty: null,
   endDateProperty: null,
   cardSize: null,
+  layout: null,
   filters: [],
   companionViewId: null,
   companionPlacement: null,

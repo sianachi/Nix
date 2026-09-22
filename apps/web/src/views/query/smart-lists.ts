@@ -125,6 +125,7 @@ export function smartListView(preset: SmartListPreset): View {
     coverProperty: null,
     endDateProperty: null,
     cardSize: null,
+    layout: null,
     filters: [...preset.filters],
   };
 }

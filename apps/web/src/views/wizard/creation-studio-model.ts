@@ -122,6 +122,7 @@ function createCompanionView(
     coverProperty: kind === 'gallery' ? (firstImage?.key ?? null) : null,
     endDateProperty: null,
     cardSize: kind === 'gallery' ? 'medium' : null,
+    layout: kind === 'drive' ? 'list' : null,
     filters: [],
     companionViewId: null,
     companionPlacement: null,

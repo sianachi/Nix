@@ -241,6 +241,9 @@ public sealed class RenameItemTests
         public ValueTask<bool> CancelAsync(FileUploadId id, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public ValueTask<IReadOnlyList<FileVersionSourceRecord>?> AuthorizeVersionHistoryAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IReadOnlyList<FileVersionSourceRecord>?>(null);
+
         public ValueTask<FileRecord?> GetAsync(ItemId itemId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

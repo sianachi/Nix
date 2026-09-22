@@ -267,6 +267,7 @@ describe('the template schemas', () => {
               coverProperty: null,
               endDateProperty: null,
               cardSize: null,
+              layout: null,
               filters: [{ property: 'mood', operator: 'equals', value: 'Good' }],
               companionViewId: 'responses',
               companionPlacement: 'beside',

@@ -131,7 +131,8 @@ internal sealed record TemplateViewResponse(
     IReadOnlyList<TemplateFilterResponse> Filters,
     string? CompanionViewId,
     string? CompanionPlacement,
-    TemplateInteractiveFormResponse? InteractiveForm);
+    TemplateInteractiveFormResponse? InteractiveForm,
+    string? Layout = null);
 
 internal sealed record TemplateStoredViewsResponse(
     IReadOnlyList<TemplateViewResponse> Views,

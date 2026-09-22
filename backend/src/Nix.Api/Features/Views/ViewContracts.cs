@@ -83,7 +83,8 @@ internal sealed record ViewResponse(
     InteractiveFormContract? InteractiveForm,
     string? Measure,
     string? MeasureProperty,
-    IReadOnlyList<HabitWidgetContract>? HabitWidgets = null);
+    IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
+    string? Layout = null);
 
 /// <summary>One condition of a query view.</summary>
 /// <param name="Property">The property key the condition tests, matched across containers.</param>
@@ -214,7 +215,8 @@ internal sealed record ViewRequest(
     InteractiveFormContract? InteractiveForm,
     string? Measure = null,
     string? MeasureProperty = null,
-    IReadOnlyList<HabitWidgetContract>? HabitWidgets = null);
+    IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
+    string? Layout = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);

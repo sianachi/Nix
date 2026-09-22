@@ -399,6 +399,7 @@ const templateViewSchema = z.object({
   coverProperty: z.string().nullable().default(null),
   endDateProperty: z.string().nullable().default(null),
   cardSize: z.string().nullable().default(null),
+  layout: z.string().nullable().default(null),
   filters: z
     .array(
       z.object({

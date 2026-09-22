@@ -330,6 +330,27 @@ public static class ChartMeasures
         || string.Equals(value, Sum, StringComparison.Ordinal);
 }
 
+/// <summary>
+/// The two ways a drive view draws its rows. Closed and policed on write like the gallery's card
+/// sizes, and for the same reason: a layout is a word the client switches on, and a stray one would
+/// be a drive that draws as nothing.
+/// </summary>
+public static class DriveLayouts
+{
+    /// <summary>The default, and what absent has always meant: one row per item.</summary>
+    public const string List = "list";
+
+    /// <summary>Tiles with a kind icon, for a folder of files.</summary>
+    public const string Grid = "grid";
+
+    /// <summary>Whether a stored or requested value names a layout this build defines.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns><see langword="true"/> when it is one of the two layouts.</returns>
+    public static bool IsValid(string value) =>
+        string.Equals(value, List, StringComparison.Ordinal)
+        || string.Equals(value, Grid, StringComparison.Ordinal);
+}
+
 public static class GalleryCardSizes
 {
     /// <summary>Denser columns and a squarer cover.</summary>
@@ -495,7 +516,12 @@ public sealed record ViewDefinition(
     // is what a chart with nothing configured draws and the only measure that always has an answer.
     string? Measure = null,
     string? MeasureProperty = null,
-    ImmutableArray<HabitWidgetDefinition> HabitWidgets = default)
+    ImmutableArray<HabitWidgetDefinition> HabitWidgets = default,
+
+    // Last and defaulted, like every field added since the record was first cut. For a drive: list
+    // or grid. Null means list, which is what every drive drew before the field existed; the set is
+    // closed and policed on write, see DriveLayouts.
+    string? Layout = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

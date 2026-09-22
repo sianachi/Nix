@@ -57,6 +57,7 @@ const LIST_VIEW = {
   coverProperty: null,
   endDateProperty: null,
   cardSize: null,
+  layout: null,
 };
 
 /** Opens the container on its list view, and waits until the rows are really there. */

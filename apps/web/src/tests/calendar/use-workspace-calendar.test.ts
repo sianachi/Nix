@@ -44,6 +44,7 @@ function viewsResponse(dateProperty: string | null): Record<string, unknown> {
         coverProperty: null,
         endDateProperty: null,
         cardSize: null,
+        layout: null,
         filters: [],
         companionViewId: null,
         companionPlacement: null,

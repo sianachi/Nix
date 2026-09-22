@@ -126,7 +126,8 @@ internal static class TemplateMapping
                     filter.Value)).ToArray(),
             view.CompanionViewId,
             view.CompanionPlacement,
-            InteractiveForm(view.InteractiveForm));
+            InteractiveForm(view.InteractiveForm),
+            view.Layout);
 
     private static TemplateInteractiveFormResponse? InteractiveForm(InteractiveFormDefinition? form) =>
         form is null

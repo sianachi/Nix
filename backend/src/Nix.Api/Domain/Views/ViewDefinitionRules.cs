@@ -66,6 +66,12 @@ public static class ViewDefinitionRules
                     + $"use '{GalleryCardSizes.Small}', '{GalleryCardSizes.Medium}' or '{GalleryCardSizes.Large}'.";
             }
 
+            if (view.Layout is { } layout && !DriveLayouts.IsValid(layout))
+            {
+                return $"'{view.Name}': '{layout}' is not a layout; "
+                    + $"use '{DriveLayouts.List}' or '{DriveLayouts.Grid}'.";
+            }
+
             if (!view.HabitWidgets.IsDefaultOrEmpty)
             {
                 if (view.HabitWidgets.Length > 12)

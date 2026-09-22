@@ -2843,6 +2843,7 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+      layout: null | string;
       filters: components['schemas']['TemplateFilterResponse'][];
       companionViewId: null | string;
       companionPlacement: null | string;
@@ -2891,6 +2892,7 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+      layout: null | string;
       filters: null | components['schemas']['FilterRuleContract'][];
       companionViewId: null | string;
       companionPlacement: null | string;
@@ -2913,6 +2915,7 @@ export interface components {
       coverProperty: null | string;
       endDateProperty: null | string;
       cardSize: null | string;
+      layout: null | string;
       filters: components['schemas']['FilterRuleContract'][];
       companionViewId: null | string;
       companionPlacement: null | string;
