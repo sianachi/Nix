@@ -15,7 +15,8 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
-    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock) => (_tree, _permissions, _session, _clock) = (tree, permissions, session, clock);
+    private readonly IFinanceMutationGuard? _financeGuard;
+    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock, IFinanceMutationGuard? financeGuard = null) => (_tree, _permissions, _session, _clock, _financeGuard) = (tree, permissions, session, clock, financeGuard);
 
     public async ValueTask<Result<ItemId>> HandleAsync(PurgeItem command, CancellationToken cancellationToken)
     {
@@ -28,6 +29,19 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
         if (item.LifecycleState != ItemLifecycleState.Deleted)
         {
             return Result.Failure<ItemId>(ItemErrors.LifecycleConflict("Only an item in Trash can be permanently deleted."));
+        }
+        if (_financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, item.Id, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<ItemId>(blocked.Value);
+            }
+            item = await _tree.FindStoredAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.LifecycleState != ItemLifecycleState.Deleted)
+            {
+                return Result.Failure<ItemId>(ItemErrors.NotFound($"No deleted item {command.ItemId} is visible."));
+            }
         }
         var context = _session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
         var now = _clock.GetUtcNow();

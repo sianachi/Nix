@@ -44,6 +44,7 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IFinanceMutationGuard? _financeGuard;
 
     /// <summary>Initializes a new instance of the <see cref="RestoreItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -54,7 +55,8 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceMutationGuard? financeGuard = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -65,6 +67,7 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
         _permissions = permissions;
         _session = session;
         _clock = clock;
+        _financeGuard = financeGuard;
     }
 
     /// <summary>Restores the item.</summary>
@@ -110,6 +113,20 @@ public sealed class RestoreItemHandler : ICommandHandler<RestoreItem, Item>
         if (item.LifecycleState == ItemLifecycleState.Active)
         {
             return Result.Success(visible!);
+        }
+
+        if (_financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<Item>(blocked.Value);
+            }
+            item = await _tree.FindStoredAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.LifecycleState != ItemLifecycleState.Deleted)
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No deleted item {itemId} is visible."));
+            }
         }
 
         var now = _clock.GetUtcNow();

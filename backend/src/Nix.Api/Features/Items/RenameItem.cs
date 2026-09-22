@@ -16,7 +16,11 @@ namespace Nix.Features.Items;
 /// the property bag, replaces one key and writes the whole bag back. Preserving the rest matters:
 /// a rename must not silently drop properties a later goal added and this code knows nothing about.
 /// </remarks>
-public sealed record RenameItem(ItemId ItemId, string Title) : ICommand<Item>;
+public sealed record RenameItem(ItemId ItemId, string Title) : ICommand<Item>
+{
+    /// <summary>Internal capability for validated finance feature dispatches; never request-bound.</summary>
+    internal bool FinanceWrite { get; init; }
+}
 
 /// <summary>Changes an item's display name.</summary>
 /// <remarks>
@@ -31,6 +35,7 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IFinanceMutationGuard? _financeGuard;
 
     /// <summary>Initializes a new instance of the <see cref="RenameItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -43,7 +48,8 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
         IFileStore files,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceMutationGuard? financeGuard = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(files);
@@ -56,6 +62,7 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
         _permissions = permissions;
         _session = session;
         _clock = clock;
+        _financeGuard = financeGuard;
     }
 
     /// <summary>Renames the item.</summary>
@@ -83,6 +90,20 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
         {
             return Result.Failure<Item>(
                 ItemErrors.LifecycleConflict("A purged item cannot be renamed."));
+        }
+
+        if (!command.FinanceWrite && _financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, null, false, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<Item>(blocked.Value);
+            }
+            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.LifecycleState != ItemLifecycleState.Active)
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
         }
 
         var now = _clock.GetUtcNow();

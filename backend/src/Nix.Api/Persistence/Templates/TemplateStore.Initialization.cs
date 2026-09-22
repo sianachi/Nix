@@ -377,6 +377,11 @@ public sealed partial class TemplateStore
         var assigneeIds = new HashSet<Guid>();
         foreach (var initialized in evaluation.Items)
         {
+            if (_validator.ValidateEnvelope(initialized.Properties, null, null) is { } envelopeRefusal)
+            {
+                return Result.Failure<PreparedTemplateApplication>(TemplateErrors.Invalid(envelopeRefusal));
+            }
+
             if (!TryReadAssignee(initialized.Properties, out var assigneeId, out var hasAssignee))
             {
                 return Result.Failure<PreparedTemplateApplication>(TemplateErrors.Invalid(

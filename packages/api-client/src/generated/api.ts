@@ -1004,12 +1004,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form' and 'drive') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form', 'drive' and 'finance') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -1329,6 +1329,246 @@ export interface paths {
     get?: never;
     put: operations['SetHabitStatus'];
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Read a finance root's settings, accounts, budget lines and closed months */
+    get: operations['GetFinance'];
+    /**
+     * Make an item a finance root, or change its settings
+     * @description The first call creates three child containers, Accounts, Budget lines and Transactions, and records their identifiers on the root. Later calls change the settings only.
+     */
+    put: operations['SetFinanceSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/accounts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every account with the figure that matters for it in a month */
+    get: operations['GetFinanceAccounts'];
+    put?: never;
+    post: operations['CreateFinanceAccount'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/accounts/{accountId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SetFinanceAccount'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/accounts/{accountId}/loan': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A loan's repayment schedule, and what a different overpayment would buy */
+    get: operations['GetFinanceLoan'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/lines': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CreateBudgetLine'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/lines/{lineId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SetBudgetLine'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Transactions newest first, narrowed by month, account or line */
+    get: operations['ListFinanceTransactions'];
+    put?: never;
+    /** Record a transaction; the amount is its cash effect, negative when money left */
+    post: operations['CreateFinanceTransaction'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/transactions/{transactionId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SetFinanceTransaction'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/budget': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Lines by month with plan, actual and variance; defaults to the current month */
+    get: operations['GetFinanceBudget'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/cashflow': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Cash month by month across the horizon, actual for closed months and plan for open ones */
+    get: operations['GetFinanceCashFlow'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/dashboard': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The month's position, the cards, the loans, what needs watching and what is due soon */
+    get: operations['GetFinanceDashboard'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/months/{month}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** What closing a month would leave unresolved */
+    get: operations['GetFinanceMonth'];
+    /** Close or reopen a month */
+    put: operations['SetFinanceMonth'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/months/{month}/post-scheduled': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Post every scheduled line's planned amount for the month, once */
+    post: operations['PostFinanceScheduled'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/finance/import': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Read a bank CSV into an account, previewing unless commit is true */
+    post: operations['ImportFinanceStatement'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1741,6 +1981,91 @@ export interface components {
       byteLength: number | string;
       idempotencyKey: string;
     };
+    BudgetCellResponse: {
+      month: string;
+      /** Format: double */
+      plan: number | string;
+      /** Format: double */
+      actual: number | string;
+      /** Format: double */
+      variance: number | string;
+      /** Format: int32 */
+      transactions: number | string;
+    };
+    BudgetGridResponse: {
+      /** Format: uuid */
+      itemId: string;
+      months: string[];
+      sections: components['schemas']['BudgetSectionResponse'][];
+      totals: components['schemas']['BudgetMonthTotalsResponse'][];
+    };
+    BudgetLineRequest: {
+      name: string;
+      section: string;
+      flow: string;
+      /** Format: uuid */
+      accountId: string;
+      /** Format: double */
+      amount: number | string;
+      overrides: null | {
+        [key: string]: number | string;
+      };
+      scheduled: boolean;
+      /** Format: int32 */
+      dueDay: null | number | string;
+      /** Format: uuid */
+      loanAccount: null | string;
+      /** @default false */
+      archived: boolean;
+    };
+    BudgetLineResponse: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      section: string;
+      flow: string;
+      /** Format: uuid */
+      accountId: string;
+      /** Format: double */
+      amount: number | string;
+      overrides: {
+        [key: string]: number | string;
+      };
+      scheduled: boolean;
+      /** Format: int32 */
+      dueDay: null | number | string;
+      /** Format: uuid */
+      loanAccount: null | string;
+      archived: boolean;
+      /** Format: int64 */
+      position: number | string;
+    };
+    BudgetLineRowResponse: {
+      line: components['schemas']['BudgetLineResponse'];
+      cells: components['schemas']['BudgetCellResponse'][];
+    };
+    BudgetMonthTotalsResponse: {
+      month: string;
+      closed: boolean;
+      plan: components['schemas']['MonthFiguresResponse'];
+      actual: components['schemas']['MonthFiguresResponse'];
+      /** Format: double */
+      unassignedOutflow: number | string;
+      /** Format: double */
+      unassignedInflow: number | string;
+      /** Format: int32 */
+      unassignedTransactions: number | string;
+      /** Format: double */
+      cumulativeNetPlan: number | string;
+      /** Format: double */
+      cumulativeNetActual: number | string;
+    };
+    BudgetSectionResponse: {
+      name: string;
+      flow: string;
+      lines: components['schemas']['BudgetLineRowResponse'][];
+      totals: components['schemas']['BudgetCellResponse'][];
+    };
     CalendarEntryResponse: {
       /** Format: uuid */
       itemId: string;
@@ -1756,6 +2081,65 @@ export interface components {
     };
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
+    };
+    CardMonthResponse: {
+      /** Format: uuid */
+      accountId: string;
+      name: string;
+      month: string;
+      source: string;
+      /** Format: double */
+      opening: number | string;
+      /** Format: double */
+      spend: number | string;
+      /** Format: double */
+      paymentOut: number | string;
+      /** Format: double */
+      closing: number | string;
+      /** Format: double */
+      utilisation: null | number | string;
+      /** Format: double */
+      limit: null | number | string;
+      /** Format: uuid */
+      settlesFrom: null | string;
+    };
+    CashFlowMonthResponse: {
+      month: string;
+      source: string;
+      /** Format: double */
+      income: number | string;
+      /** Format: double */
+      paidThisMonth: number | string;
+      /** Format: double */
+      cardSpend: number | string;
+      /** Format: double */
+      cardPaymentOut: number | string;
+      /** Format: double */
+      cashNet: number | string;
+      /** Format: double */
+      closingBank: number | string;
+      /** Format: double */
+      cardOwed: number | string;
+      /** Format: double */
+      netPosition: number | string;
+      /** Format: double */
+      emergencyTarget: number | string;
+      bufferMet: boolean;
+    };
+    CashFlowResponse: {
+      /** Format: uuid */
+      itemId: string;
+      /** Format: double */
+      openingBank: number | string;
+      /** Format: double */
+      openingCardOwed: number | string;
+      /** Format: double */
+      openingNetPosition: number | string;
+      /** Format: double */
+      emergencyTarget: number | string;
+      emergencyBasisMonth: string;
+      bufferMetIn: null | string;
+      months: components['schemas']['CashFlowMonthResponse'][];
     };
     ChangeWorkspaceMemberRoleRequest: {
       /** @enum {string} */
@@ -2054,6 +2438,215 @@ export interface components {
       operator: string;
       value: string;
     };
+    FinanceAccountRequest: {
+      name: string;
+      type: string;
+      /** Format: double */
+      limit: null | number | string;
+      /** Format: double */
+      openingBalance: number | string;
+      /** Format: uuid */
+      settlesFrom: null | string;
+      /** Format: double */
+      apr: null | number | string;
+      /** Format: double */
+      payment: null | number | string;
+      /** Format: double */
+      overpayment: null | number | string;
+      /** Format: double */
+      target: null | number | string;
+      /** @default false */
+      archived: boolean;
+    };
+    FinanceAccountResponse: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      type: string;
+      /** Format: double */
+      limit: null | number | string;
+      /** Format: double */
+      openingBalance: number | string;
+      /** Format: uuid */
+      settlesFrom: null | string;
+      /** Format: double */
+      apr: null | number | string;
+      /** Format: double */
+      payment: null | number | string;
+      /** Format: double */
+      overpayment: null | number | string;
+      /** Format: double */
+      target: null | number | string;
+      archived: boolean;
+    };
+    FinanceAccountsResponse: {
+      /** Format: uuid */
+      itemId: string;
+      month: string;
+      accounts: components['schemas']['FinanceAccountSummaryResponse'][];
+    };
+    FinanceAccountSummaryResponse: {
+      account: components['schemas']['FinanceAccountResponse'];
+      /** Format: double */
+      recordedBalance: null | number | string;
+      card: null | components['schemas']['CardMonthResponse'];
+      loan: null | components['schemas']['LoanSummaryResponse'];
+      /** Format: double */
+      savingsProgress: null | number | string;
+    };
+    FinanceContainersResponse: {
+      /** Format: uuid */
+      accounts: string;
+      /** Format: uuid */
+      lines: string;
+      /** Format: uuid */
+      transactions: string;
+    };
+    FinanceDashboardResponse: {
+      /** Format: uuid */
+      itemId: string;
+      month: string;
+      closed: boolean;
+      plan: components['schemas']['MonthFiguresResponse'];
+      actual: components['schemas']['MonthFiguresResponse'];
+      /** Format: double */
+      savingsRatePlan: null | number | string;
+      /** Format: double */
+      savingsRateActual: null | number | string;
+      position: components['schemas']['CashFlowMonthResponse'];
+      /** Format: double */
+      openingNetPosition: number | string;
+      /** Format: double */
+      emergencyTarget: number | string;
+      bufferMetIn: null | string;
+      /** Format: double */
+      cardFloat: number | string;
+      cards: components['schemas']['CardMonthResponse'][];
+      loans: components['schemas']['LoanPositionResponse'][];
+      watch: components['schemas']['WatchItemResponse'][];
+      upcoming: components['schemas']['UpcomingResponse'][];
+      horizonEnd: components['schemas']['CashFlowMonthResponse'];
+      /** Format: double */
+      horizonNet: number | string;
+    };
+    FinanceImportRequest: {
+      /** Format: uuid */
+      accountId: string;
+      csv: string;
+      commit: boolean;
+    };
+    FinanceImportResponse: {
+      /** Format: int32 */
+      rows: number | string;
+      /** Format: int32 */
+      readable: number | string;
+      /** Format: int32 */
+      created: number | string;
+      /** Format: int32 */
+      duplicates: number | string;
+      /** Format: int32 */
+      matched: number | string;
+      /** Format: int32 */
+      unreadable: number | string;
+      committed: boolean;
+      preview: components['schemas']['FinanceImportRowResponse'][];
+      problem: null | string;
+    };
+    FinanceImportRowResponse: {
+      /** Format: int32 */
+      row: number | string;
+      /** Format: date */
+      date: null | string;
+      /** Format: double */
+      amount: null | number | string;
+      description: string;
+      status: string;
+      /** Format: uuid */
+      suggestedLineId: null | string;
+      problem: null | string;
+      /** Format: uuid */
+      transactionId: null | string;
+    };
+    FinanceMonthRequest: {
+      closed: boolean;
+    };
+    FinanceMonthResponse: {
+      month: string;
+      closed: boolean;
+      closedMonths: string[];
+    };
+    FinanceResponse: {
+      /** Format: uuid */
+      itemId: string;
+      settings: components['schemas']['FinanceSettingsResponse'];
+      containers: components['schemas']['FinanceContainersResponse'];
+      accounts: components['schemas']['FinanceAccountResponse'][];
+      lines: components['schemas']['BudgetLineResponse'][];
+      closedMonths: string[];
+      currentMonth: string;
+      /** Format: int32 */
+      transactionCount: number | string;
+      problems: string[];
+    };
+    FinanceSettingsRequest: {
+      currency: string;
+      startMonth: string;
+      /** Format: int32 */
+      horizonMonths: number | string;
+      /** Format: double */
+      openingCash: number | string;
+      /** Format: double */
+      emergencyFundMonths: number | string;
+      timezone: string;
+    };
+    FinanceSettingsResponse: {
+      currency: string;
+      startMonth: string;
+      endMonth: string;
+      /** Format: int32 */
+      horizonMonths: number | string;
+      /** Format: double */
+      openingCash: number | string;
+      /** Format: double */
+      emergencyFundMonths: number | string;
+      timezone: string;
+    };
+    FinanceTransactionRequest: {
+      description: string;
+      /** Format: date */
+      date: string;
+      /** Format: double */
+      amount: number | string;
+      /** Format: uuid */
+      accountId: string;
+      /** Format: uuid */
+      lineId: null | string;
+      /** @default false */
+      cleared: boolean;
+    };
+    FinanceTransactionResponse: {
+      /** Format: uuid */
+      id: string;
+      description: string;
+      /** Format: date */
+      date: string;
+      /** Format: double */
+      amount: number | string;
+      /** Format: uuid */
+      accountId: string;
+      /** Format: uuid */
+      lineId: null | string;
+      source: string;
+      postedFor: null | string;
+      importKey: null | string;
+      cleared: boolean;
+    };
+    FinanceTransactionsResponse: {
+      transactions: components['schemas']['FinanceTransactionResponse'][];
+      /** Format: int32 */
+      total: number | string;
+      truncated: boolean;
+    };
     FormBlockContract: {
       id: string;
       kind: string;
@@ -2273,6 +2866,90 @@ export interface components {
     LivenessResponse: {
       status: string;
     };
+    LoanMonthResponse: {
+      /** Format: int32 */
+      number: number | string;
+      month: string;
+      /** Format: double */
+      opening: number | string;
+      /** Format: double */
+      interest: number | string;
+      /** Format: double */
+      payment: number | string;
+      /** Format: double */
+      principal: number | string;
+      /** Format: double */
+      closing: number | string;
+    };
+    LoanPositionResponse: {
+      /** Format: uuid */
+      accountId: string;
+      name: string;
+      /** Format: double */
+      balance: number | string;
+      clearedIn: null | string;
+      /** Format: double */
+      totalInterest: number | string;
+    };
+    LoanScheduleResponse: {
+      /** Format: uuid */
+      accountId: string;
+      name: string;
+      baseline: components['schemas']['LoanSummaryResponse'];
+      alternative: components['schemas']['LoanSummaryResponse'];
+      /** Format: int32 */
+      monthsSaved: number | string;
+      /** Format: double */
+      interestSaved: number | string;
+      months: components['schemas']['LoanMonthResponse'][];
+    };
+    LoanSummaryResponse: {
+      /** Format: double */
+      opening: number | string;
+      /** Format: double */
+      apr: number | string;
+      /** Format: double */
+      payment: number | string;
+      /** Format: double */
+      overpayment: number | string;
+      /** Format: int32 */
+      monthsToClear: number | string;
+      /** Format: double */
+      totalInterest: number | string;
+      /** Format: double */
+      totalPaid: number | string;
+      cleared: boolean;
+      clearedIn: null | string;
+      /** Format: double */
+      balanceAfterMonth: number | string;
+    };
+    MonthChecklistResponse: {
+      month: string;
+      closed: boolean;
+      /** Format: int32 */
+      scheduledPosted: number | string;
+      /** Format: int32 */
+      scheduledUnposted: number | string;
+      /** Format: int32 */
+      unassignedTransactions: number | string;
+      /** Format: double */
+      unassignedOutflow: number | string;
+      overPlan: components['schemas']['WatchItemResponse'][];
+      plan: components['schemas']['MonthFiguresResponse'];
+      actual: components['schemas']['MonthFiguresResponse'];
+    };
+    MonthFiguresResponse: {
+      /** Format: double */
+      income: number | string;
+      /** Format: double */
+      paidThisMonth: number | string;
+      /** Format: double */
+      cardSpend: number | string;
+      /** Format: double */
+      outgoings: number | string;
+      /** Format: double */
+      net: number | string;
+    };
     MoveItemRequest: {
       /** Format: uuid */
       parentId: null | string;
@@ -2425,6 +3102,14 @@ export interface components {
       installedAt: string;
       /** Format: date-time */
       updatedAt: string;
+    };
+    PostScheduledResponse: {
+      month: string;
+      posted: components['schemas']['FinanceTransactionResponse'][];
+      /** Format: int32 */
+      alreadyPosted: number | string;
+      /** Format: int32 */
+      skipped: number | string;
     };
     ProblemDetails: {
       type?: null | string;
@@ -2951,6 +3636,19 @@ export interface components {
       itemId: null | string;
       itemTitle: null | string;
     };
+    UpcomingResponse: {
+      kind: string;
+      /** Format: uuid */
+      lineId: null | string;
+      /** Format: uuid */
+      accountId: null | string;
+      name: string;
+      /** Format: date */
+      due: string;
+      /** Format: double */
+      amount: number | string;
+      posted: boolean;
+    };
     UpdateItemRequest: {
       title: string;
     };
@@ -3007,6 +3705,18 @@ export interface components {
       measureProperty: null | string;
       habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
       layout?: null | string;
+    };
+    WatchItemResponse: {
+      /** Format: uuid */
+      lineId: null | string;
+      name: string;
+      section: string;
+      /** Format: double */
+      plan: number | string;
+      /** Format: double */
+      actual: number | string;
+      /** Format: double */
+      variance: number | string;
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -6980,6 +7690,946 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetFinanceSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceSettingsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceAccounts: {
+    parameters: {
+      query?: {
+        month?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceAccountsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateFinanceAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceAccountRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceAccountResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetFinanceAccount: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        accountId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceAccountRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceAccountResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceLoan: {
+    parameters: {
+      query?: {
+        overpayment?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+        accountId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['LoanScheduleResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateBudgetLine: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetLineRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BudgetLineResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetBudgetLine: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        lineId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetLineRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BudgetLineResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListFinanceTransactions: {
+    parameters: {
+      query?: {
+        month?: string;
+        accountId?: string;
+        lineId?: string;
+        unassigned?: boolean;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceTransactionsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateFinanceTransaction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceTransactionRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceTransactionResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetFinanceTransaction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        transactionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceTransactionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceTransactionResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceBudget: {
+    parameters: {
+      query?: {
+        from?: string;
+        to?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BudgetGridResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceCashFlow: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CashFlowResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceDashboard: {
+    parameters: {
+      query?: {
+        month?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceDashboardResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetFinanceMonth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        month: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MonthChecklistResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetFinanceMonth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        month: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceMonthRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceMonthResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PostFinanceScheduled: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        month: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PostScheduledResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ImportFinanceStatement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FinanceImportRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FinanceImportResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
         headers: {
           [name: string]: unknown;
         };

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   files,
+  finance,
   habits,
   operations,
   workspaces,
@@ -40,6 +41,40 @@ import type { Session } from './session.ts';
 
 const identifier = z.uuid();
 const workspaceRole = z.enum(['owner', 'editor', 'viewer']);
+const financeMonthInput = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+const financeMoneyInput = z.number().refine((value) => Math.round(value * 100) === value * 100);
+const financeAccountInput = {
+  name: z.string().trim().min(1).max(120),
+  type: z.enum(['current', 'savings', 'debit', 'credit_card', 'loan']),
+  limit: financeMoneyInput.nullable().default(null),
+  openingBalance: financeMoneyInput.default(0),
+  settlesFrom: identifier.nullable().default(null),
+  apr: z.number().nullable().default(null),
+  payment: financeMoneyInput.nullable().default(null),
+  overpayment: financeMoneyInput.nullable().default(null),
+  target: financeMoneyInput.nullable().default(null),
+  archived: z.boolean().default(false),
+};
+const financeLineInput = {
+  name: z.string().trim().min(1).max(120),
+  section: z.string().trim().min(1).max(60),
+  flow: z.enum(['income', 'expense']),
+  accountId: identifier,
+  amount: financeMoneyInput.nonnegative().default(0),
+  overrides: z.record(financeMonthInput, financeMoneyInput.nonnegative()).nullable().default({}),
+  scheduled: z.boolean().default(false),
+  dueDay: z.number().int().min(1).max(31).nullable().default(null),
+  loanAccount: identifier.nullable().default(null),
+  archived: z.boolean().default(false),
+};
+const financeTransactionInput = {
+  description: z.string().trim().min(1).max(200),
+  date: z.iso.date(),
+  amount: financeMoneyInput.refine((value) => value !== 0, 'non-zero'),
+  accountId: identifier,
+  lineId: identifier.nullable().default(null),
+  cleared: z.boolean().default(false),
+};
 const pageInput = {
   limit: z.number().int().min(1).max(200).default(50),
   cursor: z.string().max(512).optional(),
@@ -342,6 +377,274 @@ export async function createWorkspaceMcpServer(
             limit,
             ...(cursor === undefined ? {} : { cursor }),
           }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'read_finance',
+    {
+      description: 'Read a finance root: settings, accounts, budget lines and closed months.',
+      inputSchema: { rootId: identifier },
+    },
+    ({ rootId }) =>
+      toolResult(async () => (await session()).client.query(finance.readFinance(rootId))),
+  );
+
+  server.registerTool(
+    'set_finance_settings',
+    {
+      description: 'Set the currency, planning window, opening cash and emergency fund target.',
+      inputSchema: {
+        rootId: identifier,
+        currency: z.string().trim().length(3),
+        startMonth: financeMonthInput,
+        horizonMonths: z.number().int().min(1).max(120),
+        openingCash: financeMoneyInput,
+        emergencyFundMonths: z.number().min(0).max(36),
+        timezone: z.string().trim().min(1).max(128),
+      },
+    },
+    ({ rootId, currency, startMonth, horizonMonths, openingCash, emergencyFundMonths, timezone }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          finance.setSettings(rootId, {
+            currency,
+            startMonth,
+            horizonMonths,
+            openingCash,
+            emergencyFundMonths,
+            timezone,
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'read_finance_accounts',
+    {
+      description: 'Read account balances, card cycles and loan summaries for a month.',
+      inputSchema: { rootId: identifier, month: financeMonthInput.optional() },
+    },
+    ({ rootId, month }) =>
+      toolResult(async () => (await session()).client.query(finance.readAccounts(rootId, month))),
+  );
+
+  server.registerTool(
+    'create_finance_account',
+    {
+      description: 'Add a current, savings, debit, credit card or loan account.',
+      inputSchema: { rootId: identifier, ...financeAccountInput },
+    },
+    ({ rootId, ...account }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.createAccount(rootId, account)),
+      ),
+  );
+
+  server.registerTool(
+    'set_finance_account',
+    {
+      description: 'Replace the settings for an account under a finance root.',
+      inputSchema: { rootId: identifier, accountId: identifier, ...financeAccountInput },
+    },
+    ({ rootId, accountId, ...account }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.setAccount(rootId, accountId, account)),
+      ),
+  );
+
+  server.registerTool(
+    'finance_loan',
+    {
+      description: 'Read a loan payoff schedule and compare an alternative monthly overpayment.',
+      inputSchema: {
+        rootId: identifier,
+        accountId: identifier,
+        overpayment: financeMoneyInput.nonnegative().optional(),
+      },
+    },
+    ({ rootId, accountId, overpayment }) =>
+      toolResult(async () =>
+        (await session()).client.query(finance.readLoan(rootId, accountId, overpayment)),
+      ),
+  );
+
+  server.registerTool(
+    'create_finance_line',
+    {
+      description: 'Add an income or expense line to the finance plan.',
+      inputSchema: { rootId: identifier, ...financeLineInput },
+    },
+    ({ rootId, ...line }) =>
+      toolResult(async () => (await session()).client.execute(finance.createLine(rootId, line))),
+  );
+
+  server.registerTool(
+    'set_finance_line',
+    {
+      description: 'Replace a budget line under a finance root.',
+      inputSchema: { rootId: identifier, lineId: identifier, ...financeLineInput },
+    },
+    ({ rootId, lineId, ...line }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.setLine(rootId, lineId, line)),
+      ),
+  );
+
+  server.registerTool(
+    'finance_dashboard',
+    {
+      description:
+        "A finance root's month: net, position, cards, loans, what to watch and what is due.",
+      inputSchema: {
+        rootId: identifier,
+        month: financeMonthInput.optional(),
+      },
+    },
+    ({ rootId, month }) =>
+      toolResult(async () => (await session()).client.query(finance.readDashboard(rootId, month))),
+  );
+
+  server.registerTool(
+    'finance_budget',
+    {
+      description:
+        'Budget lines by month with plan, actual and variance; defaults to the current month.',
+      inputSchema: {
+        rootId: identifier,
+        from: financeMonthInput.optional(),
+        to: financeMonthInput.optional(),
+      },
+    },
+    ({ rootId, from, to }) =>
+      toolResult(async () => (await session()).client.query(finance.readBudget(rootId, from, to))),
+  );
+
+  server.registerTool(
+    'add_finance_transaction',
+    {
+      description:
+        'Record a transaction on a finance root. Amount is the cash effect: negative left the account.',
+      inputSchema: {
+        rootId: identifier,
+        ...financeTransactionInput,
+      },
+    },
+    ({ rootId, ...transaction }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.createTransaction(rootId, transaction)),
+      ),
+  );
+
+  server.registerTool(
+    'list_finance_transactions',
+    {
+      description: 'List finance transactions, optionally filtered by month, account or line.',
+      inputSchema: {
+        rootId: identifier,
+        month: financeMonthInput.optional(),
+        accountId: identifier.optional(),
+        lineId: identifier.optional(),
+        unassigned: z.boolean().default(false),
+        limit: z.number().int().min(1).max(20_000).optional(),
+      },
+    },
+    ({ rootId, month, accountId, lineId, unassigned, limit }) =>
+      toolResult(async () =>
+        (await session()).client.query(
+          finance.listTransactions(rootId, {
+            ...(month === undefined ? {} : { month }),
+            ...(accountId === undefined ? {} : { accountId }),
+            ...(lineId === undefined ? {} : { lineId }),
+            ...(unassigned ? { unassigned } : {}),
+            ...(limit === undefined ? {} : { limit }),
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'set_finance_transaction',
+    {
+      description: 'Replace a transaction on a finance root.',
+      inputSchema: {
+        rootId: identifier,
+        transactionId: identifier,
+        ...financeTransactionInput,
+      },
+    },
+    ({ rootId, transactionId, ...transaction }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          finance.setTransaction(rootId, transactionId, transaction),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'post_finance_scheduled',
+    {
+      description: "Post every scheduled budget line's planned amount for a month, once.",
+      inputSchema: { rootId: identifier, month: financeMonthInput },
+    },
+    ({ rootId, month }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.postScheduled(rootId, month)),
+      ),
+  );
+
+  server.registerTool(
+    'set_finance_month',
+    {
+      description: 'Close or reopen a month on a finance root.',
+      inputSchema: {
+        rootId: identifier,
+        month: financeMonthInput,
+        closed: z.boolean(),
+      },
+    },
+    ({ rootId, month, closed }) =>
+      toolResult(async () =>
+        (await session()).client.execute(finance.setMonth(rootId, month, closed)),
+      ),
+  );
+
+  server.registerTool(
+    'finance_cashflow',
+    {
+      description: 'Read projected and actual cash month by month across the finance horizon.',
+      inputSchema: { rootId: identifier },
+    },
+    ({ rootId }) =>
+      toolResult(async () => (await session()).client.query(finance.readCashFlow(rootId))),
+  );
+
+  server.registerTool(
+    'finance_month',
+    {
+      description: 'Read the checklist, totals and outstanding scheduled lines for a month.',
+      inputSchema: { rootId: identifier, month: financeMonthInput },
+    },
+    ({ rootId, month }) =>
+      toolResult(async () => (await session()).client.query(finance.readMonth(rootId, month))),
+  );
+
+  server.registerTool(
+    'import_finance_statement',
+    {
+      description: 'Preview or commit bank statement CSV contents for an account.',
+      inputSchema: {
+        rootId: identifier,
+        accountId: identifier,
+        csv: z.string().min(1).max(1_048_576),
+        commit: z.boolean().default(false),
+      },
+    },
+    ({ rootId, accountId, csv, commit }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          finance.importStatement(rootId, { accountId, csv, commit }),
         ),
       ),
   );

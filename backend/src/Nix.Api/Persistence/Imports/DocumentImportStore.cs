@@ -991,6 +991,7 @@ public sealed class DocumentImportStore(
             .Where(value => value.TenantId == context.TenantId && value.ImportId == id)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         if (mappings.Count == 0
+            || mappings.Count > MaximumItems
             || mappings.Count != operation.ItemCount
             || mappings.Any(value => value.FileVersionId is not null && !value.ObjectReady)
             || await database.DocumentImportFileVersions.AnyAsync(value =>
@@ -1006,6 +1007,17 @@ public sealed class DocumentImportStore(
             .Select(value => value.ItemId)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         if (!expectedBodies.SetEquals(actualBodies))
+        {
+            return null;
+        }
+
+        var mappedIds = mappings.Select(value => value.TargetItemId).ToArray();
+        var stagedProperties = await database.Items.IgnoreQueryFilters().AsNoTracking()
+            .Where(value => value.TenantId == context.TenantId && mappedIds.Contains(value.Id))
+            .Select(value => value.Properties)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (stagedProperties.Count != mappings.Count
+            || stagedProperties.Any(properties => validator.ValidateEnvelope(properties, null, null) is not null))
         {
             return null;
         }

@@ -34,7 +34,12 @@ namespace Nix.Features.Properties;
 /// board does not draw, with no way to supply it.
 /// </para>
 /// </remarks>
-public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand<Item>;
+public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand<Item>
+{
+    // The trusted marker lives on the command, never the HTTP DTO. Only finance handlers in this
+    // assembly set it after validating their domain write.
+    internal bool FinanceWrite { get; init; }
+}
 
 /// <summary>Handles <see cref="SetItemProperties"/>.</summary>
 public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties, Item>
@@ -44,6 +49,7 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IFinanceMutationGuard? _financeGuard;
 
     /// <summary>Initializes a new instance of the <see cref="SetItemPropertiesHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -56,7 +62,8 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
         ISchemaResolver schemas,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceMutationGuard? financeGuard = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(schemas);
@@ -69,6 +76,7 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
         _permissions = permissions;
         _session = session;
         _clock = clock;
+        _financeGuard = financeGuard;
     }
 
     /// <summary>Writes the properties.</summary>
@@ -86,6 +94,11 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
 
         ArgumentNullException.ThrowIfNull(changes);
 
+        if (!command.FinanceWrite && ContainsReservedFinanceKey(changes))
+        {
+            return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
+        }
+
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
@@ -100,6 +113,20 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
         {
             return Result.Failure<Item>(
                 ItemErrors.LifecycleConflict("A deleted item's properties cannot be changed."));
+        }
+
+        if (!command.FinanceWrite && _financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, null, false, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<Item>(blocked.Value);
+            }
+            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.LifecycleState != ItemLifecycleState.Active)
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
         }
 
         var write = ItemProperties.Merge(item.Properties, changes);
@@ -137,6 +164,20 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
         return written is null
             ? Result.Failure<Item>(ItemErrors.NotFound($"Item {itemId} disappeared during the write."))
             : Result.Success(written);
+    }
+
+    private static bool ContainsReservedFinanceKey(string changes)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(changes);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && document.RootElement.EnumerateObject().Any(property => property.Name.StartsWith("$fin_", StringComparison.Ordinal));
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false; // The ordinary JSON validator below returns the established error.
+        }
     }
 }
 

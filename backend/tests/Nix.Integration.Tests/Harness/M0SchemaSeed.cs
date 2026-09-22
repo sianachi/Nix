@@ -114,6 +114,37 @@ internal static class M0SchemaSeed
         }
     }
 
+    /// <summary>
+    /// Seeds one named history version per tenant for schema-isolation coverage.
+    /// </summary>
+    /// <param name="fixture">The database fixture.</param>
+    /// <returns>A task that completes when both tenants' version rows are present.</returns>
+    /// <remarks>
+    /// Kept separate from <see cref="SeedBothTenantsAsync"/> because older-migration upgrade
+    /// tests intentionally seed a schema from before <c>content_version</c> existed.
+    /// </remarks>
+    public static async Task SeedContentVersionsAsync(NixPostgresFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            foreach (var rows in new[] { Alpha, Beta })
+            {
+                await RawSql.ExecuteAsync(
+                    connection,
+                    transaction: null,
+                    $"""
+                    INSERT INTO content_version
+                        (doc_id, seq, tenant_id, name, created_by, created_at)
+                    VALUES ({Literal(rows.ContentDocId)}, 1, {Literal(rows.TenantId)},
+                            '{rows.Slug} seed version', {Literal(rows.PrincipalId)}, now());
+                    """);
+            }
+        }
+    }
+
     private static string InsertSqlFor(M0TenantRows rows)
     {
         // Insertion order follows the foreign keys: the tenant, then what hangs off it, then the

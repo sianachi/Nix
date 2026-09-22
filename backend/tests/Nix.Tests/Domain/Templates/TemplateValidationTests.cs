@@ -7,6 +7,22 @@ namespace Nix.Tests.Domain.Templates;
 
 public sealed class TemplateValidationTests
 {
+    [Theory]
+    [InlineData("{\"$fin_amount\":null}")]
+    [InlineData("{\"$fin_currency\":\"GBP\"}")]
+    [InlineData("{\"$fin_future_key\":1}")]
+    public void Portable_envelopes_cannot_bypass_finance_validation(string properties)
+    {
+        var refusal = new TemplateDefinitionValidator().ValidateEnvelope(properties, null, null);
+        Assert.Contains("finance endpoints", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Portable_envelopes_preserve_other_modules_properties()
+    {
+        Assert.Null(new TemplateDefinitionValidator().ValidateEnvelope("{\"$habit_target\":3}", null, null));
+    }
+
     [Fact]
     public void Schema_rules_reject_selects_without_options()
     {

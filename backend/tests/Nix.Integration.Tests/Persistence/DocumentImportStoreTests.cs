@@ -31,6 +31,34 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task Finance_properties_cannot_enter_through_document_imports()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "finance.nix", 8, itemCount: 1);
+        var note = new ImportEnvelopePlan("note", null, 0, "Finance injection", "note",
+            "{\"$fin_kind\":\"transaction\",\"$fin_amount\":-100}", null, null, "active", false, null);
+        Assert.Null(await imports.StageAsync(new StageDocumentImport(
+            DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));
+    }
+
+    [Fact]
+    public async Task Finalization_rechecks_finance_properties_on_legacy_staged_items()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "legacy.nix", 8, itemCount: 1);
+        var note = new ImportEnvelopePlan("note", null, 0, "Legacy staged note", "note",
+            null, null, null, "active", false, null);
+        var stage = Assert.IsType<DocumentImportStageRecord>(await imports.StageAsync(new StageDocumentImport(
+            DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));
+        var targetId = ItemId.From(stage.RootItemId);
+        await work.DbContext.Items.IgnoreQueryFilters().Where(item => item.Id == targetId)
+            .ExecuteUpdateAsync(update => update.SetProperty(item => item.Properties,
+                "{\"$title\":\"Legacy staged note\",\"$fin_kind\":\"transaction\"}"), Cancellation);
+        Assert.Null(await imports.FinalizeAsync(DocumentImportId.From(operation.Id), Cancellation));
+        Assert.False(await work.DbContext.Items.AnyAsync(item => item.Id == targetId, Cancellation));
+    }
+
+    [Fact]
     public async Task Large_object_cleanup_sets_use_bounded_idempotent_batches()
     {
         await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
@@ -718,7 +746,8 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
         NixUnitOfWork work,
         string format,
         string fileName,
-        long bytes)
+        long bytes,
+        int itemCount = 2)
     {
         var files = work.Resolve<IFileStore>();
         var imports = work.Resolve<IDocumentImportStore>();
@@ -762,7 +791,7 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
                 new string('b', 64),
                 PlanByteLength: 100,
                 digest,
-                ItemCount: 2,
+                ItemCount: itemCount,
                 AssetCount: 0,
                 "[]",
                 "[]"),

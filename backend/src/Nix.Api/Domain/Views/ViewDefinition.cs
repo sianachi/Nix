@@ -124,6 +124,9 @@ public enum ViewKind
     /// own remarks on why that is this kind's honest scope for now.
     /// </remarks>
     Drive = 11,
+
+    /// <summary>A financial plan, its accounts, transactions, and cash flow.</summary>
+    Finance = 12,
 }
 
 /// <summary>
@@ -231,6 +234,10 @@ public static class ViewKinds
         // Like a list, and by the list's own argument: with nothing configured a drive still has
         // titles, kinds and dates to draw from the effective schema and the items themselves.
         new ViewKindDescriptor(ViewKind.Drive, "drive", Requirement: null),
+
+        // The finance view owns its specialised data in the finance feature's child items and
+        // tables. Like a list, its existence does not depend on a property schema.
+        new ViewKindDescriptor(ViewKind.Finance, "finance", Requirement: null),
 
         // The board's requirement, reused field for field, which is what makes switching a view
         // between the two lossless. Only the sentence differs, because the two kinds want

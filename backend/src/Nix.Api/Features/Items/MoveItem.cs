@@ -50,6 +50,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IFinanceMutationGuard? _financeGuard;
 
     /// <summary>Initializes a new instance of the <see cref="MoveItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -60,7 +61,8 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceMutationGuard? financeGuard = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -71,6 +73,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         _permissions = permissions;
         _session = session;
         _clock = clock;
+        _financeGuard = financeGuard;
     }
 
     /// <summary>Moves the item.</summary>
@@ -97,6 +100,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         {
             return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
         }
+        var workspaceId = item.WorkspaceId;
 
         if (item.LifecycleState == ItemLifecycleState.Purged)
         {
@@ -127,6 +131,44 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
                 return Result.Failure<Item>(
                     ItemErrors.WouldCreateCycle(
                         $"Item {itemId} cannot be moved into itself or into one of its descendants."));
+            }
+        }
+
+        if (_financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, newParentId, true, cancellationToken).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<Item>(blocked.Value);
+            }
+            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.WorkspaceId != workspaceId)
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
+            if (newParentId is { } lockedParentId)
+            {
+                var lockedParent = await _tree.FindAsync(lockedParentId, cancellationToken).ConfigureAwait(false);
+                if (lockedParent is null || lockedParent.WorkspaceId != item.WorkspaceId)
+                {
+                    return Result.Failure<Item>(ItemErrors.ParentNotFound($"No parent {lockedParentId} is visible in this workspace."));
+                }
+                if (lockedParent.LifecycleState != ItemLifecycleState.Active)
+                {
+                    return Result.Failure<Item>(ItemErrors.LifecycleConflict("An item cannot be moved into a deleted parent."));
+                }
+                if (lockedParentId == itemId || await _tree.WouldCreateCycleAsync(itemId, lockedParentId, cancellationToken).ConfigureAwait(false))
+                {
+                    return Result.Failure<Item>(ItemErrors.WouldCreateCycle($"Item {itemId} cannot be moved into itself or into one of its descendants."));
+                }
+            }
+            if (afterId is { } lockedAnchorId)
+            {
+                var lockedAnchor = await _tree.FindAsync(lockedAnchorId, cancellationToken).ConfigureAwait(false);
+                if (lockedAnchor is null || lockedAnchor.WorkspaceId != item.WorkspaceId || lockedAnchor.ParentId != newParentId || lockedAnchorId == itemId)
+                {
+                    return Result.Failure<Item>(ItemErrors.SiblingNotInDestination($"Item {lockedAnchorId} is not a child of the destination, so it cannot order the move."));
+                }
             }
         }
 

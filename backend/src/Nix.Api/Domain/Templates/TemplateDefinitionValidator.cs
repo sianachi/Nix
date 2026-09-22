@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Nix.Domain.Finance;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Properties;
@@ -56,9 +57,14 @@ public sealed class TemplateDefinitionValidator
 
             try
             {
-                if (JsonNode.Parse(properties) is not JsonObject)
+                if (JsonNode.Parse(properties) is not JsonObject bag)
                 {
                     return "Item properties must be a JSON object.";
+                }
+
+                if (bag.Any(property => property.Key.StartsWith(FinanceKeys.Prefix, StringComparison.Ordinal)))
+                {
+                    return "Finance properties must be imported through the finance endpoints.";
                 }
             }
             catch (JsonException)

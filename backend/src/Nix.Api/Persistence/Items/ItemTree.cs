@@ -184,6 +184,50 @@ public sealed class ItemTree : IItemTree
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<Item>> ListFinanceBoundaryItemsAsync(
+        WorkspaceId workspaceId,
+        ItemId itemId,
+        bool includeDescendants,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        var tenant = Tenant;
+        // Do not materialise an ordinary subtree to discover whether it intersects finance. The
+        // closure range is indexed and the JSONB key tests return only tagged finance roots and
+        // records. One extra row lets callers fail closed when an unusually large finance subtree
+        // exceeds their inspection ceiling.
+        return await _dbContext.Items
+            .FromSqlInterpolated($"""
+                SELECT i.*
+                FROM item_closure AS edge
+                JOIN item AS i
+                  ON i.tenant_id = edge.tenant_id
+                 AND i.workspace_id = edge.workspace_id
+                 AND i.id = CASE
+                     WHEN edge.descendant_id = {itemId.Value} THEN edge.ancestor_id
+                     ELSE edge.descendant_id
+                 END
+                WHERE edge.tenant_id = {tenant.Value}
+                  AND edge.workspace_id = {workspaceId.Value}
+                  AND (
+                      edge.descendant_id = {itemId.Value}
+                      OR ({includeDescendants} AND edge.ancestor_id = {itemId.Value})
+                  )
+                  AND (i.properties ? '$fin_currency' OR i.properties ? '$fin_kind')
+                  AND i.template_id IS NULL
+                  AND i.lifecycle_state <> 'provisioning'
+                ORDER BY i.id
+                LIMIT {limit + 1}
+                """)
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .TagWith("ItemTree.ListFinanceBoundaryItemsAsync")
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlyList<Item>> ListDeletedAsync(
         WorkspaceId workspaceId,
         DateTimeOffset? before,

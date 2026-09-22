@@ -462,6 +462,11 @@ public sealed partial class TemplateStore
                 return Result.Failure<ItemId>(TemplateErrors.Conflict(
                     "A mapped application target was deleted, replaced, or is no longer in its expected state."));
             }
+
+            if (mapping.Created && _validator.ValidateEnvelope(target.Properties, null, null) is { } envelopeRefusal)
+            {
+                return Result.Failure<ItemId>(TemplateErrors.Invalid(envelopeRefusal));
+            }
         }
 
         var sourceItemIds = mappings.Select(mapping => mapping.SourceItemId).Distinct().ToArray();

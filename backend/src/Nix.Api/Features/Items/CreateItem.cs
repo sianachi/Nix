@@ -31,7 +31,11 @@ public sealed record CreateItem(
     string Type,
     string Title,
     ItemId? ParentId,
-    JsonObject? Properties) : ICommand<Item>;
+    JsonObject? Properties) : ICommand<Item>
+{
+    /// <summary>Internal capability for validated finance feature dispatches; never request-bound.</summary>
+    internal bool FinanceWrite { get; init; }
+}
 
 /// <summary>
 /// Creates an item under a parent, or at the workspace root.
@@ -98,6 +102,11 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
         var title = command.Title;
         var parentId = command.ParentId;
         var properties = command.Properties;
+
+        if (!command.FinanceWrite && properties?.Any(pair => pair.Key.StartsWith("$fin_", StringComparison.Ordinal)) == true)
+        {
+            return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
+        }
 
         if (string.IsNullOrWhiteSpace(type))
         {
