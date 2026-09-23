@@ -219,16 +219,8 @@ seeds the database, applies migrations and configures Zitadel. It is safe to rer
 is optional; the scripts do not automatically source it. For direct Compose overrides use
 `docker compose --env-file .env -f deploy/compose.dev.yml --profile core --profile search up -d`.
 
-To exercise the local mock AI provider as well, start its optional profile after the stack is up:
-
-```sh
-docker compose -f deploy/compose.dev.yml --profile ai up -d
-```
-
 Infrastructure ports: Postgres 5433, Versity S3 7070, RabbitMQ 5673 (management 15673),
-Zitadel 8300, OpenSearch 9201 and Aspire 18888. The mock LLM on 8380 requires the optional
-`ai` profile; it returns a static completion for local companion development and is not a provider
-connection. The current Compose file has no ClamAV service.
+Zitadel 8300 and OpenSearch 9201. The current Compose file has no ClamAV service.
 
 The Compose port overrides apply only to containers; the host launch scripts do not source `.env`.
 For a host-port conflict, export the application origins and ports in the shell that launches the

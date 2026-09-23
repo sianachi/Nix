@@ -7,10 +7,9 @@
 #
 # Profiles:
 #   core   - the default developer set: app Postgres (pgvector), RabbitMQ, Versity S3
-#            gateway, Zitadel (with its own Postgres), Aspire dashboard (OTLP).
+#            gateway, Zitadel (with its own Postgres).
 #   search - OpenSearch, the rebuildable index used by the Go index role.
 #   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
-#   ai     - mock LLM endpoint serving a static OpenRouter-shaped completion.
 #
 # Combine profiles as needed:
 #   docker compose -f deploy/compose.dev.yml --profile core --profile media up -d
@@ -28,9 +27,6 @@
 #   15673 RabbitMQ management
 #   8300  Zitadel             (8080 is too popular to claim)
 #   9201  OpenSearch          (9200 is commonly occupied)
-#   18888 Aspire dashboard UI
-#   18889 OTLP gRPC ingest, 18890 OTLP HTTP ingest
-#   8380  mock LLM            (ai profile)
 #
 # Application processes are not in this file. Core (5014), the web app (5173)
 # and the collaboration service (8100) run on the host from source, because in
@@ -231,35 +227,6 @@ services:
     #
     # Verify by hand with:
     #   curl -fsS http://localhost:8300/.well-known/openid-configuration
-
-  # Local OTLP collector + trace/log/metric viewer for all services.
-  # UI: http://localhost:18888  (anonymous auth: dev only, never expose)
-  # Point OTEL_EXPORTER_OTLP_ENDPOINT at http://localhost:18889 (gRPC)
-  # or http://localhost:18890 (HTTP/protobuf).
-  aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.4
-    profiles: ["core"]
-    environment:
-      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
-      DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL: http://+:18890
-    ports:
-      - "${ASPIRE_DASHBOARD_PORT:-18888}:18888"
-      - "${ASPIRE_OTLP_GRPC_PORT:-18889}:18889"
-      - "${ASPIRE_OTLP_HTTP_PORT:-18890}:18890"
-
-  # --- profile: ai --------------------------------------------------------
-
-  # Minimal mock LLM endpoint: WireMock serving a static OpenRouter-shaped
-  # chat completion from deploy/mock-llm/mappings/. Point the AI provider at
-  # http://localhost:8380/api/v1 during development.
-  mock-llm:
-    image: wiremock/wiremock:3x
-    profiles: ["ai"]
-    command: ["--port", "8080", "--disable-banner"]
-    ports:
-      - "${MOCK_LLM_PORT:-8380}:8080"
-    volumes:
-      - ./mock-llm:/home/wiremock:ro
 
 volumes:
   nix-pg-data:
