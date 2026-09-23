@@ -62,7 +62,7 @@ public sealed class ItemLockStore : IItemLocks
             return row;
         }
 
-        // The statement is a single SELECT with no FROM, so it always yields exactly one row.
+        // The statement aggregates without grouping, so it always yields exactly one row.
         throw new InvalidOperationException("The lock state statement returned no row.");
     }
 
@@ -215,7 +215,10 @@ public sealed class ItemLockStore : IItemLocks
             ],
             cancellationToken).ConfigureAwait(false);
 
-        return (await GetStateAsync(itemId, cancellationToken).ConfigureAwait(false)).UnlockedUntil is not null;
+        return await _sql.ScalarOrDefaultAsync<bool>(
+            ItemLockSql.HoldsGrant,
+            [TenantParameter(), ItemParameter(itemId), CredentialParameter(), NowParameter()],
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -269,7 +272,7 @@ public sealed class ItemLockStore : IItemLocks
         }
     }
 
-    /// <summary>Reads the two columns the state statement projects.</summary>
+    /// <summary>Reads the four columns the state statement projects.</summary>
     private readonly struct StateMapper : INixRowMapper<ItemLockState>
     {
         /// <inheritdoc />
@@ -282,7 +285,10 @@ public sealed class ItemLockStore : IItemLocks
                 ? null
                 : reader.GetFieldValue<DateTimeOffset>(1);
 
-            return new ItemLockState(locked, unlockedUntil);
+            ItemId? lockItemId = reader.IsDBNull(2) ? null : ItemId.From(reader.GetGuid(2));
+            var selfLocked = reader.GetBoolean(3);
+
+            return new ItemLockState(locked, unlockedUntil, lockItemId, selfLocked);
         }
     }
 }

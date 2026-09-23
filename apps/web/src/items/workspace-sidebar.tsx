@@ -1089,6 +1089,15 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             >
               Loading…
             </Text>
+          ) : children.length === 0 && tree.isLocked(item.id) ? (
+            <Text
+              variant="note"
+              as="li"
+              tone="muted"
+              className={`py-1 ${indentAt(CHILD_NOTICE_INDENT, depth)}`}
+            >
+              Locked. Open it to unlock.
+            </Text>
           ) : children.length === 0 ? (
             <Text
               variant="note"

@@ -4,6 +4,7 @@ using Nix.Domain.Items;
 using Nix.Domain.Query;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -30,17 +31,32 @@ public sealed class ItemQueryReader : IItemQuery
 {
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
+    private readonly CredentialSessionContext _credential;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="ItemQueryReader"/> class.</summary>
     /// <param name="sql">The executor sharing this unit of work's connection and transaction.</param>
     /// <param name="session">The tenant this request runs as.</param>
-    public ItemQueryReader(NixSqlExecutor sql, INixSessionContextAccessor session)
+    /// <param name="credential">
+    /// The credential this request authenticated with, whose unlocks decide which locked items'
+    /// children are shown.
+    /// </param>
+    /// <param name="clock">Judges unlock expiry.</param>
+    public ItemQueryReader(
+        NixSqlExecutor sql,
+        INixSessionContextAccessor session,
+        CredentialSessionContext credential,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(sql);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(credential);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _sql = sql;
         _session = session;
+        _credential = credential;
+        _clock = clock;
     }
 
     private TenantId Tenant => (_session.Current
@@ -78,11 +94,12 @@ public sealed class ItemQueryReader : IItemQuery
 
         var compiled = QuerySql.Compile(rules, order, today);
 
-        var parameters = new List<NpgsqlParameter>(compiled.Parameters.Count + 4);
+        var parameters = new List<NpgsqlParameter>(compiled.Parameters.Count + 6);
         parameters.AddRange(compiled.Parameters);
         parameters.Add(new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value });
         parameters.Add(new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers });
         parameters.Add(new NpgsqlParameter("query_item_id", NpgsqlDbType.Uuid) { Value = queryItemId.Value });
+        parameters.Add(await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false));
 
         // One more than the ceiling: the extra row is the truncation flag, and is never returned.
         parameters.Add(new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit + 1 });

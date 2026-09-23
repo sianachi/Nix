@@ -2,6 +2,7 @@ using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -68,6 +69,7 @@ public sealed class ItemLinks : IItemLinks
                 new NpgsqlParameter("target_item_id", NpgsqlDbType.Uuid) { Value = targetId.Value },
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
                 new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit },
+                await LockFilterParameters.AllLocksAsync(_sql, Tenant, cancellationToken).ConfigureAwait(false),
             ],
             cancellationToken);
 

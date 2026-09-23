@@ -50,7 +50,7 @@ public sealed class RollupStatementTests
         // page. A lateral carrying an aggregate cannot be hoisted into a hash join, so the parents
         // drive. RollupPlanEvidenceTests holds the plan; this holds the shape it depends on.
         Assert.Contains("CROSS JOIN LATERAL", RollupSql.AggregateChildProperties, StringComparison.Ordinal);
-        Assert.Contains("c.parent_id = p.id", RollupSql.AggregateChildProperties, StringComparison.Ordinal);
+        Assert.Contains("c.parent_id = container.id", RollupSql.AggregateChildProperties, StringComparison.Ordinal);
     }
 
     [Fact]

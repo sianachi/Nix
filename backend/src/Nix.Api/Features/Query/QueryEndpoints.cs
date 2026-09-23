@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Features.Items;
 
 namespace Nix.Features.Query;
 
@@ -61,7 +62,9 @@ internal static class QueryEndpoints
                 + Ceiling
                 + " rows are returned; 'truncated' says when more matched, which a list cannot "
                 + "convey on its own. Each row carries its container's title so a cross-container "
-                + "list can say where a row lives.");
+                + "list can say where a row lives. Items under a lock the caller has not opened "
+                + "are left out, and a view stored on a locked item is refused with "
+                + "'items.locked' (423) until it is unlocked.");
 
         return endpoints;
     }
@@ -80,6 +83,7 @@ internal static class QueryEndpoints
         var status = error.Code switch
         {
             ItemNotFoundCode => StatusCodes.Status404NotFound,
+            ItemEndpoints.LockedCode => StatusCodes.Status423Locked,
             ViewNotFoundCode => StatusCodes.Status404NotFound,
             InvalidTodayCode => StatusCodes.Status400BadRequest,
             InvalidRulesCode => StatusCodes.Status422UnprocessableEntity,

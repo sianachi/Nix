@@ -64,7 +64,8 @@ public static class SearchSql
     /// a bug.
     /// </para>
     /// <para>
-    /// <b>A locked item never matches on its body.</b> Matching is itself a read: a search that
+    /// <b>A locked item never matches on its body, and neither does anything under it.</b> A lock
+    /// covers its subtree, so the probe walks the item's ancestors. Matching is itself a read: a search that
     /// found a locked note for a word would let anybody who can see the note learn, a word at a
     /// time, what its body says. The title arm still reaches it, because the title is outside the
     /// lock. Not relaxed for a credential that has the item unlocked - a search is a workspace-wide
@@ -118,11 +119,14 @@ public static class SearchSql
               AND item.workspace_id = ANY(@workspace_ids)
               AND item.lifecycle_state = 'active'
               AND item.template_id IS NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM item_lock
-                  WHERE item_lock.tenant_id = search.tenant_id
-                    AND item_lock.item_id = search.item_id
-              )
+              AND (cardinality(@lock_ids) = 0
+                 OR NOT EXISTS (
+                  SELECT 1
+                  FROM item_closure AS lock_edge
+                  WHERE lock_edge.tenant_id = @tenant_id
+                    AND lock_edge.descendant_id = search.item_id
+                    AND lock_edge.ancestor_id = ANY(@lock_ids)
+                 ))
         ),
         ranked AS (
             SELECT item_id,
@@ -256,11 +260,14 @@ public static class SearchSql
           AND source.workspace_id = ANY(@workspace_ids)
           AND source.lifecycle_state = 'active'
           AND source.template_id IS NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM item_lock
-              WHERE item_lock.tenant_id = link.tenant_id
-                AND item_lock.item_id = link.source_item_id
-          )
+          AND (cardinality(@lock_ids) = 0
+             OR NOT EXISTS (
+              SELECT 1
+              FROM item_closure AS lock_edge
+              WHERE lock_edge.tenant_id = @tenant_id
+                AND lock_edge.descendant_id = link.source_item_id
+                AND lock_edge.ancestor_id = ANY(@lock_ids)
+             ))
           AND NOT EXISTS (
               SELECT 1
               FROM item_closure AS visibility_edge

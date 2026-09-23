@@ -1694,7 +1694,7 @@
           "Items"
         ],
         "summary": "Children of an item, or the workspace root",
-        "description": "Returns the items directly under 'parentId', or the workspace's roots when it is omitted, in sibling order. Items the caller cannot read are omitted entirely - a query result is how you enumerate what exists, so redacted placeholders would disclose their existence. Soft-deleted items are excluded unless 'includeDeleted' is set.",
+        "description": "Returns the items directly under 'parentId', or the workspace's roots when it is omitted, in sibling order. Items the caller cannot read are omitted entirely - a query result is how you enumerate what exists, so redacted placeholders would disclose their existence. Soft-deleted items are excluded unless 'includeDeleted' is set. Fails with 'items.locked' (423) when a lock the caller has not opened covers 'parentId' - a locked item's children are withheld until it is unlocked.",
         "operationId": "ListItems",
         "parameters": [
           {
@@ -1756,6 +1756,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2002,7 +2012,7 @@
           "Items"
         ],
         "summary": "Move an item to a new parent",
-        "description": "Reparents the item and maintains the closure table. Fails with 'items.move_would_create_cycle' when the destination is the item itself or one of its own descendants, and with 'items.parent_not_found' when the destination is not visible.",
+        "description": "Reparents the item and maintains the closure table. Fails with 'items.move_would_create_cycle' when the destination is the item itself or one of its own descendants, and with 'items.parent_not_found' when the destination is not visible. Fails with 'items.locked' (423) when a lock the caller has not opened covers the item or the destination.",
         "operationId": "MoveItem",
         "parameters": [
           {
@@ -2048,6 +2058,16 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2166,6 +2186,16 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6781,7 +6811,7 @@
           "Query"
         ],
         "summary": "Run one of an item's query views",
-        "description": "Runs the saved query the named view stores: every active item the caller may read, in any container, whose properties satisfy the view's filters. The client names the view and never sends rules - the stored view is the whole query, and rules are edited through PUT /items/{itemId}/views like any other view configuration. 'today' is required, as yyyy-MM-dd in the caller's own zone, because a stored rule may say 'today' and only the caller knows which day that is. Rows the caller may not read are excluded while the query runs, never filtered from its results, so the ceiling is spent only on rows that are actually returned. Results are ordered by the first date-shaped filter's property soonest-first, else by the view's own sort compared as text, else most recently modified first, and always tie-broken by id so the same read returns the same rows twice. At most 500 rows are returned; 'truncated' says when more matched, which a list cannot convey on its own. Each row carries its container's title so a cross-container list can say where a row lives.",
+        "description": "Runs the saved query the named view stores: every active item the caller may read, in any container, whose properties satisfy the view's filters. The client names the view and never sends rules - the stored view is the whole query, and rules are edited through PUT /items/{itemId}/views like any other view configuration. 'today' is required, as yyyy-MM-dd in the caller's own zone, because a stored rule may say 'today' and only the caller knows which day that is. Rows the caller may not read are excluded while the query runs, never filtered from its results, so the ceiling is spent only on rows that are actually returned. Results are ordered by the first date-shaped filter's property soonest-first, else by the view's own sort compared as text, else most recently modified first, and always tie-broken by id so the same read returns the same rows twice. At most 500 rows are returned; 'truncated' says when more matched, which a list cannot convey on its own. Each row carries its container's title so a cross-container list can say where a row lives. Items under a lock the caller has not opened are left out, and a view stored on a locked item is refused with 'items.locked' (423) until it is unlocked.",
         "operationId": "RunItemQuery",
         "parameters": [
           {
@@ -6828,7 +6858,7 @@
           "Charts"
         ],
         "summary": "Draw one of an item's chart views",
-        "description": "Summarises every active child of the item into buckets, the way the named chart view says to: grouped by the view's grouping property, counted, or totalled by the view's measured property. The client names the view and never sends the grouping - the stored view is the whole configuration, edited through PUT /items/{itemId}/views like any other view. Children with no value for the grouping property are their own bucket rather than being dropped, because unset is a real and often large group and hiding it would misreport every proportion drawn beside it. Computed over every child rather than over a page, which is what a chart tallied in the browser could not honestly claim. At most 100 buckets are returned, largest first; 'truncated', 'distinctValues' and 'children' say what did not fit, so a bounded chart can say so rather than drawing its top few as though they were all of them.",
+        "description": "Summarises every active child of the item into buckets, the way the named chart view says to: grouped by the view's grouping property, counted, or totalled by the view's measured property. The client names the view and never sends the grouping - the stored view is the whole configuration, edited through PUT /items/{itemId}/views like any other view. Children with no value for the grouping property are their own bucket rather than being dropped, because unset is a real and often large group and hiding it would misreport every proportion drawn beside it. Computed over every child rather than over a page, which is what a chart tallied in the browser could not honestly claim. At most 100 buckets are returned, largest first; 'truncated', 'distinctValues' and 'children' say what did not fit, so a bounded chart can say so rather than drawing its top few as though they were all of them. A chart on a locked item is refused with 'items.locked' (423) until it is unlocked.",
         "operationId": "RunItemChart",
         "parameters": [
           {
@@ -6940,7 +6970,7 @@
           "Item locks"
         ],
         "summary": "Whether an item's body is locked, and whether this session has it open",
-        "description": "Returns whether the item's body is behind a password and, when it is, until when the calling browser session or access token has it unlocked. A lock withholds the body from anybody who has not unlocked it; it does not encrypt what is stored.",
+        "description": "Returns whether the item's body is behind a password and, when it is, until when the calling browser session or access token has it unlocked. A lock covers the item's whole subtree: a child of a locked item is locked too, and a locked item's children and views are withheld along with its body. 'lockItemId' names the item whose password opens this one next, and 'selfLocked' says whether the item has a lock of its own. A lock withholds content from anybody who has not unlocked it; it does not encrypt what is stored.",
         "operationId": "GetItemLock",
         "parameters": [
           {
@@ -11624,7 +11654,9 @@
       "ItemLockResponse": {
         "required": [
           "locked",
-          "unlockedUntil"
+          "unlockedUntil",
+          "lockItemId",
+          "selfLocked"
         ],
         "type": "object",
         "properties": {
@@ -11637,6 +11669,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "lockItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "selfLocked": {
+            "type": "boolean"
           }
         }
       },

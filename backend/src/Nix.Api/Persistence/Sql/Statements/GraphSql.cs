@@ -64,7 +64,7 @@ public static class GraphSql
     /// disclose that something is there, which for a graph is most of what there is to disclose.
     /// </para>
     /// <para>
-    /// <b>A locked item draws as a node with no outgoing edges.</b> Its edges were extracted from
+    /// <b>A locked item, and anything under one, draws as a node with no outgoing edges.</b> Its edges were extracted from
     /// its body, and drawing them would say what the locked body refers to. Edges <i>into</i> it
     /// come from other bodies and stay.
     /// </para>
@@ -115,11 +115,14 @@ public static class GraphSql
             JOIN visible AS source ON source.id = link.source_item_id
             JOIN visible AS target ON target.id = link.target_item_id
             WHERE link.tenant_id = @tenant_id
-              AND NOT EXISTS (
-                  SELECT 1 FROM item_lock
-                  WHERE item_lock.tenant_id = link.tenant_id
-                    AND item_lock.item_id = link.source_item_id
-              )
+              AND (cardinality(@lock_ids) = 0
+                 OR NOT EXISTS (
+                  SELECT 1
+                  FROM item_closure AS lock_edge
+                  WHERE lock_edge.tenant_id = @tenant_id
+                    AND lock_edge.descendant_id = link.source_item_id
+                    AND lock_edge.ancestor_id = ANY(@lock_ids)
+                 ))
             ORDER BY link.source_item_id, link.target_item_id
             LIMIT @link_limit
         )

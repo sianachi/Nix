@@ -120,6 +120,7 @@ vi.mock('../../../items/use-workspace-tree', () => ({
     childrenOf: () => [],
     isExpanded: () => false,
     isLoadingChildren: () => false,
+    isLocked: () => false,
     breadcrumbs: () => [],
     find: () => null,
     reveal: () => Promise.resolve(),

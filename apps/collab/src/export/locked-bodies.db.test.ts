@@ -68,14 +68,14 @@ describe.skipIf(!DB_TESTS_ENABLED)('locked bodies in an export', () => {
     };
   }
 
-  async function lock(tenant: TestTenant): Promise<void> {
+  async function lock(tenant: TestTenant, itemId: string = tenant.itemId): Promise<void> {
     const admin = adminPool();
     try {
       await admin.query(
         `INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
          VALUES ($1, $2, $3, $4, now())`,
         [
-          tenant.itemId,
+          itemId,
           tenant.tenantId,
           'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
           tenant.principalId,
@@ -90,6 +90,9 @@ describe.skipIf(!DB_TESTS_ENABLED)('locked bodies in an export', () => {
     const admin = adminPool();
     try {
       await admin.query('DELETE FROM item_lock WHERE tenant_id = ANY($1)', [
+        [TENANTS.alpha.tenantId, TENANTS.beta.tenantId],
+      ]);
+      await admin.query('DELETE FROM item_closure WHERE tenant_id = ANY($1) AND depth > 0', [
         [TENANTS.alpha.tenantId, TENANTS.beta.tenantId],
       ]);
     } finally {
@@ -143,6 +146,29 @@ describe.skipIf(!DB_TESTS_ENABLED)('locked bodies in an export', () => {
 
   it('carries no body for a locked item, though the item itself is still exported', async () => {
     await lock(TENANTS.alpha);
+
+    expect(await exportedBody(TENANTS.alpha)).toBeNull();
+  });
+
+  it('carries no body for an item under a locked ancestor, which has no lock of its own', async () => {
+    // The seeded target stands in for a locked folder above the exported item. Only the closure
+    // edge matters here: it is what the lock check walks.
+    const admin = adminPool();
+    try {
+      await admin.query(
+        `INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+         VALUES ($1, $2, $3, $4, 1)`,
+        [
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.targetItemId,
+          TENANTS.alpha.tenantId,
+          TENANTS.alpha.workspaceId,
+        ],
+      );
+    } finally {
+      await admin.end();
+    }
+    await lock(TENANTS.alpha, TENANTS.alpha.targetItemId);
 
     expect(await exportedBody(TENANTS.alpha)).toBeNull();
   });

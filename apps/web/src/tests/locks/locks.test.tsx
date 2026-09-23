@@ -20,6 +20,14 @@ describe('the locked body', () => {
     expect(screen.getByLabelText('Password')).not.toHaveFocus();
   });
 
+  it('names the locked item it is inside when the lock is inherited', () => {
+    render(<LockedBody title="Monday" noun="note" holderTitle="Journal" onUnlock={vi.fn()} />);
+
+    expect(screen.getByRole('region', { name: 'Monday is locked' })).toBeInTheDocument();
+    expect(screen.getByText(/It is inside Journal, which is locked/)).toBeInTheDocument();
+    expect(screen.getByText(/Enter the password for Journal/)).toBeInTheDocument();
+  });
+
   it('says why it closed and takes focus when it replaces a body that ran out of time', () => {
     render(<LockedBody title="Diary" noun="note" reason="expired" onUnlock={vi.fn()} />);
 

@@ -18,7 +18,7 @@ public sealed record FinanceSnapshot(Item Root, FinanceSettings Settings, Financ
 /// are listed in <see cref="FinanceSnapshot.Problems"/> and left out of the figures, so a broken
 /// row can be found and fixed rather than being silently counted or silently hidden.
 /// </remarks>
-public sealed class FinanceLoader(IItemTree tree, IPermissionResolver permissions)
+public sealed class FinanceLoader(IItemTree tree, IPermissionResolver permissions, IItemLocks locks)
 {
     public const int MaximumAccounts = 200;
     public const int MaximumLines = 500;
@@ -176,6 +176,12 @@ public sealed class FinanceLoader(IItemTree tree, IPermissionResolver permission
     /// <summary>The active children of a container, or a refusal once there are more than the ceiling.</summary>
     public async ValueTask<Result<IReadOnlyList<Item>>> ChildrenAsync(WorkspaceId workspaceId, ItemId parent, int ceiling, string what, CancellationToken cancellationToken)
     {
+        // A lock covers everything under it, a finance root's accounts and transactions included.
+        if (!await locks.MayReadBodyAsync(parent, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<IReadOnlyList<Item>>(new NixError("items.locked", $"Item {parent} is locked. Unlock it to see its figures."));
+        }
+
         var children = new List<Item>();
         long? after = null;
         while (true)

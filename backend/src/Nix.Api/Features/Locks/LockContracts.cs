@@ -1,12 +1,25 @@
 namespace Nix.Features.Locks;
 
 /// <summary>An item's lock as the calling credential sees it.</summary>
-/// <param name="Locked">Whether the item's body is behind a password.</param>
-/// <param name="UnlockedUntil">
-/// When this credential's unlock ends, or null when it holds none. Always null when
-/// <paramref name="Locked"/> is false.
+/// <param name="Locked">
+/// Whether the item's body and children are behind a password - its own, or an ancestor's.
 /// </param>
-internal sealed record ItemLockResponse(bool Locked, DateTimeOffset? UnlockedUntil);
+/// <param name="UnlockedUntil">
+/// When this credential's unlock ends, or null while any covering lock is closed to it. Always
+/// null when <paramref name="Locked"/> is false.
+/// </param>
+/// <param name="LockItemId">
+/// The item whose password opens this one next: the nearest covering lock this credential has not
+/// opened, or the nearest one when all are open. Null when nothing is locked.
+/// </param>
+/// <param name="SelfLocked">
+/// Whether the item carries a lock of its own, which is the one a change or removal acts on.
+/// </param>
+internal sealed record ItemLockResponse(
+    bool Locked,
+    DateTimeOffset? UnlockedUntil,
+    Guid? LockItemId,
+    bool SelfLocked);
 
 /// <summary>Sets a lock, or changes the password of an existing one.</summary>
 /// <param name="Password">The new password.</param>

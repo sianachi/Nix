@@ -74,8 +74,9 @@ public static class QuerySql
     /// <returns>The statement and its rule parameters.</returns>
     /// <remarks>
     /// The fixed parameters the statement also binds - <c>@tenant_id</c>, <c>@workspace_ids</c>,
-    /// <c>@query_item_id</c>, <c>@limit</c> - are the reader's to supply; they are the same on
-    /// every call and carry no per-rule shape.
+    /// <c>@query_item_id</c>, <c>@limit</c>, and the lock filter's <c>@credential_id</c> and
+    /// <c>@now</c> - are the reader's to supply; they are the same on every call and carry no
+    /// per-rule shape.
     /// </remarks>
     public static CompiledQuery Compile(ImmutableArray<FilterRule> rules, QueryOrder order, DateOnly today)
     {
@@ -122,7 +123,9 @@ public static class QuerySql
                          OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
                   OFFSET 0
               )
+              AND 
             """);
+        sql.Append(ItemLockSql.ItemIsNotUnderClosedLock);
 
         if (!rules.IsDefaultOrEmpty)
         {

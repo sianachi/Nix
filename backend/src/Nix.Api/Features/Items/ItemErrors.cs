@@ -40,6 +40,16 @@ public static class ItemErrors
     public static NixError LifecycleConflict(string detail) =>
         new("items.lifecycle_conflict", detail);
 
+    /// <summary>
+    /// A lock the caller has not opened covers the item, so its children cannot be listed and it
+    /// cannot be moved across the lock's edge.
+    /// </summary>
+    /// <remarks>
+    /// Not a disclosure: the caller can already see the item, and that it is locked is what they
+    /// meet when they open it.
+    /// </remarks>
+    public static NixError Locked(string detail) => new("items.locked", detail);
+
     /// <summary>The workspace does not exist or is not visible.</summary>
     public static NixError WorkspaceNotFound(string detail) =>
         new("workspaces.not_found", detail);

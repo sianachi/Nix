@@ -154,6 +154,7 @@ export type {
   GraphLink,
   GraphNode,
   Item,
+  ItemLock,
   KnownItemType,
   ProblemDetails,
   Shelf,

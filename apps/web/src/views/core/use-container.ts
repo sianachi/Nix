@@ -52,6 +52,14 @@ export interface ContainerData {
 
   readonly status: ContainerStatus;
   readonly error: string | null;
+
+  /**
+   * Whether Core withheld the children because a lock covers this item and this session has not
+   * opened it. Not an error, and not "empty": the children exist and are behind a password, so a
+   * view says so rather than drawing nothing. Reload after unlocking to read them.
+   */
+  readonly locked: boolean;
+
   readonly schema: EffectiveSchema | null;
   readonly views: ContainerViews | null;
   readonly children: readonly Item[];
@@ -236,6 +244,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const [schema, storeSchema] = useState<EffectiveSchema | null>(null);
   const [views, storeViews] = useState<ContainerViews | null>(null);
   const [children, setChildren] = useState<readonly Item[]>([]);
+  const [locked, setLocked] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const defaultViewWrite = useRef(0);
   const activeLoad = useRef<AbortController | null>(null);
@@ -251,19 +260,30 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     try {
       const loaded: Item[] = [];
       let partial = false;
+      let withheld = false;
       const childRead = (async (): Promise<void> => {
-        for await (const item of client.paginate(
-          coreItems.listItems(workspaceId, {
-            ...(containerId === null ? {} : { parentId: containerId }),
-            pageSize: PAGE_SIZE,
-          }),
-          { signal: controller.signal },
-        )) {
-          loaded.push(ItemSchema.parse(item));
-          if (loaded.length >= MAXIMUM_CHILDREN) {
-            partial = true;
-            break;
+        try {
+          for await (const item of client.paginate(
+            coreItems.listItems(workspaceId, {
+              ...(containerId === null ? {} : { parentId: containerId }),
+              pageSize: PAGE_SIZE,
+            }),
+            { signal: controller.signal },
+          )) {
+            loaded.push(ItemSchema.parse(item));
+            if (loaded.length >= MAXIMUM_CHILDREN) {
+              partial = true;
+              break;
+            }
           }
+        } catch (reason) {
+          // A lock withholds the children, not the item: its schema and views still load, so the
+          // screen can draw its switcher and say the contents are locked.
+          if (isNixApiError(reason) && reason.code === 'items.locked') {
+            withheld = true;
+            return;
+          }
+          throw reason;
         }
       })();
       const boundaryWarnings: string[] = [];
@@ -315,6 +335,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       const [, nextSchema, nextViews] = await Promise.all([childRead, schemaRead, viewsRead]);
       if (controller.signal.aborted || activeLoad.current !== controller) return;
       setChildren(loaded);
+      setLocked(withheld);
       setTruncated(partial);
       storeSchema(nextSchema);
       storeViews(nextViews);
@@ -788,6 +809,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     itemId: containerId,
     status,
     error,
+    locked,
     create,
     schema,
     views,

@@ -50,6 +50,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IItemLocks _locks;
     private readonly IFinanceMutationGuard? _financeGuard;
 
     /// <summary>Initializes a new instance of the <see cref="MoveItemHandler"/> class.</summary>
@@ -57,22 +58,27 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
     /// <param name="permissions">Decides what the caller may change.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="clock">The clock.</param>
+    /// <param name="locks">Keeps an item from being moved across the edge of a closed lock.</param>
+    /// <param name="financeGuard">Refuses moves that would break a finance workbook, when present.</param>
     public MoveItemHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
         TimeProvider clock,
+        IItemLocks locks,
         IFinanceMutationGuard? financeGuard = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _tree = tree;
         _permissions = permissions;
         _session = session;
         _clock = clock;
+        _locks = locks;
         _financeGuard = financeGuard;
     }
 
@@ -132,6 +138,25 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
                     ItemErrors.WouldCreateCycle(
                         $"Item {itemId} cannot be moved into itself or into one of its descendants."));
             }
+
+            // Into a closed lock is refused too: the item would vanish from the caller's own view
+            // the moment it landed, which reads as the move having lost it.
+            if (!await _locks.MayReadBodyAsync(destination, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<Item>(
+                    ItemErrors.Locked($"Item {destination} is locked. Unlock it before moving anything into it."));
+            }
+        }
+
+        // A lock covers everything under it, so moving an item out from under a closed lock would
+        // open it to anybody who can edit the workspace. Asked of the current parent, not the item:
+        // the item's own lock travels with it, so a locked note can still be reordered or filed
+        // without being opened; only a lock above it is left behind by the move.
+        if (item.ParentId is { } currentParent
+            && !await _locks.MayReadBodyAsync(currentParent, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<Item>(
+                ItemErrors.Locked($"Item {currentParent} is locked. Unlock it before moving anything out of it."));
         }
 
         if (_financeGuard is not null)

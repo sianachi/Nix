@@ -1,6 +1,7 @@
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -75,6 +76,7 @@ public sealed class ItemSearch : IItemSearch
                 new NpgsqlParameter("title_pattern", NpgsqlDbType.Text) { Value = ContainsPattern(query) },
                 new NpgsqlParameter("query", NpgsqlDbType.Text) { Value = query },
                 new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit },
+                await LockFilterParameters.AllLocksAsync(_sql, Tenant, cancellationToken).ConfigureAwait(false),
             ],
             cancellationToken);
 

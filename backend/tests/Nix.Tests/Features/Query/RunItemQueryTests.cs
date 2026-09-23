@@ -49,7 +49,8 @@ public sealed class RunItemQueryTests
             new StubTree(null),
             new StubPermissions([Readable]),
             query,
-            new StubSession(SessionFor(Caller)));
+            new StubSession(SessionFor(Caller)),
+            new StubLocks(open: true));
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -103,6 +104,25 @@ public sealed class RunItemQueryTests
     }
 
     [Fact]
+    public async Task A_view_on_an_item_the_caller_has_not_unlocked_is_refused_and_never_queried()
+    {
+        // A lock withholds an item's views along with its body; a saved query is one of them.
+        var query = new RecordingQuery();
+        var handler = new RunItemQueryHandler(
+            new StubTree(ItemWithViews(OverdueViews())),
+            new StubPermissions([Readable]),
+            query,
+            new StubSession(SessionFor(Caller)),
+            new StubLocks(open: false));
+
+        var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("items.locked", result.Error.Code);
+        Assert.Equal(0, query.Calls);
+    }
+
+    [Fact]
     public async Task The_readable_workspaces_the_resolver_returned_are_handed_into_the_query()
     {
         // The whole security property at the seam a unit test can see: the set the single
@@ -112,7 +132,8 @@ public sealed class RunItemQueryTests
             new StubTree(ItemWithViews(OverdueViews())),
             new StubPermissions([Readable, AlsoReadable]),
             query,
-            new StubSession(SessionFor(Caller)));
+            new StubSession(SessionFor(Caller)),
+            new StubLocks(open: true));
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -184,7 +205,8 @@ public sealed class RunItemQueryTests
             new StubTree(ItemWithViews(views)),
             new StubPermissions([Readable]),
             query,
-            new StubSession(SessionFor(Caller)));
+            new StubSession(SessionFor(Caller)),
+            new StubLocks(open: true));
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
@@ -205,7 +227,8 @@ public sealed class RunItemQueryTests
             new StubTree(ItemWithViews(views)),
             new StubPermissions([Readable]),
             query,
-            new StubSession(SessionFor(Caller)));
+            new StubSession(SessionFor(Caller)),
+            new StubLocks(open: true));
 
         await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
@@ -226,7 +249,8 @@ public sealed class RunItemQueryTests
                 new StubTree(ItemWithViews(views)),
                 new StubPermissions([Readable]),
                 firstCallerQuery,
-                new StubSession(SessionFor(Caller)))
+                new StubSession(SessionFor(Caller)),
+                new StubLocks(open: true))
             .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
         var secondCallerQuery = new RecordingQuery();
@@ -234,7 +258,8 @@ public sealed class RunItemQueryTests
                 new StubTree(ItemWithViews(views)),
                 new StubPermissions([Readable]),
                 secondCallerQuery,
-                new StubSession(SessionFor(OtherCaller)))
+                new StubSession(SessionFor(OtherCaller)),
+                new StubLocks(open: true))
             .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
         var firstValue = Assert.Single(firstCallerQuery.LastRules).Value;
@@ -256,7 +281,8 @@ public sealed class RunItemQueryTests
             new StubTree(ItemWithViews(OverdueViews())),
             new StubPermissions([Readable]),
             query,
-            new StubSession(null));
+            new StubSession(null),
+            new StubLocks(open: true));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation).AsTask());
@@ -297,7 +323,7 @@ public sealed class RunItemQueryTests
                 ])]);
 
     private static RunItemQueryHandler Handler(IItemQuery query, Item? item) =>
-        new(new StubTree(item), new StubPermissions([Readable]), query, new StubSession(SessionFor(Caller)));
+        new(new StubTree(item), new StubPermissions([Readable]), query, new StubSession(SessionFor(Caller)), new StubLocks(open: true));
 
     private static NixSessionContext SessionFor(PrincipalId principal) => NixSessionContext.ForTenant(Tenant, principal);
 
@@ -406,6 +432,51 @@ public sealed class RunItemQueryTests
             PrincipalId actor,
             DateTimeOffset at,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    /// <summary>Answers every lock question with one fixed answer: everything open, or everything closed.</summary>
+    private sealed class StubLocks(bool open) : IItemLocks
+    {
+        public ValueTask<ItemLockState> GetStateAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new ItemLockState(!open, null, open ? null : itemId, !open));
+
+        public ValueTask<bool> MayReadBodyAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(open);
+
+        public ValueTask<bool> AnyInSubtreeAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(!open);
+
+        public ValueTask<IReadOnlySet<ItemId>> LockedAmongAsync(
+            IReadOnlyList<ItemId> itemIds,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IReadOnlySet<ItemId>>(open ? new HashSet<ItemId>() : itemIds.ToHashSet());
+
+        public ValueTask<string?> FindVerifierAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> LockAsync(ItemId itemId, string verifier, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> ChangeVerifierAsync(
+            ItemId itemId,
+            string expected,
+            string verifier,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<bool> RemoveAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public ValueTask<bool> GrantAsync(
+            ItemId itemId,
+            string verifier,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<bool> IsLockedAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(!open);
+
+        public ValueTask RevokeAsync(ItemId itemId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>Answers with a fixed session context, or none - the way a missing pipeline setup would.</summary>

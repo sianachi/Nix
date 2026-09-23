@@ -299,6 +299,7 @@ internal static class FinanceEndpoints
     private static ProblemHttpResult Problem(HttpContext context, NixError error)
     {
         var status = error.Code.EndsWith("not_found", StringComparison.Ordinal) ? 404
+            : error.Code is "items.locked" ? 423
             : error.Code is "finance.not_configured" or "finance.month_closed" or "finance.limit" or "items.lifecycle_conflict" ? 409
             : 422;
         return TypedResults.Problem(ApiProblem.Create(context, status, error.Code, "Finance request refused", error.Message));

@@ -56,3 +56,59 @@ describe('a locked note, from the page', () => {
     expect(screen.queryByRole('heading', { name: 'Diary is locked' })).not.toBeInTheDocument();
   });
 });
+
+const FOLDER = item({
+  id: '6f6f6f6f-6666-4666-8666-6f6f6f6f6f6f',
+  title: 'Journal',
+  hasChildren: true,
+});
+
+const ENTRY = item({
+  id: '7a7a7a7a-7777-4777-8777-7a7a7a7a7a7a',
+  title: 'Monday entry',
+  parentId: FOLDER.id,
+});
+
+describe('a lock covers what is inside the locked item', () => {
+  it('keeps a locked folder\'s contents off the page and out of the sidebar', async () => {
+    stubCoreApi({ items: [FOLDER, ENTRY], lockedItems: [FOLDER.id] });
+    renderAt(<App />, `/?item=${FOLDER.id}`);
+
+    expect(await screen.findByRole('heading', { name: 'Journal is locked' })).toBeInTheDocument();
+    expect(screen.queryByText('Monday entry')).not.toBeInTheDocument();
+  });
+
+  it('says a locked folder is locked in the sidebar instead of showing it empty', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [FOLDER, ENTRY], lockedItems: [FOLDER.id] });
+    renderAt(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /expand journal/i }));
+
+    // Said rather than reported: a lock is not a failure to load, and not an empty folder.
+    expect(await screen.findByText('Locked. Open it to unlock.')).toBeInTheDocument();
+    expect(screen.queryByText('Empty')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Monday entry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('asks for the folder\'s password on a note inside it, and opens with it', async () => {
+    stubCoreApi({ items: [FOLDER, ENTRY], lockedItems: [FOLDER.id] });
+    renderAt(<App />, `/?item=${ENTRY.id}`);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Monday entry is locked' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/It is inside Journal, which is locked/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Password'), 'hunter22');
+    await userEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { name: 'Monday entry is locked' }),
+      ).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole('button', { name: /^History$/ })).toBeInTheDocument();
+  });
+});

@@ -72,7 +72,7 @@ public static class CalendarSql
     /// order, so a truncated read keeps the earliest of the window rather than an arbitrary sample.
     /// </para>
     /// </remarks>
-    public const string WorkspaceCalendar = """
+    public const string WorkspaceCalendar = $"""
         WITH calendar_view AS (
             SELECT container.id AS container_id,
                    container.properties ->> 'title' AS container_title,
@@ -106,6 +106,7 @@ public static class CalendarSql
               )
               AND container.views IS NOT NULL
               AND entry.value ->> 'kind' = 'calendar'
+              AND {ItemLockSql.ContainerIsOpen}
         ),
         chosen AS (
             SELECT container_id, container_title, date_property

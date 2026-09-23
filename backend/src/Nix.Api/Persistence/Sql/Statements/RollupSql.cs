@@ -84,6 +84,10 @@ namespace Nix.Persistence.Sql.Statements;
 /// here is the parent, whose own lifecycle is one of the facts a child's visibility depends on.
 /// </para>
 /// <para>
+/// <b>The same goes for a locked one.</b> A container covered by a lock this credential has not
+/// opened folds to nothing, so a count or a total cannot describe children the lock withholds.
+/// </para>
+/// <para>
 /// <b>Without it, a deleted container discloses its children by aggregate.</b>
 /// <c>GET /workspaces/{id}/items?includeDeleted=true</c> is an ordinary read and its page can carry
 /// a deleted item; the fold would then answer count, sum, minimum, maximum and average over that
@@ -145,8 +149,8 @@ public static class RollupSql
     /// produces no row at all, so the answer is the size of what was found rather than the size of
     /// what was asked.
     /// </remarks>
-    public const string AggregateChildProperties = """
-        SELECT p.id AS parent_id,
+    public const string AggregateChildProperties = $"""
+        SELECT container.id AS parent_id,
                fold.key,
                fold.children,
                fold.present,
@@ -156,7 +160,7 @@ public static class RollupSql
                fold.largest,
                fold.booleans,
                fold.truths
-        FROM unnest(@parent_ids) AS p(id)
+        FROM unnest(@parent_ids) AS container(id)
         CROSS JOIN LATERAL (
             SELECT k.key,
                    count(*) AS children,
@@ -186,7 +190,7 @@ public static class RollupSql
             CROSS JOIN unnest(@keys) AS k(key)
             WHERE c.tenant_id = @tenant_id
               AND c.workspace_id = @workspace_id
-              AND c.parent_id = p.id
+              AND c.parent_id = container.id
               AND c.lifecycle_state = 'active'
               AND c.template_id IS NULL
             GROUP BY k.key
@@ -203,12 +207,13 @@ public static class RollupSql
                 LIMIT 1
             ) AS stored_ancestor ON TRUE
             WHERE visibility_edge.tenant_id = @tenant_id
-              AND visibility_edge.descendant_id = p.id
+              AND visibility_edge.descendant_id = container.id
               AND visibility_edge.depth >= 0
               AND (stored_ancestor.template_id IS NOT NULL
                    OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
             OFFSET 0
         )
+          AND {ItemLockSql.ContainerIsOpen}
         """;
 
     /// <summary>

@@ -91,6 +91,14 @@ public sealed class ItemQueryPlanEvidenceTests : IAsyncLifetime
                 command.Parameters.Add(
                     new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = 501 });
 
+                // One closed lock, on nothing in the corpus, so the lock probe runs on every row
+                // rather than folding away as it does when nothing is locked.
+                command.Parameters.Add(
+                    new NpgsqlParameter("closed_lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+                    {
+                        Value = new[] { new Guid("10c10c10-0000-4000-8000-10c10c10c10c") },
+                    });
+
                 var plan = new StringBuilder();
                 var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
                 await using (reader.ConfigureAwait(false))

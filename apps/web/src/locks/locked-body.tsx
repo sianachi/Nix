@@ -5,7 +5,11 @@ import { useEffect, useId, useRef, useState, type ReactNode, type SyntheticEvent
 import type { LockClosedReason } from './use-item-lock';
 
 /**
- * What stands where a locked body would be.
+ * What stands where a locked body, or a locked item's views, would be.
+ *
+ * **It says whose password opens it.** A lock covers everything under the locked item, so a note
+ * inside a locked folder is opened with the folder's password. The prompt names the folder then,
+ * rather than asking for a password the note never had.
  *
  * **It says what a lock is and is not.** A lock hides the text from anybody without the password;
  * it is not encryption. Somebody deciding what to put behind one deserves to know that, and the
@@ -30,11 +34,23 @@ export interface LockedBodyProps {
   /** Why an open body closed here, or null when it was never open in this view. */
   readonly reason?: LockClosedReason | null | undefined;
 
+  /**
+   * The title of the ancestor whose lock covers this item, or null when the lock is the item's own.
+   * An empty string names an ancestor whose title is not known here.
+   */
+  readonly holderTitle?: string | null | undefined;
+
   /** Checks the password. Resolves to a refusal message, or null when the body opened. */
   readonly onUnlock: (password: string) => Promise<string | null>;
 }
 
-export function LockedBody({ title, noun, reason = null, onUnlock }: LockedBodyProps): ReactNode {
+export function LockedBody({
+  title,
+  noun,
+  reason = null,
+  holderTitle = null,
+  onUnlock,
+}: LockedBodyProps): ReactNode {
   const headingId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState('');
@@ -59,9 +75,11 @@ export function LockedBody({ title, noun, reason = null, onUnlock }: LockedBodyP
     setBusy(true);
     const refused = await onUnlock(password);
     setBusy(false);
+    // Cleared either way. On a refusal the field is ready for another try; on success the prompt
+    // usually goes, and when it stays it is asking for a second lock's password.
+    setPassword('');
     if (refused !== null) {
       setError(refused);
-      setPassword('');
       inputRef.current?.focus();
     }
   }
@@ -86,8 +104,12 @@ export function LockedBody({ title, noun, reason = null, onUnlock }: LockedBodyP
           </Text>
         )}
         <Text variant="note" tone="muted">
-          Enter the password to open it in this browser for 15 minutes. The lock hides the text; it
-          is not encryption.
+          {holderTitle === null
+            ? 'Enter the password to open it in this browser for 15 minutes.'
+            : holderTitle.length > 0
+              ? `It is inside ${holderTitle}, which is locked. Enter the password for ${holderTitle} to open it in this browser for 15 minutes.`
+              : 'It is inside a locked item. Enter that item\u2019s password to open it in this browser for 15 minutes.'}{' '}
+          The lock hides what is inside; it is not encryption.
         </Text>
         <form
           noValidate

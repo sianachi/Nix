@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Features.Items;
 
 namespace Nix.Features.Charts;
 
@@ -54,7 +55,8 @@ internal static class ChartEndpoints
                 + Ceiling
                 + " buckets are returned, largest first; 'truncated', 'distinctValues' and "
                 + "'children' say what did not fit, so a bounded chart can say so rather than "
-                + "drawing its top few as though they were all of them.");
+                + "drawing its top few as though they were all of them. A chart on a locked item "
+                + "is refused with 'items.locked' (423) until it is unlocked.");
 
         return endpoints;
     }
@@ -73,6 +75,7 @@ internal static class ChartEndpoints
         var status = error.Code switch
         {
             ItemNotFoundCode => StatusCodes.Status404NotFound,
+            ItemEndpoints.LockedCode => StatusCodes.Status423Locked,
             ViewNotFoundCode => StatusCodes.Status404NotFound,
             NotConfiguredCode => StatusCodes.Status422UnprocessableEntity,
             _ => StatusCodes.Status500InternalServerError,

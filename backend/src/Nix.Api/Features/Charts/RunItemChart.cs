@@ -56,23 +56,28 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
     private readonly IChildAggregates _aggregates;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemChartHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the caller may read.</param>
     /// <param name="aggregates">Buckets the children.</param>
+    /// <param name="locks">Withholds a locked container's children until it is opened.</param>
     public RunItemChartHandler(
         IItemTree tree,
         IPermissionResolver permissions,
-        IChildAggregates aggregates)
+        IChildAggregates aggregates,
+        IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(aggregates);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _tree = tree;
         _permissions = permissions;
         _aggregates = aggregates;
+        _locks = locks;
     }
 
     /// <summary>Draws the chart.</summary>
@@ -94,6 +99,13 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
             || !await _permissions.CanReadWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<ItemChart>(ItemErrors.NotFound($"No item {itemId} is visible."));
+        }
+
+        // A chart is a view of the children, and a lock covers them.
+        if (!await _locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<ItemChart>(
+                ItemErrors.Locked($"Item {itemId} is locked. Unlock it to see its chart."));
         }
 
         ViewDefinition? found = null;

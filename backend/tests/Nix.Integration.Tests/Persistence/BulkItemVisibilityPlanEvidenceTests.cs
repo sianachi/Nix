@@ -46,6 +46,7 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Uuids("workspace_ids", [M0SchemaSeed.Alpha.WorkspaceId]),
                 Integer("node_limit", 501),
                 Integer("link_limit", 501),
+                Uuids("lock_ids", [_itemIds[^1]]),
             ]);
 
         RecordAndAssert("Graph", plan);
@@ -62,6 +63,10 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Text("title_pattern", "%visibility%"),
                 Text("query", "visibility"),
                 Integer("limit", 50),
+
+                // No locks: the case this plan was recorded for, in which the lock probe folds
+                // away. The backlink and graph cases below carry a lock and run the probe.
+                Uuids("lock_ids", []),
             ]);
 
         RecordAndAssert("Search", plan);
@@ -86,6 +91,7 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Uuid("target_item_id", M0SchemaSeed.Alpha.ItemId),
                 Uuids("workspace_ids", [M0SchemaSeed.Alpha.WorkspaceId]),
                 Integer("limit", 50),
+                Uuids("lock_ids", [_itemIds[^1]]),
             ]);
         RecordAndAssert("Backlinks", backlinkPlan);
         Assert.Contains("ix_item_link_target", backlinkPlan, StringComparison.Ordinal);
@@ -266,7 +272,18 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
             WHERE tenant_id = {{betaTenant}}
               AND seq BETWEEN 700001 AND {{700000 + BookmarkSize}};
 
+            -- One lock, on a leaf, so the lock probes the bulk reads now carry run against a real
+            -- row. With no locks at all the planner drives them from the empty lock table and the
+            -- closure half is never executed, which would say nothing about its plan.
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            SELECT id, tenant_id,
+                   'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                   {{alphaPrincipal}}, now()
+            FROM item
+            WHERE tenant_id = {{alphaTenant}} AND seq = {{600000 + CorpusSize}};
+
             ANALYZE item;
+            ANALYZE item_lock;
             ANALYZE item_closure;
             ANALYZE item_search;
             ANALYZE item_link;

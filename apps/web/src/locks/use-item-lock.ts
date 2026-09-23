@@ -1,4 +1,4 @@
-import { isCanceledError, isNixApiError, locks } from '@nix/api-client';
+import { isCanceledError, isNixApiError, locks, type ItemLock } from '@nix/api-client';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
@@ -15,6 +15,11 @@ import { useApiClient } from '../api/api-client-provider';
  * read is not "not locked". Treating either as open would draw an editor that then fails to
  * connect, which reads as the note having gone missing.
  *
+ * **A lock covers its subtree.** An item inside a locked item is locked by it, and so are its
+ * children and views. `lockItemId` names the item whose password opens this one - the item itself,
+ * or an ancestor - and unlocking or locking again acts on that item, so a note inside a locked
+ * folder is opened with the folder's password and closes with the folder.
+ *
  * **A change that does not close the body keeps it on screen.** Setting, changing or removing a
  * lock re-reads the state behind the last answer rather than dropping to "loading", so the editor,
  * the toolbar button and the dialog it opened stay mounted and keep their focus. Only closing - a
@@ -28,7 +33,18 @@ export type LockClosedReason = 'relocked' | 'expired';
 
 export interface ItemLockView {
   readonly status: ItemLockStatus;
+
+  /** Whether the item is locked, by its own lock or an ancestor's. */
   readonly locked: boolean;
+
+  /** Whether the item has a lock of its own, which is what setting or removing a lock acts on. */
+  readonly selfLocked: boolean;
+
+  /**
+   * The item whose password opens this one next - itself or an ancestor - or null when nothing is
+   * locked. When it is not this item, the prompt names that item instead.
+   */
+  readonly lockItemId: string | null;
 
   /** When this session's unlock ends, or null when it holds none. */
   readonly unlockedUntil: Date | null;
@@ -44,10 +60,17 @@ export interface ItemLockView {
 
   readonly retry: () => void;
 
-  /** Opens the body for this session. Resolves to a refusal message, or null on success. */
+  /**
+   * Opens the lock `lockItemId` names for this session. Resolves to a refusal message, or null once
+   * the password was accepted and the state re-read - which may still be closed, when a second lock
+   * covers the item.
+   */
   readonly unlock: (password: string) => Promise<string | null>;
 
-  /** Closes the body to this session again. Resolves to a refusal message, or null on success. */
+  /**
+   * Closes the lock `lockItemId` names to this session again - an ancestor's closes everything
+   * under it. Resolves to a refusal message, or null on success.
+   */
   readonly relock: () => Promise<string | null>;
 
   /** Sets a lock, or changes its password when `currentPassword` is given. */
@@ -62,7 +85,21 @@ interface LockAnswer {
   readonly request: string;
   readonly locked: boolean;
   readonly unlockedUntil: Date | null;
+  readonly lockItemId: string | null;
+  readonly selfLocked: boolean;
   readonly failed: boolean;
+}
+
+function answerFrom(itemId: string, request: string, parsed: ItemLock): LockAnswer {
+  return {
+    itemId,
+    request,
+    locked: parsed.locked,
+    unlockedUntil: parsed.unlockedUntil === null ? null : new Date(parsed.unlockedUntil),
+    lockItemId: parsed.lockItemId,
+    selfLocked: parsed.selfLocked,
+    failed: false,
+  };
 }
 
 interface Reload {
@@ -126,17 +163,19 @@ export function useItemLock(itemId: string): ItemLockView {
           forceRefresh: true,
         });
         if (!live.current) return;
-        setAnswer({
-          itemId,
-          request,
-          locked: parsed.locked,
-          unlockedUntil: parsed.unlockedUntil === null ? null : new Date(parsed.unlockedUntil),
-          failed: false,
-        });
+        setAnswer(answerFrom(itemId, request, parsed));
       } catch (cause) {
         if (controller.signal.aborted || !live.current || isCanceledError(cause)) return;
         console.warn('The lock read failed.', cause);
-        setAnswer({ itemId, request, locked: false, unlockedUntil: null, failed: true });
+        setAnswer({
+          itemId,
+          request,
+          locked: false,
+          unlockedUntil: null,
+          lockItemId: null,
+          selfLocked: false,
+          failed: true,
+        });
       }
     })();
 
@@ -169,29 +208,32 @@ export function useItemLock(itemId: string): ItemLockView {
     };
   }, [expiry, refresh]);
 
+  // The lock to act on: the one Core named, which may be an ancestor's, or this item's own.
+  const target = current?.lockItemId ?? itemId;
+
   const unlock = useCallback(
     async (password: string): Promise<string | null> => {
       try {
-        const result = await client.execute(locks.unlockItem(itemId, password));
-        // The answer is in the response, so the body opens without another read.
-        setAnswer({
-          itemId,
-          request,
-          locked: true,
-          unlockedUntil: new Date(result.unlockedUntil),
-          failed: false,
-        });
-        return null;
+        await client.execute(locks.unlockItem(target, password));
       } catch (cause) {
         return refusal(cause, 'This could not be unlocked. Try again.');
       }
+      // Re-read rather than trusting the unlock's own answer: another lock may still cover the
+      // item - its own inside a locked folder, say - and only Core knows whether the body is open.
+      try {
+        const parsed = await client.query(locks.getItemLock(itemId), { forceRefresh: true });
+        setAnswer(answerFrom(itemId, request, parsed));
+      } catch (cause) {
+        if (!isCanceledError(cause)) refresh(false);
+      }
+      return null;
     },
-    [client, itemId, request],
+    [client, itemId, refresh, request, target],
   );
 
   const relock = useCallback(async (): Promise<string | null> => {
     try {
-      await client.execute(locks.relockItem(itemId));
+      await client.execute(locks.relockItem(target));
     } catch (cause) {
       // Re-read either way: if the relock failed, the grant may still stand, and the page should
       // show what Core says rather than what was asked for.
@@ -200,7 +242,7 @@ export function useItemLock(itemId: string): ItemLockView {
     }
     refresh(true, 'relocked');
     return null;
-  }, [client, itemId, refresh]);
+  }, [client, refresh, target]);
 
   const setLock = useCallback(
     async (password: string, currentPassword?: string): Promise<string | null> => {
@@ -230,12 +272,16 @@ export function useItemLock(itemId: string): ItemLockView {
 
   const status: ItemLockStatus = current === null ? 'loading' : current.failed ? 'error' : 'ready';
   const locked = current?.locked ?? false;
+  const selfLocked = current?.selfLocked ?? false;
+  const lockItemId = current?.lockItemId ?? null;
   const unlockedUntil = current?.unlockedUntil ?? null;
   const open = status === 'ready' && (!locked || unlockedUntil !== null);
 
   return {
     status,
     locked,
+    selfLocked,
+    lockItemId,
     unlockedUntil,
     open,
     closingSoon: open && expiry !== null && closingSoonFor === expiry,

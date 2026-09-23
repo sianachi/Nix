@@ -42,17 +42,21 @@ public sealed class ListItemsHandler : IQueryHandler<ListItems, Result<IReadOnly
 
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes a new instance of the <see cref="ListItemsHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the caller may read.</param>
-    public ListItemsHandler(IItemTree tree, IPermissionResolver permissions)
+    /// <param name="locks">Withholds a locked folder's children until it is opened.</param>
+    public ListItemsHandler(IItemTree tree, IPermissionResolver permissions, IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _tree = tree;
         _permissions = permissions;
+        _locks = locks;
     }
 
     /// <summary>Reads the page.</summary>
@@ -95,6 +99,16 @@ public sealed class ListItemsHandler : IQueryHandler<ListItems, Result<IReadOnly
             {
                 return Result.Failure<IReadOnlyList<Item>>(
                     ItemErrors.ParentNotFound($"No parent {parent} is visible in this workspace."));
+            }
+
+            // A lock covers the subtree, and a children list is every view's source - the table,
+            // the board and the tree all draw from here. Refused outright rather than answered
+            // empty: an empty page would read as "nothing is in here", which is not what a lock
+            // means.
+            if (!await _locks.MayReadBodyAsync(parent, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<IReadOnlyList<Item>>(
+                    ItemErrors.Locked($"Item {parent} is locked. Unlock it to see what is inside."));
             }
         }
 

@@ -59,13 +59,19 @@ describe('the lock commands over a stubbed Core', () => {
     const { env, done } = await withProfile();
     server.use(
       http.get(`${API}/api/v1/items/:itemId/lock`, () =>
-        HttpResponse.json({ locked: true, unlockedUntil: null }),
+        HttpResponse.json({ locked: true, unlockedUntil: null, lockItemId: ITEM, selfLocked: true }),
       ),
     );
 
     const printed = await capture((json) => lockStatus('default', ITEM, json, { env }));
 
-    expect(printed).toEqual({ id: ITEM, locked: true, unlockedUntil: null });
+    expect(printed).toEqual({
+      id: ITEM,
+      locked: true,
+      unlockedUntil: null,
+      lockItemId: ITEM,
+      selfLocked: true,
+    });
     await done();
   });
 

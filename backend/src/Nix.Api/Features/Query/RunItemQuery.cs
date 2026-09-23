@@ -51,6 +51,7 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     private readonly IPermissionResolver _permissions;
     private readonly IItemQuery _query;
     private readonly INixSessionContextAccessor _session;
+    private readonly IItemLocks _locks;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemQueryHandler"/> class.</summary>
     /// <param name="tree">Item storage, for the smart list itself.</param>
@@ -60,21 +61,25 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     /// The acting principal, used to resolve the <see cref="QueryOperators.Me"/> token. Never the
     /// client - see <see cref="QueryOperators.Me"/> for why that would defeat the check.
     /// </param>
+    /// <param name="locks">Withholds the views of a locked item until it is opened.</param>
     public RunItemQueryHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         IItemQuery query,
-        INixSessionContextAccessor session)
+        INixSessionContextAccessor session,
+        IItemLocks locks)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(locks);
 
         _tree = tree;
         _permissions = permissions;
         _query = query;
         _session = session;
+        _locks = locks;
     }
 
     /// <summary>Runs the query.</summary>
@@ -111,6 +116,13 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
             || !await _permissions.CanReadWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<ItemQueryResults>(ItemErrors.NotFound($"No item {query.ItemId} is visible."));
+        }
+
+        // A lock withholds an item's views along with its body, a saved query among them.
+        if (!await _locks.MayReadBodyAsync(query.ItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<ItemQueryResults>(
+                ItemErrors.Locked($"Item {query.ItemId} is locked. Unlock it to run its views."));
         }
 
         var stored = ViewDefinitionsJson.Read(item.Views);

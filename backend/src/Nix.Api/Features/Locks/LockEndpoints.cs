@@ -38,8 +38,12 @@ internal static class LockEndpoints
             .WithSummary("Whether an item's body is locked, and whether this session has it open")
             .WithDescription(
                 "Returns whether the item's body is behind a password and, when it is, until when "
-                + "the calling browser session or access token has it unlocked. A lock withholds "
-                + "the body from anybody who has not unlocked it; it does not encrypt what is stored.")
+                + "the calling browser session or access token has it unlocked. A lock covers the "
+                + "item's whole subtree: a child of a locked item is locked too, and a locked item's "
+                + "children and views are withheld along with its body. 'lockItemId' names the item "
+                + "whose password opens this one next, and 'selfLocked' says whether the item has a "
+                + "lock of its own. A lock withholds content from anybody who has not unlocked it; "
+                + "it does not encrypt what is stored.")
             .Produces<ItemLockResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -145,7 +149,12 @@ internal static class GetItemLockEndpoint
             return TypedResults.Problem(LockEndpoints.Problem(httpContext, result.Error));
         }
 
-        return TypedResults.Ok(new ItemLockResponse(result.Value.Locked, result.Value.UnlockedUntil));
+        var state = result.Value;
+        return TypedResults.Ok(new ItemLockResponse(
+            state.Locked,
+            state.UnlockedUntil,
+            state.LockItemId?.Value,
+            state.SelfLocked));
     }
 }
 

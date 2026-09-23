@@ -26,6 +26,7 @@ public sealed record SetHabitStatus(ItemId ItemId, HabitStatusRequest Status) : 
 public sealed class HabitTrackerHandler(
     IItemTree tree,
     IPermissionResolver permissions,
+    IItemLocks locks,
     IHabitLock habitLock,
     NixDispatcher dispatcher,
     TimeProvider clock) :
@@ -310,6 +311,12 @@ public sealed class HabitTrackerHandler(
 
     private async ValueTask<Result<IReadOnlyList<Item>>> ChildrenAsync(Item parent, CancellationToken cancellationToken)
     {
+        // A lock covers everything under it, a habit's check-ins included.
+        if (!await locks.MayReadBodyAsync(parent.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<IReadOnlyList<Item>>(new NixError("items.locked", $"Item {parent.Id} is locked. Unlock it to see its history."));
+        }
+
         var children = new List<Item>();
         long? after = null;
         while (true)

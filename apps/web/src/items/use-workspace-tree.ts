@@ -101,6 +101,12 @@ export interface WorkspaceTree {
   /** Whether a folder's children are still being fetched. */
   readonly isLoadingChildren: (itemId: string) => boolean;
 
+  /**
+   * Whether Core withheld a folder's children because a lock covers it and this session has not
+   * opened it. The folder is folded back, so expanding it again after unlocking reads them afresh.
+   */
+  readonly isLocked: (itemId: string) => boolean;
+
   /** The chain from the workspace root down to an item, the item last. */
   readonly breadcrumbs: (itemId: string) => readonly TreeItem[];
 
@@ -180,6 +186,11 @@ function requestCanCommit(signal: AbortSignal, mounted: boolean): boolean {
   return !signal.aborted && mounted;
 }
 
+/** Whether a children read was refused because a lock covers the parent, rather than failing. */
+function isLockedListing(reason: unknown): boolean {
+  return isNixApiError(reason) && reason.code === 'items.locked';
+}
+
 export function useWorkspaceTree(): WorkspaceTree {
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
@@ -192,6 +203,16 @@ export function useWorkspaceTree(): WorkspaceTree {
   const [items, setItems] = useState<readonly TreeItem[]>([]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [loadingChildren, setLoadingChildren] = useState<ReadonlySet<string>>(new Set());
+  const [lockedFolders, setLockedFolders] = useState<ReadonlySet<string>>(new Set());
+  const markLocked = useCallback((itemId: string, locked: boolean): void => {
+    setLockedFolders((current) => {
+      if (current.has(itemId) === locked) return current;
+      const next = new Set(current);
+      if (locked) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }, []);
 
   // A ref rather than state, because `reveal` has to read it to decide whether to run at all - and
   // reading state inside a callback would mean the callback changed identity every time a reveal
@@ -281,10 +302,25 @@ export function useWorkspaceTree(): WorkspaceTree {
 
       try {
         const children = await fetchChildren(itemId, controller.signal);
-        if (!controller.signal.aborted && mounted.current) absorb(itemId, children);
+        if (!controller.signal.aborted && mounted.current) {
+          absorb(itemId, children);
+          markLocked(itemId, false);
+        }
       } catch (reason) {
         if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
-          setError(apiFailure(reason, 'Core could not be reached.'));
+          if (isLockedListing(reason)) {
+            markLocked(itemId, true);
+            // Not a failure: the item is locked and its contents stay hidden until it is opened
+            // from its own page. Recorded, so the row says "locked" rather than "empty", and folded
+            // back here, so expanding it again after unlocking reads the children afresh.
+            setExpanded((current) => {
+              const next = new Set(current);
+              next.delete(itemId);
+              return next;
+            });
+          } else {
+            setError(apiFailure(reason, 'Core could not be reached.'));
+          }
         }
       } finally {
         activeRequests.current.delete(controller);
@@ -297,7 +333,7 @@ export function useWorkspaceTree(): WorkspaceTree {
         }
       }
     },
-    [absorb, fetchChildren],
+    [absorb, fetchChildren, markLocked],
   );
 
   useEffect(
@@ -415,14 +451,25 @@ export function useWorkspaceTree(): WorkspaceTree {
         // The ancestors are now present but their other children are not, so a revealed note would
         // appear as its parent's only child. Fetching each level puts its siblings back.
         for (const parentId of expand) {
-          const siblings = await fetchChildren(parentId, controller.signal);
+          let siblings: readonly TreeItem[];
+          try {
+            siblings = await fetchChildren(parentId, controller.signal);
+          } catch (reason) {
+            // A locked ancestor withholds its other children. The path to the revealed item is
+            // already known, so it is shown on its own rather than the reveal failing.
+            if (isLockedListing(reason)) {
+              markLocked(parentId, true);
+              continue;
+            }
+            throw reason;
+          }
           if (!controller.signal.aborted && mounted.current) absorb(parentId, siblings);
         }
 
         if (!controller.signal.aborted && mounted.current) settle('found');
       }
     },
-    [absorb, bumpReveals, client, fetchChildren],
+    [absorb, bumpReveals, client, fetchChildren, markLocked],
   );
 
   const retryReveal = useCallback(
@@ -591,7 +638,9 @@ export function useWorkspaceTree(): WorkspaceTree {
         const refusal =
           isNixApiError(reason) && reason.code === 'items.move_would_create_cycle'
             ? 'An item cannot be moved inside itself.'
-            : apiFailure(
+            : isLockedListing(reason)
+              ? 'Unlock the locked item first. Nothing can be moved into or out of it while it is locked.'
+              : apiFailure(
                 reason,
                 'The move could not be confirmed. Check the workspace before retrying.',
               );
@@ -711,6 +760,7 @@ export function useWorkspaceTree(): WorkspaceTree {
     retryReveal,
     isExpanded: (itemId) => expanded.has(itemId),
     isLoadingChildren: (itemId) => loadingChildren.has(itemId),
+    isLocked: (itemId) => lockedFolders.has(itemId),
     breadcrumbs,
     reveal,
     find: (itemId) => byId.get(itemId) ?? null,

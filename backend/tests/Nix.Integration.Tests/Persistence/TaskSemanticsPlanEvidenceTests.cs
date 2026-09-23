@@ -122,6 +122,52 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         Assert.DoesNotContain(titles, title => title.Contains("Other tenant", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The data review's heavy case: every container locked, so about fifty thousand items sit
+    /// under a closed lock, plus two thousand more closed locks on nothing. The lock filter must
+    /// read the closed subtrees once rather than rescan them per row, and must hide every task.
+    /// </summary>
+    /// <remarks>
+    /// While something is closed the planner may sort the matching window rather than stream the
+    /// ordered index, which is linear in the window and is what this records rather than forbids.
+    /// </remarks>
+    [Fact]
+    public async Task With_every_container_locked_the_saved_query_reads_the_closed_subtrees_once()
+    {
+        var compiled = QuerySql.Compile(
+            [new FilterRule("due_date", "within-next", "7")],
+            new QueryOrder("due_date", IsDay: true, Descending: false),
+            QueryDay);
+        var closed = new List<Guid>(await ContainerIdsAsync());
+        for (var index = 0; index < 2000; index++)
+        {
+            closed.Add(Guid.NewGuid());
+        }
+
+        NpgsqlParameter[] parameters =
+        [
+            .. compiled.Parameters,
+            new NpgsqlParameter("closed_lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            {
+                Value = closed.ToArray(),
+            },
+        ];
+
+        var plan = await ExplainAsRuntimeRoleAsync(compiled.Sql, parameters);
+        _output.WriteLine("Next 7 days, every container locked plus 2,000 closed locks, runtime role:");
+        _output.WriteLine(plan);
+
+        // Read once into a hash and probed per row - not a materialised subtree rescanned for
+        // every row, which is the shape that took about a second before. With half the closure
+        // table under a closed lock, one sequential pass to build the hash is the right read.
+        Assert.Contains("hashed SubPlan", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Materialize", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
+
+        var titles = await ExecuteTitlesAsRuntimeRoleAsync(compiled.Sql, parameters);
+        Assert.Empty(titles);
+    }
+
     [Fact]
     public async Task The_calendar_container_arm_is_served_by_ix_item_declares_views()
     {
@@ -230,6 +276,34 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         }
     }
 
+    /// <summary>The corpus's calendar containers, which the heavy-lock test locks.</summary>
+    private async Task<Guid[]> ContainerIdsAsync()
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var command = new NpgsqlCommand(
+                "SELECT id FROM item WHERE tenant_id = @tenant AND seq BETWEEN 200001 AND @last",
+                connection);
+            await using (command.ConfigureAwait(false))
+            {
+                command.Parameters.Add(new NpgsqlParameter("tenant", NpgsqlDbType.Uuid) { Value = M0SchemaSeed.Alpha.TenantId });
+                command.Parameters.Add(new NpgsqlParameter("last", NpgsqlDbType.Bigint) { Value = 200000L + Containers });
+                var ids = new List<Guid>(Containers);
+                var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+                await using (reader.ConfigureAwait(false))
+                {
+                    while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+                    {
+                        ids.Add(reader.GetGuid(0));
+                    }
+                }
+
+                return [.. ids];
+            }
+        }
+    }
+
     /// <summary>
     /// EXPLAINs a statement as the runtime role, under the one setting the row-security policy
     /// reads: <c>nix_app</c>, in a transaction with <c>SET LOCAL nix.tenant_id</c>. Production's
@@ -317,6 +391,11 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
             new[] { M0SchemaSeed.Alpha.WorkspaceId });
         AddIfMissing("query_item_id", NpgsqlDbType.Uuid, Guid.Empty);
         AddIfMissing("limit", NpgsqlDbType.Integer, 501);
+
+        // Nothing closed: the common case, in which the lock filter folds away at plan time and
+        // every plan above is exactly the one it was before locks existed. The closed case has its
+        // own test below.
+        AddIfMissing("closed_lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid, Array.Empty<Guid>());
     }
 
     private static void AssertAncestorPointLookup(string plan) =>
@@ -422,7 +501,18 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
             WHERE child.tenant_id = {{alphaTenant}}
               AND child.seq >= 300001;
 
+            -- One lock, on a leaf task, so the lock filters the saved query and the calendar carry
+            -- run against a real row. A leaf's lock hides nothing from these reads - it has no
+            -- children and declares no calendar - so every expected result is unchanged.
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            SELECT id, tenant_id,
+                   'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                   {{alphaPrincipal}}, now()
+            FROM item
+            WHERE tenant_id = {{alphaTenant}} AND seq = 300001;
+
             ANALYZE item;
+            ANALYZE item_lock;
             ANALYZE item_closure;
             """;
 

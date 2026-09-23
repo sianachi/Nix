@@ -60,6 +60,7 @@ function treeOf(
     breadcrumbs: () => [],
     isExpanded: (itemId: string) => expanded.has(itemId),
     isLoadingChildren: () => false,
+    isLocked: () => false,
     toggle: () => Promise.resolve(),
     reveal: () => Promise.resolve(),
     create: () => Promise.resolve(null),

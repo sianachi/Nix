@@ -165,6 +165,57 @@ public sealed class ItemLockHttpTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// A lock covers the locked item's children: its children list answers 423 to a credential that
+    /// has not opened it, and a child's own lock state names the folder as the one to unlock.
+    /// </summary>
+    [Fact]
+    public async Task A_locked_items_children_answer_locked_and_point_at_the_folder()
+    {
+        var mine = await AccessTokenAsync("lock-http-children-mine");
+        var other = await AccessTokenAsync("lock-http-children-other");
+        var childrenPath =
+            $"/api/v1/workspaces/{M0SchemaSeed.Alpha.WorkspaceId:D}/items?parentId={M0SchemaSeed.Alpha.ItemId:D}";
+
+        string childId;
+        using (var created = await SendAsync(
+            HttpMethod.Post,
+            $"/api/v1/workspaces/{M0SchemaSeed.Alpha.WorkspaceId:D}/items",
+            mine,
+            new { type = "note", title = "Inside", parentId = M0SchemaSeed.Alpha.ItemId }))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Cancellation));
+            childId = body.RootElement.GetProperty("id").GetString()!;
+        }
+
+        using (var _ = await SendAsync(HttpMethod.Put, $"{ItemPath}/lock", mine, new { password = "hunter22" }))
+        {
+        }
+
+        using (var closed = await SendAsync(HttpMethod.Get, childrenPath, other))
+        {
+            Assert.Equal((HttpStatusCode)423, closed.StatusCode);
+            Assert.Equal("items.locked", await ProblemCodeAsync(closed));
+        }
+
+        using (var open = await SendAsync(HttpMethod.Get, childrenPath, mine))
+        {
+            Assert.Equal(HttpStatusCode.OK, open.StatusCode);
+        }
+
+        using (var state = await SendAsync(HttpMethod.Get, $"/api/v1/items/{childId}/lock", other))
+        {
+            state.EnsureSuccessStatusCode();
+            using var body = JsonDocument.Parse(await state.Content.ReadAsStringAsync(Cancellation));
+            Assert.True(body.RootElement.GetProperty("locked").GetBoolean());
+            Assert.False(body.RootElement.GetProperty("selfLocked").GetBoolean());
+            Assert.Equal(
+                M0SchemaSeed.Alpha.ItemId,
+                body.RootElement.GetProperty("lockItemId").GetGuid());
+        }
+    }
+
+    /// <summary>
     /// An export copies bodies out of Nix, and runs under a delegation that can hold no unlock, so
     /// one that would include a locked body is refused before a job exists.
     /// </summary>

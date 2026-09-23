@@ -18,6 +18,7 @@ export function aContainer(overrides: Partial<ContainerData> = {}): ContainerDat
     itemId: 'container-1',
     status: 'ready',
     error: null,
+    locked: false,
     schema: null,
     views: null,
     children: [],

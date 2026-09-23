@@ -53,11 +53,17 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
     /// </summary>
     /// <remarks>
     /// It has children on purpose. The first version of this file gave Beta only parentless rows,
-    /// which meant no Beta row could satisfy <c>c.parent_id = p.id</c> under any scoping at all -
+    /// which meant no Beta row could satisfy <c>c.parent_id = container.id</c> under any scoping at all -
     /// so the isolation assertion was true by construction of the corpus and would have stayed
     /// green with the tenant predicate deleted. Found in the security review of goal 2.2.
     /// </remarks>
     private static readonly Guid BetaContainer = new("70110000-2222-4222-8222-701100000002");
+
+    /// <summary>
+    /// A closed lock on nothing in the corpus, so the fold's lock probe runs rather than folding
+    /// away as it does when nothing is locked.
+    /// </summary>
+    private static readonly Guid ClosedLockStandIn = new("10c10c10-0000-4000-8000-10c10c10c10c");
 
     private readonly NixPostgresFixture _fixture;
     private readonly ITestOutputHelper _output;
@@ -89,6 +95,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                 Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
                 UuidArray("parent_ids", parents),
                 TextArray("keys", ["estimate", "completion"]),
+                UuidArray("closed_lock_ids", [ClosedLockStandIn]),
             ]);
 
         _output.WriteLine(
@@ -105,7 +112,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         Assert.Contains("Nested Loop", plan, StringComparison.Ordinal);
         Assert.Contains("Index Scan using \"IX_item_tenant_id_parent_id\"", plan, StringComparison.Ordinal);
         Assert.Contains("Index Cond:", plan, StringComparison.Ordinal);
-        Assert.Contains("parent_id = p.id", plan, StringComparison.Ordinal);
+        Assert.Contains("parent_id = container.id", plan, StringComparison.Ordinal);
 
         // The plan this replaced. A sequential scan here is not slower at this size - it measured
         // faster - it is a plan whose cost grows with the workspace instead of with the page, and
@@ -206,6 +213,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                 command.Parameters.Add(Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId));
                 command.Parameters.Add(UuidArray("parent_ids", parents));
                 command.Parameters.Add(TextArray("keys", keys));
+                command.Parameters.Add(UuidArray("closed_lock_ids", [ClosedLockStandIn]));
 
                 var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
                 await using (reader.ConfigureAwait(false))

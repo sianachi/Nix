@@ -3,7 +3,7 @@ import { Button } from '@nix/ui';
 import { useNarrowViewport } from '../../layout/viewport';
 import { useItemDialog } from '../../items/item-dialog-context';
 
-import { ErrorPanel } from '../../components/states/status-panels';
+import { EmptyPanel, ErrorPanel } from '../../components/states/status-panels';
 import type { View } from './container-model';
 import { ListView } from '../list/list-view';
 import type { ContainerData } from './use-container';
@@ -59,6 +59,17 @@ function renderContent(
   view: View | null,
   onOpen: (itemId: string) => void,
 ): ReactNode {
+  // Before any view: a lock withholds the children every view draws from, and a view drawn over
+  // nothing would read as an empty item.
+  if (container.locked) {
+    return (
+      <EmptyPanel
+        title="This is locked"
+        detail="What is inside is hidden until you unlock it with its password."
+      />
+    );
+  }
+
   // No views configured at all is not a broken state: it is every item nobody has set one up on,
   // which is most of them. A list is the sensible default because it needs no configuration - it
   // has titles to show even with no schema.

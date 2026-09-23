@@ -257,8 +257,10 @@ export interface StubOptions {
   readonly bookmarksFail?: boolean;
 
   /**
-   * Items whose bodies are locked. The stub opens one when it is sent the password `hunter22`, the
-   * way Core would for the session that presented it.
+   * Items that carry a lock. The stub opens one when it is sent the password `hunter22`, the way
+   * Core would for the session that presented it. A lock covers its subtree, as it does in Core:
+   * the children of a locked item are locked by it, and its children list answers `items.locked`
+   * until it is opened.
    */
   readonly lockedItems?: readonly string[];
 
@@ -537,6 +539,21 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // bookmarking test means to.
   let kept = [...bookmarks];
   const unlocked = new Set<string>();
+
+  // The locks covering an item, nearest first - its own, then each ancestor's - which is the walk
+  // Core makes through the closure table.
+  const coveringLocks = (itemId: string): readonly string[] => {
+    const covering: string[] = [];
+    let cursor: string | null = itemId;
+    for (let guard = 0; cursor !== null && guard < 64; guard += 1) {
+      const current: string = cursor;
+      if (lockedItems.includes(current)) covering.push(current);
+      cursor = known.find((candidate) => candidate.id === current)?.parentId ?? null;
+    }
+    return covering;
+  };
+  const isOpen = (itemId: string): boolean =>
+    coveringLocks(itemId).every((lockId) => unlocked.has(lockId));
 
   // The tokens the stub holds, newest first as the endpoint promises. Mutable for the reason
   // `known` is: a mint has to be visible to the list read that follows it, and a revocation has to
@@ -1055,12 +1072,16 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       const lockRead = /\/api\/v1\/items\/([0-9a-f-]{36})\/(lock|unlock)$/.exec(parsedUrl.pathname);
       if (lockRead !== null) {
         const itemId = lockRead[1] ?? '';
-        const locked = lockedItems.includes(itemId);
         if (lockRead[2] === 'lock' && method === 'GET') {
+          const covering = coveringLocks(itemId);
+          const closed = covering.filter((lockId) => !unlocked.has(lockId));
           return Promise.resolve(
             json({
-              locked,
-              unlockedUntil: locked && unlocked.has(itemId) ? '2099-01-01T00:00:00+00:00' : null,
+              locked: covering.length > 0,
+              unlockedUntil:
+                covering.length > 0 && closed.length === 0 ? '2099-01-01T00:00:00+00:00' : null,
+              lockItemId: closed[0] ?? covering[0] ?? null,
+              selfLocked: lockedItems.includes(itemId),
             }),
           );
         }
@@ -2074,6 +2095,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         // The tree fetches one parent at a time, so a request naming a parent gets that parent's
         // children and a request naming none gets the roots.
         const parent = /parentId=([^&]+)/.exec(url)?.[1] ?? null;
+        if (parent !== null && !isOpen(parent)) {
+          return Promise.resolve(json({ code: 'items.locked' }, 423));
+        }
         return Promise.resolve(
           json({
             items: known.filter((candidate) => candidate.parentId === parent),

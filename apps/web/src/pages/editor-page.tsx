@@ -461,9 +461,10 @@ export function OpenItem({
   const [lockOpen, setLockOpen] = useState(false);
   const { getAccessToken } = useAuth();
 
-  // Whether the body may be drawn. Core refuses a locked body to a session that has not unlocked
-  // it; this is what lets the page say so, and close the body when the unlock runs out, instead of
-  // drawing an editor that cannot connect.
+  // Whether the body and views may be drawn. Core refuses a locked body, and the children every
+  // view draws from, to a session that has not unlocked them - including when the lock is an
+  // ancestor's. This is what lets the page say so, and close both when the unlock runs out, instead
+  // of drawing an editor that cannot connect or a view over nothing.
   const lock = useItemLock(itemId);
   const lockNoun = bodyNoun(bodyKind);
   const lockButtonRef = useRef<HTMLButtonElement>(null);
@@ -477,18 +478,28 @@ export function OpenItem({
   // The prompt unmounts when the right password is given; focus goes to the lock control that now
   // stands for the open body, rather than to nothing.
   const { unlock } = lock;
+  const { reload: reloadContainer } = container;
   const unlockAndFocus = useCallback(
     async (password: string): Promise<string | null> => {
       const refused = await unlock(password);
       if (refused === null) {
+        // The children were withheld while the lock was closed; read them now it is open.
+        void reloadContainer();
         requestAnimationFrame(() => {
           lockButtonRef.current?.focus();
         });
       }
       return refused;
     },
-    [unlock],
+    [reloadContainer, unlock],
   );
+
+  // A lock inherited from an ancestor is opened with that ancestor's password, so the prompt names
+  // it. Null when the lock is this item's own.
+  const lockHolderTitle =
+    lock.lockItemId !== null && lock.lockItemId !== itemId
+      ? (tree.find(lock.lockItemId)?.title ?? '')
+      : null;
   const paneIndex = usePaneIndex();
 
   function togglePanel(): void {
@@ -780,7 +791,7 @@ export function OpenItem({
 
       <div className={`flex flex-1 ${paneClip}`}>
         <div className={paneColumn}>
-          {showingDocument && !lock.open ? (
+          {!lock.open ? (
             lock.status === 'loading' ? (
               <Text
                 variant="note"
@@ -805,6 +816,7 @@ export function OpenItem({
                 title={title}
                 noun={lockNoun}
                 reason={lock.closedReason}
+                holderTitle={lockHolderTitle}
                 onUnlock={unlockAndFocus}
               />
             )
@@ -965,7 +977,7 @@ export function OpenItem({
         <LockDialog
           title={title}
           noun={lockNoun}
-          locked={lock.locked}
+          locked={lock.selfLocked}
           onClose={() => {
             setLockOpen(false);
           }}

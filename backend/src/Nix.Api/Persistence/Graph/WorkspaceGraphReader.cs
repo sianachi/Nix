@@ -2,6 +2,7 @@ using Nix.Abstractions;
 using Nix.Domain.Graph;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -83,6 +84,7 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
                 new NpgsqlParameter("node_limit", NpgsqlDbType.Integer) { Value = nodeLimit },
                 new NpgsqlParameter("link_limit", NpgsqlDbType.Integer) { Value = linkLimit },
+                await LockFilterParameters.AllLocksAsync(_sql, Tenant, cancellationToken).ConfigureAwait(false),
             ],
             cancellationToken);
 

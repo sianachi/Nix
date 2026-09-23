@@ -84,9 +84,10 @@ public sealed partial class TemplateStore
         // template, so a locked body - a note's text or a file's bytes - would come out the other
         // side unlocked. Refused before anything is staged, for the whole capture, rather than
         // left to the collaboration service, which sees only document bodies and never file bytes.
+        // A lock above the source counts too: it covers the source as surely as its own would.
         var locked = includeChildren
             ? await _locks.AnyInSubtreeAsync(sourceItemId, cancellationToken).ConfigureAwait(false)
-            : await _locks.IsLockedAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+            : (await _locks.GetStateAsync(sourceItemId, cancellationToken).ConfigureAwait(false)).Locked;
         if (locked)
         {
             return Result.Failure<TemplateCapturePlan>(TemplateErrors.SourceLocked());

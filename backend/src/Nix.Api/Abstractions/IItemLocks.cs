@@ -7,6 +7,13 @@ namespace Nix.Abstractions;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>A lock covers its subtree.</b> Every read here except <see cref="IsLockedAsync"/> and
+/// <see cref="FindVerifierAsync"/> counts an item's ancestors' locks as its own, so a child of a
+/// locked folder is closed until the folder is opened, and so are the children lists and views
+/// under it. Those two read the item's own lock only, because they back setting, changing and
+/// removing that one password.
+/// </para>
+/// <para>
 /// <b>Not a permission resolver.</b> A lock narrows what somebody who may already read an item can
 /// see of it - the body - and every caller asks <see cref="IPermissionResolver"/> first. Nothing
 /// here answers whether the item is visible at all.
@@ -18,28 +25,34 @@ namespace Nix.Abstractions;
 /// </remarks>
 public interface IItemLocks
 {
-    /// <summary>Whether the item is locked, and until when the current credential has it unlocked.</summary>
+    /// <summary>
+    /// Whether the item is locked by its own lock or an ancestor's, and until when the current
+    /// credential has every one of them open.
+    /// </summary>
     /// <param name="itemId">The item.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The lock state as the current credential sees it.</returns>
     public ValueTask<ItemLockState> GetStateAsync(ItemId itemId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Whether the current credential may read the item's body: it is not locked, or this
-    /// credential holds an unexpired grant.
+    /// Whether the current credential may read the item's body and list its children: no lock
+    /// covers it, or this credential holds an unexpired grant for every lock that does.
     /// </summary>
     /// <param name="itemId">The item.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns><see langword="true"/> when the body may be served.</returns>
+    /// <returns><see langword="true"/> when the body and children may be served.</returns>
     public ValueTask<bool> MayReadBodyAsync(ItemId itemId, CancellationToken cancellationToken);
 
-    /// <summary>Whether the item or any of its descendants is locked, whoever has them unlocked.</summary>
+    /// <summary>
+    /// Whether the item, any of its descendants, or any of its ancestors is locked, whoever has
+    /// them unlocked.
+    /// </summary>
     /// <param name="itemId">The root of the subtree.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns><see langword="true"/> when at least one item in the subtree is locked.</returns>
+    /// <returns><see langword="true"/> when any lock covers part of the subtree.</returns>
     public ValueTask<bool> AnyInSubtreeAsync(ItemId itemId, CancellationToken cancellationToken);
 
-    /// <summary>Which of these items are locked, whoever is asking.</summary>
+    /// <summary>Which of these items are locked, by their own lock or an ancestor's, whoever is asking.</summary>
     /// <param name="itemIds">The items.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The locked ones.</returns>
@@ -98,7 +111,10 @@ public interface IItemLocks
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken);
 
-    /// <summary>Whether the item is locked at all, whoever is asking and whatever they have unlocked.</summary>
+    /// <summary>
+    /// Whether the item carries a lock of its own, whoever is asking and whatever they have
+    /// unlocked. An ancestor's lock does not count.
+    /// </summary>
     /// <param name="itemId">The item.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns><see langword="true"/> when the item has a lock.</returns>
@@ -111,9 +127,19 @@ public interface IItemLocks
     public ValueTask RevokeAsync(ItemId itemId, CancellationToken cancellationToken);
 }
 
-/// <summary>An item's lock as one credential sees it.</summary>
-/// <param name="Locked">Whether the item has a lock.</param>
+/// <summary>An item's locks as one credential sees them.</summary>
+/// <param name="Locked">Whether the item or any ancestor has a lock.</param>
 /// <param name="UnlockedUntil">
-/// When the current credential's grant ends, or <see langword="null"/> when it holds none.
+/// When the first of the current credential's grants past those locks ends, or
+/// <see langword="null"/> while any of them is not open.
 /// </param>
-public sealed record ItemLockState(bool Locked, DateTimeOffset? UnlockedUntil);
+/// <param name="LockItemId">
+/// The lock to open next - the nearest one without a grant - or, when all are open, the nearest
+/// one. <see langword="null"/> when nothing is locked.
+/// </param>
+/// <param name="SelfLocked">Whether the item carries a lock of its own.</param>
+public sealed record ItemLockState(
+    bool Locked,
+    DateTimeOffset? UnlockedUntil,
+    ItemId? LockItemId,
+    bool SelfLocked);

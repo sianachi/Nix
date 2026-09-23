@@ -14,7 +14,11 @@ import { locks } from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
-/** Prints whether the item is locked and, if this profile has it open, until when. */
+/**
+ * Prints whether the item is locked and, if this profile has it open, until when. A lock covers
+ * its subtree, so `lockItemId` says which item's password opens this one - an ancestor's when
+ * `selfLocked` is false - and that is the id to pass to `unlock`.
+ */
 export async function lockStatus(
   profileName: string | undefined,
   itemId: string,
@@ -23,7 +27,16 @@ export async function lockStatus(
 ): Promise<void> {
   const session = await resolveSession(profileName, deps);
   const state = await session.client.query(locks.getItemLock(itemId), { forceRefresh: true });
-  printResult({ id: itemId, locked: state.locked, unlockedUntil: state.unlockedUntil }, output);
+  printResult(
+    {
+      id: itemId,
+      locked: state.locked,
+      unlockedUntil: state.unlockedUntil,
+      lockItemId: state.lockItemId,
+      selfLocked: state.selfLocked,
+    },
+    output,
+  );
 }
 
 /** Locks an item, or changes the password when `currentPassword` is given. */

@@ -3,6 +3,7 @@ using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Recurrence;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -25,17 +26,32 @@ public sealed class RecurrenceCandidateReader : IRecurrenceCandidates
 {
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
+    private readonly CredentialSessionContext _credential;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="RecurrenceCandidateReader"/> class.</summary>
     /// <param name="sql">The executor sharing this unit of work's connection and transaction.</param>
     /// <param name="session">The tenant this request runs as.</param>
-    public RecurrenceCandidateReader(NixSqlExecutor sql, INixSessionContextAccessor session)
+    /// <param name="credential">
+    /// The credential this request authenticated with, whose unlocks decide which locked items'
+    /// children are shown.
+    /// </param>
+    /// <param name="clock">Judges unlock expiry.</param>
+    public RecurrenceCandidateReader(
+        NixSqlExecutor sql,
+        INixSessionContextAccessor session,
+        CredentialSessionContext credential,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(sql);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(credential);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _sql = sql;
         _session = session;
+        _credential = credential;
+        _clock = clock;
     }
 
     private TenantId Tenant => (_session.Current
@@ -79,6 +95,7 @@ public sealed class RecurrenceCandidateReader : IRecurrenceCandidates
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = firstDay },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = lastDay },
+                await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false),
                 new NpgsqlParameter("candidate_limit", NpgsqlDbType.Integer) { Value = candidateLimit },
             ],
             cancellationToken);

@@ -43,6 +43,12 @@ internal static class ItemEndpoints
     internal const string SiblingNotInDestinationCode = "items.sibling_not_in_destination";
 
     /// <summary>
+    /// Stable code for a lock the caller has not opened: the item's children are withheld, and it
+    /// cannot be moved into or out of the locked subtree.
+    /// </summary>
+    internal const string LockedCode = "items.locked";
+
+    /// <summary>
     /// Registers the items feature's routes on <paramref name="endpoints"/>.
     /// </summary>
     internal static IEndpointRouteBuilder MapItemEndpoints(this IEndpointRouteBuilder endpoints)
@@ -70,9 +76,12 @@ internal static class ItemEndpoints
                 + "omitted, in sibling order. Items the caller cannot read are omitted entirely - "
                 + "a query result is how you enumerate what exists, so redacted placeholders would "
                 + "disclose their existence. Soft-deleted items are excluded unless "
-                + "'includeDeleted' is set.")
+                + "'includeDeleted' is set. Fails with 'items.locked' (423) when a lock the caller "
+                + "has not opened covers 'parentId' - a locked item's children are withheld until "
+                + "it is unlocked.")
             .Produces<CursorPage<ItemResponse>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status423Locked)
             .ProducesProblem(StatusCodes.Status501NotImplemented);
 
         workspaceItems.MapPost("/", CreateItemEndpoint.Handle)
@@ -116,10 +125,12 @@ internal static class ItemEndpoints
                 "Reparents the item and maintains the closure table. Fails with "
                 + "'items.move_would_create_cycle' when the destination is the item itself or one "
                 + "of its own descendants, and with 'items.parent_not_found' when the destination "
-                + "is not visible.")
+                + "is not visible. Fails with 'items.locked' (423) when a lock the caller has not "
+                + "opened covers the item or the destination.")
             .Produces<ItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status423Locked)
             .ProducesProblem(StatusCodes.Status501NotImplemented)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
@@ -150,6 +161,7 @@ internal static class ItemEndpoints
         items.MapDelete("/{itemId:guid}/purge", PurgeItemEndpoint.Handle)
             .WithName("PurgeItem").WithSummary("Permanently delete a trashed item")
             .Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status423Locked)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         return endpoints;
@@ -171,6 +183,7 @@ internal static class ItemEndpoints
         {
             CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode =>
                 StatusCodes.Status409Conflict,
+            LockedCode => StatusCodes.Status423Locked,
             _ => StatusCodes.Status404NotFound,
         };
 

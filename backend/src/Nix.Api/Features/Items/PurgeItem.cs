@@ -15,8 +15,9 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IItemLocks _locks;
     private readonly IFinanceMutationGuard? _financeGuard;
-    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock, IFinanceMutationGuard? financeGuard = null) => (_tree, _permissions, _session, _clock, _financeGuard) = (tree, permissions, session, clock, financeGuard);
+    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock, IItemLocks locks, IFinanceMutationGuard? financeGuard = null) => (_tree, _permissions, _session, _clock, _locks, _financeGuard) = (tree, permissions, session, clock, locks, financeGuard);
 
     public async ValueTask<Result<ItemId>> HandleAsync(PurgeItem command, CancellationToken cancellationToken)
     {
@@ -29,6 +30,13 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
         if (item.LifecycleState != ItemLifecycleState.Deleted)
         {
             return Result.Failure<ItemId>(ItemErrors.LifecycleConflict("Only an item in Trash can be permanently deleted."));
+        }
+
+        // Purging moves the item's children up to its parent, out from under its lock and any lock
+        // above it. Whoever does that must have those locks open, the rule a move follows.
+        if (!await _locks.MayReadBodyAsync(item.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<ItemId>(ItemErrors.Locked($"Item {item.Id} is locked. Unlock it before deleting it permanently."));
         }
         if (_financeGuard is not null)
         {

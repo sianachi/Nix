@@ -51,7 +51,7 @@ public static class RecurrenceSql
     /// dropped, so the caller can say "repeats, but has no date to repeat from" instead of the
     /// series quietly not existing.
     /// </remarks>
-    public const string WorkspaceRecurrenceCandidates = """
+    public const string WorkspaceRecurrenceCandidates = $"""
         WITH calendar_view AS (
             SELECT container.id AS container_id,
                    container.properties ->> 'title' AS container_title,
@@ -85,6 +85,7 @@ public static class RecurrenceSql
               )
               AND container.views IS NOT NULL
               AND entry.value ->> 'kind' = 'calendar'
+              AND {ItemLockSql.ContainerIsOpen}
         ),
         chosen AS (
             SELECT container_id, container_title, date_property
