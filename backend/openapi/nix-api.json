@@ -5853,6 +5853,96 @@
         }
       }
     },
+    "/api/v1/items/{itemId}/finance/lines/{lineId}/months/{month}/actual": {
+      "post": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Bring a line's actual for a month to an amount by recording the transaction that gets it there",
+        "description": "With nothing recorded yet, the whole amount is recorded as one transaction named after the line; otherwise an adjustment for the difference is recorded. Actual is never overwritten, only added to.",
+        "operationId": "SetBudgetActual",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "month",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetActualRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetActualResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/finance/transactions": {
       "get": {
         "tags": [
@@ -6105,6 +6195,69 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Delete a transaction in an open month; the ordinary item delete, so it can be restored",
+        "description": "Unlike the item delete, a repeat is refused with finance.transaction_not_found, because the ledger no longer holds the transaction.",
+        "operationId": "DeleteFinanceTransaction",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/items/{itemId}/finance/budget": {
@@ -6112,7 +6265,7 @@
         "tags": [
           "Finance"
         ],
-        "summary": "Lines by month with plan, actual and variance; defaults to the current month",
+        "summary": "Lines by month with plan, actual and variance; defaults to the current month, narrowed to one account when asked",
         "operationId": "GetFinanceBudget",
         "parameters": [
           {
@@ -6136,6 +6289,14 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -7931,6 +8092,81 @@
           }
         }
       },
+      "BudgetActualRequest": {
+        "required": [
+          "amount"
+        ],
+        "type": "object",
+        "properties": {
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "date": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          }
+        }
+      },
+      "BudgetActualResponse": {
+        "required": [
+          "lineId",
+          "month",
+          "before",
+          "after",
+          "transaction"
+        ],
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "month": {
+            "type": "string"
+          },
+          "before": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "after": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "transaction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FinanceTransactionResponse"
+              }
+            ]
+          }
+        }
+      },
       "BudgetCellResponse": {
         "required": [
           "month",
@@ -7983,7 +8219,8 @@
           "itemId",
           "months",
           "sections",
-          "totals"
+          "totals",
+          "accountId"
         ],
         "type": "object",
         "properties": {
@@ -8008,6 +8245,13 @@
             "items": {
               "$ref": "#/components/schemas/BudgetMonthTotalsResponse"
             }
+          },
+          "accountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

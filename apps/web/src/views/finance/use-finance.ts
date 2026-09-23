@@ -2,6 +2,8 @@ import {
   finance,
   isCanceledError,
   isNixApiError,
+  type BudgetActual,
+  type BudgetActualInput,
   type BudgetLineInput,
   type Finance,
   type FinanceAccountInput,
@@ -38,6 +40,17 @@ export interface FinanceState {
     transactionId: string,
     input: FinanceTransactionInput,
   ) => Promise<WriteOutcome>;
+  /** Deletes a transaction in an open month; the ordinary soft delete, so it can be restored. */
+  readonly deleteTransaction: (transactionId: string) => Promise<WriteOutcome>;
+  /**
+   * Brings a line's actual for a month to an amount. Core records the one transaction that gets
+   * it there, so the figure is never typed over and every transaction behind it stays.
+   */
+  readonly setActual: (
+    lineId: string,
+    month: string,
+    input: BudgetActualInput,
+  ) => Promise<BudgetActual | string>;
   readonly setMonth: (month: string, closed: boolean) => Promise<WriteOutcome>;
   readonly postScheduled: (month: string) => Promise<PostScheduled | string>;
   readonly importStatement: (input: FinanceImportInput) => Promise<FinanceImport | string>;
@@ -52,6 +65,12 @@ export function financeRefusal(reason: unknown, fallback: string): string {
     }
     if (reason.code === 'finance.month_closed') {
       return reason.detail ?? 'That month is closed. Reopen it first.';
+    }
+    if (reason.code === 'finance.line_not_found') {
+      return 'That budget line no longer exists. Reload and try again.';
+    }
+    if (reason.code === 'finance.transaction_not_found') {
+      return 'That transaction no longer exists. Reload and try again.';
     }
     if (reason.code === 'finance.limit') {
       return reason.detail ?? 'This finance root has more records than this version can total.';
@@ -180,6 +199,18 @@ export function useFinance(itemId: string | null): FinanceState {
           (id) => finance.setTransaction(id, transactionId, input),
           'The transaction could not be saved.',
         ),
+      ),
+    deleteTransaction: (transactionId) =>
+      outcome(
+        write(
+          (id) => finance.deleteTransaction(id, transactionId),
+          'The transaction could not be deleted.',
+        ),
+      ),
+    setActual: (lineId, month, input) =>
+      write<BudgetActual>(
+        (id) => finance.setActual(id, lineId, month, input),
+        'The amount could not be recorded.',
       ),
     setMonth: (month, closed) =>
       outcome(

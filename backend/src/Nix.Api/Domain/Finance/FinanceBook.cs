@@ -43,7 +43,8 @@ public sealed class FinanceBook
     private readonly Dictionary<(Guid? Line, YearMonth Month), (decimal Sum, int Count)> _byLineMonth = [];
     private readonly Dictionary<(Guid Account, YearMonth Month), decimal> _unassignedOutflowByAccountMonth = [];
     private readonly Dictionary<(Guid Account, YearMonth Month), decimal> _unassignedCardCreditByAccountMonth = [];
-    private readonly Dictionary<YearMonth, decimal> _unassignedInflowByMonth = [];
+    private readonly Dictionary<(Guid Account, YearMonth Month), decimal> _unassignedInflowByAccountMonth = [];
+    private readonly Dictionary<(Guid Account, YearMonth Month), int> _unassignedCountByAccountMonth = [];
     private readonly HashSet<YearMonth> _closed;
 
     public FinanceBook(
@@ -74,6 +75,8 @@ public sealed class FinanceBook
             _byLineMonth[(line, month)] = (running.Sum + transaction.Amount, running.Count + 1);
             if (line is null)
             {
+                _unassignedCountByAccountMonth.TryGetValue((transaction.AccountId, month), out var unassigned);
+                _unassignedCountByAccountMonth[(transaction.AccountId, month)] = unassigned + 1;
                 if (transaction.Amount < 0)
                 {
                     _unassignedOutflowByAccountMonth.TryGetValue((transaction.AccountId, month), out var out_);
@@ -88,8 +91,8 @@ public sealed class FinanceBook
                 }
                 else
                 {
-                    _unassignedInflowByMonth.TryGetValue(month, out var in_);
-                    _unassignedInflowByMonth[month] = in_ + transaction.Amount;
+                    _unassignedInflowByAccountMonth.TryGetValue((transaction.AccountId, month), out var in_);
+                    _unassignedInflowByAccountMonth[(transaction.AccountId, month)] = in_ + transaction.Amount;
                 }
             }
         }
@@ -146,10 +149,19 @@ public sealed class FinanceBook
         _unassignedCardCreditByAccountMonth.TryGetValue((accountId, month), out var amount) ? amount : 0;
 
     public decimal UnassignedInflow(YearMonth month) =>
-        _unassignedInflowByMonth.TryGetValue(month, out var amount) ? amount : 0;
+        _unassignedInflowByAccountMonth.Where(pair => pair.Key.Month == month).Sum(pair => pair.Value);
+
+    public decimal UnassignedInflow(Guid accountId, YearMonth month) =>
+        _unassignedInflowByAccountMonth.TryGetValue((accountId, month), out var amount) ? amount : 0;
 
     public int UnassignedCount(YearMonth month) =>
         _byLineMonth.TryGetValue((null, month), out var figure) ? figure.Count : 0;
+
+    public int UnassignedCount(Guid accountId, YearMonth month) =>
+        _unassignedCountByAccountMonth.TryGetValue((accountId, month), out var count) ? count : 0;
+
+    /// <summary>The lines paid into or from one account, in line order.</summary>
+    public IEnumerable<BudgetLine> LinesOn(Guid accountId) => _linesByAccount[accountId];
 
     /// <summary>Whether a spending line's money goes on a card, to be collected next month.</summary>
     public bool OnCard(BudgetLine line)
@@ -170,11 +182,18 @@ public sealed class FinanceBook
     }
 
     /// <summary>The month's headline figures from one source.</summary>
-    public MonthFigures Figures(YearMonth month, FigureSource source)
+    public MonthFigures Figures(YearMonth month, FigureSource source) => Figures(month, source, null);
+
+    /// <summary>
+    /// The month's headline figures from one source, on every account or on one of them. One
+    /// account's figures count only the lines it pays and the unassigned money that moved on it, so
+    /// they add up across accounts to the whole month's.
+    /// </summary>
+    public MonthFigures Figures(YearMonth month, FigureSource source, Guid? accountId)
     {
         var resolved = Resolve(source, month);
         decimal income = 0, paid = 0, cards = 0;
-        foreach (var line in Lines)
+        foreach (var line in accountId is { } only ? LinesOn(only) : Lines)
         {
             var figure = Figure(line, month, resolved);
             if (line.IsIncome)
@@ -192,9 +211,9 @@ public sealed class FinanceBook
         }
         if (resolved == FigureSource.Actual)
         {
-            income += UnassignedInflow(month);
-            foreach (var account in Accounts)
+            foreach (var account in accountId is { } chosen ? Accounts.Where(account => account.Id == chosen) : Accounts)
             {
+                income += UnassignedInflow(account.Id, month);
                 var unassigned = UnassignedOutflow(account.Id, month);
                 if (account.IsCreditCard)
                 {

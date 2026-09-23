@@ -347,7 +347,7 @@ export async function transactions(
 export async function budget(
   profileName: string | undefined,
   rootId: string,
-  options: { readonly from?: string; readonly to?: string },
+  options: { readonly from?: string; readonly to?: string; readonly account?: string },
   output: OutputOptions,
   deps: SessionDeps = {},
 ): Promise<void> {
@@ -356,7 +356,57 @@ export async function budget(
   if (from !== undefined && to !== undefined && from > to)
     throw new Error('--from must be on or before --to.');
   const session = await resolveSession(profileName, deps);
-  printResult(await session.client.query(finance.readBudget(rootId, from, to)), output);
+  printResult(
+    await session.client.query(finance.readBudget(rootId, from, to, options.account)),
+    output,
+  );
+}
+
+export interface ActualOptions {
+  readonly amount: string;
+  readonly description?: string;
+  readonly date?: string;
+}
+
+/** Brings a line's actual for a month to an amount; Core records the transaction that gets it there. */
+export async function actual(
+  profileName: string | undefined,
+  rootId: string,
+  lineId: string,
+  value: string,
+  options: ActualOptions,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const month = parseMonth(value, 'month');
+  const amount = parseAmount(options.amount, '--amount');
+  if (amount < 0) throw new Error('--amount must be zero or more.');
+  const date = options.date === undefined ? null : parseDay(options.date, '--date');
+  if (date !== null && !date.startsWith(month)) throw new Error(`--date must fall in ${month}.`);
+  const description = options.description?.trim();
+  const session = await resolveSession(profileName, deps);
+  printResult(
+    await session.client.execute(
+      finance.setActual(rootId, lineId, month, {
+        amount,
+        description: description === undefined || description === '' ? null : description,
+        date,
+      }),
+    ),
+    output,
+  );
+}
+
+export async function deleteTransaction(
+  profileName: string | undefined,
+  rootId: string,
+  transactionId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  await session.client.execute(finance.deleteTransaction(rootId, transactionId));
+  printResult({ deleted: transactionId }, output);
 }
 
 export async function accounts(

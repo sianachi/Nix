@@ -1,5 +1,7 @@
 import {
   createNixClient,
+  type BudgetGrid,
+  type BudgetLine,
   type CashFlow,
   type Finance,
   type FinanceDashboard,
@@ -11,6 +13,8 @@ import { AccountDialog, LineDialog, SettingsDialog } from './finance-setup';
 import { CloseMonthDialog } from './close-month-dialog';
 import { FinanceDashboard as Dashboard } from './finance-dashboard';
 import { FinanceCashFlow } from './finance-cashflow';
+import { FinanceBudget } from './finance-budget';
+import { BudgetActualDialog } from './budget-actual-dialog';
 import { QuickAddDialog } from './finance-transactions';
 import type { FinanceState } from './use-finance';
 
@@ -18,6 +22,21 @@ const ROOT = 'c1111111-1111-4111-8111-111111111111';
 const ACCOUNT = 'c2222222-2222-4222-8222-222222222222';
 const CARD = 'c3333333-3333-4333-8333-333333333333';
 const LINE = 'c4444444-4444-4444-8444-444444444444';
+
+const groceriesLine: BudgetLine = {
+  id: LINE,
+  name: 'Groceries',
+  section: 'Everyday spending',
+  flow: 'expense',
+  accountId: CARD,
+  amount: 200,
+  overrides: {},
+  scheduled: false,
+  dueDay: null,
+  loanAccount: null,
+  archived: false,
+  position: 1,
+};
 
 const finance: Finance = {
   itemId: ROOT,
@@ -59,22 +78,7 @@ const finance: Finance = {
       archived: false,
     },
   ],
-  lines: [
-    {
-      id: LINE,
-      name: 'Groceries',
-      section: 'Everyday spending',
-      flow: 'expense',
-      accountId: CARD,
-      amount: 200,
-      overrides: {},
-      scheduled: false,
-      dueDay: null,
-      loanAccount: null,
-      archived: false,
-      position: 1,
-    },
-  ],
+  lines: [groceriesLine],
   closedMonths: [],
   currentMonth: '2026-09',
   transactionCount: 3,
@@ -175,6 +179,8 @@ const state: FinanceState = {
   setLine: noop,
   createTransaction: noop,
   setTransaction: noop,
+  deleteTransaction: noop,
+  setActual: () => Promise.resolve('Recording is unavailable in this example.'),
   setMonth: noop,
   postScheduled: () =>
     Promise.resolve({ month: '2026-09', posted: [], alreadyPosted: 0, skipped: 0 }),
@@ -190,6 +196,65 @@ const cashFlow: CashFlow = {
   emergencyBasisMonth: '2026-09',
   bufferMetIn: '2026-09',
   months: [dashboard.position, { ...dashboard.horizonEnd, month: '2027-04' }],
+};
+
+const groceriesCell = { month: '2026-09', plan: 200, actual: 248, variance: 48, transactions: 3 };
+const budgetGrid: BudgetGrid = {
+  itemId: ROOT,
+  months: ['2026-09'],
+  sections: [
+    {
+      name: 'Everyday spending',
+      flow: 'expense',
+      lines: finance.lines.map((line) => ({ line, cells: [groceriesCell] })),
+      totals: [groceriesCell],
+    },
+  ],
+  totals: [
+    {
+      month: '2026-09',
+      closed: false,
+      plan: dashboard.plan,
+      actual: dashboard.actual,
+      unassignedOutflow: 38.5,
+      unassignedInflow: 0,
+      unassignedTransactions: 2,
+      cumulativeNetPlan: 4200,
+      cumulativeNetActual: 4040,
+    },
+  ],
+  accountId: null,
+};
+
+const groceriesTransactions = {
+  transactions: [
+    {
+      id: 'c5555555-5555-4555-8555-555555555555',
+      description: 'Example shop',
+      date: '2026-09-03',
+      amount: -59,
+      accountId: CARD,
+      lineId: LINE,
+      source: 'manual' as const,
+      postedFor: null,
+      importKey: null,
+      cleared: false,
+    },
+    {
+      id: 'c6666666-6666-4666-8666-666666666666',
+      description: 'Example market',
+      date: '2026-09-12',
+      amount: -189,
+      accountId: CARD,
+      lineId: LINE,
+      source: 'import' as const,
+      postedFor: null,
+      importKey: 'abc',
+      cleared: true,
+    },
+  ],
+  total: 2,
+  truncated: false,
 };
 
 const monthClient = {
@@ -215,6 +280,10 @@ const monthClient = {
       } as T);
     }
     if (endpoint.operation === 'finance.dashboard') return Promise.resolve(dashboard as T);
+    if (endpoint.operation === 'finance.budget') return Promise.resolve(budgetGrid as T);
+    if (endpoint.operation === 'finance.transactions') {
+      return Promise.resolve(groceriesTransactions as T);
+    }
     if (endpoint.operation === 'finance.cashFlow') return Promise.resolve(cashFlow as T);
     throw new Error(`No finance story response for ${endpoint.operation}.`);
   },
@@ -234,6 +303,85 @@ export const DashboardOverview = {
     <ApiClientOverrideProvider client={monthClient}>
       <Stage>
         <Dashboard state={state} finance={finance} month="2026-09" onSection={() => undefined} />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const BudgetGridMonth = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider client={monthClient}>
+      <Stage>
+        <FinanceBudget state={state} finance={finance} month="2026-09" onMonth={() => undefined} />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const BudgetGridClosedMonth = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider client={monthClient}>
+      <Stage>
+        <FinanceBudget
+          state={state}
+          finance={{ ...finance, closedMonths: ['2026-09'] }}
+          month="2026-09"
+          onMonth={() => undefined}
+        />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const BudgetGridOneAccount = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider
+      client={{
+        ...monthClient,
+        query<T>(endpoint: { operation: string }): Promise<T> {
+          if (endpoint.operation === 'finance.budget') {
+            return Promise.resolve({ ...budgetGrid, accountId: CARD } as T);
+          }
+          return monthClient.query<T>(endpoint);
+        },
+      }}
+    >
+      <Stage>
+        <FinanceBudget state={state} finance={finance} month="2026-09" onMonth={() => undefined} />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const BehindAnActualClosedMonth = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider client={monthClient}>
+      <Stage>
+        <BudgetActualDialog
+          state={state}
+          finance={{ ...finance, closedMonths: ['2026-09'] }}
+          line={finance.lines[0] ?? groceriesLine}
+          month="2026-09"
+          cell={groceriesCell}
+          onClose={() => undefined}
+        />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const BehindAnActual = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider client={monthClient}>
+      <Stage>
+        <BudgetActualDialog
+          state={state}
+          finance={finance}
+          line={finance.lines[0] ?? groceriesLine}
+          month="2026-09"
+          cell={groceriesCell}
+          onClose={() => undefined}
+        />
       </Stage>
     </ApiClientOverrideProvider>
   ),

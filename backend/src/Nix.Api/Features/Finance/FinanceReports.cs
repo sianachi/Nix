@@ -5,8 +5,8 @@ using Nix.Messaging;
 
 namespace Nix.Features.Finance;
 
-/// <summary>Lines by month, defaulting to the current month alone.</summary>
-public sealed record ReadBudgetGrid(ItemId ItemId, YearMonth? From, YearMonth? To) : IQuery<Result<BudgetGridResponse>>;
+/// <summary>Lines by month, defaulting to the current month alone; narrowed to one account's lines and totals when asked.</summary>
+public sealed record ReadBudgetGrid(ItemId ItemId, YearMonth? From, YearMonth? To, Guid? AccountId = null) : IQuery<Result<BudgetGridResponse>>;
 /// <summary>Every account with the figure that matters for it in a month.</summary>
 public sealed record ReadFinanceAccounts(ItemId ItemId, YearMonth? Month) : IQuery<Result<FinanceAccountsResponse>>;
 /// <summary>A loan's schedule as configured, and with a different overpayment beside it.</summary>
@@ -49,7 +49,11 @@ public sealed class FinanceReportHandler(FinanceLoader loader, TimeProvider cloc
         {
             return FinanceErrors.Failure<BudgetGridResponse>("invalid_range", $"Choose an ordered range of at most {BudgetGrids.MaximumMonths} months.");
         }
-        return Result.Success(BudgetGrids.Compute(snapshot.Value.Book, from, to).ToResponse(query.ItemId.Value));
+        if (query.AccountId is { } accountId && !snapshot.Value.Book.AccountsById.ContainsKey(accountId))
+        {
+            return FinanceErrors.Failure<BudgetGridResponse>("account_not_found", "No such account under this finance root.");
+        }
+        return Result.Success(BudgetGrids.Compute(snapshot.Value.Book, from, to, query.AccountId).ToResponse(query.ItemId.Value));
     }
 
     /// <inheritdoc />

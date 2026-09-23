@@ -163,6 +163,8 @@ vi.mock('../../../views/finance/use-finance', async () => {
       setLine: vi.fn(),
       createTransaction,
       setTransaction: vi.fn(),
+      deleteTransaction: vi.fn(),
+      setActual: vi.fn(),
       setMonth,
       postScheduled: vi.fn(),
       importStatement: vi.fn(),

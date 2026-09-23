@@ -1305,10 +1305,62 @@ export function buildProgram(): Command {
     .description('Lines by month with plan, actual and variance.')
     .option('--from <yyyy-mm>', 'first month; defaults to the current month')
     .option('--to <yyyy-mm>', 'last month; defaults to --from')
-    .action(async (rootId: string, options: { from?: string; to?: string }, command: Command) => {
+    .option('--account <accountId>', "only this account's lines, with its own totals")
+    .action(
+      async (
+        rootId: string,
+        options: { from?: string; to?: string; account?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          financeCommands.budget(flags.profile, rootId, options, outputOptions(flags.json)),
+        );
+      },
+    );
+
+  money
+    .command('actual <rootId> <lineId> <month>')
+    .description(
+      "Bring a line's actual for a month to an amount; Core records the transaction that gets it there.",
+    )
+    .requiredOption('--amount <amount>', "the total, zero or more, in the line's own direction")
+    .option('--description <text>', 'what to call the transaction; defaults to the line name')
+    .option('--date <yyyy-mm-dd>', 'day to record it on, inside the month')
+    .action(
+      async (
+        rootId: string,
+        lineId: string,
+        value: string,
+        options: financeCommands.ActualOptions,
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          financeCommands.actual(
+            flags.profile,
+            rootId,
+            lineId,
+            value,
+            options,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  money
+    .command('transaction-delete <rootId> <transactionId>')
+    .description('Delete a transaction in an open month; it can be restored like any item.')
+    .action(async (rootId: string, transactionId: string, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
-        financeCommands.budget(flags.profile, rootId, options, outputOptions(flags.json)),
+        financeCommands.deleteTransaction(
+          flags.profile,
+          rootId,
+          transactionId,
+          outputOptions(flags.json),
+        ),
       );
     });
 

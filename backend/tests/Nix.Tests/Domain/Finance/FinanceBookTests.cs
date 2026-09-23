@@ -140,6 +140,70 @@ public sealed class FinanceBookTests
     }
 
     [Fact]
+    public void One_accounts_figures_count_only_its_lines_and_its_unassigned_money_and_add_up_to_the_months()
+    {
+        var book = Book(
+        [
+            Transaction(new DateOnly(2026, 8, 3), -59m, PrimaryCard, Groceries),
+            Transaction(new DateOnly(2026, 8, 25), 4000m, CurrentAccount, Salary),
+            Transaction(new DateOnly(2026, 8, 26), -12.5m, PrimaryCard, null),
+            Transaction(new DateOnly(2026, 8, 27), -30m, CurrentAccount, null),
+            Transaction(new DateOnly(2026, 8, 28), 15m, CurrentAccount, null),
+        ]);
+
+        var cardPlan = book.Figures(Aug, FigureSource.Plan, PrimaryCard);
+        Assert.Equal(0m, cardPlan.Income);
+        Assert.Equal(0m, cardPlan.PaidThisMonth);
+        Assert.Equal(300m, cardPlan.CardSpend);
+
+        var cardActual = book.Figures(Aug, FigureSource.Actual, PrimaryCard);
+        Assert.Equal(0m, cardActual.Income);
+        Assert.Equal(71.5m, cardActual.CardSpend);
+        Assert.Equal(1, book.UnassignedCount(PrimaryCard, Aug));
+
+        var currentActual = book.Figures(Aug, FigureSource.Actual, CurrentAccount);
+        Assert.Equal(4015m, currentActual.Income);
+        Assert.Equal(30m, currentActual.PaidThisMonth);
+        Assert.Equal(0m, currentActual.CardSpend);
+        Assert.Equal(15m, book.UnassignedInflow(CurrentAccount, Aug));
+        Assert.Equal(2, book.UnassignedCount(CurrentAccount, Aug));
+
+        var whole = book.Figures(Aug, FigureSource.Actual);
+        var summed = Accounts.Select(account => book.Figures(Aug, FigureSource.Actual, account.Id)).ToList();
+        Assert.Equal(whole.Income, summed.Sum(figures => figures.Income));
+        Assert.Equal(whole.PaidThisMonth, summed.Sum(figures => figures.PaidThisMonth));
+        Assert.Equal(whole.CardSpend, summed.Sum(figures => figures.CardSpend));
+        Assert.Equal(3, book.UnassignedCount(Aug));
+    }
+
+    [Fact]
+    public void The_budget_grid_narrowed_to_an_account_keeps_only_its_lines_and_totals_its_month_alone()
+    {
+        var book = Book(
+        [
+            Transaction(new DateOnly(2026, 8, 3), -59m, PrimaryCard, Groceries),
+            Transaction(new DateOnly(2026, 8, 26), -12.5m, PrimaryCard, null),
+            Transaction(new DateOnly(2026, 8, 27), -30m, CurrentAccount, null),
+        ]);
+
+        var grid = BudgetGrids.Compute(book, Aug, Sep, PrimaryCard);
+
+        Assert.Equal(PrimaryCard, grid.AccountId);
+        Assert.Equal(["PrimaryCard"], grid.Sections.Select(section => section.Name));
+        Assert.Equal(["Groceries", "Travel"], grid.Sections[0].Lines.Select(row => row.Line.Name));
+        Assert.Equal(300m, grid.Sections[0].Totals[0].Plan);
+        Assert.Equal(59m, grid.Sections[0].Totals[0].Actual);
+        Assert.Equal(300m, grid.Totals[0].Plan.CardSpend);
+        Assert.Equal(71.5m, grid.Totals[0].Actual.CardSpend);
+        Assert.Equal(0m, grid.Totals[0].Actual.PaidThisMonth);
+        Assert.Equal(12.5m, grid.Totals[0].UnassignedOutflow);
+        Assert.Equal(1, grid.Totals[0].UnassignedTransactions);
+        Assert.Equal(-300m, grid.Totals[0].CumulativeNetPlan);
+        Assert.Equal(-600m, grid.Totals[1].CumulativeNetPlan);
+        Assert.Null(BudgetGrids.Compute(book, Aug, Sep).AccountId);
+    }
+
+    [Fact]
     public void The_card_cycle_collects_last_months_spend_and_the_carried_in_balance_first()
     {
         var book = Book();

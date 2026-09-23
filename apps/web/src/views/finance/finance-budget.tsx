@@ -1,14 +1,34 @@
-import { Button, Dialog, Field, Input, Segmented, Tag, Text } from '@nix/ui';
+import {
+  Button,
+  Input,
+  Segmented,
+  Select,
+  Tag,
+  Text,
+  cn,
+  focusRingInset,
+  inkWashStates,
+} from '@nix/ui';
 import {
   finance as financeApi,
+  type BudgetCell,
   type BudgetGrid,
   type BudgetLine,
   type Finance,
 } from '@nix/api-client';
-import { useMemo, useState, type SyntheticEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
+import { BudgetActualDialog } from './budget-actual-dialog';
 import { LineDialog } from './finance-setup';
-import { Money, SectionHeading, WriteError } from './finance-shared';
+import { Money, SectionHeading } from './finance-shared';
 import { formatMonth, parseAmount, shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
@@ -25,8 +45,10 @@ const FIGURES: readonly { readonly value: Figure; readonly label: string }[] = [
  * The workbook's Budget, Actual and Variance sheets as one grid.
  *
  * One month shows plan, actual and what is left side by side; the year view shows one figure
- * across every month in the horizon window. Every number is Core's; a cell with transactions
- * behind it says how many, and the line's plan for one month can be changed in place.
+ * across every month in the horizon window. Every number is Core's. A plan cell is edited in
+ * place; an actual cell opens what is behind it, where a new total can be typed or the
+ * transactions changed one by one. Narrowed to an account, the grid keeps only that account's
+ * lines and every total at the foot is that account's alone.
  */
 export function FinanceBudget({
   state,
@@ -42,17 +64,46 @@ export function FinanceBudget({
   const currency = finance.settings.currency;
   const [span, setSpan] = useState<Span>('month');
   const [figure, setFigure] = useState<Figure>('actual');
+  const [accountId, setAccountId] = useState('');
   const [editing, setEditing] = useState<BudgetLine | null | 'new'>(null);
-  const [override, setOverride] = useState<{ line: BudgetLine; month: string } | null>(null);
+  // Only the address of the opened cell: the line and figures behind it are looked up from the
+  // live grid on every render, so a change made inside the dialog is reflected the moment the
+  // grid refetches rather than the dialog keeping the figures it opened with.
+  const [opened, setOpened] = useState<{ readonly lineId: string; readonly month: string } | null>(
+    null,
+  );
   // A year window: up to twelve months, starting at the selected month, inside the horizon.
-  const from = span === 'month' ? month : month;
+  const from = month;
   const to =
     span === 'month'
       ? month
       : ([shiftMonth(month, 11), finance.settings.endMonth].sort()[0] ?? month);
   const itemId = finance.itemId;
-  const endpoint = useMemo(() => financeApi.readBudget(itemId, from, to), [itemId, from, to]);
+  const account = accountId === '' ? undefined : accountId;
+  const endpoint = useMemo(
+    () => financeApi.readBudget(itemId, from, to, account),
+    [itemId, from, to, account],
+  );
   const query = useFinanceQuery<BudgetGrid>(endpoint, state.generation);
+  const chosenAccountName = finance.accounts.find((each) => each.id === accountId)?.name;
+  const accountFilter = (
+    <Select
+      aria-label="Account"
+      value={accountId}
+      onChange={(event) => {
+        setAccountId(event.target.value);
+      }}
+    >
+      <option value="">Every account</option>
+      {finance.accounts
+        .filter((each) => each.type !== 'loan')
+        .map((each) => (
+          <option key={each.id} value={each.id}>
+            {each.name}
+          </option>
+        ))}
+    </Select>
+  );
   if (query.data === null) {
     return query.status === 'error' ? (
       <ErrorPanel title="The budget could not be loaded" detail={query.error ?? ''} />
@@ -61,10 +112,19 @@ export function FinanceBudget({
     );
   }
   const grid = query.data;
-  const value = (
-    cell: BudgetGrid['sections'][number]['totals'][number],
-    flow: 'income' | 'expense',
-  ): number =>
+  // Labels follow the grid Core sent, not the select: stale data stays on screen while the next
+  // read loads or after it fails, and a total must never be called one account's when it is not.
+  const accountName = finance.accounts.find((each) => each.id === grid.accountId)?.name;
+  const switching = query.status === 'loading' && (grid.accountId ?? '') !== accountId;
+  const closedMonth = finance.closedMonths.includes(month);
+  const openedRow =
+    opened === null
+      ? undefined
+      : grid.sections
+          .flatMap((section) => section.lines)
+          .find((row) => row.line.id === opened.lineId);
+  const openedCell = openedRow?.cells.find((cell) => cell.month === opened?.month);
+  const value = (cell: BudgetCell, flow: 'income' | 'expense'): number =>
     figure === 'plan'
       ? cell.plan
       : figure === 'actual'
@@ -72,6 +132,34 @@ export function FinanceBudget({
         : flow === 'income'
           ? cell.variance
           : -cell.variance;
+  const savePlan = async (
+    line: BudgetLine,
+    forMonth: string,
+    amount: number,
+  ): Promise<string | null> => {
+    // Typing the usual amount back clears the month's override rather than pinning it.
+    const overrides: Record<string, number> = Object.fromEntries(
+      Object.entries(line.overrides).filter(([key]) => key !== forMonth),
+    );
+    if (amount !== line.amount) overrides[forMonth] = amount;
+    const refusal = await state.setLine(line.id, {
+      name: line.name,
+      section: line.section,
+      flow: line.flow,
+      accountId: line.accountId,
+      amount: line.amount,
+      overrides,
+      scheduled: line.scheduled,
+      dueDay: line.dueDay,
+      loanAccount: line.loanAccount,
+      archived: line.archived,
+    });
+    return refusal;
+  };
+  const scope = accountName === undefined ? '' : ` on ${accountName}`;
+  const editHint = closedMonth
+    ? ' This month is closed.'
+    : ' Choose a plan to change it, or an actual to see and record what is behind it.';
   return (
     <div className="flex flex-col gap-4">
       <SectionHeading
@@ -79,11 +167,12 @@ export function FinanceBudget({
         title="Budget"
         detail={
           span === 'month'
-            ? `${formatMonth(month, 'long')}: plan, actual and what is left on each line.`
-            : `${formatMonth(from)} to ${formatMonth(to)}: ${FIGURES.find((option) => option.value === figure)?.label.toLowerCase() ?? ''} by month.`
+            ? `${formatMonth(month, 'long')}${scope}: plan, actual and what is left on each line.${editHint}`
+            : `${formatMonth(from)} to ${formatMonth(to)}${scope}: ${FIGURES.find((option) => option.value === figure)?.label.toLowerCase() ?? ''} by month.${figure === 'plan' ? ' Choose a figure to change that month.' : figure === 'actual' ? ' Choose a figure to see what is behind it.' : ' Choose a figure to open its month.'}`
         }
         actions={
           <>
+            {accountFilter}
             <Segmented<Span>
               label="Span"
               options={[
@@ -112,11 +201,18 @@ export function FinanceBudget({
           </>
         }
       />
+      {switching ? (
+        <Text variant="bodySmall" tone="muted" role="status">
+          Loading {chosenAccountName ?? 'every account'}. The figures shown are still those for{' '}
+          {accountName ?? 'every account'}.
+        </Text>
+      ) : null}
       {query.status === 'error' ? <PartialNotice pending="the latest figures" /> : null}
       {grid.sections.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
-          No budget lines yet. Add the plan line by line: Salary under Income, Rent under Housing,
-          Groceries under whichever card pays for them.
+          {accountName === undefined
+            ? 'No budget lines yet. Add the plan line by line: Salary under Income, Rent under Housing, Groceries under whichever card pays for them.'
+            : `No budget lines are paid from ${accountName} yet.`}
         </Text>
       ) : (
         <div className="overflow-x-auto">
@@ -148,11 +244,7 @@ export function FinanceBudget({
             {grid.sections.map((section) => (
               <tbody key={`${section.flow}:${section.name}`}>
                 <tr className="border-b border-divider bg-surface-raised">
-                  <th
-                    scope="rowgroup"
-                    colSpan={span === 'month' ? 2 : 2}
-                    className="py-2 pr-3 text-left"
-                  >
+                  <th scope="rowgroup" colSpan={2} className="py-2 pr-3 text-left">
                     <Text as="span" variant="caption">
                       {section.name.toUpperCase()}
                     </Text>
@@ -200,32 +292,32 @@ export function FinanceBudget({
                     </th>
                     <td className="py-2 pr-3">
                       <Text as="span" variant="bodySmall" tone="muted">
-                        {finance.accounts.find((account) => account.id === row.line.accountId)
-                          ?.name ?? ''}
+                        {finance.accounts.find((each) => each.id === row.line.accountId)?.name ??
+                          ''}
                       </Text>
                     </td>
                     {span === 'month' ? (
                       <>
                         <NumberCell>
-                          <button
-                            type="button"
-                            className="underline-offset-2 hover:underline"
-                            aria-label={`Change the plan for ${row.line.name} in ${formatMonth(month, 'long')}`}
-                            onClick={() => {
-                              setOverride({ line: row.line, month });
-                            }}
-                          >
-                            <Money amount={row.cells[0]?.plan ?? 0} currency={currency} />
-                          </button>
+                          <PlanCell
+                            line={row.line}
+                            month={month}
+                            amount={row.cells[0]?.plan ?? 0}
+                            currency={currency}
+                            closed={closedMonth}
+                            onSave={(amount) => savePlan(row.line, month, amount)}
+                          />
                         </NumberCell>
                         <NumberCell>
-                          <Money amount={row.cells[0]?.actual ?? 0} currency={currency} />
-                          {(row.cells[0]?.transactions ?? 0) > 0 ? (
-                            <Text as="span" variant="caption" tone="muted">
-                              {' '}
-                              ({String(row.cells[0]?.transactions ?? 0)})
-                            </Text>
-                          ) : null}
+                          <ActualCell
+                            line={row.line}
+                            month={month}
+                            cell={row.cells[0] ?? EMPTY_CELL}
+                            currency={currency}
+                            onOpen={() => {
+                              setOpened({ lineId: row.line.id, month });
+                            }}
+                          />
                         </NumberCell>
                         <NumberCell>
                           <Left
@@ -238,18 +330,39 @@ export function FinanceBudget({
                     ) : (
                       row.cells.map((cell) => (
                         <NumberCell key={cell.month}>
-                          <button
-                            type="button"
-                            className="underline-offset-2 hover:underline"
-                            aria-label={`${row.line.name}, ${formatMonth(cell.month, 'long')}`}
-                            onClick={() => {
-                              if (figure === 'plan')
-                                setOverride({ line: row.line, month: cell.month });
-                              else onMonth(cell.month);
-                            }}
-                          >
-                            <Money amount={value(cell, section.flow)} currency={currency} />
-                          </button>
+                          {figure === 'plan' ? (
+                            <PlanCell
+                              line={row.line}
+                              month={cell.month}
+                              amount={cell.plan}
+                              currency={currency}
+                              closed={finance.closedMonths.includes(cell.month)}
+                              onSave={(amount) => savePlan(row.line, cell.month, amount)}
+                            />
+                          ) : figure === 'actual' ? (
+                            <ActualCell
+                              line={row.line}
+                              month={cell.month}
+                              cell={cell}
+                              currency={currency}
+                              onOpen={() => {
+                                setOpened({ lineId: row.line.id, month: cell.month });
+                              }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className={cellButton}
+                              onClick={() => {
+                                onMonth(cell.month);
+                              }}
+                            >
+                              <span className="sr-only">
+                                Open {formatMonth(cell.month, 'long')} for {row.line.name}:{' '}
+                              </span>
+                              <Money amount={value(cell, section.flow)} currency={currency} />
+                            </button>
+                          )}
                         </NumberCell>
                       ))
                     )}
@@ -259,13 +372,13 @@ export function FinanceBudget({
             ))}
             <tfoot>
               {span === 'month' ? (
-                <Totals grid={grid} currency={currency} />
+                <Totals grid={grid} currency={currency} accountName={accountName} />
               ) : (
                 <>
                   <tr className="border-t border-divider">
                     <th scope="row" colSpan={2} className="py-2 pr-3 text-left">
                       <Text as="span" variant="bodySmall" className="font-medium">
-                        Net
+                        {accountName === undefined ? 'Net' : `Net on ${accountName}`}
                       </Text>
                     </th>
                     {grid.totals.map((totals) => (
@@ -318,14 +431,15 @@ export function FinanceBudget({
           setEditing(null);
         }}
       />
-      {override === null ? null : (
-        <OverrideDialog
+      {opened === null || openedRow === undefined || openedCell === undefined ? null : (
+        <BudgetActualDialog
           state={state}
-          line={override.line}
-          month={override.month}
-          currency={currency}
+          finance={finance}
+          line={openedRow.line}
+          month={opened.month}
+          cell={openedCell}
           onClose={() => {
-            setOverride(null);
+            setOpened(null);
           }}
         />
       )}
@@ -333,10 +447,24 @@ export function FinanceBudget({
   );
 }
 
-const EMPTY_CELL = { month: '', plan: 0, actual: 0, variance: 0, transactions: 0 };
+const EMPTY_CELL: BudgetCell = { month: '', plan: 0, actual: 0, variance: 0, transactions: 0 };
+
+/**
+ * A figure that can be acted on. It sits in the same place as the plain figures around it, and
+ * only the wash on hover and the ring on focus say it is a control, so the column still reads as
+ * a column of numbers.
+ */
+const cellButton = cn(
+  '-mx-1 rounded px-1 py-0.5 text-right tabular-nums transition-colors',
+  // A dotted rule beneath says at rest that the figure is a control; the ring is inset because
+  // the last column sits against the edge of a horizontal scroll clip.
+  'underline decoration-dotted decoration-divider underline-offset-4',
+  inkWashStates,
+  focusRingInset,
+);
 
 /** Spending left against the plan, or income surplus/shortfall against it. */
-function left(cell: BudgetGrid['sections'][number]['totals'][number], flow: 'income' | 'expense') {
+function left(cell: BudgetCell, flow: 'income' | 'expense') {
   return flow === 'income' ? cell.variance : -cell.variance;
 }
 
@@ -357,6 +485,221 @@ function NumberCell({ children }: { readonly children: ReactNode }): ReactNode {
         {children}
       </Text>
     </td>
+  );
+}
+
+/**
+ * A line's plan for one month, edited where it is shown. Enter or leaving the field saves;
+ * Escape puts the figure back and focus returns to it. A loan line's plan is its instalment, and
+ * a closed month's plan is history, so neither is a control.
+ */
+function PlanCell({
+  line,
+  month,
+  amount,
+  currency,
+  closed,
+  onSave,
+}: {
+  readonly line: BudgetLine;
+  readonly month: string;
+  readonly amount: number;
+  readonly currency: string;
+  readonly closed: boolean;
+  readonly onSave: (amount: number) => Promise<string | null>;
+}): ReactNode {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Set when the edit ends from the keyboard, so focus goes back to the figure the person was on;
+  // a blur means they have already chosen where to go next.
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (draft === null && returnFocus.current) {
+      returnFocus.current = false;
+      buttonRef.current?.focus();
+    }
+  }, [draft]);
+  const context = `Plan for ${line.name} in ${formatMonth(month, 'long')}`;
+  if (line.loanAccount !== null) {
+    return (
+      <span>
+        <Money amount={amount} currency={currency} />
+        <Text as="span" variant="caption" tone="muted">
+          {' '}
+          (follows the loan)
+        </Text>
+      </span>
+    );
+  }
+  if (closed) {
+    return <Money amount={amount} currency={currency} />;
+  }
+  if (draft === null) {
+    return (
+      <button
+        ref={buttonRef}
+        type="button"
+        className={cellButton}
+        onClick={() => {
+          setDraft(String(amount));
+          setProblem(null);
+        }}
+      >
+        <span className="sr-only">{context}: </span>
+        <Money amount={amount} currency={currency} />
+        {line.overrides[month] === undefined ? null : (
+          <Text as="span" variant="caption" tone="muted">
+            {' '}
+            (this month)
+          </Text>
+        )}
+      </button>
+    );
+  }
+  return (
+    <PlanEditor
+      label={context}
+      draft={draft}
+      problem={problem}
+      saving={saving}
+      onChange={(next) => {
+        setDraft(next);
+        setProblem(null);
+      }}
+      onCancel={() => {
+        returnFocus.current = true;
+        setDraft(null);
+      }}
+      onCommit={async (fromKeyboard) => {
+        if (saving) return;
+        const parsed = parseAmount(draft);
+        if (parsed === null || parsed < 0) {
+          setProblem('Type an amount of zero or more, such as 250 or 250.50.');
+          return;
+        }
+        if (parsed === amount) {
+          returnFocus.current = fromKeyboard;
+          setDraft(null);
+          return;
+        }
+        setSaving(true);
+        const refusal = await onSave(parsed);
+        setSaving(false);
+        if (refusal === null) {
+          returnFocus.current = fromKeyboard;
+          setDraft(null);
+        } else {
+          setProblem(refusal);
+        }
+      }}
+    />
+  );
+}
+
+/** The field a plan is typed into, with whatever is wrong with it said beside it. */
+function PlanEditor({
+  label,
+  draft,
+  problem,
+  saving,
+  onChange,
+  onCancel,
+  onCommit,
+}: {
+  readonly label: string;
+  readonly draft: string;
+  readonly problem: string | null;
+  readonly saving: boolean;
+  readonly onChange: (draft: string) => void;
+  readonly onCancel: () => void;
+  readonly onCommit: (fromKeyboard: boolean) => Promise<void>;
+}): ReactNode {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const problemId = useId();
+  // Escape unmounts a focused field, and a browser may fire blur on the way out; the cancel has
+  // to win over the save that blur would otherwise start.
+  const cancelled = useRef(false);
+  // Focus lands in the field once, when it replaces the figure the person chose.
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void onCommit(true);
+    } else if (event.key === 'Escape') {
+      // The edit's Escape, not the pane's or the overlay's.
+      event.preventDefault();
+      event.stopPropagation();
+      cancelled.current = true;
+      onCancel();
+    }
+  };
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <Input
+        ref={inputRef}
+        aria-label={label}
+        aria-invalid={problem === null ? undefined : true}
+        aria-describedby={problem === null ? undefined : problemId}
+        aria-busy={saving ? true : undefined}
+        readOnly={saving}
+        inputMode="decimal"
+        className="w-28 text-right"
+        value={draft}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+        onKeyDown={onKeyDown}
+        onBlur={() => {
+          if (cancelled.current) return;
+          void onCommit(false);
+        }}
+      />
+      {problem === null ? null : (
+        <Text as="span" id={problemId} variant="caption" role="alert" className="text-left">
+          {problem}
+        </Text>
+      )}
+    </span>
+  );
+}
+
+/** A line's actual for one month: the figure, how many transactions made it, and a way in. */
+function ActualCell({
+  line,
+  month,
+  cell,
+  currency,
+  onOpen,
+}: {
+  readonly line: BudgetLine;
+  readonly month: string;
+  readonly cell: BudgetCell;
+  readonly currency: string;
+  readonly onOpen: () => void;
+}): ReactNode {
+  return (
+    <button type="button" className={cellButton} onClick={onOpen}>
+      <span className="sr-only">
+        Actual for {line.name} in {formatMonth(month, 'long')}:{' '}
+      </span>
+      <Money amount={cell.actual} currency={currency} />
+      {cell.transactions > 0 ? (
+        <>
+          <Text as="span" variant="caption" tone="muted" aria-hidden="true">
+            {' '}
+            ({String(cell.transactions)})
+          </Text>
+          <span className="sr-only">
+            , {String(cell.transactions)} {cell.transactions === 1 ? 'transaction' : 'transactions'}
+          </span>
+        </>
+      ) : null}
+    </button>
   );
 }
 
@@ -384,12 +727,15 @@ function Left({
 function Totals({
   grid,
   currency,
+  accountName,
 }: {
   readonly grid: BudgetGrid;
   readonly currency: string;
+  readonly accountName: string | undefined;
 }): ReactNode {
   const totals = grid.totals[0];
   if (totals === undefined) return null;
+  const on = accountName === undefined ? '' : ` on ${accountName}`;
   const rows: readonly {
     readonly label: string;
     readonly plan: number;
@@ -412,13 +758,13 @@ function Totals({
       remainder: totals.plan.cardSpend - totals.actual.cardSpend,
     },
     {
-      label: 'Total outgoings',
+      label: `Total outgoings${on}`,
       plan: totals.plan.outgoings,
       actual: totals.actual.outgoings,
       remainder: totals.plan.outgoings - totals.actual.outgoings,
     },
     {
-      label: 'Net',
+      label: `Net${on}`,
       plan: totals.plan.net,
       actual: totals.actual.net,
       remainder: totals.actual.net - totals.plan.net,
@@ -426,7 +772,7 @@ function Totals({
       hint: 'Income less outgoings',
     },
     {
-      label: `Cumulative net since ${formatMonth(grid.months[0] ?? '')}`,
+      label: `Cumulative net${on} since ${formatMonth(grid.months[0] ?? '')}`,
       plan: totals.cumulativeNetPlan,
       actual: totals.cumulativeNetActual,
       remainder: totals.cumulativeNetActual - totals.cumulativeNetPlan,
@@ -489,105 +835,5 @@ function Totals({
         </tr>
       ))}
     </>
-  );
-}
-
-/** Changes one month's plan for a line, leaving every other month as it was. */
-function OverrideDialog({
-  state,
-  line,
-  month,
-  currency,
-  onClose,
-}: {
-  readonly state: FinanceState;
-  readonly line: BudgetLine;
-  readonly month: string;
-  readonly currency: string;
-  readonly onClose: () => void;
-}): ReactNode {
-  const existing = line.overrides[month];
-  const [amount, setAmount] = useState(String(existing ?? line.amount));
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const save = async (event: SyntheticEvent, clear: boolean): Promise<void> => {
-    event.preventDefault();
-    const overrides: Record<string, number> = Object.fromEntries(
-      Object.entries(line.overrides).filter(([key]) => key !== month),
-    );
-    if (!clear) {
-      const parsed = parseAmount(amount);
-      if (parsed === null || parsed < 0) {
-        setError('The plan for a month is an amount of zero or more.');
-        return;
-      }
-      overrides[month] = parsed;
-    }
-    setBusy(true);
-    const refusal = await state.setLine(line.id, {
-      name: line.name,
-      section: line.section,
-      flow: line.flow,
-      accountId: line.accountId,
-      amount: line.amount,
-      overrides,
-      scheduled: line.scheduled,
-      dueDay: line.dueDay,
-      loanAccount: line.loanAccount,
-      archived: line.archived,
-    });
-    setBusy(false);
-    setError(refusal);
-    if (refusal === null) onClose();
-  };
-  return (
-    <Dialog open title={`${line.name} in ${formatMonth(month, 'long')}`} onClose={onClose}>
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          void save(event, false);
-        }}
-      >
-        <Text as="p" variant="bodySmall" tone="muted">
-          {line.loanAccount === null
-            ? `Every other month keeps ${line.amount.toLocaleString()} ${currency}${existing === undefined ? '' : '; this month currently differs'}.`
-            : 'This line follows its loan; change the loan instead.'}
-        </Text>
-        <Field label={`Plan for ${formatMonth(month)}`}>
-          {(control) => (
-            <Input
-              {...control}
-              inputMode="decimal"
-              disabled={line.loanAccount !== null}
-              value={amount}
-              onChange={(event) => {
-                setAmount(event.target.value);
-              }}
-            />
-          )}
-        </Field>
-        <WriteError message={error} />
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          {existing === undefined ? null : (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={(event) => {
-                void save(event, true);
-              }}
-            >
-              Use the usual amount
-            </Button>
-          )}
-          <Button type="submit" disabled={busy || line.loanAccount !== null}>
-            Save this month
-          </Button>
-        </div>
-      </form>
-    </Dialog>
   );
 }

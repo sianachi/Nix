@@ -5,12 +5,14 @@ import { createNixClient, type NixClient } from '../client.js';
 import { server, TEST_BASE_URL, testUrl } from '../testing/server.js';
 import {
   createTransaction,
+  deleteTransaction,
   importStatement,
   listTransactions,
   postScheduled,
   readBudget,
   readDashboard,
   readFinance,
+  setActual,
   setMonth,
 } from './finance.js';
 
@@ -167,6 +169,7 @@ describe('finance requests', () => {
               cumulativeNetActual: -59,
             },
           ],
+          accountId: url.searchParams.get('accountId'),
         });
       }),
     );
@@ -176,6 +179,34 @@ describe('finance requests', () => {
     expect(listed.transactions[0]?.description).toBe('Example shop');
     const grid = await client.query(readBudget(rootId, '2026-08', '2026-09'));
     expect(grid.sections[0]?.lines[0]?.cells[0]?.variance).toBe(-141);
+    expect(grid.accountId).toBeNull();
+    const narrowed = await client.query(readBudget(rootId, '2026-08', '2026-09', accountId));
+    expect(narrowed.accountId).toBe(accountId);
+  });
+
+  it("brings a line's actual to an amount and deletes a transaction", async () => {
+    server.use(
+      http.post(
+        testUrl(`/api/v1/items/${rootId}/finance/lines/${lineId}/months/2026-09/actual`),
+        async ({ request }) => {
+          expect(await request.json()).toEqual({ amount: 100 });
+          return HttpResponse.json({
+            lineId,
+            month: '2026-09',
+            before: 59,
+            after: 100,
+            transaction: { ...transaction, amount: -41, description: 'Groceries adjustment' },
+          });
+        },
+      ),
+      http.delete(testUrl(`/api/v1/items/${rootId}/finance/transactions/${transactionId}`), () =>
+        HttpResponse.text('', { status: 204 }),
+      ),
+    );
+    const moved = await client.execute(setActual(rootId, lineId, '2026-09', { amount: 100 }));
+    expect(moved.before).toBe(59);
+    expect(moved.transaction?.amount).toBe(-41);
+    await expect(client.execute(deleteTransaction(rootId, transactionId))).resolves.toBeUndefined();
   });
 
   it('closes a month, posts scheduled lines and previews an import', async () => {

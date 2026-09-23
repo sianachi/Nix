@@ -57,6 +57,12 @@ internal static class FinanceEndpoints
             .WithName("SetBudgetLine")
             .Produces<BudgetLineResponse>().ProducesProblem(404).ProducesProblem(409).ProducesProblem(422)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        group.MapPost("/lines/{lineId:guid}/months/{month}/actual", SetActual)
+            .WithName("SetBudgetActual")
+            .WithSummary("Bring a line's actual for a month to an amount by recording the transaction that gets it there")
+            .WithDescription("With nothing recorded yet, the whole amount is recorded as one transaction named after the line; otherwise an adjustment for the difference is recorded. Actual is never overwritten, only added to.")
+            .Produces<BudgetActualResponse>().ProducesProblem(404).ProducesProblem(409).ProducesProblem(422)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         group.MapGet("/transactions", Transactions)
             .WithName("ListFinanceTransactions")
@@ -71,10 +77,16 @@ internal static class FinanceEndpoints
             .WithName("SetFinanceTransaction")
             .Produces<FinanceTransactionResponse>().ProducesProblem(404).ProducesProblem(409).ProducesProblem(422)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        group.MapDelete("/transactions/{transactionId:guid}", DeleteTransaction)
+            .WithName("DeleteFinanceTransaction")
+            .WithSummary("Delete a transaction in an open month; the ordinary item delete, so it can be restored")
+            .WithDescription("Unlike the item delete, a repeat is refused with finance.transaction_not_found, because the ledger no longer holds the transaction.")
+            .Produces(204).ProducesProblem(404).ProducesProblem(409).ProducesProblem(422)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         group.MapGet("/budget", Budget)
             .WithName("GetFinanceBudget")
-            .WithSummary("Lines by month with plan, actual and variance; defaults to the current month")
+            .WithSummary("Lines by month with plan, actual and variance; defaults to the current month, narrowed to one account when asked")
             .Produces<BudgetGridResponse>().ProducesProblem(404).ProducesProblem(409).ProducesProblem(422);
         group.MapGet("/cashflow", CashFlow)
             .WithName("GetFinanceCashFlow")
@@ -164,6 +176,22 @@ internal static class FinanceEndpoints
         return result.Match<Results<Ok<BudgetLineResponse>, ProblemHttpResult>>(value => TypedResults.Ok(value), error => Problem(context, error));
     }
 
+    private static async Task<Results<Ok<BudgetActualResponse>, ProblemHttpResult>> SetActual(Guid itemId, Guid lineId, string month, BudgetActualRequest request, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        if (!YearMonth.TryParse(month, out var parsed))
+        {
+            return Problem(context, InvalidMonth());
+        }
+        var result = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(new SetBudgetActual(ItemId.From(itemId), lineId, parsed, request), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<BudgetActualResponse>, ProblemHttpResult>>(value => TypedResults.Ok(value), error => Problem(context, error));
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> DeleteTransaction(Guid itemId, Guid transactionId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(ItemId.From(itemId), transactionId), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<NoContent, ProblemHttpResult>>(_ => TypedResults.NoContent(), error => Problem(context, error));
+    }
+
     private static async Task<Results<Ok<FinanceTransactionsResponse>, ProblemHttpResult>> Transactions(
         Guid itemId, [FromQuery] string? month, [FromQuery] Guid? accountId, [FromQuery] Guid? lineId, [FromQuery] bool? unassigned, [FromQuery] int? limit, HttpContext context, [FromServices] NixDispatcher dispatcher)
     {
@@ -189,13 +217,13 @@ internal static class FinanceEndpoints
         return result.Match<Results<Ok<FinanceTransactionResponse>, ProblemHttpResult>>(value => TypedResults.Ok(value), error => Problem(context, error));
     }
 
-    private static async Task<Results<Ok<BudgetGridResponse>, ProblemHttpResult>> Budget(Guid itemId, [FromQuery] string? from, [FromQuery] string? to, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    private static async Task<Results<Ok<BudgetGridResponse>, ProblemHttpResult>> Budget(Guid itemId, [FromQuery] string? from, [FromQuery] string? to, [FromQuery] Guid? accountId, HttpContext context, [FromServices] NixDispatcher dispatcher)
     {
         if (!TryMonth(from, out var start) || !TryMonth(to, out var end))
         {
             return Problem(context, InvalidMonth());
         }
-        var result = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(new ReadBudgetGrid(ItemId.From(itemId), start, end), context.RequestAborted).ConfigureAwait(false);
+        var result = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(new ReadBudgetGrid(ItemId.From(itemId), start, end, accountId), context.RequestAborted).ConfigureAwait(false);
         return result.Match<Results<Ok<BudgetGridResponse>, ProblemHttpResult>>(value => TypedResults.Ok(value), error => Problem(context, error));
     }
 

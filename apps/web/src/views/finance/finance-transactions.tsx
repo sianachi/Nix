@@ -7,7 +7,7 @@ import {
   type FinanceTransaction,
   type FinanceTransactions as Transactions,
 } from '@nix/api-client';
-import { useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
 import { Money, SectionHeading, WriteError } from './finance-shared';
 import { formatDay, formatMonth, monthOf, parseAmount, todayIn } from './money';
@@ -250,11 +250,16 @@ export function QuickAddDialog({
   ) : null;
 }
 
-function TransactionDialog({
+/**
+ * Records or edits one transaction. Opened from a budget cell, `line` fills in the line, its
+ * account and its direction so the person only types the amount.
+ */
+export function TransactionDialog({
   state,
   finance,
   transaction,
   month,
+  line = null,
   onClose,
 }: {
   readonly state: FinanceState;
@@ -262,6 +267,8 @@ function TransactionDialog({
   /** The transaction to edit, or null to record one. */
   readonly transaction: FinanceTransaction | null;
   readonly month?: string;
+  /** The budget line a new transaction is for, when it is opened from that line. */
+  readonly line?: BudgetLine | null;
   readonly onClose: () => void;
 }): ReactNode {
   const currency = finance.settings.currency;
@@ -272,14 +279,31 @@ function TransactionDialog({
     transaction === null ? '' : String(Math.abs(transaction.amount)),
   );
   const [direction, setDirection] = useState<'out' | 'in'>(
-    transaction !== null && transaction.amount > 0 ? 'in' : 'out',
+    transaction !== null
+      ? transaction.amount > 0
+        ? 'in'
+        : 'out'
+      : line?.flow === 'income'
+        ? 'in'
+        : 'out',
   );
-  const [lineId, setLineId] = useState(transaction?.lineId ?? '');
-  const [accountId, setAccountId] = useState(transaction?.accountId ?? '');
+  const [lineId, setLineId] = useState(transaction?.lineId ?? line?.id ?? '');
+  const [accountId, setAccountId] = useState(transaction?.accountId ?? line?.accountId ?? '');
   const [date, setDate] = useState(transaction?.date ?? defaultDay);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const amountField = useRef<HTMLInputElement | null>(null);
+  // The confirm replaces the Delete button, so focus is placed on the safe answer when it appears
+  // and handed back to Delete when the person keeps the transaction.
+  const deleteButton = useRef<HTMLButtonElement | null>(null);
+  const keepButton = useRef<HTMLButtonElement | null>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (confirmingDelete) keepButton.current?.focus();
+    else if (wasConfirming.current) deleteButton.current?.focus();
+    wasConfirming.current = confirmingDelete;
+  }, [confirmingDelete]);
   const spendable = finance.accounts.filter(
     (account) => account.type !== 'loan' && !account.archived,
   );
@@ -312,6 +336,15 @@ function TransactionDialog({
       transaction === null
         ? await state.createTransaction(input)
         : await state.setTransaction(transaction.id, input);
+    setBusy(false);
+    setError(refusal);
+    if (refusal === null) onClose();
+  };
+
+  const remove = async (): Promise<void> => {
+    if (transaction === null) return;
+    setBusy(true);
+    const refusal = await state.deleteTransaction(transaction.id);
     setBusy(false);
     setError(refusal);
     if (refusal === null) onClose();
@@ -422,7 +455,48 @@ function TransactionDialog({
           )}
         </Field>
         <WriteError message={error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {transaction === null ? null : confirmingDelete ? (
+            <span className="mr-auto flex flex-wrap items-center gap-2">
+              <Text as="span" variant="bodySmall">
+                Delete this transaction?
+              </Text>
+              <Button
+                ref={keepButton}
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmingDelete(false);
+                }}
+              >
+                Keep it
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  void remove();
+                }}
+              >
+                Yes, delete
+              </Button>
+            </span>
+          ) : (
+            <Button
+              ref={deleteButton}
+              type="button"
+              variant="ghost"
+              className="mr-auto"
+              disabled={busy}
+              onClick={() => {
+                setConfirmingDelete(true);
+              }}
+            >
+              Delete
+            </Button>
+          )}
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>

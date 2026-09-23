@@ -359,6 +359,7 @@ export {
   financeTransactionSchema,
   financeTransactionsSchema,
   budgetGridSchema,
+  budgetActualSchema,
   financeAccountsSchema,
   loanScheduleSchema,
   cashFlowSchema,
@@ -378,6 +379,7 @@ export {
   type BudgetCell,
   type MonthFigures,
   type BudgetGrid,
+  type BudgetActual,
   type CardMonth,
   type LoanSummary,
   type FinanceAccounts,
@@ -398,6 +400,7 @@ export type {
   FinanceAccountInput,
   BudgetLineInput,
   FinanceTransactionInput,
+  BudgetActualInput,
   FinanceTransactionsQuery,
   FinanceImportInput,
 } from './resources/finance.js';

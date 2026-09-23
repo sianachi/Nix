@@ -62,7 +62,8 @@ internal static class FinanceMapping
                 totals.UnassignedInflow,
                 totals.UnassignedTransactions,
                 totals.CumulativeNetPlan,
-                totals.CumulativeNetActual)).ToList());
+                totals.CumulativeNetActual)).ToList(),
+            grid.AccountId);
 
     public static CardMonthResponse ToResponse(this CardMonth month, FinanceAccount card) =>
         new(card.Id, card.Name, month.Month.ToString(), SourceText(month.Source), month.Opening, month.Spend, month.PaymentOut, month.Closing, month.Utilisation, card.Limit, card.SettlesFrom);

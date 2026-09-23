@@ -46,6 +46,8 @@ describe('nixctl mcp workspace tools', () => {
         'set_finance_line',
         'finance_dashboard',
         'finance_budget',
+        'set_finance_actual',
+        'delete_finance_transaction',
         'add_finance_transaction',
         'list_finance_transactions',
         'set_finance_transaction',

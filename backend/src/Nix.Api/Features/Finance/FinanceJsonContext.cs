@@ -17,6 +17,8 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(FinanceTransactionResponse))]
 [JsonSerializable(typeof(FinanceTransactionsResponse))]
 [JsonSerializable(typeof(BudgetGridResponse))]
+[JsonSerializable(typeof(BudgetActualRequest))]
+[JsonSerializable(typeof(BudgetActualResponse))]
 [JsonSerializable(typeof(LoanScheduleResponse))]
 [JsonSerializable(typeof(CashFlowResponse))]
 [JsonSerializable(typeof(FinanceDashboardResponse))]

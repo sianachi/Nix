@@ -1438,6 +1438,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/finance/lines/{lineId}/months/{month}/actual': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Bring a line's actual for a month to an amount by recording the transaction that gets it there
+     * @description With nothing recorded yet, the whole amount is recorded as one transaction named after the line; otherwise an adjustment for the difference is recorded. Actual is never overwritten, only added to.
+     */
+    post: operations['SetBudgetActual'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/finance/transactions': {
     parameters: {
       query?: never;
@@ -1466,7 +1486,11 @@ export interface paths {
     get?: never;
     put: operations['SetFinanceTransaction'];
     post?: never;
-    delete?: never;
+    /**
+     * Delete a transaction in an open month; the ordinary item delete, so it can be restored
+     * @description Unlike the item delete, a repeat is refused with finance.transaction_not_found, because the ledger no longer holds the transaction.
+     */
+    delete: operations['DeleteFinanceTransaction'];
     options?: never;
     head?: never;
     patch?: never;
@@ -1479,7 +1503,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Lines by month with plan, actual and variance; defaults to the current month */
+    /** Lines by month with plan, actual and variance; defaults to the current month, narrowed to one account when asked */
     get: operations['GetFinanceBudget'];
     put?: never;
     post?: never;
@@ -1981,6 +2005,23 @@ export interface components {
       byteLength: number | string;
       idempotencyKey: string;
     };
+    BudgetActualRequest: {
+      /** Format: double */
+      amount: null | number | string;
+      description?: null | string;
+      /** Format: date */
+      date?: null | string;
+    };
+    BudgetActualResponse: {
+      /** Format: uuid */
+      lineId: string;
+      month: string;
+      /** Format: double */
+      before: number | string;
+      /** Format: double */
+      after: number | string;
+      transaction: null | components['schemas']['FinanceTransactionResponse'];
+    };
     BudgetCellResponse: {
       month: string;
       /** Format: double */
@@ -1998,6 +2039,8 @@ export interface components {
       months: string[];
       sections: components['schemas']['BudgetSectionResponse'][];
       totals: components['schemas']['BudgetMonthTotalsResponse'][];
+      /** Format: uuid */
+      accountId: null | string;
     };
     BudgetLineRequest: {
       name: string;
@@ -8118,6 +8161,61 @@ export interface operations {
       };
     };
   };
+  SetBudgetActual: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        lineId: string;
+        month: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BudgetActualRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BudgetActualResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   ListFinanceTransactions: {
     parameters: {
       query?: {
@@ -8280,11 +8378,60 @@ export interface operations {
       };
     };
   };
+  DeleteFinanceTransaction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+        transactionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   GetFinanceBudget: {
     parameters: {
       query?: {
         from?: string;
         to?: string;
+        accountId?: string;
       };
       header?: never;
       path: {

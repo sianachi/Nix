@@ -203,6 +203,8 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<ReadFinanceMonth, Result<MonthChecklistResponse>>, FinanceReportHandler>();
         services.AddScoped<ICommandHandler<CreateFinanceTransaction, FinanceTransactionResponse>, FinanceLedgerHandler>();
         services.AddScoped<ICommandHandler<SetFinanceTransaction, FinanceTransactionResponse>, FinanceLedgerHandler>();
+        services.AddScoped<ICommandHandler<SetBudgetActual, BudgetActualResponse>, FinanceLedgerHandler>();
+        services.AddScoped<ICommandHandler<DeleteFinanceTransaction, Guid>, FinanceLedgerHandler>();
         services.AddScoped<ICommandHandler<SetFinanceMonth, FinanceMonthResponse>, FinanceLedgerHandler>();
         services.AddScoped<ICommandHandler<PostScheduledTransactions, PostScheduledResponse>, FinanceLedgerHandler>();
         services.AddScoped<ICommandHandler<ImportFinanceStatement, FinanceImportResponse>, FinanceLedgerHandler>();

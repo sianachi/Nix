@@ -5,6 +5,7 @@ import {
   type QueryEndpoint,
 } from '../endpoints.js';
 import {
+  budgetActualSchema,
   budgetGridSchema,
   cashFlowSchema,
   financeAccountSchema,
@@ -19,6 +20,7 @@ import {
   loanScheduleSchema,
   monthChecklistSchema,
   postScheduledSchema,
+  type BudgetActual,
   type BudgetGrid,
   type BudgetLine,
   type CashFlow,
@@ -36,6 +38,7 @@ import {
   type MonthChecklist,
   type PostScheduled,
 } from '../schemas/finance.js';
+import { noContentSchema } from '../schemas/index.js';
 
 // Everything under one finance root. Amounts are decimals with at most two places; Core does the
 // arithmetic and refuses anything else. Reads are cached under the root's item key and every
@@ -85,6 +88,16 @@ export interface FinanceTransactionInput {
   readonly accountId: string;
   readonly lineId: string | null;
   readonly cleared?: boolean;
+}
+
+/**
+ * What a line's actual for a month should come to. Core records the one transaction that gets it
+ * there, so the figure is never typed over.
+ */
+export interface BudgetActualInput {
+  readonly amount: number;
+  readonly description?: string | null;
+  readonly date?: string | null;
 }
 
 export interface FinanceTransactionsQuery {
@@ -232,6 +245,22 @@ export const listTransactions = (
   });
 };
 
+/** Brings a line's actual for a month to `input.amount`; null transaction when it already was. */
+export const setActual = (
+  itemId: string,
+  lineId: string,
+  month: string,
+  input: BudgetActualInput,
+): CommandEndpoint<BudgetActual> =>
+  defineCommand({
+    operation: 'finance.setActual',
+    method: 'POST',
+    path: `${root(itemId)}/lines/${encodeURIComponent(lineId)}/months/${encodeURIComponent(month)}/actual`,
+    body: input,
+    schema: budgetActualSchema,
+    invalidates: [itemKey(itemId)],
+  });
+
 export const createTransaction = (
   itemId: string,
   input: FinanceTransactionInput,
@@ -259,13 +288,38 @@ export const setTransaction = (
     invalidates: [itemKey(itemId)],
   });
 
-/** Lines by month; both bounds default to the current month, so one month is one call. */
-export const readBudget = (itemId: string, from?: string, to?: string): QueryEndpoint<BudgetGrid> =>
+/** Deletes a transaction in an open month; the ordinary soft delete, so it can be restored. */
+export const deleteTransaction = (
+  itemId: string,
+  transactionId: string,
+): CommandEndpoint<undefined> =>
+  defineCommand<undefined>({
+    operation: 'finance.deleteTransaction',
+    method: 'DELETE',
+    path: `${root(itemId)}/transactions/${encodeURIComponent(transactionId)}`,
+    schema: noContentSchema,
+    invalidates: [itemKey(itemId)],
+  });
+
+/**
+ * Lines by month; both bounds default to the current month, so one month is one call. With an
+ * account, only that account's lines come back and every total is that account's alone.
+ */
+export const readBudget = (
+  itemId: string,
+  from?: string,
+  to?: string,
+  accountId?: string,
+): QueryEndpoint<BudgetGrid> =>
   defineQuery({
     operation: 'finance.budget',
     path: `${root(itemId)}/budget`,
-    query: { ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) },
-    cacheKey: [...financeKey(itemId), 'budget', from ?? '', to ?? ''],
+    query: {
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+      ...(accountId === undefined ? {} : { accountId }),
+    },
+    cacheKey: [...financeKey(itemId), 'budget', from ?? '', to ?? '', accountId ?? ''],
     schema: budgetGridSchema,
   });
 

@@ -13,6 +13,10 @@ namespace Nix.Features.Finance;
 public sealed record CreateFinanceTransaction(ItemId ItemId, FinanceTransactionRequest Transaction) : ICommand<FinanceTransactionResponse>;
 /// <summary>Changes a transaction's date, amount, account, line or description; how it was recorded is kept.</summary>
 public sealed record SetFinanceTransaction(ItemId ItemId, Guid TransactionId, FinanceTransactionRequest Transaction) : ICommand<FinanceTransactionResponse>;
+/// <summary>Sets what a line's actual comes to in a month by recording the one transaction that gets it there.</summary>
+public sealed record SetBudgetActual(ItemId ItemId, Guid LineId, YearMonth Month, BudgetActualRequest Actual) : ICommand<BudgetActualResponse>;
+/// <summary>Deletes a transaction the ordinary way, after checking it is this root's and its month is open.</summary>
+public sealed record DeleteFinanceTransaction(ItemId ItemId, Guid TransactionId) : ICommand<Guid>;
 /// <summary>Closes or reopens a month. Closing switches it from plan to actual everywhere.</summary>
 public sealed record SetFinanceMonth(ItemId ItemId, YearMonth Month, FinanceMonthRequest Change) : ICommand<FinanceMonthResponse>;
 /// <summary>Posts every scheduled line's planned amount for a month as a transaction, once.</summary>
@@ -21,9 +25,11 @@ public sealed record PostScheduledTransactions(ItemId ItemId, YearMonth Month) :
 public sealed record ImportFinanceStatement(ItemId ItemId, FinanceImportRequest Import) : ICommand<FinanceImportResponse>;
 
 /// <summary>Writing to the ledger. Every write takes the root's lock and re-reads before deciding.</summary>
-public sealed class FinanceLedgerHandler(FinanceLoader loader, IFinanceLock financeLock, NixDispatcher dispatcher) :
+public sealed class FinanceLedgerHandler(FinanceLoader loader, IFinanceLock financeLock, NixDispatcher dispatcher, TimeProvider clock) :
     ICommandHandler<CreateFinanceTransaction, FinanceTransactionResponse>,
     ICommandHandler<SetFinanceTransaction, FinanceTransactionResponse>,
+    ICommandHandler<SetBudgetActual, BudgetActualResponse>,
+    ICommandHandler<DeleteFinanceTransaction, Guid>,
     ICommandHandler<SetFinanceMonth, FinanceMonthResponse>,
     ICommandHandler<PostScheduledTransactions, PostScheduledResponse>,
     ICommandHandler<ImportFinanceStatement, FinanceImportResponse>
@@ -103,6 +109,93 @@ public sealed class FinanceLedgerHandler(FinanceLoader loader, IFinanceLock fina
         }
         var written = await dispatcher.SendAsync<SetItemProperties, Item>(new SetItemProperties(ItemId.From(transaction.Id), transaction.ToProperties().ToJsonString()) { FinanceWrite = true }, cancellationToken).ConfigureAwait(false);
         return written.IsFailure ? Result.Failure<FinanceTransactionResponse>(written.Error) : Result.Success(transaction.ToResponse());
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Actual is never typed over: it stays the sum of the line's transactions. What this records
+    /// is the transaction that makes the sum come to the amount asked for, so the figure lands
+    /// where it was typed and every transaction behind it is still there to be seen.
+    /// </remarks>
+    public async ValueTask<Result<BudgetActualResponse>> HandleAsync(SetBudgetActual command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(command.Actual);
+        var request = command.Actual;
+        // Nullable on purpose: a body that leaves the amount out must not bind as zero, because
+        // zero is a legitimate target that would reverse the month's whole actual.
+        if (request.Amount is not { } amount || !MoneyRules.IsAmount(amount) || amount < 0)
+        {
+            return FinanceErrors.Failure<BudgetActualResponse>("invalid_transaction", "The actual for a month is an amount of zero or more, with at most two decimal places.");
+        }
+        if (request.Date is { } chosen && YearMonth.Of(chosen) != command.Month)
+        {
+            return FinanceErrors.Failure<BudgetActualResponse>("invalid_transaction", $"The date must fall in {command.Month}.");
+        }
+        var snapshot = await LockedSnapshotAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+        if (snapshot.IsFailure)
+        {
+            return Result.Failure<BudgetActualResponse>(snapshot.Error);
+        }
+        var book = snapshot.Value.Book;
+        if (!book.LinesById.TryGetValue(command.LineId, out var line))
+        {
+            return FinanceErrors.Failure<BudgetActualResponse>("line_not_found", "No such budget line under this finance root.");
+        }
+        if (book.IsClosed(command.Month))
+        {
+            return FinanceErrors.Failure<BudgetActualResponse>("month_closed", $"{command.Month} is closed. Reopen it to record into it.");
+        }
+        var before = book.Actual(line, command.Month);
+        var difference = amount - before;
+        if (difference == 0)
+        {
+            return Result.Success(new BudgetActualResponse(line.Id, command.Month.ToString(), before, before, null));
+        }
+        if (book.Transactions.Count >= FinanceLoader.MaximumTransactions)
+        {
+            return FinanceErrors.Failure<BudgetActualResponse>("limit", $"A finance root holds at most {FinanceLoader.MaximumTransactions:N0} transactions.");
+        }
+        var recorded = book.TransactionCount(line, command.Month);
+        var description = string.IsNullOrWhiteSpace(request.Description)
+            ? (recorded == 0 ? line.Name : $"{line.Name} adjustment")
+            : request.Description.Trim();
+        var today = snapshot.Value.Settings.Today(clock.GetUtcNow());
+        var date = request.Date ?? (YearMonth.Of(today) == command.Month ? today : command.Month.LastDay);
+        var transaction = new FinanceTransaction(Guid.NewGuid(), description, date, line.IsIncome ? difference : -difference, line.AccountId, line.Id, FinanceSources.Manual, null, null, false);
+        if (Refuse(transaction, book) is { } refused)
+        {
+            return Result.Failure<BudgetActualResponse>(refused.Error);
+        }
+        var created = await CreateAsync(snapshot.Value, transaction, cancellationToken).ConfigureAwait(false);
+        return created.IsFailure
+            ? Result.Failure<BudgetActualResponse>(created.Error)
+            : Result.Success(new BudgetActualResponse(line.Id, command.Month.ToString(), before, amount, created.Value.ToResponse()));
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<Result<Guid>> HandleAsync(DeleteFinanceTransaction command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var snapshot = await LockedSnapshotAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+        if (snapshot.IsFailure)
+        {
+            return Result.Failure<Guid>(snapshot.Error);
+        }
+        var book = snapshot.Value.Book;
+        var existing = book.Transactions.FirstOrDefault(transaction => transaction.Id == command.TransactionId);
+        if (existing is null)
+        {
+            return FinanceErrors.Failure<Guid>("transaction_not_found", "No such transaction under this finance root.");
+        }
+        if (book.IsClosed(existing.Month))
+        {
+            return FinanceErrors.Failure<Guid>("month_closed", $"{existing.Month} is closed. Reopen it to change what it recorded.");
+        }
+        // Not idempotent the way the item delete is: a repeat finds no transaction in the ledger
+        // and is refused with transaction_not_found, which the route documents.
+        var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(ItemId.From(existing.Id)), cancellationToken).ConfigureAwait(false);
+        return deleted.IsFailure ? Result.Failure<Guid>(deleted.Error) : Result.Success(existing.Id);
     }
 
     /// <inheritdoc />

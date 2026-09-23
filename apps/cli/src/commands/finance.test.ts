@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { outputOptions } from '../output.ts';
 import {
+  actual,
   add,
   addAccount,
   addLine,
@@ -32,6 +33,7 @@ afterEach(() => {
 
 const ROOT = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
+const LINE = '33333333-3333-4333-8333-333333333333';
 const OUTPUT = outputOptions(true, { isTTY: false });
 
 const PLAN = {
@@ -168,6 +170,18 @@ describe('finance CLI validation', () => {
     ).rejects.toThrow('--from must be on or before --to');
   });
 
+  it('validates an actual before opening a session', async () => {
+    await expect(
+      actual(undefined, ROOT, LINE, '2026-13', { amount: '10' }, OUTPUT),
+    ).rejects.toThrow('month must be a real month');
+    await expect(
+      actual(undefined, ROOT, LINE, '2026-09', { amount: '-1' }, OUTPUT),
+    ).rejects.toThrow('--amount must be zero or more');
+    await expect(
+      actual(undefined, ROOT, LINE, '2026-09', { amount: '10', date: '2026-10-01' }, OUTPUT),
+    ).rejects.toThrow('--date must fall in 2026-09');
+  });
+
   it('refuses closing and reopening in one call', async () => {
     await expect(
       month(undefined, ROOT, '2026-08', { close: true, reopen: true }, OUTPUT),
@@ -256,7 +270,15 @@ describe('finance CLI validation', () => {
         timezone: 'Europe/London',
       },
       accounts: [{ key: 'current', name: 'Example current account', type: 'current' }],
-      lines: [{ name: 'Rent', section: 'Housing', flow: 'expense', account: 'missing-account', amount: 900 }],
+      lines: [
+        {
+          name: 'Rent',
+          section: 'Housing',
+          flow: 'expense',
+          account: 'missing-account',
+          amount: 900,
+        },
+      ],
     };
     await expect(
       seed(undefined, ROOT, { file: 'plan.json' }, OUTPUT, {

@@ -135,6 +135,17 @@ export const budgetGridSchema = z.object({
       cumulativeNetActual: z.number(),
     }),
   ),
+  /** The account the grid was narrowed to, when it was; every total is then that account's alone. */
+  accountId: uuid.nullable(),
+});
+
+/** What recording a line's actual did: the figure before and after, and the transaction that moved it. */
+export const budgetActualSchema = z.object({
+  lineId: uuid,
+  month,
+  before: z.number(),
+  after: z.number(),
+  transaction: financeTransactionSchema.nullable(),
 });
 
 export const figureSourceSchema = z.enum(['plan', 'actual']);
@@ -333,6 +344,7 @@ export type FinanceTransactions = z.infer<typeof financeTransactionsSchema>;
 export type BudgetCell = z.infer<typeof budgetCellSchema>;
 export type MonthFigures = z.infer<typeof monthFiguresSchema>;
 export type BudgetGrid = z.infer<typeof budgetGridSchema>;
+export type BudgetActual = z.infer<typeof budgetActualSchema>;
 export type CardMonth = z.infer<typeof cardMonthSchema>;
 export type LoanSummary = z.infer<typeof loanSummarySchema>;
 export type FinanceAccounts = z.infer<typeof financeAccountsSchema>;
@@ -361,6 +373,9 @@ const _transactions = financeTransactionsSchema satisfies z.ZodType<
   components['schemas']['FinanceTransactionsResponse']
 >;
 const _grid = budgetGridSchema satisfies z.ZodType<components['schemas']['BudgetGridResponse']>;
+const _actual = budgetActualSchema satisfies z.ZodType<
+  components['schemas']['BudgetActualResponse']
+>;
 const _accounts = financeAccountsSchema satisfies z.ZodType<
   components['schemas']['FinanceAccountsResponse']
 >;
@@ -387,6 +402,7 @@ void _line;
 void _transaction;
 void _transactions;
 void _grid;
+void _actual;
 void _accounts;
 void _loan;
 void _cashFlow;

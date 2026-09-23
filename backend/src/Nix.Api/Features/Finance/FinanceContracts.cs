@@ -51,7 +51,20 @@ public sealed record MonthFiguresResponse(decimal Income, decimal PaidThisMonth,
 public sealed record BudgetMonthTotalsResponse(string Month, bool Closed, MonthFiguresResponse Plan, MonthFiguresResponse Actual, decimal UnassignedOutflow, decimal UnassignedInflow, int UnassignedTransactions, decimal CumulativeNetPlan, decimal CumulativeNetActual);
 
 /// <summary>Lines down the side, months across, from both sources; the client draws Plan, Actual or Variance.</summary>
-public sealed record BudgetGridResponse(Guid ItemId, IReadOnlyList<string> Months, IReadOnlyList<BudgetSectionResponse> Sections, IReadOnlyList<BudgetMonthTotalsResponse> Totals);
+/// <param name="AccountId">The account the grid was narrowed to, when it was; every total is then that account's.</param>
+public sealed record BudgetGridResponse(Guid ItemId, IReadOnlyList<string> Months, IReadOnlyList<BudgetSectionResponse> Sections, IReadOnlyList<BudgetMonthTotalsResponse> Totals, Guid? AccountId);
+
+/// <summary>
+/// What a line's actual for a month should come to. Core records the one transaction that gets it
+/// there: the whole amount when nothing is recorded yet, otherwise an adjustment for the difference.
+/// </summary>
+/// <param name="Amount">The total, zero or more, in the line's own direction: spending for an expense line, income for an income line.</param>
+/// <param name="Description">What to call the transaction; the line's name when omitted.</param>
+/// <param name="Date">The day to record it on, inside the month; today or the month's last day when omitted.</param>
+public sealed record BudgetActualRequest(decimal? Amount, string? Description = null, DateOnly? Date = null);
+
+/// <summary>The actual before and after, and the transaction that moved it; null when nothing needed recording.</summary>
+public sealed record BudgetActualResponse(Guid LineId, string Month, decimal Before, decimal After, FinanceTransactionResponse? Transaction);
 
 public sealed record CardMonthResponse(Guid AccountId, string Name, string Month, string Source, decimal Opening, decimal Spend, decimal PaymentOut, decimal Closing, decimal? Utilisation, decimal? Limit, Guid? SettlesFrom);
 

@@ -515,10 +515,48 @@ export async function createWorkspaceMcpServer(
         rootId: identifier,
         from: financeMonthInput.optional(),
         to: financeMonthInput.optional(),
+        accountId: identifier.optional(),
       },
     },
-    ({ rootId, from, to }) =>
-      toolResult(async () => (await session()).client.query(finance.readBudget(rootId, from, to))),
+    ({ rootId, from, to, accountId }) =>
+      toolResult(async () =>
+        (await session()).client.query(finance.readBudget(rootId, from, to, accountId)),
+      ),
+  );
+
+  server.registerTool(
+    'set_finance_actual',
+    {
+      description:
+        "Bring a budget line's actual for a month to an amount. Core records the one transaction that gets it there: the whole amount when nothing is recorded yet, otherwise an adjustment for the difference.",
+      inputSchema: {
+        rootId: identifier,
+        lineId: identifier,
+        month: financeMonthInput,
+        amount: financeMoneyInput.nonnegative(),
+        description: z.string().trim().min(1).max(200).nullable().default(null),
+        date: z.iso.date().nullable().default(null),
+      },
+    },
+    ({ rootId, lineId, month, amount, description, date }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          finance.setActual(rootId, lineId, month, { amount, description, date }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'delete_finance_transaction',
+    {
+      description: 'Delete a transaction in an open month; it can be restored like any item.',
+      inputSchema: { rootId: identifier, transactionId: identifier },
+    },
+    ({ rootId, transactionId }) =>
+      toolResult(async () => {
+        await (await session()).client.execute(finance.deleteTransaction(rootId, transactionId));
+        return { deleted: transactionId };
+      }),
   );
 
   server.registerTool(

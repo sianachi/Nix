@@ -139,6 +139,71 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
             Assert.Equal(1200m, grid.Value.Totals[0].Actual.PaidThisMonth);
             Assert.Equal(59m, grid.Value.Totals[0].Actual.CardSpend);
 
+            var cardGrid = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(
+                new ReadBudgetGrid(root.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new Nix.Domain.Finance.YearMonth(2026, 8), card.Value.Id), Cancellation);
+            Assert.True(cardGrid.IsSuccess, cardGrid.IsSuccess ? "" : cardGrid.Error.Message);
+            Assert.Equal(card.Value.Id, cardGrid.Value.AccountId);
+            Assert.Equal(["PrimaryCard"], cardGrid.Value.Sections.Select(section => section.Name));
+            Assert.Equal(0m, cardGrid.Value.Totals[0].Actual.Income);
+            Assert.Equal(59m, cardGrid.Value.Totals[0].Actual.CardSpend);
+            var noSuchAccountGrid = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(
+                new ReadBudgetGrid(root.Id, new Nix.Domain.Finance.YearMonth(2026, 8), null, Guid.NewGuid()), Cancellation);
+            Assert.True(noSuchAccountGrid.IsFailure);
+            Assert.Equal("finance.account_not_found", noSuchAccountGrid.Error.Code);
+
+            var topUp = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new BudgetActualRequest(100m)), Cancellation);
+            Assert.True(topUp.IsSuccess, topUp.IsSuccess ? "" : topUp.Error.Message);
+            Assert.Equal(59m, topUp.Value.Before);
+            Assert.Equal(100m, topUp.Value.After);
+            Assert.NotNull(topUp.Value.Transaction);
+            Assert.Equal(-41m, topUp.Value.Transaction.Amount);
+            Assert.Equal("Food adjustment", topUp.Value.Transaction.Description);
+            Assert.Equal(groceries.Id, topUp.Value.Transaction.LineId);
+            Assert.Equal(new DateOnly(2026, 8, 31), topUp.Value.Transaction.Date);
+            var unchanged = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new BudgetActualRequest(100m)), Cancellation);
+            Assert.True(unchanged.IsSuccess);
+            Assert.Null(unchanged.Value.Transaction);
+            var firstOfMonth = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(35m, "October shop", new DateOnly(2026, 10, 4))), Cancellation);
+            Assert.True(firstOfMonth.IsSuccess, firstOfMonth.IsSuccess ? "" : firstOfMonth.Error.Message);
+            Assert.Equal(0m, firstOfMonth.Value.Before);
+            Assert.Equal(-35m, firstOfMonth.Value.Transaction!.Amount);
+            Assert.Equal("October shop", firstOfMonth.Value.Transaction.Description);
+            var wrongMonthDate = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(1m, null, new DateOnly(2026, 11, 1))), Cancellation);
+            Assert.True(wrongMonthDate.IsFailure);
+            Assert.Equal("finance.invalid_transaction", wrongMonthDate.Error.Code);
+            var negativeActual = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(-1m)), Cancellation);
+            Assert.True(negativeActual.IsFailure);
+            var noSuchLine = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, Guid.NewGuid(), new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(1m)), Cancellation);
+            Assert.True(noSuchLine.IsFailure);
+            Assert.Equal("finance.line_not_found", noSuchLine.Error.Code);
+            var backToZero = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(0m)), Cancellation);
+            Assert.True(backToZero.IsSuccess);
+            Assert.Equal(35m, backToZero.Value.Transaction!.Amount);
+            var novemberPay = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, salary.Id, new Nix.Domain.Finance.YearMonth(2026, 11), new BudgetActualRequest(100m)), Cancellation);
+            Assert.True(novemberPay.IsSuccess, novemberPay.IsSuccess ? "" : novemberPay.Error.Message);
+            Assert.Equal(100m, novemberPay.Value.Transaction!.Amount);
+            Assert.Equal(current.Value.Id, novemberPay.Value.Transaction.AccountId);
+            var removedTopUp = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(root.Id, topUp.Value.Transaction.Id), Cancellation);
+            Assert.True(removedTopUp.IsSuccess, removedTopUp.IsSuccess ? "" : removedTopUp.Error.Message);
+            var removedTwice = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(root.Id, topUp.Value.Transaction.Id), Cancellation);
+            Assert.True(removedTwice.IsFailure);
+            Assert.Equal("finance.transaction_not_found", removedTwice.Error.Code);
+            var octoberGrid = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(
+                new ReadBudgetGrid(root.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new Nix.Domain.Finance.YearMonth(2026, 10)), Cancellation);
+            Assert.True(octoberGrid.IsSuccess);
+            var foodRow = octoberGrid.Value.Sections.Single(section => section.Name == "PrimaryCard").Lines.Single();
+            Assert.Equal(59m, foodRow.Cells[0].Actual);
+            Assert.Equal(0m, foodRow.Cells[2].Actual);
+            Assert.Equal(2, foodRow.Cells[2].Transactions);
+
             var checklist = await dispatcher.QueryAsync<ReadFinanceMonth, Result<MonthChecklistResponse>>(new ReadFinanceMonth(root.Id, new Nix.Domain.Finance.YearMonth(2026, 8)), Cancellation);
             Assert.True(checklist.IsSuccess);
             Assert.Equal(3, checklist.Value.ScheduledPosted);
@@ -151,6 +216,29 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
                 new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Late", new DateOnly(2026, 8, 30), -1m, card.Value.Id, null)), Cancellation);
             Assert.True(intoClosed.IsFailure);
             Assert.Equal("finance.month_closed", intoClosed.Error.Code);
+            var actualIntoClosed = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new BudgetActualRequest(1m)), Cancellation);
+            Assert.True(actualIntoClosed.IsFailure);
+            Assert.Equal("finance.month_closed", actualIntoClosed.Error.Code);
+            var deleteFromClosed = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(root.Id, tesco.Value.Id), Cancellation);
+            Assert.True(deleteFromClosed.IsFailure);
+            Assert.Equal("finance.month_closed", deleteFromClosed.Error.Code);
+            // With August closed, an open month's transaction still deletes: the guard's open-transaction
+            // path runs inside the ledger's own locks and August's figures are untouched.
+            var missingAmount = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(root.Id, groceries.Id, new Nix.Domain.Finance.YearMonth(2026, 10), new BudgetActualRequest(null)), Cancellation);
+            Assert.True(missingAmount.IsFailure);
+            Assert.Equal("finance.invalid_transaction", missingAmount.Error.Code);
+            var octoberZero = await dispatcher.QueryAsync<ListFinanceTransactions, Result<FinanceTransactionsResponse>>(
+                new ListFinanceTransactions(root.Id, new Nix.Domain.Finance.YearMonth(2026, 10), null, groceries.Id, false, 0), Cancellation);
+            Assert.True(octoberZero.IsSuccess);
+            var octoberReversal = octoberZero.Value.Transactions.Single(transaction => transaction.Amount == 35m);
+            var deletedWhileAugustClosed = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(root.Id, octoberReversal.Id), Cancellation);
+            Assert.True(deletedWhileAugustClosed.IsSuccess, deletedWhileAugustClosed.IsSuccess ? "" : deletedWhileAugustClosed.Error.Message);
+            var augustAfter = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(
+                new ReadBudgetGrid(root.Id, new Nix.Domain.Finance.YearMonth(2026, 8), null), Cancellation);
+            Assert.True(augustAfter.IsSuccess);
+            Assert.Equal(59m, augustAfter.Value.Sections.Single(section => section.Name == "PrimaryCard").Lines.Single().Cells[0].Actual);
 
             var cashFlow = await dispatcher.QueryAsync<ReadCashFlow, Result<CashFlowResponse>>(new ReadCashFlow(root.Id), Cancellation);
             Assert.True(cashFlow.IsSuccess, cashFlow.IsSuccess ? "" : cashFlow.Error.Message);
@@ -220,7 +308,7 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
             Assert.True(deleted.IsSuccess);
             var afterDelete = await dispatcher.QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(root.Id), Cancellation);
             Assert.True(afterDelete.IsSuccess);
-            Assert.Equal(6, afterDelete.Value.TransactionCount);
+            Assert.Equal(8, afterDelete.Value.TransactionCount);
             Assert.Empty(afterDelete.Value.Problems);
         }
     }
@@ -431,6 +519,60 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_new_writes_and_the_account_filter_resolve_ids_only_against_their_own_root()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var first = await CreateRootAsync(dispatcher);
+            var second = await CreateRootAsync(dispatcher);
+            foreach (var root in new[] { first, second })
+            {
+                var configured = await dispatcher.SendAsync<SetFinanceSettings, FinanceResponse>(
+                    new SetFinanceSettings(root.Id, new FinanceSettingsRequest("GBP", "2026-08", 3, 0m, 0m, "UTC")), Cancellation);
+                Assert.True(configured.IsSuccess, configured.IsSuccess ? "" : configured.Error.Message);
+            }
+            var firstAccount = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(first.Id, new FinanceAccountRequest("First bank", "current", null, 0m, null, null, null, null, null)), Cancellation);
+            var secondAccount = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(second.Id, new FinanceAccountRequest("Second bank", "current", null, 0m, null, null, null, null, null)), Cancellation);
+            Assert.True(firstAccount.IsSuccess && secondAccount.IsSuccess);
+            var firstLine = await CreateLineAsync(dispatcher, first.Id, new BudgetLineRequest("Rent", "Housing", "expense", firstAccount.Value.Id, 900m, null, false, null, null));
+            var secondLine = await CreateLineAsync(dispatcher, second.Id, new BudgetLineRequest("Rent", "Housing", "expense", secondAccount.Value.Id, 900m, null, false, null, null));
+            var secondTransaction = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
+                new CreateFinanceTransaction(second.Id, new FinanceTransactionRequest("Second rent", new DateOnly(2026, 8, 1), -900m, secondAccount.Value.Id, secondLine.Id)), Cancellation);
+            Assert.True(secondTransaction.IsSuccess);
+            var firstContainers = (await dispatcher.QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(first.Id), Cancellation)).Value.Containers;
+
+            var foreignLine = await dispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(first.Id, secondLine.Id, new Nix.Domain.Finance.YearMonth(2026, 8), new BudgetActualRequest(10m)), Cancellation);
+            Assert.True(foreignLine.IsFailure);
+            Assert.Equal("finance.line_not_found", foreignLine.Error.Code);
+
+            foreach (var id in new[] { secondTransaction.Value.Id, first.Id.Value, firstContainers.Transactions, firstAccount.Value.Id, firstLine.Id })
+            {
+                var refused = await dispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(first.Id, id), Cancellation);
+                Assert.True(refused.IsFailure);
+                Assert.Equal("finance.transaction_not_found", refused.Error.Code);
+            }
+            var foreignAccount = await dispatcher.QueryAsync<ReadBudgetGrid, Result<BudgetGridResponse>>(
+                new ReadBudgetGrid(first.Id, new Nix.Domain.Finance.YearMonth(2026, 8), null, secondAccount.Value.Id), Cancellation);
+            Assert.True(foreignAccount.IsFailure);
+            Assert.Equal("finance.account_not_found", foreignAccount.Error.Code);
+
+            var secondAfter = await dispatcher.QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(second.Id), Cancellation);
+            Assert.True(secondAfter.IsSuccess);
+            Assert.Equal(1, secondAfter.Value.TransactionCount);
+            var firstAfter = await dispatcher.QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(first.Id), Cancellation);
+            Assert.True(firstAfter.IsSuccess);
+            Assert.Equal(0, firstAfter.Value.TransactionCount);
+            Assert.Single(firstAfter.Value.Accounts);
+            Assert.Single(firstAfter.Value.Lines);
+        }
+    }
+
+    [Fact]
     public async Task Another_tenants_root_is_not_found()
     {
         Guid rootId;
@@ -448,9 +590,17 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
         var beta = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.BetaContext, Cancellation);
         await using (beta.ConfigureAwait(false))
         {
-            var read = await beta.Resolve<NixDispatcher>().QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(ItemId.From(rootId)), Cancellation);
+            var betaDispatcher = beta.Resolve<NixDispatcher>();
+            var read = await betaDispatcher.QueryAsync<ReadFinance, Result<FinanceResponse>>(new ReadFinance(ItemId.From(rootId)), Cancellation);
             Assert.True(read.IsFailure);
             Assert.Equal("items.not_found", read.Error.Code);
+            var actual = await betaDispatcher.SendAsync<SetBudgetActual, BudgetActualResponse>(
+                new SetBudgetActual(ItemId.From(rootId), Guid.NewGuid(), new Nix.Domain.Finance.YearMonth(2026, 8), new BudgetActualRequest(1m)), Cancellation);
+            Assert.True(actual.IsFailure);
+            Assert.Equal("items.not_found", actual.Error.Code);
+            var deleted = await betaDispatcher.SendAsync<DeleteFinanceTransaction, Guid>(new DeleteFinanceTransaction(ItemId.From(rootId), Guid.NewGuid()), Cancellation);
+            Assert.True(deleted.IsFailure);
+            Assert.Equal("items.not_found", deleted.Error.Code);
         }
     }
 
