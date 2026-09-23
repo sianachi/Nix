@@ -70,7 +70,7 @@ const ENTRY = item({
 });
 
 describe('a lock covers what is inside the locked item', () => {
-  it('keeps a locked folder\'s contents off the page and out of the sidebar', async () => {
+  it("keeps a locked folder's contents off the page and out of the sidebar", async () => {
     stubCoreApi({ items: [FOLDER, ENTRY], lockedItems: [FOLDER.id] });
     renderAt(<App />, `/?item=${FOLDER.id}`);
 
@@ -92,7 +92,7 @@ describe('a lock covers what is inside the locked item', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('asks for the folder\'s password on a note inside it, and opens with it', async () => {
+  it("asks for the folder's password on a note inside it, and opens with it", async () => {
     stubCoreApi({ items: [FOLDER, ENTRY], lockedItems: [FOLDER.id] });
     renderAt(<App />, `/?item=${ENTRY.id}`);
 

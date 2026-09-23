@@ -59,7 +59,12 @@ describe('the lock commands over a stubbed Core', () => {
     const { env, done } = await withProfile();
     server.use(
       http.get(`${API}/api/v1/items/:itemId/lock`, () =>
-        HttpResponse.json({ locked: true, unlockedUntil: null, lockItemId: ITEM, selfLocked: true }),
+        HttpResponse.json({
+          locked: true,
+          unlockedUntil: null,
+          lockItemId: ITEM,
+          selfLocked: true,
+        }),
       ),
     );
 

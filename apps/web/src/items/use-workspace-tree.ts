@@ -641,9 +641,9 @@ export function useWorkspaceTree(): WorkspaceTree {
             : isLockedListing(reason)
               ? 'Unlock the locked item first. Nothing can be moved into or out of it while it is locked.'
               : apiFailure(
-                reason,
-                'The move could not be confirmed. Check the workspace before retrying.',
-              );
+                  reason,
+                  'The move could not be confirmed. Check the workspace before retrying.',
+                );
         if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
           setError(refusal);
         }

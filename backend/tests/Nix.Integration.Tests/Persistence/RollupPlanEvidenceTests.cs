@@ -377,7 +377,9 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
             -- container and leave the other forty-nine untested.
             -- Resolve the parents once. A join against reset-table statistics can make fixture
             -- construction scan the whole child series once per parent before ANALYZE runs.
-            WITH container_ids AS (
+            -- MATERIALIZED because a CTE referenced once is otherwise inlined, and the planner may
+            -- then put the aggregate on the inner side of the join and recompute it per child.
+            WITH container_ids AS MATERIALIZED (
                 SELECT array_agg(id ORDER BY seq) AS ids
                 FROM item
                 WHERE tenant_id = {{alphaTenant}}
@@ -466,6 +468,16 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {
+            // Respawn empties the tables with DELETE, so the previous class's corpus is still on
+            // disk as dead rows, under that class's statistics. Start from a vacuumed table with
+            // fresh statistics so the seed's plans do not depend on which class ran before it -
+            // on CI the children insert ran past two minutes against a table left that way.
+            // VACUUM cannot share the pipelined batch below, so each runs on its own.
+            foreach (var table in (string[])["item", "item_closure"])
+            {
+                await RawSql.ExecuteAsync(connection, transaction: null, $"VACUUM (ANALYZE) {table}", commandTimeoutSeconds: 120);
+            }
+
             // Bulk fixture setup can exceed the default 30 seconds on shared CI runners.
             // Keep the measured runtime queries on their normal timeout.
             await RawSql.ExecuteAsync(connection, transaction: null, sql, commandTimeoutSeconds: 120);
