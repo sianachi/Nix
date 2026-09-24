@@ -80,7 +80,12 @@ export function EditorAddressDialog({
       ? 'Paste a complete http or https address, or choose a local image below.'
       : 'Paste a complete http or https address.'
     : 'Paste or type where this link should go.';
-  const submitLabel = image ? 'Insert image' : 'Add link';
+  const submitLabel =
+    canUploadImage && method === 'upload' && uploading
+      ? 'Uploading image…'
+      : image
+        ? 'Insert image'
+        : 'Add link';
 
   function submit(event: SyntheticEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -202,30 +207,21 @@ export function EditorAddressDialog({
         ) : null}
 
         {canUploadImage && method === 'upload' ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              ref={uploadRef}
-              type="file"
-              accept="image/*"
-              disabled={uploading}
-              aria-label="Choose image to upload"
-              onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
-                setPreview(null);
-                setError(null);
-              }}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={uploading}
-              onClick={() => {
-                void uploadImage();
-              }}
-            >
-              {uploading ? 'Uploading image…' : 'Upload image'}
-            </Button>
-          </div>
+          // Choosing a file is all that happens here - the form's own submit button below
+          // starts the upload, so a second "Upload image" button beside the file picker would
+          // do exactly the same thing under a different name.
+          <Input
+            ref={uploadRef}
+            type="file"
+            accept="image/*"
+            disabled={uploading}
+            aria-label="Choose image to upload"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setPreview(null);
+              setError(null);
+            }}
+          />
         ) : null}
 
         {canUploadImage && method === 'upload' && preview !== null ? (

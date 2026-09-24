@@ -1,4 +1,5 @@
 import { Icon } from '@nix/ui';
+import { isPointerCoarse, placeFloatingMenu, readViewportBounds } from './floating-menu-placement';
 import type { TextColor } from '@nix/editor-schema';
 import type { Editor } from '@tiptap/react';
 import type { MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model';
@@ -146,6 +147,13 @@ function applyColor(editor: Editor, axis: ColorAxis, color: TextColor): void {
 const MENU_CLEARANCE = 48;
 
 /**
+ * A rough upper bound on the menu's own width, wide enough to cover both colour groups on any
+ * screen this renders on. Used only to keep its left edge from being clamped past where the menu
+ * would actually reach - the row itself still sizes to its content, not to this number.
+ */
+const MENU_WIDTH_ESTIMATE = 360;
+
+/**
  * Whether a range holds any text at all.
  *
  * `textBetween` would answer the same question by building the string first: on a select-all of
@@ -283,12 +291,23 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
       }
 
       const coords = editor.view.coordsAtPos(from);
-      const below = coords.top < MENU_CLEARANCE;
+
+      // Above the selection by default, flipping below only when the viewport has no room above
+      // it - the same clamp the slash and reference menus use, with the preferred side reversed:
+      // this menu opens over the selection, not under the caret. On a touch screen it always
+      // opens below regardless of room, because iOS draws its own Copy/Paste bar directly above
+      // a selection, and this menu would otherwise open right underneath it.
+      const placed = placeFloatingMenu(
+        { left: coords.left, top: coords.top, bottom: coords.bottom },
+        MENU_WIDTH_ESTIMATE,
+        readViewportBounds(),
+        { preferAbove: true, forceBelow: isPointerCoarse(), minHeight: MENU_CLEARANCE },
+      );
 
       setPlacement({
-        left: coords.left,
-        top: below ? coords.bottom : coords.top,
-        below,
+        left: placed.left,
+        top: placed.top,
+        below: !placed.above,
         from,
         to,
       });

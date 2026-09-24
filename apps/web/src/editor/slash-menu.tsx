@@ -1,4 +1,5 @@
 import type { ItemInsertKind } from './item-insert-dialog';
+import { placeFloatingMenu, readViewportBounds } from './floating-menu-placement';
 import { TOGGLE_LEVELS, type ToggleLevel } from '@nix/editor-schema';
 import { Listbox, useListbox } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -346,9 +347,10 @@ interface OpenTrigger {
   readonly from: number;
   readonly to: number;
   readonly query: string;
-  /** Viewport coordinates of the caret. */
+  /** Viewport coordinates of the caret, for `placeFloatingMenu` to clamp against. */
   readonly left: number;
   readonly top: number;
+  readonly bottom: number;
 }
 
 /**
@@ -422,7 +424,8 @@ export function SlashMenu({
         to: from,
         query: found.query,
         left: coords.left,
-        top: coords.bottom,
+        top: coords.top,
+        bottom: coords.bottom,
       });
     }
 
@@ -538,12 +541,28 @@ export function SlashMenu({
     return null;
   }
 
+  // Below the caret at up to 280px wide, unless the viewport - a phone's, with its keyboard
+  // already open - has no room for that: then the menu narrows, shrinks, or flips above.
+  const placement = placeFloatingMenu(
+    { left: trigger.left, top: trigger.top, bottom: trigger.bottom },
+    280,
+    readViewportBounds(),
+  );
+
   return (
     <div
       // Positioned against the caret in viewport coordinates, so it follows the text rather than
       // the scroller - which the editor does under it.
-      style={{ left: trigger.left, top: trigger.top }} // design-token-exempt: a caret's position is a runtime measurement, not a scale step.
-      className="fixed z-20 mt-1 flex max-h-[280px] w-[280px] flex-col overflow-y-auto border border-divider bg-background shadow-md"
+      style={{
+        left: placement.left,
+        top: placement.top,
+        width: placement.maxWidth,
+        maxHeight: placement.maxHeight,
+      }} // design-token-exempt: a caret's position is a runtime measurement, not a scale step.
+      className={[
+        'fixed z-20 flex flex-col overflow-y-auto border border-divider bg-background shadow-md',
+        placement.above ? '-mb-1 -translate-y-full' : 'mt-1',
+      ].join(' ')}
     >
       <Listbox
         label="Insert a block"

@@ -1,7 +1,7 @@
 import { useNarrowViewport } from '../../layout/viewport';
 import { Blueprint, Button, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
 import { PropertyInput } from '../../properties/property-input';
@@ -111,6 +111,23 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
   const [anchor, setAnchor] = useState<CalendarDay>(todayDay);
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const panelId = useId();
+
+  // A tab stop of its own and a place `scrollIntoView` can point at. Narrow renders the panel
+  // below the whole agenda list rather than beside the row that opened it (`~318` versus `~374`
+  // below), and moving neither the scroll position nor the focus left it looking dead - opened,
+  // yet nowhere a phone screen or the keyboard's own place would put it.
+  const panelRef = useRef<HTMLElement>(null);
+
+  // Runs after the panel that opened it has already committed to the DOM - `rescheduling` and the
+  // section below are set from the same click, so by the time this effect runs the ref is live.
+  // Every toggle in the view points at this one panel, so one effect covers all of them rather
+  // than each row having to know it should move focus itself.
+  useEffect(() => {
+    if (rescheduling !== null) {
+      panelRef.current?.focus();
+      panelRef.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [rescheduling]);
 
   const reason = describeUndrawable(view, container.schema, container.views);
 
@@ -373,8 +390,13 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
       */}
       {open === null ? null : (
         <section
+          ref={panelRef}
           id={panelId}
           aria-label={`Reschedule ${titleOf(open.item)}`}
+          // A tab stop only while it holds the panel a toggle just opened - the effect above is
+          // what actually moves focus here, this is what makes moving it possible on an element
+          // that carries no interaction of its own.
+          tabIndex={-1}
           className="flex flex-col gap-2 border border-divider p-3"
         >
           <div className="flex items-center justify-between gap-2">

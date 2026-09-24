@@ -40,6 +40,18 @@ export interface ItemProperties {
    */
   readonly item: Item | null;
 
+  /**
+   * Why the load failed, or null when it has not failed.
+   *
+   * Distinct from `item` being null: that is also true while the load is still in flight, and a
+   * panel that could not tell those two apart would say "Loading" forever about a request that
+   * already came back refused.
+   */
+  readonly error: string | null;
+
+  /** Retries the load that failed, from scratch. */
+  readonly retry: () => void;
+
   /** Writes the changed properties, answering with the refusal reason or null. */
   readonly write: (changes: Record<string, unknown>) => Promise<string | null>;
 }
@@ -50,6 +62,12 @@ export function useItemProperties(itemId: string | null): ItemProperties {
   const [loading, setLoading] = useState(true);
   const [schema, setSchema] = useState<EffectiveSchema | null>(null);
   const [item, setItem] = useState<Item | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Bumped by `retry`, and nothing reads its value beyond that - it exists only to give the effect
+  // below a new dependency to fire on, since asking to load the same `itemId` again is otherwise
+  // indistinguishable from not having asked.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     // A box rather than a bare flag: the cleanup writes it and the async body reads it, and a
@@ -68,20 +86,28 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       if (itemId === null) {
         setSchema(null);
         setItem(null);
+        setError(null);
         setLoading(false);
         return;
       }
 
       setLoading(true);
+      setError(null);
       void (async () => {
         // Both at once: the panel cannot draw a field without knowing the property exists, and
         // cannot fill it without the value. Sequencing them would make opening a note two round
         // trips deep for one panel.
-        const [nextSchema, nextItem] = await Promise.all([
+        //
+        // The item's own outcome is kept apart from the schema's, unlike the schema-only version
+        // this replaced. A note with no declared schema is a normal, empty panel - `queryOrNull`
+        // still folds that refusal away below - but a note whose *item* request failed is not
+        // empty, it is broken, and folding that into the same null left the panel with no way to
+        // tell "still loading" from "never coming".
+        const [nextSchema, itemOutcome] = await Promise.all([
           queryOrNull(
             client.query(coreStructure.effectiveSchema(itemId), { signal: controller.signal }),
           ),
-          queryOrNull(client.query(coreItems.itemById(itemId), { signal: controller.signal })),
+          queryOutcome(client.query(coreItems.itemById(itemId), { signal: controller.signal })),
         ]);
 
         // Dropped if the item changed while this was in flight. Without the guard, opening two
@@ -92,12 +118,21 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         }
 
         setSchema(nextSchema === null ? null : EffectiveSchemaSchema.parse(nextSchema));
-        setItem(nextItem === null ? null : ItemSchema.parse(nextItem));
+
+        if (itemOutcome.ok) {
+          setItem(ItemSchema.parse(itemOutcome.value));
+          setError(null);
+        } else {
+          setItem(null);
+          setError(itemOutcome.message);
+        }
+
         setLoading(false);
       })().catch((reason: unknown) => {
         if (!controller.signal.aborted && live.current && !isCanceledError(reason)) {
           setSchema(null);
           setItem(null);
+          setError('This item could not be loaded.');
           setLoading(false);
         }
       });
@@ -107,7 +142,11 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       live.current = false;
       controller.abort();
     };
-  }, [client, itemId]);
+  }, [client, itemId, attempt]);
+
+  const retry = useCallback(() => {
+    setAttempt((current) => current + 1);
+  }, []);
 
   const write = useCallback(
     async (changes: Record<string, unknown>): Promise<string | null> => {
@@ -151,7 +190,7 @@ export function useItemProperties(itemId: string | null): ItemProperties {
     [item, schema?.properties],
   );
 
-  return { loading, schema, item: computed, write };
+  return { loading, schema, item: computed, error, retry, write };
 }
 
 /** Reads a response the panel can do without, reporting a refusal as an absent value. */
@@ -163,5 +202,25 @@ async function queryOrNull<TValue>(request: Promise<TValue>): Promise<TValue | n
       throw reason;
     }
     return null;
+  }
+}
+
+type QueryOutcome<TValue> =
+  { readonly ok: true; readonly value: TValue } | { readonly ok: false; readonly message: string };
+
+/** Reads a response the panel cannot do without, keeping the refusal reason rather than folding it away. */
+async function queryOutcome<TValue>(request: Promise<TValue>): Promise<QueryOutcome<TValue>> {
+  try {
+    return { ok: true, value: await request };
+  } catch (reason) {
+    if (isCanceledError(reason)) {
+      throw reason;
+    }
+    return {
+      ok: false,
+      message: isNixApiError(reason)
+        ? (reason.detail ?? 'This item could not be loaded.')
+        : 'This item could not be loaded.',
+    };
   }
 }

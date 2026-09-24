@@ -13,6 +13,18 @@ export function useApiClient(): NixClient {
   return client;
 }
 
+/**
+ * The current client, or null when there is none.
+ *
+ * A control that can *sometimes* reach Core - an image property's upload capability, say - calls
+ * this instead of {@link useApiClient}, so a render with no provider above it (most component
+ * tests render a leaf directly, without the app's own provider tree) can turn that capability off
+ * rather than throw.
+ */
+export function useOptionalApiClient(): NixClient | null {
+  return use(ApiClientContext);
+}
+
 export function ApiClientProvider({ children }: { readonly children: ReactNode }): ReactNode {
   const { getAccessToken } = useAuth();
   const [client] = useState(() =>

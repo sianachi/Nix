@@ -170,7 +170,9 @@ describe('placing a moment', () => {
     // without converting would put it in Tuesday's column, which is right in London and wrong here.
     const monday = screen.getByLabelText('Monday 16 March 2026');
 
-    expect(within(monday).getByRole('button', { name: /standup/i })).toBeInTheDocument();
+    // Anchored at the start: the column now also carries a "Reschedule Standup" control beside
+    // the card (goal 3.11), which would match a bare /standup/i just as well.
+    expect(within(monday).getByRole('button', { name: /^standup/i })).toBeInTheDocument();
   });
 
   it('says the item s own zone when it is not the reader s', () => {

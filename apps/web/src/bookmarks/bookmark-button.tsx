@@ -1,4 +1,4 @@
-import { Button, Icon, cn, focusRing } from '@nix/ui';
+import { Button, Icon, Text, cn, focusRing } from '@nix/ui';
 import { Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -40,37 +40,40 @@ export function BookmarkButton(props: BookmarkButtonProps): ReactNode {
   const kept = useIsKept(itemId);
   const toggle = useBookmarksStore((state) => state.toggle);
 
+  // Only this button's own failure, not whichever item's star was last pressed anywhere in the
+  // app - the store tracks one at a time, and every other button reading it has to stay silent
+  // about a refusal that was not about the item it renders.
+  const failure = useBookmarksStore((state) =>
+    state.actionError?.itemId === itemId ? state.actionError.message : null,
+  );
+
   const label = `Bookmark ${title.length > 0 ? title : 'Untitled'}`;
 
-  if (compact) {
-    return (
-      <button
-        type="button"
-        aria-label={label}
-        title={kept ? 'Unpin from sidebar' : 'Pin to sidebar'}
-        aria-pressed={kept}
-        onClick={(event) => {
-          // The tree's rows open an item on click, and the editor's chrome sits inside other
-          // controls. Neither should fire because somebody aimed at the star.
-          event.stopPropagation();
-          void toggle(itemId);
-        }}
-        className={cn(
-          focusRing,
-          'rounded-sm p-1 text-muted hover:bg-surface hover:text-accent-text',
-          kept ? 'text-accent-text' : '',
-          className,
-        )}
-      >
-        {/* `fill-current` is the whole difference between kept and not: a filled star and an
-            outlined one, which is the convention every application that has stars uses. The colour
-            change beside it is the second signal, so this does not rest on fill alone. */}
-        <Icon icon={Star} size="sm" className={kept ? 'fill-current' : ''} />
-      </button>
-    );
-  }
-
-  return (
+  const star = compact ? (
+    <button
+      type="button"
+      aria-label={label}
+      title={kept ? 'Unpin from sidebar' : 'Pin to sidebar'}
+      aria-pressed={kept}
+      onClick={(event) => {
+        // The tree's rows open an item on click, and the editor's chrome sits inside other
+        // controls. Neither should fire because somebody aimed at the star.
+        event.stopPropagation();
+        void toggle(itemId);
+      }}
+      className={cn(
+        focusRing,
+        'rounded-sm p-1 text-muted hover:bg-surface hover:text-accent-text',
+        kept ? 'text-accent-text' : '',
+        className,
+      )}
+    >
+      {/* `fill-current` is the whole difference between kept and not: a filled star and an
+          outlined one, which is the convention every application that has stars uses. The colour
+          change beside it is the second signal, so this does not rest on fill alone. */}
+      <Icon icon={Star} size="sm" className={kept ? 'fill-current' : ''} />
+    </button>
+  ) : (
     <Button
       variant="icon"
       aria-label={label}
@@ -83,5 +86,22 @@ export function BookmarkButton(props: BookmarkButtonProps): ReactNode {
     >
       <Icon icon={Star} size="sm" className={kept ? 'fill-current text-accent-text' : ''} />
     </Button>
+  );
+
+  if (failure === null) {
+    return star;
+  }
+
+  // Inline, next to the star it is about, rather than a shelf-wide banner - there is no shelf-wide
+  // toast reachable from here without threading one through every tree row and every editor's
+  // chrome that renders this button, and the star that flipped back is exactly where the reader is
+  // already looking.
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {star}
+      <Text variant="note" role="alert" tone="accent">
+        {failure}
+      </Text>
+    </span>
   );
 }

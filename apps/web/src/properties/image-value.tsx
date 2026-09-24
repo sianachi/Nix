@@ -1,17 +1,32 @@
-import { Duotone, Field, Input, Text, blueprintFrame, cn, disabledState, focusRing } from '@nix/ui';
+import { files as fileResources, type NixClient } from '@nix/api-client';
+import {
+  Button,
+  Duotone,
+  Field,
+  Input,
+  Text,
+  blueprintFrame,
+  cn,
+  disabledState,
+  focusRing,
+} from '@nix/ui';
 import {
   useEffect,
   useId,
   useRef,
   useState,
+  type ChangeEvent,
   type ClipboardEvent,
   type DragEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
 
+import { useOptionalApiClient } from '../api/api-client-provider';
+import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { isFetchableImageAddress } from '../lib/image-address';
 import { readPropertyText } from '../views/core/container-model';
+import { useOptionalWorkspace } from '../workspaces/workspace-context';
 
 import type { PropertyInputProps } from './property-input';
 
@@ -50,15 +65,107 @@ import type { PropertyInputProps } from './property-input';
  */
 
 /**
- * What a dropped *file* is answered with.
+ * What a dropped *file* is answered with when this control has nowhere to send it.
  *
- * There is no media model in this build, so a photo dragged off the desktop has nowhere to go. The
- * drag paints the accent outline the moment it hovers - that is `onDragOver`'s job, and it cannot
- * know what the drag carries until the drop - so staying silent would be the control lighting up
- * and then doing nothing at all. The sentence says what does work instead.
+ * Uploading needs a workspace to attach the file to (see {@link useOptionalWorkspace}), which a
+ * control rendered off a public form link does not have. The drag paints the accent outline the
+ * moment it hovers - that is `onDragOver`'s job, and it cannot know what the drag carries until the
+ * drop - so staying silent would be the control lighting up and then doing nothing at all. The
+ * sentence says what does work instead.
  */
 const FILE_REFUSAL =
-  'Pictures are added by address for now. Drag in a link to a picture, or paste one.';
+  'Pictures are added by address here. Drag in a link to a picture, or paste one.';
+
+/** What a chosen or dropped file is refused with when it is not one this control can upload. */
+const UNSUPPORTED_FILE_REFUSAL = 'Choose a PNG, JPEG, WebP or AVIF image no larger than 10 MiB.';
+
+/**
+ * The prefix marking a stored value as a reference to a file uploaded through this control,
+ * rather than a web address.
+ *
+ * There is still no media model as such - a picture property is one string - but that string can
+ * now name either kind of thing it is for. The prefix is not itself a valid URL scheme, so it can
+ * never collide with an address somebody pasted.
+ */
+const FILE_IMAGE_PREFIX = 'nix-file:';
+
+/** Whether a stored value points at a file this control uploaded, rather than a web address. */
+export function isFileImageReference(value: string): boolean {
+  return value.startsWith(FILE_IMAGE_PREFIX) && value.length > FILE_IMAGE_PREFIX.length;
+}
+
+/** The uploaded file's item id, for a value {@link isFileImageReference} accepts; null otherwise. */
+export function fileImageReferenceItemId(value: string): string | null {
+  return isFileImageReference(value) ? value.slice(FILE_IMAGE_PREFIX.length) : null;
+}
+
+/** The value to store for a newly uploaded file. */
+export function fileImageReference(itemId: string): string {
+  return `${FILE_IMAGE_PREFIX}${itemId}`;
+}
+
+/**
+ * Whether a stored value is something a picture surface can show: a fetchable web address, or an
+ * uploaded file's reference. Shared with the gallery's cover, which draws the same four states off
+ * the same rule.
+ */
+export function isDisplayableImageValue(value: string): boolean {
+  return isFetchableImageAddress(value) || isFileImageReference(value);
+}
+
+/** What an uploaded file's picture resolves to, once its item id is known. */
+export type FileImagePreview =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly url: string }
+  | { readonly status: 'error' };
+
+/**
+ * Resolves an uploaded file's item id to a browser-usable address.
+ *
+ * There is no public URL for a file item - every download goes through a signed, short-lived
+ * capability (AGENTS.md: files use capability URLs, never Core bytes) - so this fetches the bytes
+ * once through that capability and hands back a local object URL, the same resolution the note
+ * editor's own image view does for its `fileItemId` attribute (`editor/note-image-view.tsx`). The
+ * object URL is revoked the moment the id it was minted for is no longer wanted, on id change and
+ * on unmount.
+ */
+export function useFileImagePreview(
+  client: NixClient | null,
+  fileItemId: string | null,
+): FileImagePreview {
+  const [preview, setPreview] = useState<
+    | { readonly itemId: string; readonly status: 'ready'; readonly url: string }
+    | { readonly itemId: string; readonly status: 'error' }
+    | null
+  >(null);
+
+  useEffect(() => {
+    // No client to fetch through - the same leaf-render case `useOptionalApiClient` exists for -
+    // leaves this loading forever rather than erroring, which is the honest answer for a state
+    // this build cannot actually resolve either way.
+    if (fileItemId === null || client === null) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    fileResources
+      .fetchFileContent(client, fileItemId, undefined, true, controller.signal)
+      .then(({ blob }) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreview({ itemId: fileItemId, status: 'ready', url: objectUrl });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPreview({ itemId: fileItemId, status: 'error' });
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
+    };
+  }, [client, fileItemId]);
+
+  if (fileItemId === null) return { status: 'error' };
+  if (preview?.itemId !== fileItemId) return { status: 'loading' };
+  return preview;
+}
 
 /** The sentence `PropertyValidator.CheckImage` refuses with, built the same way. */
 function refusalSentence(label: string): string {
@@ -161,6 +268,25 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  // Both optional, and for related reasons. A control drawn off a public form link genuinely has
+  // no workspace to upload into (see `useOptionalWorkspace`); a control under test is very often
+  // rendered as a bare leaf, with no provider tree above it at all. Either way the picker falls
+  // back to address-only rather than throwing - exactly how it behaved before uploading existed.
+  const client = useOptionalApiClient();
+  const workspace = useOptionalWorkspace();
+  const workspaceId = workspace?.workspaceId ?? null;
+
+  // The item this value is uploaded to belong to, as a child - the same relationship a note gives
+  // an image dropped into it. `PropertyOwner` only promises a title and properties, because a
+  // draft not yet saved has neither an id nor a parent to upload into; every real item does, and
+  // this reads it duck-typed rather than widening the shared interface for one caller's need.
+  const ownerCandidate = (item as unknown as { readonly id?: unknown }).id;
+  const ownerId = typeof ownerCandidate === 'string' ? ownerCandidate : null;
+
+  const canUpload = workspaceId !== null && client !== null;
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // The address a Remove just cleared, kept until the next edit so the click has a way back.
   // Removing is one click and the address is gone from the panel entirely - nothing else on screen
@@ -200,8 +326,54 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     setRefusal(null);
   }
 
-  const storedIsAddress = stored.length > 0 && isFetchableImageAddress(stored);
-  const failed = failedSrc === stored;
+  const fileItemId = fileImageReferenceItemId(stored);
+  const isFileRef = fileItemId !== null;
+  const filePreview = useFileImagePreview(client, fileItemId);
+  const storedIsDisplayable = stored.length > 0 && isDisplayableImageValue(stored);
+  const failed = isFileRef ? filePreview.status === 'error' : failedSrc === stored;
+  const previewLoading = isFileRef && filePreview.status === 'loading';
+
+  function commitReference(reference: string): void {
+    // The same shape as a committed address below, minus the validation - a freshly uploaded
+    // file's reference is trusted by construction, not by the address grammar.
+    setRemoved(null);
+    setDraft(reference);
+    setSent(reference);
+    setRefusal(null);
+    returnFocus.current = editing;
+    setEditing(false);
+    onCommit(reference);
+  }
+
+  async function uploadFile(file: File): Promise<void> {
+    if (uploading || workspaceId === null || client === null) return;
+
+    if (!isImageFile(file)) {
+      setRefusal(UNSUPPORTED_FILE_REFUSAL);
+      return;
+    }
+
+    setUploading(true);
+    setRefusal(null);
+    try {
+      const upload = await client.execute(
+        fileResources.beginUpload({
+          workspaceId,
+          parentId: ownerId,
+          fileName: file.name,
+          mediaType: mediaTypeForFile(file),
+          byteLength: file.size,
+          idempotencyKey: `web-image-property:${crypto.randomUUID()}`,
+        }),
+      );
+      const uploaded = await fileResources.uploadAndCompleteFile(client, upload, file);
+      commitReference(fileImageReference(uploaded.itemId));
+    } catch (cause) {
+      setRefusal(cause instanceof Error ? cause.message : 'The image could not be uploaded.');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function tryCommit(text: string): void {
     const trimmed = text.trim();
@@ -214,7 +386,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     // an editor closed over an unchanged address is not an edit at all.
     if (trimmed === sent) {
       setRefusal(null);
-      if (storedIsAddress) {
+      if (storedIsDisplayable) {
         returnFocus.current = editing;
         setEditing(false);
       }
@@ -270,10 +442,16 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
             return;
           }
 
-          // A file drag carries neither `text/uri-list` nor `text/plain`, so there is no address to
-          // read and nothing to commit. Answered rather than dropped on the floor - see
-          // `FILE_REFUSAL`.
-          if (event.dataTransfer.files.length > 0) {
+          // A file drag carries neither `text/uri-list` nor `text/plain`, so there is no address
+          // to read. Uploaded when this control has somewhere to send it - the same path
+          // `uploadFile` gives a chosen file - and answered rather than dropped on the floor when
+          // it does not; see `FILE_REFUSAL`.
+          const file = event.dataTransfer.files[0];
+          if (file === undefined) return;
+
+          if (canUpload) {
+            void uploadFile(file);
+          } else {
             setRefusal(FILE_REFUSAL);
           }
         },
@@ -315,11 +493,11 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
 
   // The address box: nothing stored yet, a stored value that is not an address (shown prefilled
   // with the reason, never handed to an img), or an edit somebody asked for.
-  if (stored.length === 0 || !storedIsAddress || editing) {
+  if (stored.length === 0 || !storedIsDisplayable || editing) {
     const shownError =
       error ??
       refusal ??
-      (!storedIsAddress && stored.length > 0 ? refusalSentence(property.label) : null);
+      (!storedIsDisplayable && stored.length > 0 ? refusalSentence(property.label) : null);
 
     return (
       <ImageShell
@@ -328,9 +506,11 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
         name={name}
         required={property.required}
         error={shownError}
-        // What the control actually accepts: an address, however it arrives. The older wording
-        // ("drag an image in") invited a gesture there is no media model to honour.
-        hint="Paste or drag in a link to a picture."
+        hint={
+          canUpload
+            ? 'Paste or drag in a link to a picture, or choose one from this device.'
+            : 'Paste or drag in a link to a picture.'
+        }
       >
         {(control) => (
           // `gap-3` rather than the shell's own `gap-1`: the undo below carries an 8px vertical
@@ -361,7 +541,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
 
                 // A way out of an edit that keeps what is stored: without it, the only exits from
                 // the editor are committing or blurring into a commit.
-                if (event.key === 'Escape' && storedIsAddress) {
+                if (event.key === 'Escape' && storedIsDisplayable) {
                   event.preventDefault();
                   setDraft(stored);
                   setRefusal(null);
@@ -383,6 +563,41 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
               {...dropZone}
             />
 
+            {canUpload ? (
+              // The hidden input carries the real file picker; the button is what a screen reader
+              // and a coarse pointer both get a sensible target for. `sr-only` rather than
+              // `hidden`, because an actually-hidden input cannot receive the click the button
+              // forwards to it on every platform Testing Library exercises.
+              <div className="flex items-center gap-2">
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept="image/*"
+                  disabled={disabled || uploading}
+                  className="sr-only"
+                  aria-label={`Choose an image file for ${name}`}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    const file = event.target.files?.[0] ?? null;
+                    // Cleared immediately: choosing the same file twice in a row - after fixing
+                    // and re-choosing it, say - must fire this `onChange` a second time, which a
+                    // browser will not do while the input still holds that file.
+                    event.target.value = '';
+                    if (file !== null) void uploadFile(file);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={disabled || uploading}
+                  onClick={() => {
+                    uploadInputRef.current?.click();
+                  }}
+                >
+                  {uploading ? 'Uploading picture…' : 'Choose image'}
+                </Button>
+              </div>
+            ) : null}
+
             {undoButton === null ? null : <div className="flex">{undoButton}</div>}
           </div>
         )}
@@ -390,7 +605,16 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     );
   }
 
-  const thumbnail = failed ? (
+  const thumbnail = previewLoading ? (
+    // The uploaded file's own resolution ("useFileImagePreview") is asynchronous even on a warm
+    // cache - it goes through Core for a fresh capability every time - so there is a real gap
+    // between "set" and "drawn" that an address never has once decoded. Words rather than nothing,
+    // for the same reason the failed case below is words: an unframed gap here would be the empty
+    // box the gallery's cover forbids for exactly this reason.
+    <Text variant="note" as="span" role="status">
+      Loading picture…
+    </Text>
+  ) : failed ? (
     // Never the empty state: this property has a value, it is the fetch that broke, and words are
     // the only rendering that says which. Keyed on the failing address, so correcting it heals.
     // `role="status"` because the fetch fails asynchronously, after the box has already been drawn
@@ -401,27 +625,38 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     // purpose - forty of these announcing themselves across a grid is noise; this is one control
     // the person is standing in.)
     <Text variant="note" as="span" role="status">
-      This picture could not be loaded. Check the address.
+      {isFileRef
+        ? 'This picture could not be loaded.'
+        : 'This picture could not be loaded. Check the address.'}
     </Text>
   ) : (
     <Duotone
       // Empty on purpose: the picture carries nothing the address beside it does not say, and a
       // non-empty alt on a failed img collapses the reserved box (see cover-image.tsx).
       alt=""
-      src={stored}
+      src={isFileRef ? (filePreview.status === 'ready' ? filePreview.url : '') : stored}
       className="absolute inset-0 size-full object-cover"
       onError={() => {
-        setFailedSrc(stored);
+        // A file reference's own failure is `filePreview.status === 'error'`, driven by the
+        // upload hook rather than this `img`'s load event - see `failed` above - so only an
+        // address's fetch needs recording here.
+        if (!isFileRef) setFailedSrc(stored);
       }}
     />
   );
+
+  // A file reference is not a sentence anybody typed - showing `nix-file:<id>` here would be the
+  // control leaking its own storage format. The button still opens the same editor (a chosen file
+  // can be swapped for another, or for a pasted address), so it keeps a label rather than going
+  // blank.
+  const addressLabel = isFileRef ? 'Uploaded picture' : stored;
 
   const addressButton = (control: ImageControlProps): ReactElement => (
     <button
       {...control}
       type="button"
       ref={addressRef}
-      title={stored}
+      title={addressLabel}
       disabled={disabled}
       // This is the control that opens the editor, so it has to clear WCAG 2.5.8 like everything
       // else in the row: 12px type at the step's 1.45 line height is 17.4px, and
@@ -438,7 +673,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
         setEditing(true);
       }}
     >
-      {stored}
+      {addressLabel}
     </button>
   );
 

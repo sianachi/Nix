@@ -1,4 +1,5 @@
-import { Text, cn, focusRing } from '@nix/ui';
+import { Button, Icon, Text, cn, focusRing } from '@nix/ui';
+import { CalendarClock } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
 
 import { dayLabel, dayText, weekLabel, type CalendarDay } from '../core/calendar-dates';
@@ -10,6 +11,7 @@ import {
   readTimestampValue,
   writeTimestampValue,
 } from '../core/timestamps';
+import { RescheduleDialog } from './reschedule-dialog';
 import { useRovingGrid } from './use-roving-grid';
 
 /**
@@ -166,6 +168,13 @@ export function HourGrid(props: HourGridProps): ReactNode {
   // here rather than by each control.
   const { containerRef, onKeyDown, onFocusCapture } = useRovingGrid(HOURS.length, days.length);
 
+  // Which placed item's reschedule dialog is open, or null. Held here rather than per column: a
+  // week has seven `DayColumn`s and the dialog is one modal, not seven that would have to agree
+  // which of them owns it.
+  const [rescheduling, setRescheduling] = useState<string | null>(null);
+  const reschedulingItem =
+    rescheduling === null ? null : (items.find((item) => item.id === rescheduling) ?? null);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/*
@@ -272,11 +281,35 @@ export function HourGrid(props: HourGridProps): ReactNode {
                 onCreate={onCreate}
                 dragged={dragged}
                 onMove={onMove}
+                onReschedule={onMove === undefined ? undefined : setRescheduling}
               />
             ))}
           </div>
         </div>
       </div>
+
+      {/* One dialog, at the root of the grid, for whichever placed item asked. Placed items used
+          to answer only to `onOpen` - a click opened the item, and there was no way to move it
+          except to drag it, which a keyboard and a touch screen alike cannot do. This reaches the
+          same write `onMove` makes for a drop, from a tap or from the keyboard. */}
+      {reschedulingItem === null || onMove === undefined ? null : (
+        <RescheduleDialog
+          key={reschedulingItem.id}
+          item={reschedulingItem}
+          dateProperty={dateProperty}
+          // Every item this grid places has a moment on `dateProperty` - `placeOn` below reads one
+          // to decide the row, so nothing reaches this dialog without one.
+          placesByTime
+          zone={zone}
+          onCancel={() => {
+            setRescheduling(null);
+          }}
+          onMove={(value) => {
+            onMove(reschedulingItem.id, value);
+            setRescheduling(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -361,8 +394,27 @@ function DayColumn(props: {
    * the same caller - a grid that took a drop it could not write would silently discard it.
    */
   readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
+
+  /**
+   * Opens the reschedule dialog for a placed item.
+   *
+   * Optional in lockstep with `onMove`: a grid that cannot write a reschedule has no business
+   * opening a dialog that ends in one.
+   */
+  readonly onReschedule?: ((itemId: string) => void) | undefined;
 }): ReactNode {
-  const { day, dayIndex, placed, dateProperty, zone, onOpen, onCreate, dragged, onMove } = props;
+  const {
+    day,
+    dayIndex,
+    placed,
+    dateProperty,
+    zone,
+    onOpen,
+    onCreate,
+    dragged,
+    onMove,
+    onReschedule,
+  } = props;
 
   return (
     <div
@@ -385,18 +437,40 @@ function DayColumn(props: {
       ))}
 
       {placed.map((entry) => (
-        <button
+        // A row rather than a single button: a placed item used to answer only to `onOpen`, which
+        // made a drag the sole way to move a card once it had landed on the grid - a gesture
+        // neither a keyboard nor a touch screen has. The reschedule control beside it reaches the
+        // same write a drag makes, exactly as the month card's own reschedule control does.
+        <div
           key={entry.item.id}
-          type="button"
-          onClick={() => {
-            onOpen(entry.item.id);
-          }}
           style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }} // design-token-exempt: where an item sits is its own time - 09:30 is half a row down - a position read off the data, computed at runtime, so not a token
-          className="absolute inset-x-1 flex flex-col gap-0.5 rounded-sm bg-accent/18 px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          className="absolute inset-x-1 flex items-stretch gap-0.5 rounded-sm bg-accent/18"
         >
-          <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
-          <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              onOpen(entry.item.id);
+            }}
+            className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
+            <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
+          </button>
+
+          {onReschedule === undefined ? null : (
+            <Button
+              variant="ghost"
+              aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
+              aria-haspopup="dialog"
+              className="shrink-0 self-start px-0.5 py-1"
+              onClick={() => {
+                onReschedule(entry.item.id);
+              }}
+            >
+              <Icon icon={CalendarClock} size="sm" />
+            </Button>
+          )}
+        </div>
       ))}
     </div>
   );
@@ -478,14 +552,17 @@ function HourSlot(props: {
           `opacity-0`/`pointer-events-none`, not `invisible`: `visibility: hidden` takes an
           element out of the tab order entirely, so `focus-visible:visible` could never fire -
           nothing could tab to the control in order to un-hide it. See the same pattern, with
-          the same reasoning, on workspace-sidebar.tsx's row-hover controls. */}
+          the same reasoning, on workspace-sidebar.tsx's row-hover controls.
+          `pointer-coarse:*` keeps it shown and tappable on a phone, which has no hover and no way
+          to tab through 168 slots to focus one - the same trio workspace-sidebar.tsx's row
+          controls and drive-view.tsx's own touch target already use. */}
       {onCreate !== undefined && (
         <CreateItemControl
           compact
           label={`Add an item at ${at} on ${dayLabel(day)}`}
           properties={{ [dateProperty]: writeSlot(day, hour, zone) }}
           onCreate={onCreate}
-          className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100"
+          className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/slot:pointer-events-auto group-hover/slot:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
         />
       )}
     </div>
@@ -592,14 +669,16 @@ function AllDayBand(props: {
             ))}
 
             {/* `opacity-0`/`pointer-events-none`, not `invisible` - see the hour cell's own
-                control above for why `visibility: hidden` breaks the keyboard path entirely. */}
+                control above for why `visibility: hidden` breaks the keyboard path entirely.
+                `pointer-coarse:*` keeps it shown and tappable on a phone, for the same reason as
+                the hour cell's own control. */}
             {onCreate !== undefined && (
               <CreateItemControl
                 compact
                 label={`Add an all-day item on ${dayLabel(day)}`}
                 properties={{ [dateProperty]: wanted }}
                 onCreate={onCreate}
-                className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/allday:pointer-events-auto group-hover/allday:opacity-100"
+                className="opacity-0 pointer-events-none focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/allday:pointer-events-auto group-hover/allday:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
               />
             )}
           </div>

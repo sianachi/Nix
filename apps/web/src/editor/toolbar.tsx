@@ -4,6 +4,8 @@ import { TableSizePicker } from './table-size-picker';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
+  ArrowDown,
+  ArrowUp,
   Bold,
   Code,
   Columns2,
@@ -308,6 +310,33 @@ export function EditorToolbar({
   ];
 
   /**
+   * The keyboard's way to reorder a block, offered in the compact toolbar's sheet because there
+   * is no drag handle to reach for on a screen this narrow - `note-editor.tsx` documents why
+   * the handle itself stays pointer-only. The shortcut works everywhere; this is only its other
+   * entrance.
+   */
+  const move: readonly Control[] = [
+    {
+      id: 'moveBlockUp',
+      label: 'Move up',
+      icon: ArrowUp,
+      shortcut: `${visibleModifier}+Shift+↑`,
+      ariaShortcut: `${ariaModifier}+Shift+ArrowUp`,
+      run: () => void editor.chain().focus().moveBlockUp().run(),
+      enabled: editor.can().moveBlockUp(),
+    },
+    {
+      id: 'moveBlockDown',
+      label: 'Move down',
+      icon: ArrowDown,
+      shortcut: `${visibleModifier}+Shift+↓`,
+      ariaShortcut: `${ariaModifier}+Shift+ArrowDown`,
+      run: () => void editor.chain().focus().moveBlockDown().run(),
+      enabled: editor.can().moveBlockDown(),
+    },
+  ];
+
+  /**
    * What a person can do to a row of columns once it exists.
    *
    * **Without this group the row is a trap.** The slash menu inserts two columns and the handles
@@ -386,6 +415,7 @@ export function EditorToolbar({
       ...inserts,
       tableInsert,
       ...history,
+      ...move,
       ...(inColumns ? columns : []),
       ...(inTable ? table : []),
     ];

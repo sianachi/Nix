@@ -467,7 +467,13 @@ export function AppShell(): ReactNode {
                 return;
               }
 
-              announce(outcome.refusal ?? 'That could not be created.');
+              const message = outcome.refusal ?? 'That could not be created.';
+              // Both at once: the live region alone spoke only to a screen reader, and the palette
+              // has already closed by the time this lands, so a sighted reader saw a command fire
+              // and then nothing - the same silent-failure shape `requestDelete` above exists to
+              // avoid.
+              announce(message);
+              shellToasts.push({ key: 'new-note-failed', message });
             });
           },
           toggleSidebar: sidebar.toggle,

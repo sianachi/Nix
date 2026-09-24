@@ -49,6 +49,20 @@ describe('the image insertion form', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it('offers only one action that starts the upload, not two that do the same thing', () => {
+    render(
+      <EditorAddressDialog
+        kind="image"
+        onCancel={() => undefined}
+        onSubmit={() => undefined}
+        onUploadImage={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Upload image' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Insert image' })).toBeInTheDocument();
+  });
+
   it('starts in the address field and explains both fields', () => {
     render(<ImageDialog />);
 
@@ -83,18 +97,18 @@ describe('the image insertion form', () => {
       screen.getByLabelText('Choose image to upload'),
       new File(['image'], 'diagram.png', { type: 'image/png' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Upload image' }));
-    expect(screen.getByRole('button', { name: 'Insert image' })).toBeDisabled();
+    // One action starts the upload - there is no separate "Upload image" button beside the
+    // file picker any more, so a second click has nothing else to land on while this is pending.
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
     expect(screen.getByRole('button', { name: 'Uploading image…' })).toBeDisabled();
     expect(screen.getByLabelText('Choose image to upload')).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Insert image' }));
     expect(onUploadImage).toHaveBeenCalledOnce();
 
     failUpload?.(new Error('The file upload failed (503).'));
     expect(await screen.findByRole('alert')).toHaveTextContent('The file upload failed (503).');
     expect(onCancel).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Upload image' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Insert image' })).toBeEnabled();
   });
 
   it('keeps an invalid address in the form and tells the person how to fix it', async () => {

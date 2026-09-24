@@ -79,7 +79,7 @@ describe('a picture property', () => {
 
     expect(onCommit).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Pictures are added by address for now. Drag in a link to a picture, or paste one.',
+      'Pictures are added by address here. Drag in a link to a picture, or paste one.',
     );
   });
 
@@ -100,7 +100,7 @@ describe('a picture property', () => {
 
     expect(onCommit).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Pictures are added by address for now. Drag in a link to a picture, or paste one.',
+      'Pictures are added by address here. Drag in a link to a picture, or paste one.',
     );
   });
 

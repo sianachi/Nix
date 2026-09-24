@@ -1,5 +1,8 @@
 import { Duotone } from '@nix/ui';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+
+import { useApiClient } from '../../api/api-client-provider';
+import { fileImageReferenceItemId, useFileImagePreview } from '../../properties/image-value';
 
 /**
  * The one place a cover picture is drawn.
@@ -22,6 +25,14 @@ import type { ReactNode } from 'react';
  * workspace address carrying the item id to a host nobody here controls or can audit - along with
  * `decoding="async"` and the lazy default. Duotone sets all three and its own tests hold them, so
  * this file no longer restates them.
+ *
+ * **`src` is not always a web address.** A cover set from a chosen or dropped file - see
+ * `properties/image-value.tsx` - stores a reference to an uploaded file item rather than an
+ * address, because there is no public URL for one (AGENTS.md: files use capability URLs, never
+ * Core bytes). This is the one place that reference is resolved to something `<Duotone>` can
+ * fetch: a local object URL, obtained the same way `note-image-view.tsx` resolves its own
+ * `fileItemId` attribute. The gallery card above stays unaware of which kind of value it is
+ * passing down.
  */
 
 export interface CoverImageProps {
@@ -59,6 +70,34 @@ export function CoverImage({
   onError,
   loading = 'lazy',
 }: CoverImageProps): ReactNode {
+  const client = useApiClient();
+  const fileItemId = fileImageReferenceItemId(src);
+  const preview = useFileImagePreview(client, fileItemId);
+
+  // A file reference's failure comes from the upload hook rather than from an `img` load event,
+  // so it has no `onError` of its own to fire - this is what tells the caller instead. Effect
+  // rather than inline, because rendering must not have side effects, and this one updates state
+  // one level up (`failedCovers` in `gallery-view.tsx`).
+  useEffect(() => {
+    if (fileItemId !== null && preview.status === 'error') onError();
+  }, [fileItemId, preview.status, onError]);
+
+  if (fileItemId !== null) {
+    // Loading and error both draw nothing here: the frame around this component - `CoverFrame` in
+    // `gallery-view.tsx` - is what reserves the space and, once `onError` above has run, what
+    // switches to the words explaining why.
+    if (preview.status !== 'ready') return null;
+    return (
+      <Duotone
+        src={preview.url}
+        alt={alt}
+        loading={loading}
+        onError={onError}
+        {...(className === undefined ? {} : { className })}
+      />
+    );
+  }
+
   // `className` is spread rather than passed, because under `exactOptionalPropertyTypes` an
   // optional prop is either given or not given: handing it an explicit `undefined` is a different
   // thing from omitting it, and Duotone declares it optional. The same idiom appears on the list
