@@ -570,7 +570,7 @@ export function OpenItem({
       <div
         className={
           narrow
-            ? 'grid grid-cols-2 gap-2 [&>button]:min-h-11'
+            ? 'grid grid-cols-2 gap-2'
             : 'flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8'
         }
       >
@@ -593,7 +593,7 @@ export function OpenItem({
               than on the pane around it, and the two controls after them do not. */}
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           onClick={() => {
             setExportOpen(true);
           }}
@@ -606,7 +606,7 @@ export function OpenItem({
               Markdown can come back as Markdown, under the item being looked at. */}
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           onClick={() => {
             setImportOpen(true);
           }}
@@ -618,7 +618,7 @@ export function OpenItem({
         {canApplyTemplates ? (
           <Button
             variant="ghost"
-            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            className="px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
             }}
@@ -631,7 +631,7 @@ export function OpenItem({
         {canManageTemplates ? (
           <Button
             variant="ghost"
-            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            className="px-2 py-1 text-xs"
             onClick={() => {
               void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
             }}
@@ -646,7 +646,7 @@ export function OpenItem({
         {lock.open ? (
           <Button
             variant="ghost"
-            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            className="px-2 py-1 text-xs"
             aria-expanded={historyOpen}
             onClick={() => {
               setHistoryOpen(!historyOpen);
@@ -664,7 +664,7 @@ export function OpenItem({
           <Button
             ref={lockButtonRef}
             variant="ghost"
-            className="max-xl:min-h-11 px-2 py-1 text-xs"
+            className="px-2 py-1 text-xs"
             aria-haspopup="dialog"
             // A state word alone reads as a toggle; the label says what the control opens and
             // when the body closes on its own.
@@ -689,7 +689,7 @@ export function OpenItem({
 
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           aria-expanded={panelOpen}
           onClick={togglePanel}
         >
@@ -701,7 +701,7 @@ export function OpenItem({
               "delete this note" to everybody who has ever seen one, and the header already has a
               text-labelled control next to it to match. */}
         {onClose === undefined ? null : (
-          <Button variant="ghost" className="max-xl:min-h-11 px-2 py-1 text-xs" onClick={onClose}>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
             <Icon icon={PanelRightClose} size="sm" />
             Close pane
           </Button>
@@ -728,7 +728,7 @@ export function OpenItem({
         >
           <Button
             variant="ghost"
-            className="min-h-11 flex-1"
+            className="flex-1"
             aria-pressed={showingDocument}
             onClick={() => {
               selectView(DOCUMENT_VIEW);
@@ -738,7 +738,7 @@ export function OpenItem({
           </Button>
           <Button
             variant="ghost"
-            className="min-h-11 flex-1"
+            className="flex-1"
             aria-expanded={panelOpen}
             onClick={togglePanel}
           >
@@ -746,7 +746,6 @@ export function OpenItem({
           </Button>
           <Button
             variant="icon"
-            className="min-h-11 min-w-11"
             aria-label="Item actions"
             onClick={() => {
               setActionsOpen(true);
@@ -1053,7 +1052,6 @@ function ItemHeader({
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
-            className="min-h-11"
             onClick={() => {
               if (location.key !== 'default') void navigate(-1);
               else if (parent) onNavigate(parent.id);
@@ -1065,7 +1063,7 @@ function ItemHeader({
           {parent ? (
             <Button
               variant="ghost"
-              className="min-h-11 min-w-0"
+              className="min-w-0"
               onClick={() => {
                 onNavigate(parent.id);
               }}

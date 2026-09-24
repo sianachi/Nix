@@ -12,6 +12,17 @@ export { Checkbox, type CheckboxProps } from './Checkbox';
 export { Dialog, type DialogProps } from './Dialog';
 export { Field, type FieldControlProps, type FieldProps } from './Field';
 export { Input, type InputProps, type InputTone } from './Input';
+export {
+  Menu,
+  type MenuAction,
+  type MenuContent,
+  type MenuEntry,
+  type MenuLink,
+  type MenuLinkRenderProps,
+  type MenuProps,
+  type MenuSeparator,
+  type MenuTriggerRenderProps,
+} from './Menu';
 export { PaneDivider, type PaneDividerOrientation, type PaneDividerProps } from './PaneDivider';
 export { Segmented, type SegmentedOption, type SegmentedProps } from './Segmented';
 export { Select, type SelectProps } from './Select';

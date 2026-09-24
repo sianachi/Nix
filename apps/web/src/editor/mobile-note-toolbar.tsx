@@ -95,7 +95,7 @@ export function MobileNoteToolbar({
             {editor ? (
               <Button
                 variant="ghost"
-                className="min-h-11 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   editor.commands.blur();
                 }}

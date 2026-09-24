@@ -683,6 +683,200 @@ describe('dropping an unscheduled item onto an hour', () => {
 });
 
 /**
+ * A calendar view whose `endDateProperty` is configured: the length between two properties, which
+ * used to answer to nothing at all - no drag drew a shape with two ends, so none resized one, and
+ * there was no keyboard path either. `RescheduleDialog` draws a second field for exactly this view
+ * and nothing changes for one that never named an end.
+ */
+describe('an end-date property on a month-grain view', () => {
+  const SPAN_SCHEMA: EffectiveSchema = {
+    properties: [
+      { key: 'due', label: 'Due', type: 'date', options: [], required: false },
+      { key: 'ends', label: 'Ends', type: 'date', options: [], required: false },
+    ],
+    declared: [],
+    inherit: true,
+  };
+
+  const SPAN_VIEW: View = aView({
+    id: 'view-span',
+    name: 'Sprints',
+    kind: 'calendar',
+    columns: ['title'],
+    dateProperty: 'due',
+    endDateProperty: 'ends',
+  });
+
+  const SPRINT = itemOf('item-sprint', 'Sprint', { due: '2026-03-17', ends: '2026-03-19' });
+
+  function renderSpan(children: readonly Item[]) {
+    const onOpen = vi.fn();
+    const data = aContainer({
+      schema: SPAN_SCHEMA,
+      views: views([SPAN_VIEW]),
+      setProperties: vi.fn(() => Promise.resolve(null)),
+      reload: vi.fn(() => Promise.resolve()),
+      children: [...children],
+    });
+
+    renderAt(<CalendarView container={data} view={SPAN_VIEW} onOpen={onOpen} />, '/');
+
+    return { setProperties: data.setProperties };
+  }
+
+  it('shows an end date field, prefilled from the item, as a date rather than a time', async () => {
+    renderSpan([SPRINT]);
+
+    await user().click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+
+    const field = screen.getByLabelText('New end date for Sprint');
+    expect(field).toHaveValue('2026-03-19');
+    expect(field).toHaveAttribute('type', 'date');
+  });
+
+  it('changes an item length by editing the end date alone, with no drag involved', async () => {
+    const person = user();
+    const { setProperties } = renderSpan([SPRINT]);
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+
+    const field = screen.getByLabelText('New end date for Sprint');
+    await person.clear(field);
+    await person.type(field, '2026-03-21');
+    await person.click(screen.getByRole('button', { name: 'Move' }));
+
+    // One call, both properties: the start is unchanged and the end is the new draft, stored
+    // together rather than as two writes that could land or be refused independently.
+    expect(setProperties).toHaveBeenCalledWith('item-sprint', {
+      due: '2026-03-17',
+      ends: '2026-03-21',
+    });
+  });
+
+  it('refuses an end before the start, inline, and writes nothing', async () => {
+    const person = user();
+    const { setProperties } = renderSpan([SPRINT]);
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+
+    const field = screen.getByLabelText('New end date for Sprint');
+    await person.clear(field);
+    await person.type(field, '2026-03-10');
+    await person.click(screen.getByRole('button', { name: 'Move' }));
+
+    expect(setProperties).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('The end must be on or after the start.');
+  });
+
+  it('takes both the start and the end off together when a date is removed', async () => {
+    const person = user();
+    const { setProperties } = renderSpan([SPRINT]);
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+    await person.click(screen.getByRole('button', { name: 'Remove date' }));
+
+    expect(setProperties).toHaveBeenCalledWith('item-sprint', { due: null, ends: null });
+  });
+
+  it('offers no end field when the view names no end-date property', async () => {
+    renderCalendar({ children: [KICKOFF] });
+
+    await user().click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
+
+    expect(screen.queryByLabelText(/New end/)).not.toBeInTheDocument();
+  });
+});
+
+/** The same field, on a view that places by the hour rather than by the day. */
+describe('an end-date property on a week-grain view', () => {
+  const SPAN_SCHEMA: EffectiveSchema = {
+    properties: [
+      { key: 'starts', label: 'Starts', type: 'timestamp', options: [], required: false },
+      { key: 'ends', label: 'Ends', type: 'timestamp', options: [], required: false },
+    ],
+    declared: [],
+    inherit: true,
+  };
+
+  const SPAN_VIEW: View = aView({
+    id: 'view-span-week',
+    name: 'This week',
+    kind: 'calendar',
+    columns: ['title'],
+    dateProperty: 'starts',
+    endDateProperty: 'ends',
+    mode: 'week',
+  });
+
+  // Thursday the 12th, in the same week the top-level clock opens on (a Sunday the 15th, whose week
+  // runs Monday the 9th to Sunday the 15th) - a date outside that window would not be drawn at all.
+  // `title` is repeated into the property bag because the hour grid's own card reads it there
+  // (`readPropertyText`), unlike the month card, which reads the item's own `title` field.
+  const STANDUP = itemOf('item-standup', 'Standup', {
+    title: 'Standup',
+    starts: '2026-03-12T09:00:00-10:00[Pacific/Honolulu]',
+    ends: '2026-03-12T10:00:00-10:00[Pacific/Honolulu]',
+  });
+
+  function renderSpan(children: readonly Item[]) {
+    const onOpen = vi.fn();
+    const data = aContainer({
+      schema: SPAN_SCHEMA,
+      views: views([SPAN_VIEW]),
+      setProperties: vi.fn(() => Promise.resolve(null)),
+      reload: vi.fn(() => Promise.resolve()),
+      children: [...children],
+    });
+
+    renderAt(<CalendarView container={data} view={SPAN_VIEW} onOpen={onOpen} />, '/');
+
+    return { setProperties: data.setProperties };
+  }
+
+  it('shows an end time field, prefilled from the item', async () => {
+    renderSpan([STANDUP]);
+
+    await user().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    const field = screen.getByLabelText('New end date and time for Standup');
+    expect(field).toHaveValue('2026-03-12T10:00');
+    expect(field).toHaveAttribute('type', 'datetime-local');
+  });
+
+  it('changes a timed item length by editing the end time alone, with no drag involved', async () => {
+    const person = user();
+    const { setProperties } = renderSpan([STANDUP]);
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    const field = screen.getByLabelText('New end date and time for Standup');
+    await person.clear(field);
+    await person.type(field, '2026-03-12T11:30');
+    await person.click(screen.getByRole('button', { name: 'Move' }));
+
+    expect(setProperties).toHaveBeenCalledWith('item-standup', {
+      starts: '2026-03-12T09:00:00-10:00[Pacific/Honolulu]',
+      ends: '2026-03-12T11:30:00-10:00[Pacific/Honolulu]',
+    });
+  });
+
+  it('refuses an end before the start for a timed item, inline', async () => {
+    const person = user();
+    const { setProperties } = renderSpan([STANDUP]);
+
+    await person.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    const field = screen.getByLabelText('New end date and time for Standup');
+    await person.clear(field);
+    await person.type(field, '2026-03-12T08:00');
+    await person.click(screen.getByRole('button', { name: 'Move' }));
+
+    expect(setProperties).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('The end must be after the start.');
+  });
+});
+
+/**
  * A calendar without a pointer: an always-visible way to add something, whether the calendar draws
  * as a grid or - on a phone, its default - as the agenda.
  */

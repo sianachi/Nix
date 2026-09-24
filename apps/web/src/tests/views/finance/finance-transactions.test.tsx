@@ -1,8 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BudgetLine, Finance } from '@nix/api-client';
+import type { BudgetLine, Finance, FinanceTransaction, QueryEndpoint } from '@nix/api-client';
+import type * as UseFinanceModule from '../../../views/finance/use-finance';
 
-import { QuickAddDialog } from '../../../views/finance/finance-transactions';
+const queries = vi.hoisted((): { transactions: unknown } => ({ transactions: null }));
+
+vi.mock('../../../views/finance/use-finance', async () => {
+  const actual = await vi.importActual<typeof UseFinanceModule>(
+    '../../../views/finance/use-finance',
+  );
+  return {
+    ...actual,
+    useFinanceQuery: <T,>(endpoint: QueryEndpoint<T>) => {
+      void endpoint;
+      return { status: 'ready', data: queries.transactions, error: null };
+    },
+  };
+});
+
+import { FinanceTransactions, QuickAddDialog } from '../../../views/finance/finance-transactions';
 import type { FinanceState as FinanceViewState } from '../../../views/finance/use-finance';
 
 const accountId = 'c3333333-3333-4333-8333-333333333333';
@@ -103,5 +119,103 @@ describe('recording a transaction and adding another', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();
     });
+  });
+});
+
+const otherLine: BudgetLine = {
+  ...line,
+  id: 'c5555555-5555-4555-8555-555555555555',
+  name: 'Transport',
+};
+
+const transactionA: FinanceTransaction = {
+  id: 'c6666666-6666-4666-8666-666666666666',
+  description: 'Corner shop',
+  date: '2026-09-05',
+  amount: -12.4,
+  accountId,
+  lineId: null,
+  source: 'manual',
+  postedFor: null,
+  importKey: null,
+  cleared: false,
+};
+
+const transactionB: FinanceTransaction = {
+  ...transactionA,
+  id: 'c7777777-7777-4777-8777-777777777777',
+  description: 'Bus fare',
+  amount: -3.2,
+};
+
+describe('bulk-assigning a selection of transactions to a budget line', () => {
+  const setTransaction = vi.fn<FinanceViewState['setTransaction']>();
+  const bulkState = {
+    generation: 0,
+    createTransaction: vi.fn(),
+    setTransaction,
+    deleteTransaction: vi.fn(),
+  } as unknown as FinanceViewState;
+
+  const mountList = () =>
+    render(
+      <FinanceTransactions
+        state={bulkState}
+        finance={{ ...finance, lines: [line, otherLine] }}
+        month="2026-09"
+      />,
+    );
+
+  beforeEach(() => {
+    setTransaction.mockReset();
+    queries.transactions = {
+      transactions: [transactionA, transactionB],
+      total: 2,
+      truncated: false,
+    };
+  });
+
+  it('assigns every selected transaction, one write per row', async () => {
+    setTransaction.mockResolvedValue(null);
+    mountList();
+
+    fireEvent.click(screen.getByLabelText(`Select ${transactionA.description}`));
+    fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
+    fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(setTransaction).toHaveBeenCalledTimes(2);
+    });
+    expect(setTransaction).toHaveBeenCalledWith(
+      transactionA.id,
+      expect.objectContaining({ lineId: line.id }),
+    );
+    expect(setTransaction).toHaveBeenCalledWith(
+      transactionB.id,
+      expect.objectContaining({ lineId: line.id }),
+    );
+  });
+
+  it('reports a partial failure honestly and keeps the failed row selected', async () => {
+    setTransaction.mockImplementation((transactionId: string) =>
+      Promise.resolve(
+        transactionId === transactionB.id ? 'That budget line no longer exists.' : null,
+      ),
+    );
+    mountList();
+
+    fireEvent.click(screen.getByLabelText(`Select ${transactionA.description}`));
+    fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
+    fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Assigned 1 of 2; 1 was refused: That budget line no longer exists.'),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText(`Select ${transactionA.description}`)).not.toBeChecked();
+    expect(screen.getByLabelText(`Select ${transactionB.description}`)).toBeChecked();
   });
 });

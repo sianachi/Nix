@@ -109,6 +109,14 @@ export interface HourGridProps {
   /** The property that places an item. */
   readonly dateProperty: string;
 
+  /**
+   * The property that closes a placed item's span, or null when the view has none configured.
+   *
+   * Threaded through to the reschedule dialog only - the grid itself still places every item as a
+   * point on `dateProperty`, and draws no bar for the length between the two.
+   */
+  readonly endDateProperty?: string | null;
+
   /** The clock the grid is drawn in. */
   readonly zone: string;
 
@@ -135,14 +143,18 @@ export interface HourGridProps {
    */
   readonly dragged: string | null;
 
-  /** Where a dropped item is written to. The value is a stored timestamp, or null to unschedule. */
   /**
-   * Reschedules an item onto the slot it was dropped on.
+   * Reschedules an item onto the slot it was dropped on, or onto the draft the reschedule dialog
+   * was submitted with.
+   *
+   * Takes a bag of properties rather than a bare value, because the dialog may write two - the
+   * start and, when this grid was given `endDateProperty`, the end - as one edit. A drop still
+   * writes only `dateProperty`; the bag has one key either way.
    *
    * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
    * the same caller - a grid that took a drop it could not write would silently discard it.
    */
-  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
+  readonly onMove?: ((itemId: string, values: Record<string, string | null>) => void) | undefined;
 }
 
 interface Placed {
@@ -159,7 +171,18 @@ interface Placed {
 }
 
 export function HourGrid(props: HourGridProps): ReactNode {
-  const { days, items, dateProperty, zone, today, onOpen, onCreate, dragged, onMove } = props;
+  const {
+    days,
+    items,
+    dateProperty,
+    endDateProperty = null,
+    zone,
+    today,
+    onOpen,
+    onCreate,
+    dragged,
+    onMove,
+  } = props;
 
   // One tab stop for all 168 hour-slot create controls, with the arrow keys moving which slot it
   // is: Up and Down walk the hours, Left and Right walk the days, Home and End jump to the first
@@ -297,15 +320,17 @@ export function HourGrid(props: HourGridProps): ReactNode {
           key={reschedulingItem.id}
           item={reschedulingItem}
           dateProperty={dateProperty}
+          endDateProperty={endDateProperty}
           // Every item this grid places has a moment on `dateProperty` - `placeOn` below reads one
-          // to decide the row, so nothing reaches this dialog without one.
+          // to decide the row, so nothing reaches this dialog without one. The end field, when the
+          // view has one, is assumed to be the same shape - see `RescheduleDialogProps.endDateProperty`.
           placesByTime
           zone={zone}
           onCancel={() => {
             setRescheduling(null);
           }}
-          onMove={(value) => {
-            onMove(reschedulingItem.id, value);
+          onMove={(values) => {
+            onMove(reschedulingItem.id, values);
             setRescheduling(null);
           }}
         />
@@ -393,7 +418,7 @@ function DayColumn(props: {
    * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
    * the same caller - a grid that took a drop it could not write would silently discard it.
    */
-  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
+  readonly onMove?: ((itemId: string, values: Record<string, string | null>) => void) | undefined;
 
   /**
    * Opens the reschedule dialog for a placed item.
@@ -509,7 +534,7 @@ function HourSlot(props: {
    * Optional, and absent means the grid accepts no drops. Paired with `dragged`, which is null for
    * the same caller - a grid that took a drop it could not write would silently discard it.
    */
-  readonly onMove?: ((itemId: string, value: string | null) => void) | undefined;
+  readonly onMove?: ((itemId: string, values: Record<string, string | null>) => void) | undefined;
 }): ReactNode {
   const { day, dayIndex, hour, dateProperty, zone, onCreate, dragged, onMove } = props;
   const [over, setOver] = useState(false);
@@ -538,7 +563,7 @@ function HourSlot(props: {
           // The hour is the whole point of dropping here rather than on a day: a drop writes the
           // moment the slot stands for, in the reader's zone, through the same function the slot's
           // create control writes.
-          onMove(dragged, writeSlot(day, hour, zone));
+          onMove(dragged, { [dateProperty]: writeSlot(day, hour, zone) });
         }
       }}
       className={cn(

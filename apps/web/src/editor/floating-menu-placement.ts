@@ -12,6 +12,8 @@
  * where a menu lands is tested once, here, without a DOM or a running editor.
  */
 
+export { isPointerCoarse } from '../lib/pointer';
+
 /** The visible region a menu has to fit inside, in viewport coordinates. */
 export interface FloatingMenuViewport {
   readonly left: number;
@@ -80,15 +82,6 @@ export function readViewportBounds(): FloatingMenuViewport {
     };
   }
   return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-}
-
-/** Whether the primary pointer is coarse - touch or a stylus, rather than a mouse. */
-export function isPointerCoarse(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(pointer: coarse)').matches
-  );
 }
 
 /**

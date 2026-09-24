@@ -110,7 +110,7 @@ export function ShellSidebar({
             <div className="flex min-h-0 w-full flex-col">
               <Button
                 variant="ghost"
-                className="min-h-11 shrink-0"
+                className="shrink-0"
                 onClick={() => {
                   setFullTree(false);
                 }}

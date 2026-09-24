@@ -20,10 +20,13 @@ import {
   List,
   ListChecks,
   ListOrdered,
+  Maximize2,
+  Minimize2,
   Minus,
   Pilcrow,
   Quote,
   Redo2,
+  RotateCcw,
   Rows3,
   SquareCode,
   Strikethrough,
@@ -398,6 +401,29 @@ export function EditorToolbar({
       run: () => void editor.chain().focus().deleteRow().run(),
       enabled: editor.can().deleteRow(),
     },
+    // A drag on the resize handle has no equivalent for a touchscreen or a keyboard; these three
+    // make the same `colwidth` change - see `column-width.ts` - from a button instead.
+    {
+      id: 'columnNarrower',
+      label: 'Column narrower',
+      icon: Minimize2,
+      run: () => void editor.chain().focus().columnNarrower().run(),
+      enabled: editor.can().columnNarrower(),
+    },
+    {
+      id: 'columnWider',
+      label: 'Column wider',
+      icon: Maximize2,
+      run: () => void editor.chain().focus().columnWider().run(),
+      enabled: editor.can().columnWider(),
+    },
+    {
+      id: 'resetColumnWidth',
+      label: 'Reset column width',
+      icon: RotateCcw,
+      run: () => void editor.chain().focus().resetColumnWidth().run(),
+      enabled: editor.can().resetColumnWidth(),
+    },
     {
       id: 'deleteTable',
       label: 'Delete table',
@@ -425,7 +451,6 @@ export function EditorToolbar({
         <Group controls={lists.filter((control) => control.id === 'bulletList')} />
         <Button
           variant="ghost"
-          className="min-h-11"
           onClick={() => {
             setMoreOpen(true);
           }}
@@ -446,7 +471,7 @@ export function EditorToolbar({
                 <Button
                   key={control.id}
                   variant="ghost"
-                  className="min-h-11 justify-start"
+                  className="justify-start"
                   disabled={control.enabled === false}
                   aria-pressed={control.active}
                   onClick={() => {
@@ -462,7 +487,6 @@ export function EditorToolbar({
                 <>
                   <Button
                     variant="ghost"
-                    className="min-h-11"
                     onClick={() => {
                       setMoreOpen(false);
                       onInsertItem('attachment');
@@ -472,7 +496,6 @@ export function EditorToolbar({
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-h-11"
                     onClick={() => {
                       setMoreOpen(false);
                       onInsertItem('embed');
@@ -482,7 +505,6 @@ export function EditorToolbar({
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-h-11"
                     onClick={() => {
                       setMoreOpen(false);
                       onInsertItem('subpage');
@@ -492,7 +514,6 @@ export function EditorToolbar({
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-h-11"
                     disabled={editor.state.selection.$from.depth > 1}
                     onClick={() => {
                       setMoreOpen(false);

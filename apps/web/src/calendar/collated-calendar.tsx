@@ -275,7 +275,10 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
             // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
-            onMove={(itemId, value) => {
+            onMove={(itemId, values) => {
+              // This grid was never given an end property, so the bag it hands back always holds
+              // exactly the one key it was given: `COLLATED_DATE_KEY`.
+              const value = values[COLLATED_DATE_KEY] ?? null;
               const entry = entries.find((candidate) => candidate.itemId === itemId);
               setDragged(null);
               if (entry === undefined || value === null) {
@@ -313,7 +316,10 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
           onCancel={() => {
             setRescheduling(null);
           }}
-          onMove={(value) => {
+          onMove={(values) => {
+            // No `endDateProperty` is passed above, so the dialog draws no end field and this bag
+            // always holds exactly the one key it was given.
+            const value = values[COLLATED_DATE_KEY] ?? null;
             setRescheduling(null);
             if (value !== null && value !== reschedulingEntry.value) {
               onReschedule(reschedulingEntry, value);

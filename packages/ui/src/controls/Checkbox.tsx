@@ -24,8 +24,8 @@ import { Text } from '../primitives/Text';
  *
  * **The hit area is bigger than the box.** The visible square is a compact 16px so a column of
  * checkboxes reads as fine detail, not as a row of buttons, but a target smaller than 24px is a
- * miss waiting to happen even with a mouse, so the wrapper around it claims 24px regardless of how
- * small the box inside looks. `pointer-coarse:` - Tailwind's `@media(pointer:coarse)` variant,
+ * miss waiting to happen even with a mouse, so the wrapper around it claims `--control-sm` (28px)
+ * regardless of how small the box inside looks. `pointer-coarse:` - Tailwind's `@media(pointer:coarse)` variant,
  * the same one `<Button>` uses - grows that wrapper to `--control-lg`, the scale's own 44px touch
  * step, once the pointer can no longer place itself precisely.
  *
@@ -85,10 +85,9 @@ export function Checkbox(props: CheckboxProps): ReactNode {
   const box = (
     <span
       className={cn(
-        // design-token-exempt: 24px is the fine-pointer hit-area floor; the scale's own touch
-        // step, --control-lg, takes over once the pointer is coarse. Neither number is a step on
-        // the visible-box scale, which stays 16px regardless of the wrapper it sits inside.
-        'relative inline-flex size-[24px] shrink-0 items-center justify-center pointer-coarse:size-(--control-lg)',
+        // The hit area, not the box: --control-sm clears the 24px floor for a fine pointer and
+        // --control-lg is the touch step once the pointer is coarse. The visible box stays 16px.
+        'relative inline-flex size-(--control-sm) shrink-0 items-center justify-center pointer-coarse:size-(--control-lg)',
         label === undefined && className,
       )}
     >
