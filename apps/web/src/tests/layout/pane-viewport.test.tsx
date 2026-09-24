@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PaneViewport } from '../../layout/pane-viewport';
 
@@ -148,5 +148,110 @@ describe('PaneViewport scroll restore', () => {
     expect(pane.scrollTop).toBe(50);
 
     second.unmount();
+  });
+});
+
+describe('PaneViewport scroll persistence', () => {
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
+  });
+
+  /** Mounts, sets a scrollable geometry and a scroll offset, then unmounts - the sequence that
+   * writes a position into the module map (and, once mounted under a workspace path, into
+   * `sessionStorage`) without depending on this file's restore-retry machinery. */
+  function scrollAndUnmount(scrollKey: string, scrollTop: number): void {
+    const rendered = render(
+      <PaneViewport className="" scrollKey={scrollKey}>
+        content
+      </PaneViewport>,
+    );
+    const pane = findPane(rendered.container);
+    setGeometry(pane, { scrollHeight: 800, clientHeight: 200 });
+    Object.defineProperty(pane, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: scrollTop,
+    });
+    fireEvent.scroll(pane);
+    rendered.unmount();
+  }
+
+  it('restores a scroll position from sessionStorage across a fresh module-level map', () => {
+    window.history.pushState({}, '', '/w/workspace-a/note-1');
+    scrollAndUnmount('restore-key', 400);
+
+    expect(sessionStorage.getItem('nix.pane-scroll:workspace-a')).not.toBeNull();
+
+    // A reload does not re-evaluate this module's `positions` map from scratch in a test the way
+    // a real page load would, so the restore path is exercised the same way the module itself
+    // would notice storage: through a workspace change, which is the one thing that makes this
+    // module re-read it.
+    window.history.pushState({}, '', '/w/workspace-other/note-1');
+    scrollAndUnmount('unrelated', 0);
+    window.history.pushState({}, '', '/w/workspace-a/note-1');
+
+    const { fire } = stubResizeObserver();
+    const rendered = render(
+      <PaneViewport className="" scrollKey="restore-key">
+        content
+      </PaneViewport>,
+    );
+    const pane = findPane(rendered.container);
+    Object.defineProperty(pane, 'scrollTop', { configurable: true, writable: true, value: 0 });
+
+    act(() => {
+      setGeometry(pane, { scrollHeight: 800, clientHeight: 200 });
+      fire();
+    });
+
+    expect(pane.scrollTop).toBe(400);
+    rendered.unmount();
+  });
+
+  it('ignores corrupt storage and starts fresh rather than throwing', () => {
+    window.history.pushState({}, '', '/w/workspace-corrupt/note-1');
+    sessionStorage.setItem('nix.pane-scroll:workspace-corrupt', 'not even json');
+
+    expect(() => {
+      const rendered = render(
+        <PaneViewport className="" scrollKey="any-key">
+          content
+        </PaneViewport>,
+      );
+      rendered.unmount();
+    }).not.toThrow();
+  });
+
+  it('never restores another workspace’s scroll positions', () => {
+    window.history.pushState({}, '', '/w/workspace-x/note-1');
+    scrollAndUnmount('shared-key', 777);
+
+    window.history.pushState({}, '', '/w/workspace-y/note-1');
+    const rendered = render(
+      <PaneViewport className="" scrollKey="shared-key">
+        content
+      </PaneViewport>,
+    );
+    const pane = findPane(rendered.container);
+    setGeometry(pane, { scrollHeight: 800, clientHeight: 200 });
+    Object.defineProperty(pane, 'scrollTop', { configurable: true, writable: true, value: 0 });
+
+    expect(pane.scrollTop).toBe(0);
+    rendered.unmount();
+  });
+
+  it('caps the remembered positions, dropping the oldest once the limit is exceeded', () => {
+    window.history.pushState({}, '', '/w/workspace-cap/note-1');
+
+    for (let index = 0; index < 51; index += 1) {
+      scrollAndUnmount(`key-${String(index)}`, index + 1);
+    }
+
+    const stored = sessionStorage.getItem('nix.pane-scroll:workspace-cap');
+    expect(stored).not.toBeNull();
+    const entries = JSON.parse(stored ?? '[]') as [string, number][];
+    expect(entries.length).toBeLessThanOrEqual(50);
+    expect(entries.some(([key]) => key === 'key-0')).toBe(false);
+    expect(entries.some(([key]) => key === 'key-50')).toBe(true);
   });
 });

@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { z } from 'zod';
+
+import { browserSessionStorage } from '../lib/browser-storage';
 
 /**
  * Which documents are open in each pane's tab strip, held in memory rather than the address.
@@ -9,9 +12,19 @@ import { create } from 'zustand';
  * property to protect: it is a working set, closer to a browser's own tab strip than to a fact
  * worth sending someone. Encoding it into the query string would also mean every preview-tab
  * replacement and every reorder became a navigation entry, which Back does not agree is what
- * happened. So this is the next rung down the state ladder - a Zustand slice, session-local, gone
- * on refresh - and `pane.itemId` from `usePanes()` stays the one thing that is still in the address:
- * "what a pane shows" is shareable, "what else is open behind it" is not.
+ * happened. So this is the next rung down the state ladder - a Zustand slice, mirrored into
+ * `sessionStorage` so a reload (including the PWA's own "Update Nix" button, which reloads the
+ * page) or iOS reclaiming a backgrounded tab does not wipe a person's working set - and
+ * `pane.itemId` from `usePanes()` stays the one thing that is still in the address: "what a pane
+ * shows" is shareable, "what else is open behind it" is not.
+ *
+ * **What is stored, and what is not.** Only item ids and the pinned flag - never a title, a body,
+ * or anything that decides what a person may see. Core still decides that on every load; a
+ * restored tab whose item has since been deleted or gone out of reach is left to the normal item
+ * loading path to show "not found" the same way a pasted link to it would. Storage is `sessionStorage`,
+ * not `localStorage`: a working set is tab-scoped the same way an unfinished flow is, and keyed by
+ * workspace so switching workspaces never shows another workspace's tabs. Storage is read back
+ * through Zod - a corrupt or older-shaped payload is treated as absent rather than thrown.
  *
  * **No `activeId` field.** The active tab for a pane is `pane.itemId`, exactly as it is today.
  * Keeping a second copy here would hand this store and the URL two answers to the same question,
@@ -26,6 +39,48 @@ export interface OpenTab {
   readonly itemId: string;
   /** Preview tabs are replaced by the next preview; pinned ones are not. */
   readonly pinned: boolean;
+}
+
+const OPEN_TAB_SCHEMA = z.object({ itemId: z.string(), pinned: z.boolean() });
+const STORED_TABS_SCHEMA = z.object({
+  workspaceId: z.string(),
+  byPane: z.record(z.string(), z.array(OPEN_TAB_SCHEMA)),
+});
+
+const STORAGE_KEY = 'nix.open-tabs';
+
+/** Reads back this workspace's tabs, or an empty working set if there are none, or none of its
+ * own, stored - a workspace switch must never inherit another workspace's strip. */
+function readStoredTabs(workspaceId: string): Readonly<Record<number, readonly OpenTab[]>> {
+  try {
+    const raw = browserSessionStorage()?.getItem(STORAGE_KEY);
+    if (raw === null || raw === undefined) return {};
+
+    const parsed = STORED_TABS_SCHEMA.safeParse(JSON.parse(raw));
+    if (!parsed.success || parsed.data.workspaceId !== workspaceId) return {};
+
+    const byPane: Record<number, readonly OpenTab[]> = {};
+    for (const [key, tabs] of Object.entries(parsed.data.byPane)) {
+      const index = Number(key);
+      if (Number.isInteger(index) && index >= 0) byPane[index] = tabs;
+    }
+    return byPane;
+  } catch {
+    // Corrupt JSON, or a browser that refuses session storage outright. Either way, an empty
+    // working set is the honest default - not a thrown error the shell has to recover from.
+    return {};
+  }
+}
+
+function writeStoredTabs(
+  workspaceId: string,
+  byPane: Readonly<Record<number, readonly OpenTab[]>>,
+): void {
+  try {
+    browserSessionStorage()?.setItem(STORAGE_KEY, JSON.stringify({ workspaceId, byPane }));
+  } catch {
+    // Best-effort: the in-memory store still serves this tab for the rest of the session.
+  }
 }
 
 interface TabsState {
@@ -152,7 +207,11 @@ export const useTabStore = create<TabsState>((set) => ({
   byPane: {},
 
   workspaceChanged: (workspaceId) => {
-    set((state) => (state.workspaceId === workspaceId ? state : { workspaceId, byPane: {} }));
+    set((state) =>
+      state.workspaceId === workspaceId
+        ? state
+        : { workspaceId, byPane: readStoredTabs(workspaceId) },
+    );
   },
 
   itemOpenedAlone: (itemId, pinned) => {
@@ -234,3 +293,10 @@ export const useTabStore = create<TabsState>((set) => ({
     });
   },
 }));
+
+// Every action above changes `byPane`, `workspaceId`, or both together; mirroring the result here
+// in one place, rather than from inside each action, keeps the actions themselves free of a
+// storage concern none of them is otherwise about.
+useTabStore.subscribe((state) => {
+  if (state.workspaceId !== null) writeStoredTabs(state.workspaceId, state.byPane);
+});

@@ -1,6 +1,6 @@
 import { type CellRef, cellKey, rangeContains } from '@nix/sheet';
-import { Icon, Text, cn, focusRing, focusRingInset, gridRangeCell } from '@nix/ui';
-import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
+import { Button, Icon, Text, cn, focusRing, focusRingInset, gridRangeCell } from '@nix/ui';
+import { ArrowDown, ArrowUp, ChevronsUpDown, SquareArrowOutUpRight } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -562,21 +562,39 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
         press Escape, then Tab, to move focus out of it.
       </p>
 
-      {/* The same model, findable by sight: nothing in this grid except selection and
-          open-on-double-click is reachable by pointer alone, so the hint cannot be sr-only's
-          secret. */}
-      <details className="mb-1">
-        <summary className={cn('inline-block cursor-pointer', focusRing)}>
-          <Text as="span" variant="note" tone="muted">
-            Keyboard
+      {/* The same model, findable by sight: a tap or a click alone reaches selection, editing
+          and opening - a second tap on the already-active cell edits it, and this button opens
+          it - so the keyboard ladder below is a shortcut, not the only door. */}
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <details>
+          <summary className={cn('inline-block cursor-pointer', focusRing)}>
+            <Text as="span" variant="note" tone="muted">
+              Keyboard
+            </Text>
+          </summary>
+          <Text as="p" variant="note" tone="muted">
+            Arrows move, Shift extends. Type to replace a cell, Enter to edit it (on a title, Enter
+            opens the item). Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes tab-separated text, Ctrl/Cmd+D
+            fills down, Delete clears. Escape, then Tab, leaves the grid.
           </Text>
-        </summary>
-        <Text as="p" variant="note" tone="muted">
-          Arrows move, Shift extends. Type to replace a cell, Enter to edit it (on a title, Enter
-          opens the item). Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes tab-separated text, Ctrl/Cmd+D
-          fills down, Delete clears. Escape, then Tab, leaves the grid.
-        </Text>
-      </details>
+        </details>
+
+        {/* The pointer-only way to open a row: tapping the title twice already does it, but a
+            visible control means opening never depends on a double-click or a keyboard. */}
+        <Button
+          variant="secondary"
+          className="shrink-0"
+          disabled={activeItem === undefined}
+          onClick={() => {
+            if (activeItem !== undefined) {
+              onOpen(activeItem.id);
+            }
+          }}
+        >
+          <Icon icon={SquareArrowOutUpRight} size="sm" />
+          {activeItem === undefined ? 'Open' : `Open ${activeItem.title || 'Untitled'}`}
+        </Button>
+      </div>
 
       {/* The header: sort controls, pinned above the scroller and following its horizontal
           scroll. Outside the grid role on purpose - the body grid's own precedent - so each
@@ -732,12 +750,31 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                         // Mouse down rather than click so a shift-click extends the range from
                         // the pressed corner (there is no drag-selection; Shift with the arrows
                         // or a shift-click is the range gesture).
+                        //
+                        // Whether the grid already held focus, checked before we take it below,
+                        // is what tells a tap that lands on the already-active cell apart from
+                        // the tap that first brought that cell to life: the former is a person
+                        // asking to edit or open what they can already see is selected, the
+                        // latter is the ordinary first touch that only selects. Without this, a
+                        // touch or mouse user could select a cell but never edit or open one
+                        // without a double-click or the keyboard.
+                        const alreadyFocused =
+                          scrollerRef.current !== null &&
+                          document.activeElement === scrollerRef.current;
                         event.preventDefault();
                         scrollerRef.current?.focus();
                         // A draft that fails coercion keeps its editor open: moving the selection
                         // out from under it would throw away the typed text with the notice still
                         // claiming it can be corrected.
                         if (selection.mode === 'edit' && !commitDraft('stay')) {
+                          return;
+                        }
+                        if (alreadyFocused && isActive && !event.shiftKey) {
+                          if (isTitle) {
+                            onOpen(item.id);
+                          } else {
+                            beginEdit('open', cellText(item, column));
+                          }
                           return;
                         }
                         dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });

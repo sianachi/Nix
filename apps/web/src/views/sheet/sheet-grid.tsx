@@ -686,10 +686,29 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                       onMouseDown={(event) => {
                         // Mouse down rather than click, so a drag begins a
                         // range from the right corner; shift-click extends.
+                        //
+                        // Checked before we take focus below: a tap that
+                        // lands on a cell the grid already had focused and
+                        // active is a request to edit it, the same door the
+                        // double-click and Enter already open - without it,
+                        // a touch user could select a cell but never edit
+                        // one without a keyboard or a double-tap.
+                        const alreadyFocused =
+                          scrollerRef.current !== null &&
+                          document.activeElement === scrollerRef.current;
                         event.preventDefault();
                         scrollerRef.current?.focus();
                         if (selection.mode === 'edit') {
                           commitDraft('stay');
+                        }
+                        if (
+                          alreadyFocused &&
+                          !event.shiftKey &&
+                          row === selection.active.row &&
+                          col === selection.active.col
+                        ) {
+                          beginEdit('open', raw ?? '');
+                          return;
                         }
                         dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
                       }}

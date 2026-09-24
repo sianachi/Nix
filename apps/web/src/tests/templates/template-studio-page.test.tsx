@@ -96,6 +96,26 @@ describe('the template studio', () => {
     expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'lg:flex-none');
   });
 
+  /**
+   * A regression for the phone-width step bar: it used to hide every step's name below `lg`,
+   * leaving only bare numbers - "1 2 3" tells a reader there are three steps and nothing about
+   * what any of them are. The name for the current step now renders at every width, so this reads
+   * it as a fact about the DOM rather than about a breakpoint no test here can evaluate.
+   */
+  it('names the current step, not only its number, regardless of width', async () => {
+    stubCoreApi({ items: [SOURCE] });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
+
+    await screen.findByRole('heading', { name: 'Save as template' });
+    const steps = screen.getByRole('navigation', { name: 'Template steps' });
+    const current = within(steps).getByRole('button', { current: 'step' });
+
+    const name = within(current).getByText('Basics');
+    expect(name).toBeVisible();
+    expect(name).not.toHaveClass('sr-only');
+    expect(name.parentElement).not.toHaveClass('hidden');
+  });
+
   it('recovers an unfinished draft for the same source item', async () => {
     sessionStorage.setItem(
       `nix:template-studio:${STUB_WORKSPACE.id}:capture:source:${SOURCE.id}`,

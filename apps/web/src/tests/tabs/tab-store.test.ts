@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { browserSessionStorage } from '../../lib/browser-storage';
 import { useTabStore } from '../../tabs/tab-store';
 
 function tabs(pane: number): readonly { itemId: string; pinned: boolean }[] {
@@ -7,7 +8,7 @@ function tabs(pane: number): readonly { itemId: string; pinned: boolean }[] {
 }
 
 beforeEach(() => {
-  useTabStore.setState({ byPane: {} });
+  useTabStore.setState({ workspaceId: null, byPane: {} });
 });
 
 describe('previewing a document', () => {
@@ -213,5 +214,52 @@ describe('closing a pane', () => {
     useTabStore.getState().paneClosed(0, 2);
 
     expect(useTabStore.getState().byPane[0]).toBeUndefined();
+  });
+});
+
+describe('sessionStorage persistence', () => {
+  it('restores the working set a later reload would otherwise wipe', () => {
+    useTabStore.getState().workspaceChanged('workspace-a');
+    useTabStore.getState().tabPinned(0, 'a');
+    useTabStore.getState().tabPreviewed(1, 'b');
+
+    // Stands in for the reload itself: a fresh mount of the store, reading whatever the previous
+    // one left in storage, rather than the in-memory state carried forward within this test.
+    useTabStore.setState({ workspaceId: null, byPane: {} });
+    useTabStore.getState().workspaceChanged('workspace-a');
+
+    expect(tabs(0)).toEqual([{ itemId: 'a', pinned: true }]);
+    expect(tabs(1)).toEqual([{ itemId: 'b', pinned: false }]);
+  });
+
+  it('starts fresh from corrupt or older-shaped storage instead of throwing', () => {
+    browserSessionStorage()?.setItem('nix.open-tabs', '{"nonsense": true}');
+
+    expect(() => {
+      useTabStore.getState().workspaceChanged('workspace-a');
+    }).not.toThrow();
+    expect(useTabStore.getState().byPane).toEqual({});
+
+    browserSessionStorage()?.setItem('nix.open-tabs', 'not even json');
+
+    expect(() => {
+      useTabStore.getState().workspaceChanged('workspace-b');
+    }).not.toThrow();
+    expect(useTabStore.getState().byPane).toEqual({});
+  });
+
+  it('never restores another workspace’s tabs on switching workspace', () => {
+    useTabStore.getState().workspaceChanged('workspace-a');
+    useTabStore.getState().tabPinned(0, 'a');
+
+    useTabStore.getState().workspaceChanged('workspace-b');
+
+    expect(useTabStore.getState().byPane).toEqual({});
+
+    // And switching back does not resurrect workspace-a's strip either - the persisted payload
+    // now belongs to workspace-b, which recorded nothing.
+    useTabStore.getState().workspaceChanged('workspace-a');
+
+    expect(useTabStore.getState().byPane).toEqual({});
   });
 });

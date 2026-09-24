@@ -294,8 +294,12 @@ export function Dialog(props: DialogProps): ReactNode {
           presentation === 'workspace'
             ? // design-token-exempt: device safe areas protect full-screen mobile dialog controls.
               'flex h-full min-h-0 flex-col gap-2 p-3 pt-[max(var(--spacing)*3,env(safe-area-inset-top))] pb-[max(var(--spacing)*3,env(safe-area-inset-bottom))] sm:p-6'
-            : // design-token-exempt: viewport and device safe-area constrain the mobile sheet.
-              'flex max-h-[80vh] flex-col gap-4 overflow-y-auto p-6 pb-[max(var(--spacing)*6,env(safe-area-inset-bottom))]'
+            : // design-token-exempt: viewport and device safe-area constrain the mobile sheet. The
+              // frame itself is capped here, at whichever of the two is smaller: 80vh most of the
+              // time, or the on-screen-keyboard-adjusted visual viewport once one is up. Below,
+              // only the body scrolls - the header and the actions are flex items beside it, not
+              // inside it, so a tall body can never carry them out of view.
+              'flex min-h-0 max-h-[min(80vh,var(--sheet-viewport-height,100dvh))] flex-col gap-4 p-6 pb-[max(var(--spacing)*6,env(safe-area-inset-bottom))]'
         }
       >
         <div
@@ -320,10 +324,17 @@ export function Dialog(props: DialogProps): ReactNode {
           </Button>
         </div>
 
-        {children}
+        {presentation === 'standard' ? (
+          // The one scroll region in a standard dialog. `min-h-0` overrides the flex item's
+          // default min-content height, which is otherwise exactly tall enough to defeat
+          // `overflow-y-auto` by never shrinking below the body's own content.
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">{children}</div>
+        ) : (
+          children
+        )}
 
         {actions === undefined ? null : (
-          <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
+          <div className="flex flex-wrap shrink-0 items-center justify-end gap-2">{actions}</div>
         )}
       </div>
     </dialog>

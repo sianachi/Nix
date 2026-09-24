@@ -300,3 +300,23 @@ describe('numeric overflow', () => {
     expect(cell.className).toContain('decoration-dotted');
   });
 });
+
+describe('reaching an edit by pointer alone', () => {
+  it('turns a second tap on the already-active cell into an edit; the first only selects it', () => {
+    const doc = new Y.Doc();
+    writeCell(doc, { row: 0, col: 0 }, 'hello');
+    renderGrid(doc);
+
+    const cell = screen.getByRole('gridcell', { name: 'A1, hello' });
+
+    // The first tap brings the grid into focus and selects the cell - no editor yet, same as
+    // any first click.
+    fireEvent.mouseDown(cell);
+    expect(screen.queryByRole('textbox', { name: 'Edit cell A1' })).toBeNull();
+
+    // The second tap lands on the cell that is already active: no double-click and no keyboard
+    // involved, and that alone is enough to start editing it.
+    fireEvent.mouseDown(cell);
+    expect(screen.getByRole('textbox', { name: 'Edit cell A1' })).toBeInTheDocument();
+  });
+});
