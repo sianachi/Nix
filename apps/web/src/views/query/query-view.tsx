@@ -97,7 +97,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                   onOpen(row.id);
                 }}
                 className={cn(
-                  'cursor-pointer text-left font-semibold hover:text-accent-text',
+                  'cursor-pointer text-left font-semibold hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
                   focusRing,
                 )}
               >

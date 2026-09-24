@@ -112,8 +112,9 @@ export interface HourGridProps {
   /**
    * The property that closes a placed item's span, or null when the view has none configured.
    *
-   * Threaded through to the reschedule dialog only - the grid itself still places every item as a
-   * point on `dateProperty`, and draws no bar for the length between the two.
+   * Threaded through to `placeOn`, which draws an item that has one as a bar reaching from its
+   * start to its end rather than as a point, and to the reschedule dialog, which is where that
+   * end gets written.
    */
   readonly endDateProperty?: string | null;
 
@@ -157,6 +158,9 @@ export interface HourGridProps {
   readonly onMove?: ((itemId: string, values: Record<string, string | null>) => void) | undefined;
 }
 
+/** Minutes in a full day, for clamping a span that runs past midnight. */
+const MINUTES_PER_DAY = 24 * 60;
+
 interface Placed {
   readonly item: Item;
 
@@ -168,6 +172,20 @@ interface Placed {
 
   /** The zone the item was written in, which the card names only when it differs. */
   readonly zone: string;
+
+  /**
+   * How long the entry runs for, in minutes, clamped to the rest of this day - or null for a
+   * point.
+   *
+   * Null covers three cases that all draw the same way an item with no end always has: the view
+   * has no `endDateProperty` configured, the item has no value for it, or the value is not after
+   * the start (an end before its start is the reversed span timeline-view.tsx also refuses to
+   * draw as a bar, rather than as one with a length that would run backwards). An end that lands
+   * on a later day is clamped to midnight rather than drawn past it - this grid is one day tall,
+   * and a bar continuing into tomorrow's column belongs to a multi-day rendering this grid does
+   * not attempt.
+   */
+  readonly durationMinutes: number | null;
 }
 
 export function HourGrid(props: HourGridProps): ReactNode {
@@ -297,7 +315,7 @@ export function HourGrid(props: HourGridProps): ReactNode {
                 key={dayText(day)}
                 day={day}
                 dayIndex={dayIndex}
-                placed={placeOn(day, items, dateProperty, zone)}
+                placed={placeOn(day, items, dateProperty, endDateProperty, zone)}
                 dateProperty={dateProperty}
                 zone={zone}
                 onOpen={onOpen}
@@ -365,6 +383,7 @@ function placeOn(
   day: CalendarDay,
   items: readonly Item[],
   dateProperty: string,
+  endDateProperty: string | null,
   zone: string,
 ): readonly Placed[] {
   const wanted = dayText(day);
@@ -381,16 +400,131 @@ function placeOn(
         return [];
       }
 
+      const minutes = minutesFor(value, zone);
+
       return [
         {
           item,
-          minutes: minutesFor(value, zone),
+          minutes,
           at: formatTime(value, zone),
           zone: value.zone,
+          durationMinutes: spanMinutes(item, endDateProperty, wanted, minutes, zone),
         },
       ];
     })
     .sort((left, right) => left.minutes - right.minutes);
+}
+
+/**
+ * How long a placed item's span reaches into this day, or null for a point.
+ *
+ * See `Placed.durationMinutes` for the three cases that all collapse to null and the clamp that
+ * keeps an overnight item's bar from running into a column that is not this one.
+ */
+function spanMinutes(
+  item: Item,
+  endDateProperty: string | null,
+  startDay: string,
+  startMinutes: number,
+  zone: string,
+): number | null {
+  if (endDateProperty === null) {
+    return null;
+  }
+
+  const end = readTimestampValue(item.properties, endDateProperty);
+  if (end === null) {
+    return null;
+  }
+
+  const endLocal = end.at.setZone(zone);
+  const endDay = endLocal.toFormat('yyyy-MM-dd');
+
+  if (endDay === startDay) {
+    const duration = endLocal.hour * 60 + endLocal.minute - startMinutes;
+    return duration > 0 ? duration : null;
+  }
+
+  // `yyyy-MM-dd` text sorts the same lexically as it does by calendar day - the same fact
+  // reschedule-dialog.tsx's own end check leans on for a bare date. An end on an earlier day is
+  // the reversed case above and draws as a point; an end on a later day runs off the bottom of
+  // this one column, clamped to midnight.
+  return endDay > startDay ? MINUTES_PER_DAY - startMinutes : null;
+}
+
+/**
+ * Where each placed item sits sideways, so two items whose spans overlap in time sit side by side
+ * rather than one painting over the other.
+ *
+ * A greedy sweep over intervals sorted by start: an item takes the lowest lane whose last
+ * occupant has already ended, or opens a new one. Lanes are scoped to a cluster of
+ * mutually-touching intervals rather than to the whole day, so a single busy hour does not
+ * squeeze every other item on the day down to a sliver it does not need. A point (no
+ * `durationMinutes`) counts as occupying one minute for this purpose only - long enough that two
+ * items placed at the exact same minute are still treated as overlapping and laned apart, short
+ * enough that it never overlaps a neighbour a whole hour away.
+ */
+function layout(placed: readonly Placed[]): readonly (Placed & { lane: number; lanes: number })[] {
+  const intervals = placed
+    .map((entry) => ({
+      entry,
+      start: entry.minutes,
+      end: entry.minutes + Math.max(entry.durationMinutes ?? 1, 1),
+    }))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  const results: (Placed & { lane: number; lanes: number })[] = [];
+
+  // The end minute each open lane's current occupant reaches, index by lane number.
+  let laneEnds: number[] = [];
+  let cluster: { readonly entry: Placed; readonly lane: number }[] = [];
+
+  function closeCluster(): void {
+    const lanes = laneEnds.length;
+    for (const member of cluster) {
+      results.push({ ...member.entry, lane: member.lane, lanes });
+    }
+    cluster = [];
+    laneEnds = [];
+  }
+
+  for (const interval of intervals) {
+    if (laneEnds.length > 0 && laneEnds.every((end) => end <= interval.start)) {
+      closeCluster();
+    }
+
+    let lane = laneEnds.findIndex((end) => end <= interval.start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(interval.end);
+    } else {
+      laneEnds[lane] = interval.end;
+    }
+
+    cluster.push({ entry: interval.entry, lane });
+  }
+
+  closeCluster();
+
+  return results;
+}
+
+/**
+ * The inline position and width a lane resolves to, as CSS `calc()` expressions.
+ *
+ * Percent for the column's own width, which this file does not know in pixels, and a fixed pixel
+ * gutter for the same 4px `inset-x-1` every point already drew with, split so lanes get 2px
+ * between them rather than 4px in the middle and none at the edges.
+ */
+function laneStyle(lane: number, lanes: number): { left: string; width: string } {
+  const gap = 2;
+  const inset = 4;
+  const available = `(100% - ${String(inset * 2)}px - ${String((lanes - 1) * gap)}px)`;
+
+  return {
+    left: `calc(${String(inset)}px + (${available}) * ${String(lane)} / ${String(lanes)} + ${String(lane * gap)}px)`,
+    width: `calc((${available}) / ${String(lanes)})`,
+  };
 }
 
 function DayColumn(props: {
@@ -461,42 +595,68 @@ function DayColumn(props: {
         />
       ))}
 
-      {placed.map((entry) => (
-        // A row rather than a single button: a placed item used to answer only to `onOpen`, which
-        // made a drag the sole way to move a card once it had landed on the grid - a gesture
-        // neither a keyboard nor a touch screen has. The reschedule control beside it reaches the
-        // same write a drag makes, exactly as the month card's own reschedule control does.
-        <div
-          key={entry.item.id}
-          style={{ top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px` }} // design-token-exempt: where an item sits is its own time - 09:30 is half a row down - a position read off the data, computed at runtime, so not a token
-          className="absolute inset-x-1 flex items-stretch gap-0.5 rounded-sm bg-accent/18"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              onOpen(entry.item.id);
-            }}
-            className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-          >
-            <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
-            <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
-          </button>
+      {layout(placed).map((entry) => {
+        const { left, width } = laneStyle(entry.lane, entry.lanes);
 
-          {onReschedule === undefined ? null : (
-            <Button
-              variant="ghost"
-              aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
-              aria-haspopup="dialog"
-              className="shrink-0 self-start px-0.5 py-1"
+        const position = {
+          // design-token-exempt: where an item sits, how wide its lane is and how tall its
+          // span is are all positions read off the data and the overlap sweep above, computed
+          // at runtime rather than restated as a class - see ROW_HEIGHT's own comment.
+          top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px`,
+          left,
+          width,
+          ...(entry.durationMinutes === null
+            ? {}
+            : {
+                height: `${String((entry.durationMinutes / 60) * ROW_HEIGHT)}px`,
+                // A short span's box is shorter than its two lines of text. Kept off the
+                // Tailwind class list rather than reached for as `overflow-hidden`: this
+                // file's own scroller-contract tests scan for anything named `overflow-*`
+                // inside the grid to prove there is exactly one scroll boundary, and a class
+                // saying "clip my own content" is not a second scroller - but the substring
+                // match cannot tell the two apart, so this stays an inline style instead.
+                overflow: 'hidden',
+              }),
+        };
+        return (
+          // A row rather than a single button: a placed item used to answer only to `onOpen`,
+          // which made a drag the sole way to move a card once it had landed on the grid - a
+          // gesture neither a keyboard nor a touch screen has. The reschedule control beside it
+          // reaches the same write a drag makes, exactly as the month card's own reschedule
+          // control does. A span sets an explicit `height`, computed from its duration; a point
+          // sets none and draws at its content's own height, exactly as it always has.
+          <div
+            key={entry.item.id}
+            style={position} // design-token-exempt: computed from the data and the overlap sweep
+            className="absolute flex items-stretch gap-0.5 rounded-sm bg-accent/18"
+          >
+            <button
+              type="button"
               onClick={() => {
-                onReschedule(entry.item.id);
+                onOpen(entry.item.id);
               }}
+              className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
-              <Icon icon={CalendarClock} size="sm" />
-            </Button>
-          )}
-        </div>
-      ))}
+              <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
+              <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
+            </button>
+
+            {onReschedule === undefined ? null : (
+              <Button
+                variant="ghost"
+                aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
+                aria-haspopup="dialog"
+                className="shrink-0 self-start px-0.5 py-1"
+                onClick={() => {
+                  onReschedule(entry.item.id);
+                }}
+              >
+                <Icon icon={CalendarClock} size="sm" />
+              </Button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

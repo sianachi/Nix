@@ -1,4 +1,4 @@
-import { Button, Field, Input, Text } from '@nix/ui';
+import { Button, Checkbox, cn, Field, focusRing, Input, Select, Text } from '@nix/ui';
 import { items } from '@nix/api-client';
 import { CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -668,7 +668,12 @@ function HabitRow({
           </Text>
         </div>
         <details className="mt-3">
-          <summary className="w-fit cursor-pointer rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <summary
+            className={cn(
+              'w-fit cursor-pointer rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised',
+              focusRing,
+            )}
+          >
             Habit options
           </summary>
           <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md bg-surface-raised p-2 md:flex-col md:items-stretch">
@@ -921,7 +926,7 @@ function HabitSetup({
       </Field>
       <Field label="Frequency">
         {(control) => (
-          <select
+          <Select
             {...control}
             value={frequency}
             onChange={(event) => {
@@ -930,7 +935,7 @@ function HabitSetup({
           >
             <option value="daily">Every day</option>
             <option value="weekly">Selected days</option>
-          </select>
+          </Select>
         )}
       </Field>
       {frequency === 'weekly' ? (
@@ -939,22 +944,20 @@ function HabitSetup({
             <Text variant="caption">Days</Text>
           </legend>
           {WEEKDAYS.map((name, index) => (
-            <label key={name} className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={weekdays.has(index === 6 ? 0 : index + 1)}
-                onChange={() => {
-                  setWeekdays((current) => {
-                    const next = new Set(current);
-                    const value = index === 6 ? 0 : index + 1;
-                    if (next.has(value)) next.delete(value);
-                    else next.add(value);
-                    return next;
-                  });
-                }}
-              />
-              <Text variant="caption">{name.slice(0, 3)}</Text>
-            </label>
+            <Checkbox
+              key={name}
+              label={name.slice(0, 3)}
+              checked={weekdays.has(index === 6 ? 0 : index + 1)}
+              onChange={() => {
+                setWeekdays((current) => {
+                  const next = new Set(current);
+                  const value = index === 6 ? 0 : index + 1;
+                  if (next.has(value)) next.delete(value);
+                  else next.add(value);
+                  return next;
+                });
+              }}
+            />
           ))}
         </fieldset>
       ) : null}

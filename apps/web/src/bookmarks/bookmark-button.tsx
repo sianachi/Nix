@@ -63,7 +63,8 @@ export function BookmarkButton(props: BookmarkButtonProps): ReactNode {
       }}
       className={cn(
         focusRing,
-        'rounded-sm p-1 text-muted hover:bg-surface hover:text-accent-text',
+        'flex size-(--control-sm) shrink-0 items-center justify-center rounded-sm text-muted hover:bg-surface hover:text-accent-text',
+        'pointer-coarse:size-(--control-lg)',
         kept ? 'text-accent-text' : '',
         className,
       )}

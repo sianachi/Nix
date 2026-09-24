@@ -83,7 +83,10 @@ export function DailyNotePage(): ReactNode {
     );
   }
   return (
-    <section className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+    <section
+      className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center"
+      role="status"
+    >
       <Text variant="h2" as="h1">
         Opening daily note
       </Text>

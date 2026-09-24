@@ -1033,7 +1033,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           compact
           itemId={item.id}
           title={item.title}
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-lg) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
         />
 
         {/* A direct escape from nesting. Dragging beside a root or pressing Alt+Left once per
@@ -1072,7 +1072,12 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
           // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
           // the `max-sm:` override without it.
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
+          //
+          // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
+          // landing between "move to root" and the bookmark star and this destructive action has
+          // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
+          // the same narrow spacing on every control in it.
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
         >
           <Icon icon={Trash2} size="sm" />
         </button>

@@ -724,10 +724,22 @@ describe('an end-date property on a month-grain view', () => {
     return { setProperties: data.setProperties };
   }
 
+  /**
+   * SPRINT now draws a card on every day it covers (see the multi-day test below), so a bare
+   * `getByRole` for its title or its reschedule control matches three times over. Every one of
+   * them reaches the same item and the same write, so these tests pin down the occurrence on the
+   * start day - the one every pre-existing assertion here was already written against.
+   */
+  function startDayCard(name: string): HTMLElement {
+    return within(screen.getByRole('cell', { name: 'Tuesday 17 March 2026' })).getByRole('button', {
+      name,
+    });
+  }
+
   it('shows an end date field, prefilled from the item, as a date rather than a time', async () => {
     renderSpan([SPRINT]);
 
-    await user().click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+    await user().click(startDayCard('Reschedule Sprint'));
 
     const field = screen.getByLabelText('New end date for Sprint');
     expect(field).toHaveValue('2026-03-19');
@@ -738,7 +750,7 @@ describe('an end-date property on a month-grain view', () => {
     const person = user();
     const { setProperties } = renderSpan([SPRINT]);
 
-    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+    await person.click(startDayCard('Reschedule Sprint'));
 
     const field = screen.getByLabelText('New end date for Sprint');
     await person.clear(field);
@@ -757,7 +769,7 @@ describe('an end-date property on a month-grain view', () => {
     const person = user();
     const { setProperties } = renderSpan([SPRINT]);
 
-    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+    await person.click(startDayCard('Reschedule Sprint'));
 
     const field = screen.getByLabelText('New end date for Sprint');
     await person.clear(field);
@@ -772,7 +784,7 @@ describe('an end-date property on a month-grain view', () => {
     const person = user();
     const { setProperties } = renderSpan([SPRINT]);
 
-    await person.click(screen.getByRole('button', { name: 'Reschedule Sprint' }));
+    await person.click(startDayCard('Reschedule Sprint'));
     await person.click(screen.getByRole('button', { name: 'Remove date' }));
 
     expect(setProperties).toHaveBeenCalledWith('item-sprint', { due: null, ends: null });
@@ -784,6 +796,40 @@ describe('an end-date property on a month-grain view', () => {
     await user().click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
 
     expect(screen.queryByLabelText(/New end/)).not.toBeInTheDocument();
+  });
+
+  it('shows a multi-day item on every day it covers, not only the day it starts', () => {
+    // SPRINT runs the 17th to the 19th - three cells, each with its own card, chosen over a
+    // single "continues" marker on the start day: a month cell is already a list a card can be
+    // added to again, so drawing the item on every covered day costs no new layout.
+    renderSpan([SPRINT]);
+
+    for (const day of ['Tuesday 17', 'Wednesday 18', 'Thursday 19']) {
+      const cell = screen.getByRole('cell', { name: `${day} March 2026` });
+      expect(within(cell).getByRole('button', { name: 'Sprint' })).toBeVisible();
+    }
+
+    // Not on the day after the end, or the day before the start.
+    for (const day of ['Monday 16', 'Friday 20']) {
+      const cell = screen.getByRole('cell', { name: `${day} March 2026` });
+      expect(within(cell).queryByRole('button', { name: 'Sprint' })).not.toBeInTheDocument();
+    }
+  });
+
+  it('drops each day it covers into the reschedule that only moves the start', () => {
+    // Dragging any of the three cards a multi-day item is now drawn as writes the same single
+    // property a one-day item's drag always has - the length is the end's, untouched by where a
+    // pointer happened to grab the card.
+    const { setProperties } = renderSpan([SPRINT]);
+
+    const target = screen.getByRole('cell', { name: 'Thursday 19 March 2026' });
+    const card = startDayCard('Sprint');
+
+    const dataTransfer = { effectAllowed: '', setData: vi.fn(), getData: vi.fn() };
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    expect(setProperties).toHaveBeenCalledWith('item-sprint', { due: '2026-03-19' });
   });
 });
 
