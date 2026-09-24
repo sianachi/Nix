@@ -1,0 +1,153 @@
+# Multi-architecture release images, published to GitHub Container Registry.
+#
+# Builds the same five images as deploy/docker/build-and-push.sh (api, migrator,
+# collab, worker, web) for linux/amd64 and linux/arm64. Each architecture builds
+# on its own native runner rather than under QEMU emulation, which is several
+# times slower for the .NET and Go compiles. The per-architecture digests are
+# then stitched into one multi-arch manifest per image, so a plain `docker pull`
+# on either an Intel/AMD or an ARM host resolves to the matching build.
+#
+# Published as ghcr.io/<owner>/nix/<image>:<full commit SHA>, plus the version
+# (without the leading v) for a v* tag. There is deliberately no "latest": a
+# floating tag with imagePullPolicy IfNotPresent keeps running the old build.
+# Deploy with REGISTRY=ghcr.io/<owner>/nix TAG=$(git rev-parse HEAD).
+#
+# Pull requests that touch the Dockerfiles build both architectures without
+# pushing, so a broken image is caught before it reaches main.
+name: CI images
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'deploy/docker/**'
+      - '.dockerignore'
+      - '.github/workflows/ci-images.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PUSH: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: api, dockerfile: deploy/docker/backend.Dockerfile, target: api }
+          - { name: migrator, dockerfile: deploy/docker/backend.Dockerfile, target: migrator }
+          - { name: collab, dockerfile: deploy/docker/node.Dockerfile, target: collab }
+          - { name: worker, dockerfile: deploy/docker/go-workers.Dockerfile, target: '' }
+          - { name: web, dockerfile: deploy/docker/web.Dockerfile, target: web }
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR repository paths must be lowercase; the owner may not be.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image.name }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          target: ${{ matrix.image.target }}
+          platforms: linux/${{ matrix.arch }}
+          # Pushed by digest only; the merge job attaches the tags to the manifest list.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      - name: Record digest
+        if: env.PUSH == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        if: env.PUSH == 'true'
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish ${{ matrix.image }}
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, migrator, collab, worker, web]
+    steps:
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image }}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=,format=long
+            type=semver,pattern={{version}}
+
+      - name: Create multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "$IMAGE:${{ github.sha }}"
