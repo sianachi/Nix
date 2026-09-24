@@ -245,11 +245,22 @@ export const proseClasses: Readonly<Record<string, string>> = {
   // because the column resize handle is positioned inside them: without it the handle lands
   // against the nearest positioned ancestor, which is the pane, and the column edge appears to
   // be draggable from somewhere else entirely.
+  //
+  // `max-sm:min-w-24` is the floor a column cannot be squeezed under on a phone. A fixed-layout
+  // table with `w-full` otherwise divides whatever room it has evenly across every column with
+  // nothing stopping a column short of its own content - `colwidth`, where prosemirror-tables
+  // stores a drag, lives on the `<col>` element the resizable node view builds, and a `<col>`'s
+  // width is not a floor a fixed layout is bound by, only a starting point it can shrink from.
+  // A `min-width` on the cell itself is: past it the table stops fitting the pane and the
+  // wrapper's `overflow-x-auto` (see `proseRoot`) takes over, scrolling the table sideways
+  // instead of running every column's text into a single unreadable column of characters. Left
+  // off above the breakpoint, where the pane already has room to spare and a floor would only
+  // narrow how far a drag can shrink a column on a desktop screen.
   table: `w-full table-fixed border-collapse border border-divider ${DOCUMENT_SECONDARY_STEP}`,
   tableRow: 'border-b border-divider',
   tableHeader:
-    'relative border-r border-divider bg-surface px-3 py-2 text-left align-top font-semibold',
-  tableCell: 'relative border-r border-divider px-3 py-2 align-top',
+    'relative max-sm:min-w-24 border-r border-divider bg-surface px-3 py-2 text-left align-top font-semibold',
+  tableCell: 'relative max-sm:min-w-24 border-r border-divider px-3 py-2 align-top',
 
   // A row of columns - below the medium breakpoint, a stack.
   //

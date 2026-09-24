@@ -10,7 +10,7 @@ import {
   type ReactElement,
 } from 'react';
 
-import { isPointerCoarse } from '../editor/floating-menu-placement';
+import { isPointerCoarse } from '../lib/pointer';
 import { indentAt, ROW_INDENT } from '../items/workspace-sidebar';
 import {
   applyOffsets,

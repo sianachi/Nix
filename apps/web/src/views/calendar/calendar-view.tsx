@@ -301,10 +301,22 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       ? null
       : (container.schema?.properties.find((property) => property.key === secondaryKey) ?? null);
 
-  function moveTo(itemId: string, value: string | null): void {
-    void container.setProperties(itemId, { [dateProperty]: value });
+  // The view's own end-of-span property, when it has one - see `RescheduleDialogProps.endDateProperty`
+  // for why the calendar's end field assumes the same shape as `dateProperty` rather than checking
+  // its own type against the schema.
+  const endDateProperty = view.endDateProperty;
+
+  function moveTo(itemId: string, values: Record<string, string | null>): void {
+    void container.setProperties(itemId, values);
     setRescheduling(null);
     setDragged(null);
+  }
+
+  /** What a drop into the unscheduled list, or the dialog's own "Remove date", both write. */
+  function clearedDate(): Record<string, string | null> {
+    return endDateProperty === null
+      ? { [dateProperty]: null }
+      : { [dateProperty]: null, [endDateProperty]: null };
   }
 
   const card: CardContext = {
@@ -312,12 +324,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     setRescheduling,
     setDragged,
     moveTo,
+    dateProperty,
     secondaryKey,
     secondaryProperty,
     onWrite: (itemId: string, propertyKey: string, value: PropertyValue) =>
       container.setProperties(itemId, { [propertyKey]: value }),
     onCreate: container.create,
-    dateProperty,
   };
 
   // The item the reschedule dialog is open for, resolved from the id rather than stored as an
@@ -531,6 +543,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             days={mode === 'week' ? weekOf(anchor) : [anchor]}
             items={items}
             dateProperty={dateProperty}
+            endDateProperty={endDateProperty}
             zone={zone}
             today={todayText}
             onOpen={onOpen}
@@ -549,7 +562,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         onDrop={(event: DragEvent<HTMLElement>) => {
           event.preventDefault();
           if (dragged !== null) {
-            moveTo(dragged, null);
+            moveTo(dragged, clearedDate());
           }
         }}
         className="flex flex-col gap-2 border border-divider p-3"
@@ -583,13 +596,14 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           key={reschedulingItem.id}
           item={reschedulingItem}
           dateProperty={dateProperty}
+          endDateProperty={endDateProperty}
           placesByTime={placesByTime}
           zone={zone}
           onCancel={() => {
             setRescheduling(null);
           }}
-          onMove={(value) => {
-            moveTo(reschedulingItem.id, value);
+          onMove={(values) => {
+            moveTo(reschedulingItem.id, values);
           }}
         />
       )}
@@ -624,7 +638,7 @@ interface CardContext {
   readonly onOpen: (itemId: string) => void;
   readonly setRescheduling: (itemId: string | null) => void;
   readonly setDragged: (itemId: string | null) => void;
-  readonly moveTo: (itemId: string, value: string | null) => void;
+  readonly moveTo: (itemId: string, values: Record<string, string | null>) => void;
   readonly secondaryKey: string | null;
   readonly secondaryProperty: PropertyDefinition | null;
   readonly onWrite: (
@@ -677,8 +691,10 @@ function DayCell(props: DayCellProps): ReactNode {
         setOver(false);
         if (dragged !== null) {
           // A drop writes the date property, not a position: where a card sits is its date, and
-          // anything view-local would disagree with every other view of the same folder.
-          card.moveTo(dragged, cell.date);
+          // anything view-local would disagree with every other view of the same folder. Only the
+          // start moves - a drag says nothing about length, so an item with an end keeps the one
+          // it had.
+          card.moveTo(dragged, { [card.dateProperty]: cell.date });
         }
       }}
       className={cn(

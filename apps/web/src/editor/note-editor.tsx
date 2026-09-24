@@ -51,6 +51,7 @@ import { usePageGuidePreference } from './page-guide-preference';
 import { PageGuides } from './page-guides-overlay';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
 import { TableControls } from './table-controls';
+import { ColumnWidthControls } from './column-width';
 import { TableMenu } from './table-menu';
 import { ReferenceMenu } from './reference-menu';
 import { ReferenceResolutionProvider } from './reference-resolution';
@@ -601,6 +602,9 @@ export function NoteEditor({
         // Where you are in a table, drawn: the current row, column and cell get a wash so the
         // table menu's "delete row" is a thing a person can see the target of.
         TableControls,
+        // "Narrower"/"Wider"/"Reset" in the table menu and the compact toolbar's table group -
+        // the same `colwidth` change the resize handle makes, run without a drag.
+        ColumnWidthControls,
       ],
 
       // No `content`: the Yjs document is the source of truth, and seeding content here would

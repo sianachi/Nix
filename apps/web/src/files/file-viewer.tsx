@@ -190,7 +190,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
         <span className="flex-1" />
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           disabled={downloading}
           onClick={() => void download()}
         >
@@ -199,7 +199,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
         </Button>
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           disabled={replacing}
           onClick={() => replacementRef.current?.click()}
         >
@@ -208,7 +208,7 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
         </Button>
         <Button
           variant="ghost"
-          className="max-xl:min-h-11 px-2 py-1 text-xs"
+          className="px-2 py-1 text-xs"
           aria-expanded={detailsOpen}
           onClick={() => {
             setDetailsOpen(!detailsOpen);

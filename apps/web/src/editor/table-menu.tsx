@@ -6,8 +6,11 @@ import {
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Columns3,
+  Maximize2,
+  Minimize2,
   PanelLeft,
   PanelTop,
+  RotateCcw,
   Rows3,
   TableCellsMerge,
   TableCellsSplit,
@@ -29,7 +32,7 @@ import { cellCoordinates, hasHeaderColumn, hasHeaderRow, tableContext } from './
  * the selection bubble menu (`bubble-menu.tsx`) and for the same reasons: placed in viewport
  * coordinates, re-read on every transaction and on scroll, one tab stop with the arrows walking
  * the row, Escape back to the text. The toolbar group stays for the narrow layout, where a
- * floating row of eleven controls would cover the table it belongs to.
+ * floating row of fourteen controls would cover the table it belongs to.
  *
  * **Where you are is written down.** "Row 2, column 3" at the left of the menu, because each
  * of these commands acts on the current row or column and the decorations that tint them
@@ -120,6 +123,30 @@ export function tableControlGroups(editor: Editor): readonly ControlGroup[] {
     },
   ];
 
+  const columnWidth: TableControl[] = [
+    {
+      id: 'columnNarrower',
+      label: 'Narrower',
+      icon: Minimize2,
+      run: () => void editor.chain().focus().columnNarrower().run(),
+      enabled: can.columnNarrower(),
+    },
+    {
+      id: 'columnWider',
+      label: 'Wider',
+      icon: Maximize2,
+      run: () => void editor.chain().focus().columnWider().run(),
+      enabled: can.columnWider(),
+    },
+    {
+      id: 'resetColumnWidth',
+      label: 'Reset width',
+      icon: RotateCcw,
+      run: () => void editor.chain().focus().resetColumnWidth().run(),
+      enabled: can.resetColumnWidth(),
+    },
+  ];
+
   const cells: TableControl[] = [
     {
       id: 'mergeCells',
@@ -169,6 +196,7 @@ export function tableControlGroups(editor: Editor): readonly ControlGroup[] {
   return [
     { label: 'Rows', controls: rows },
     { label: 'Columns', controls: columns },
+    { label: 'Column width', controls: columnWidth },
     { label: 'Cells', controls: cells },
     { label: 'Headers', controls: headers },
     { label: 'Table', controls: whole },

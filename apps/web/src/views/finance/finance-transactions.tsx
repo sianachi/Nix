@@ -1,4 +1,15 @@
-import { Button, Dialog, Field, Input, Select, Table, Tag, Text, type TableColumn } from '@nix/ui';
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  Field,
+  Input,
+  Select,
+  Table,
+  Tag,
+  Text,
+  type TableColumn,
+} from '@nix/ui';
 import {
   finance as financeApi,
   type BudgetLine,
@@ -29,7 +40,24 @@ export function FinanceTransactions({
   const [editing, setEditing] = useState<FinanceTransaction | null>(null);
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [assignLineId, setAssignLineId] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const itemId = finance.itemId;
+  // The selection is a bulk-editing tool for the rows on screen; a different filter or month
+  // means different rows, so a stale selection would silently reassign transactions the person
+  // never looked at. Adjusted during render rather than in an effect - the recommended way to
+  // reset state on a prop change - so a background reload of the same filter, which changes
+  // none of these three, leaves the selection alone and lets it survive the writes it makes.
+  const filterKey = `${accountId}|${String(unassigned)}|${month}`;
+  const [selectionFilterKey, setSelectionFilterKey] = useState(filterKey);
+  if (selectionFilterKey !== filterKey) {
+    setSelectionFilterKey(filterKey);
+    setSelected(new Set());
+    setAssignLineId('');
+    setAssignError(null);
+  }
   const endpoint = useMemo(
     () =>
       financeApi.listTransactions(itemId, {
@@ -49,7 +77,81 @@ export function FinanceTransactions({
     [finance.accounts],
   );
   const closed = finance.closedMonths.includes(month);
+  const visibleIds = useMemo(
+    () => (query.data === null ? [] : query.data.transactions.map((row) => row.id)),
+    [query.data],
+  );
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
+  const toggleRow = (id: string, checked: boolean): void => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const toggleAllVisible = (checked: boolean): void => {
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of visibleIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+  // Applied one transaction at a time through the same write the edit dialog uses, so a
+  // partial failure fails one row rather than the whole batch. Rows that fail stay selected -
+  // and reselected, since a retry after fixing whatever was refused should start from them.
+  const applyAssignment = async (): Promise<void> => {
+    if (assignLineId === '' || query.data === null) return;
+    const targets = query.data.transactions.filter((row) => selected.has(row.id));
+    if (targets.length === 0) return;
+    setAssigning(true);
+    setAssignError(null);
+    const failed = new Set<string>();
+    let refusalReason: string | null = null;
+    for (const row of targets) {
+      const refusal = await state.setTransaction(row.id, {
+        description: row.description,
+        date: row.date,
+        amount: row.amount,
+        accountId: row.accountId,
+        lineId: assignLineId,
+        cleared: row.cleared,
+      });
+      if (refusal !== null) {
+        failed.add(row.id);
+        refusalReason = refusal;
+      }
+    }
+    setAssigning(false);
+    setSelected(failed);
+    if (failed.size === 0) {
+      setAssignLineId('');
+    } else {
+      const succeeded = targets.length - failed.size;
+      setAssignError(
+        `Assigned ${String(succeeded)} of ${String(targets.length)}; ${String(failed.size)} ` +
+          `${failed.size === 1 ? 'was' : 'were'} refused: ${refusalReason ?? 'unknown reason'}`,
+      );
+    }
+  };
   const columns: readonly TableColumn<FinanceTransaction>[] = [
+    {
+      key: 'select',
+      header: '',
+      cell: (row) => (
+        <Checkbox
+          aria-label={`Select ${row.description}`}
+          checked={selected.has(row.id)}
+          onChange={(event) => {
+            toggleRow(row.id, event.target.checked);
+          }}
+        />
+      ),
+    },
     { key: 'date', header: 'Date', cell: (row) => formatDay(row.date) },
     {
       key: 'description',
@@ -174,6 +276,62 @@ export function FinanceTransactions({
               {String(query.data.total)}. Narrow by account to see the rest.
             </Text>
           ) : null}
+          {query.data.transactions.length === 0 ? null : (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-raised p-3">
+              <Checkbox
+                label={`Select all ${String(visibleIds.length)} visible`}
+                checked={allVisibleSelected}
+                indeterminate={someVisibleSelected && !allVisibleSelected}
+                onChange={(event) => {
+                  toggleAllVisible(event.target.checked);
+                }}
+              />
+              {selected.size === 0 ? null : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Text as="span" variant="bodySmall">
+                    {String(selected.size)} selected
+                  </Text>
+                  <Select
+                    aria-label="Assign to line"
+                    value={assignLineId}
+                    onChange={(event) => {
+                      setAssignLineId(event.target.value);
+                    }}
+                  >
+                    <option value="">Choose a line</option>
+                    {linesBySection(finance.lines).map(([section, sectionLines]) => (
+                      <optgroup key={section} label={section}>
+                        {sectionLines.map((sectionLine) => (
+                          <option key={sectionLine.id} value={sectionLine.id}>
+                            {sectionLine.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </Select>
+                  <Button
+                    disabled={assignLineId === '' || assigning}
+                    onClick={() => {
+                      void applyAssignment();
+                    }}
+                  >
+                    Apply
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={assigning}
+                    onClick={() => {
+                      setSelected(new Set());
+                      setAssignError(null);
+                    }}
+                  >
+                    Clear selection
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <WriteError message={assignError} />
           <Table<FinanceTransaction>
             caption={`Transactions in ${formatMonth(month, 'long')}`}
             columns={columns}

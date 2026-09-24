@@ -26,7 +26,6 @@ export function MobileWorkspaceBrowser({
         {parentId !== null ? (
           <Button
             variant="ghost"
-            className="min-h-11"
             onClick={() => {
               onParent(parent?.parentId ?? null);
             }}
@@ -39,14 +38,14 @@ export function MobileWorkspaceBrowser({
             Workspace
           </Text>
         )}
-        <Button variant="ghost" className="min-h-11" onClick={onTree}>
+        <Button variant="ghost" onClick={onTree}>
           Tree and actions
         </Button>
       </div>
       {parent ? (
         <Button
           variant="ghost"
-          className="min-h-11 justify-start px-3"
+          className="justify-start px-3"
           onClick={() => {
             onOpen(parent.id);
           }}
