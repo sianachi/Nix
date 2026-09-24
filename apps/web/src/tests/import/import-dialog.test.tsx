@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
 import {
   imports as importResources,
@@ -8,8 +8,12 @@ import {
   type DocumentImportPlan,
 } from '@nix/api-client';
 
+import { useSessionStore } from '../../auth/session-store';
 import { ImportDialog } from '../../import/import-dialog';
+import { consumeInterruptedImportForWorkspace } from '../../import/import-interrupted-notice';
 import * as run from '../../import/import-run';
+
+const WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 
 // The dialog reaches the client only through the run seam, which these tests stub; the hook is
 // stubbed so rendering does not need the whole provider stack.
@@ -113,7 +117,7 @@ function open(props: Partial<Parameters<typeof ImportDialog>[0]> = {}) {
   const onClose = vi.fn();
   const onImported = vi.fn();
 
-  render(
+  const view = render(
     <ImportDialog
       open
       parentId={PARENT}
@@ -124,7 +128,7 @@ function open(props: Partial<Parameters<typeof ImportDialog>[0]> = {}) {
     />,
   );
 
-  return { onClose, onImported };
+  return { onClose, onImported, view };
 }
 
 async function pick(...files: File[]): Promise<void> {
@@ -147,6 +151,7 @@ function vaultFile(path: string, text: string): File {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
 });
 
 describe('the import dialog', () => {
@@ -486,5 +491,75 @@ describe('the import dialog', () => {
     expect(
       screen.getByText(/file or note from the chosen files will be created/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('the import dialog torn down mid-run', () => {
+  beforeEach(() => {
+    // The notice names the person whose import it was, so the run needs someone signed in.
+    useSessionStore.setState({
+      status: 'authenticated',
+      profile: { subject: 'test-subject', name: 'Test Person', email: null },
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
+  });
+
+  it('leaves a counts-only interrupted-import summary when the screen is torn down while working', async () => {
+    let onProgress: ((done: number, total: number) => void) | undefined;
+    // Never resolves: the run is still in flight when the dialog is torn down, the way a session
+    // expiring mid-task would unmount the whole screen without ever reaching a report.
+    vi.spyOn(run, 'runImportPlan').mockImplementation((options) => {
+      onProgress = options.onProgress;
+      return new Promise(() => undefined);
+    });
+
+    const { view } = open();
+    await pick(markdownFile('a.md', 'Body.'));
+    await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
+    await screen.findByText(/Importing…/);
+    act(() => {
+      onProgress?.(1, 2);
+    });
+    await screen.findByText('Importing… 1 of 2 items.');
+
+    view.unmount();
+
+    expect(consumeInterruptedImportForWorkspace(WORKSPACE_ID, 'test-subject')).toBe(
+      'Import interrupted: 1 of 2 created.',
+    );
+    // Read once: nothing is left behind for a second look.
+    expect(consumeInterruptedImportForWorkspace(WORKSPACE_ID, 'test-subject')).toBeNull();
+  });
+
+  it('records nothing when nothing had been created yet at the moment of teardown', async () => {
+    vi.spyOn(run, 'runImportPlan').mockImplementation(() => new Promise(() => undefined));
+
+    const { view } = open();
+    await pick(markdownFile('a.md', 'Body.'));
+    await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
+    await screen.findByText(/Importing…/);
+
+    view.unmount();
+
+    expect(consumeInterruptedImportForWorkspace(WORKSPACE_ID, 'test-subject')).toBeNull();
+  });
+
+  it('records nothing for a run that finished and was closed deliberately', async () => {
+    vi.spyOn(run, 'runImportPlan').mockResolvedValue(report());
+
+    const { view } = open();
+    await pick(markdownFile('a.md', 'Body.'));
+    await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
+    expect((await screen.findAllByText('2 items were created.')).length).toBeGreaterThan(0);
+
+    // The dialog reached its report before this unmount, so it was closed rather than torn down
+    // mid-run - nothing was left unreported.
+    view.unmount();
+
+    expect(consumeInterruptedImportForWorkspace(WORKSPACE_ID, 'test-subject')).toBeNull();
   });
 });

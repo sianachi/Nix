@@ -34,6 +34,7 @@ import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-op
 import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
+import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
 /**
@@ -859,13 +860,13 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     if (event.key === 'ArrowUp' && previous !== undefined) {
       event.preventDefault();
       // Before the sibling above, which is after the one above that.
-      void tree.move(item.id, item.parentId, siblings[index - 2]?.id ?? null);
+      void tree.move(item.id, item.parentId, siblingMoveTarget(siblings, index, 'up'));
       return;
     }
 
     if (event.key === 'ArrowDown' && next !== undefined) {
       event.preventDefault();
-      void tree.move(item.id, item.parentId, next.id);
+      void tree.move(item.id, item.parentId, siblingMoveTarget(siblings, index, 'down'));
       return;
     }
 

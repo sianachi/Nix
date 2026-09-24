@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { item, stubCoreApi } from '../api-stub';
+import { item, stubCoreApi, STUB_WORKSPACE_ID } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
+import { recordInterruptedImport } from '../../import/import-interrupted-notice';
 
 /**
  * The shell's information architecture.
@@ -216,6 +217,54 @@ describe('the shell', () => {
 
     const created = await screen.findByRole('button', { name: 'Untitled note' });
     expect(created.closest('ul')).toHaveAttribute('role', 'tree');
+  });
+});
+
+describe('the interrupted-import notice', () => {
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('shows a torn-down import summary once, on arrival in the workspace it names', async () => {
+    recordInterruptedImport({
+      subject: 'test-subject',
+      workspaceId: STUB_WORKSPACE_ID,
+      createdCount: 12,
+      totalCount: 40,
+    });
+    stubCoreApi({ items: [NOTE] });
+
+    renderAt(<App />);
+
+    expect(await screen.findByText('Import interrupted: 12 of 40 created.')).toBeVisible();
+    // Read once: a notice that survived being shown would say the same thing again on a second
+    // visit to this workspace, which is not what "torn down while working" happened twice.
+    expect(sessionStorage.getItem('nix:import-interrupted')).toBeNull();
+  });
+
+  it('drops, unshown, a notice another person left behind in this browser', async () => {
+    recordInterruptedImport({
+      subject: 'someone-else',
+      workspaceId: STUB_WORKSPACE_ID,
+      createdCount: 3,
+      totalCount: 9,
+    });
+    stubCoreApi({ items: [NOTE] });
+
+    renderAt(<App />);
+
+    expect(await screen.findByRole('button', { name: NOTE.title })).toBeInTheDocument();
+    expect(screen.queryByText(/Import interrupted/)).toBeNull();
+    expect(sessionStorage.getItem('nix:import-interrupted')).toBeNull();
+  });
+
+  it('says nothing when there is no pending notice for this workspace', async () => {
+    stubCoreApi({ items: [NOTE] });
+
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: 'Acquisition memo' });
+    expect(screen.queryByText(/import interrupted/i)).not.toBeInTheDocument();
   });
 });
 

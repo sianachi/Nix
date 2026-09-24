@@ -1,4 +1,5 @@
 import { clearDrafts } from '../editor/draft-journal';
+import { clearInterruptedImport } from '../import/import-interrupted-notice';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 
@@ -184,6 +185,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       },
 
       signOut: async () => {
+        clearInterruptedImport();
         const draftsCleared =
           typeof indexedDB === 'undefined' ||
           (await clearDrafts().then(
@@ -227,7 +229,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           .then(async (response) => {
             if (response.status === 401) {
               accessTokenRef.current = null;
-              signedOut();
+              signedOut('Your session expired. Sign in again to continue.');
               return null;
             }
 

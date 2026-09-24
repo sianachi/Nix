@@ -51,8 +51,36 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
  * The row heights below could be classes; they are not, because they have to agree with the offsets
  * exactly. The same number said twice, once in a class and once in arithmetic, is how a grid drifts
  * an hour at a time.
+ *
+ * Exported so a test that needs a pixel offset computes it from this number rather than restating
+ * it by hand - a second copy of `44` in a test file is the same drift risk one step removed.
  */
-const ROW_HEIGHT = 44;
+export const ROW_HEIGHT = 44;
+
+/**
+ * `ROW_HEIGHT`'s own arithmetic, named for what it converts rather than repeated inline at every
+ * call site - the offset, the full-day height and a span's own height are all "some number of
+ * minutes, at this grid's scale".
+ */
+export function minutesToPx(minutes: number): number {
+  return (minutes / 60) * ROW_HEIGHT;
+}
+
+/**
+ * The shortest a timed span is ever drawn, regardless of its real duration.
+ *
+ * `minutesToPx` alone put a span under about thirty-eight minutes at less than `--control-sm`
+ * (28px) tall, and `overflow: hidden` on that box - needed so a short span's two lines of text
+ * cannot bleed into the row below it, see the span's own comment - clipped its Reschedule button
+ * along with them, shrinking its hit area under the 24px floor WCAG 2.5.8 sets. Clamping the
+ * height rather than lifting the clip keeps the box's top exactly where the item starts; only the
+ * bottom ever moves, and only when the real duration would have drawn a box too short to hold its
+ * own control.
+ *
+ * The number is `--control-sm` restated as a scalar for the same reason `ROW_HEIGHT` is: it is
+ * used in a `Math.max` against a runtime pixel value, not applied as a Tailwind length.
+ */
+const MIN_SPAN_HEIGHT_PX = 28;
 
 /**
  * One day column's floor width, shared by the header cell, the all-day band's cell and the hour
@@ -602,13 +630,16 @@ function DayColumn(props: {
           // design-token-exempt: where an item sits, how wide its lane is and how tall its
           // span is are all positions read off the data and the overlap sweep above, computed
           // at runtime rather than restated as a class - see ROW_HEIGHT's own comment.
-          top: `${String((entry.minutes / 60) * ROW_HEIGHT)}px`,
+          top: `${String(minutesToPx(entry.minutes))}px`,
           left,
           width,
           ...(entry.durationMinutes === null
             ? {}
             : {
-                height: `${String((entry.durationMinutes / 60) * ROW_HEIGHT)}px`,
+                // Clamped to MIN_SPAN_HEIGHT_PX - see its own comment - so a span under about
+                // thirty-eight minutes still has room for its Reschedule button. The top above
+                // stays exact; only a too-short box's bottom moves.
+                height: `${String(Math.max(minutesToPx(entry.durationMinutes), MIN_SPAN_HEIGHT_PX))}px`,
                 // A short span's box is shorter than its two lines of text. Kept off the
                 // Tailwind class list rather than reached for as `overflow-hidden`: this
                 // file's own scroller-contract tests scan for anything named `overflow-*`

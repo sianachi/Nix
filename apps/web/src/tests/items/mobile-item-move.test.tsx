@@ -86,16 +86,18 @@ describe('moving an item to a position among its new siblings', () => {
     });
   });
 
-  it('places at the top by default', async () => {
+  it('places at the top when a different destination was chosen', async () => {
     const user = userEvent.setup();
     const move = vi.fn(() => Promise.resolve({ refusal: null }));
     render(<MobileItemMove itemId={MOVING.id} tree={treeOf(move)} onClose={vi.fn()} />);
 
+    // Leave the item's current parent so the destination step lands somewhere new.
+    await user.click(screen.getByRole('button', { name: 'Up one level' }));
     await user.click(screen.getByRole('button', { name: 'Choose position' }));
     await user.click(screen.getByRole('button', { name: 'Move here' }));
 
     await waitFor(() => {
-      expect(move).toHaveBeenCalledWith(MOVING.id, PARENT.id, null);
+      expect(move).toHaveBeenCalledWith(MOVING.id, null, null);
     });
   });
 
@@ -107,6 +109,41 @@ describe('moving an item to a position among its new siblings', () => {
     await user.click(screen.getByRole('button', { name: 'Choose position' }));
     await user.click(screen.getByRole('button', { name: 'Place after First' }));
 
+    expect(screen.getByRole('button', { name: 'Move here' })).toBeDisabled();
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it('preselects the item current position when the destination has not changed, on entry from Choose position', async () => {
+    const user = userEvent.setup();
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
+    render(<MobileItemMove itemId={MOVING.id} tree={treeOf(move)} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Choose position' }));
+
+    // The destination was never changed, so the position step should already sit on the item's
+    // real current slot (after First), not silently default to the top.
+    expect(screen.getByRole('button', { name: 'Place after First' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Move here' })).toBeDisabled();
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it('preselects the item current position when the destination picker is returned to its own parent', async () => {
+    const user = userEvent.setup();
+    const move = vi.fn(() => Promise.resolve({ refusal: null }));
+    render(<MobileItemMove itemId={MOVING.id} tree={treeOf(move)} onClose={vi.fn()} />);
+
+    // Wander away from the current parent and back to it before choosing a position.
+    await user.click(screen.getByRole('button', { name: 'Up one level' }));
+    await user.click(screen.getByRole('button', { name: 'Project' }));
+    await user.click(screen.getByRole('button', { name: 'Choose position' }));
+
+    expect(screen.getByRole('button', { name: 'Place after First' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.getByRole('button', { name: 'Move here' })).toBeDisabled();
     expect(move).not.toHaveBeenCalled();
   });

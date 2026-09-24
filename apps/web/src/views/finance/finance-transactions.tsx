@@ -454,6 +454,16 @@ export function TransactionDialog({
   const [lineId, setLineId] = useState(transaction?.lineId ?? line?.id ?? '');
   const [accountId, setAccountId] = useState(transaction?.accountId ?? line?.accountId ?? '');
   const [date, setDate] = useState(transaction?.date ?? defaultDay);
+  // Captured once, from the values the form opened with, so a backdrop tap or Escape after the
+  // person has actually changed something is refused rather than silently discarding it.
+  const [initial] = useState({ description, amount, direction, lineId, accountId, date });
+  const dirty =
+    description !== initial.description ||
+    amount !== initial.amount ||
+    direction !== initial.direction ||
+    lineId !== initial.lineId ||
+    accountId !== initial.accountId ||
+    date !== initial.date;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -535,6 +545,7 @@ export function TransactionDialog({
       title={transaction === null ? 'Add a transaction' : `Edit ${transaction.description}`}
       onClose={onClose}
       initialFocus={amountField}
+      dirty={dirty}
     >
       <form
         className="flex flex-col gap-4"

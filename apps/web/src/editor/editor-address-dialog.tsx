@@ -59,6 +59,9 @@ export function EditorAddressDialog({
   );
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  // Anything typed or chosen here is unsaved until the form submits, and a description alone -
+  // with no address yet - is still real typing worth protecting.
+  const dirty = address.trim() !== '' || description.trim() !== '' || file !== null;
   useEffect(() => {
     if (file === null || !isImageFile(file) || file.size > 10 * 1024 * 1024) return;
     const url = URL.createObjectURL(file);
@@ -136,6 +139,7 @@ export function EditorAddressDialog({
       onClose={onCancel}
       closeLabel={`Cancel ${image ? 'image insertion' : 'link creation'}`}
       initialFocus={canUploadImage && method === 'upload' ? uploadRef : addressRef}
+      dirty={dirty}
     >
       <form noValidate onSubmit={submit} className="flex flex-col gap-4">
         {canUploadImage ? (

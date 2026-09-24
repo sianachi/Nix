@@ -1,6 +1,7 @@
 import {
   Field,
   Input,
+  Select,
   Text,
   blueprintFrame,
   cn,
@@ -108,28 +109,19 @@ export function isKnownPropertyType(type: string): boolean {
   return (KNOWN_TYPES as readonly string[]).includes(type);
 }
 
-/** The select's own box, drawn as the rest of the system draws a control. */
-const selectClasses = cn(
-  blueprintFrame,
-  'w-full bg-background px-3 py-2 font-body text-base text-foreground',
-  focusRing,
-  disabledState,
-);
-
 /**
- * The same select inside a table cell: no frame, because the cell has a rule under it already and
- * a box inside a box reads as a double rule rather than as a control.
+ * The select inside a table cell: no frame, because the cell has a rule under it already and a
+ * box inside a box reads as a double rule rather than as a control. Kept as a local, hand-inlined
+ * class string rather than the `<Select>` primitive because a table row is denser than a form and
+ * the primitive has no compact variant; `pointer-coarse:h-(--control-lg)` still gives phone rows
+ * an even height and a 44px touch target, matching what the primitive gives the panel density.
  */
 const cellSelectClasses = cn(
   'w-full border border-transparent bg-transparent px-2 py-1 font-body text-base text-foreground',
+  'pointer-coarse:h-(--control-lg)',
   focusRing,
   disabledState,
 );
-
-/** What a select's box is, at the density it is being drawn at. */
-function selectBox(density: PropertyInputDensity): string {
-  return density === 'cell' ? cellSelectClasses : selectClasses;
-}
 
 export function PropertyInput(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
@@ -466,30 +458,54 @@ function SelectValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current ?? UNSET_VALUE}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : next);
-          }}
-          className={selectBox(density)}
-        >
-          {/* Clearing has to be reachable from the control that set it: a property somebody
-              filled in by mistake is otherwise permanent. */}
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+            className={cellSelectClasses}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      )}
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -549,30 +565,54 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props} {...(hint === undefined ? {} : { hint })}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current ?? UNSET_VALUE}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : next);
-          }}
-          className={selectBox(density)}
-        >
-          {/* Clearing has to be reachable from the control that set it: a property somebody
-              filled in by mistake is otherwise permanent. */}
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+            className={cellSelectClasses}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      )}
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -599,28 +639,50 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current === null ? UNSET_VALUE : String(current)}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : Number(next));
-          }}
-          className={selectBox(density)}
-        >
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current === null ? UNSET_VALUE : String(current)}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : Number(next));
+            }}
+            className={cellSelectClasses}
+          >
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {PRIORITY_LEVELS.map((level) => (
-            <option key={level.value} value={String(level.value)}>
-              {level.label}
-            </option>
-          ))}
-        </select>
-      )}
+            {PRIORITY_LEVELS.map((level) => (
+              <option key={level.value} value={String(level.value)}>
+                {level.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current === null ? UNSET_VALUE : String(current)}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : Number(next));
+            }}
+          >
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {PRIORITY_LEVELS.map((level) => (
+              <option key={level.value} value={String(level.value)}>
+                {level.label}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -765,22 +827,40 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
         }}
       />
 
-      <select
-        aria-label={`Time zone for ${controlLabel}`}
-        value={draftZone}
-        disabled={disabled}
-        onChange={(event) => {
-          setDraftZone(event.target.value);
-          commit(draft, event.target.value);
-        }}
-        className={selectBox(density)}
-      >
-        {zoneOptions(draftZone).map((zoneName) => (
-          <option key={zoneName} value={zoneName}>
-            {zoneName}
-          </option>
-        ))}
-      </select>
+      {density === 'cell' ? (
+        <select
+          aria-label={`Time zone for ${controlLabel}`}
+          value={draftZone}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraftZone(event.target.value);
+            commit(draft, event.target.value);
+          }}
+          className={cellSelectClasses}
+        >
+          {zoneOptions(draftZone).map((zoneName) => (
+            <option key={zoneName} value={zoneName}>
+              {zoneName}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <Select
+          aria-label={`Time zone for ${controlLabel}`}
+          value={draftZone}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraftZone(event.target.value);
+            commit(draft, event.target.value);
+          }}
+        >
+          {zoneOptions(draftZone).map((zoneName) => (
+            <option key={zoneName} value={zoneName}>
+              {zoneName}
+            </option>
+          ))}
+        </Select>
+      )}
 
       {/* Said out loud rather than only drawn as an invalid frame. A pair of controls with no
           <Field> around them had no place to put the refusal, and a refusal with nowhere to go is

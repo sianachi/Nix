@@ -300,6 +300,42 @@ export const EditableItemWorkspace: Story = {
   },
 };
 
+/**
+ * `dirty` turns the first dismissal attempt into a question rather than a loss: the backdrop
+ * click below does not close the dialog, and the typed name is still there if the person chooses
+ * to keep editing.
+ */
+export const RefusesToDiscardUnsavedWork: Story = {
+  render: (args) => (
+    <DialogHarness title={args.title} dirty={args.dirty ?? false}>
+      <Field label="New name">
+        {(control) => <Input {...control} defaultValue="Draft plan" />}
+      </Field>
+    </DialogHarness>
+  ),
+  args: { title: 'Rename document', dirty: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Delete document' }));
+    const dialog = canvas.getByRole('dialog', { name: 'Rename document' });
+
+    await userEvent.pointer([{ target: dialog, keys: '[MouseLeft]' }]);
+    await expect(dialog).toBeVisible();
+    const keepEditing = await canvas.findByRole('button', { name: 'Keep editing' });
+    await expect(keepEditing).toHaveFocus();
+
+    await userEvent.click(keepEditing);
+    await expect(canvas.getByLabelText('New name')).toHaveValue('Draft plan');
+
+    await userEvent.pointer([{ target: dialog, keys: '[MouseLeft]' }]);
+    await userEvent.click(canvas.getByRole('button', { name: 'Discard' }));
+    await waitFor(async () => {
+      await expect(canvas.queryByRole('dialog')).toBeNull();
+    });
+  },
+};
+
 /** Phone sheets share the native dialog focus boundary and Nix's existing tokens. */
 export const MobileActionSheet: Story = {
   args: {

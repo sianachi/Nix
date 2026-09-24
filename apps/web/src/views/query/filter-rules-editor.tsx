@@ -1,4 +1,4 @@
-import { Button, Field, Icon, Input, Text, cn } from '@nix/ui';
+import { Button, Field, Icon, Input, Select, Text } from '@nix/ui';
 import { Trash2 } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 
@@ -98,15 +98,12 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
 
             <Field label="Condition">
               {(control) => (
-                <select
+                <Select
                   {...control}
                   value={rule.operator}
                   onChange={(event) => {
                     replace(index, { operator: event.target.value });
                   }}
-                  className={cn(
-                    'w-full border border-divider bg-background px-3 py-2 font-body text-base text-foreground',
-                  )}
                 >
                   {OPERATORS.map((operator) => (
                     <option key={operator.value} value={operator.value}>
@@ -115,7 +112,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
                   ))}
                   {/* A token from a newer build: preserved and named, never rewritten. */}
                   {known ? null : <option value={rule.operator}>{rule.operator}</option>}
-                </select>
+                </Select>
               )}
             </Field>
 

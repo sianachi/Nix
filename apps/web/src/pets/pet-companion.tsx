@@ -7,7 +7,7 @@ import {
   type PetProfile,
   type PetSettings,
 } from '@nix/api-client';
-import { Button, Text, focusRing } from '@nix/ui';
+import { Button, Select, Text, focusRing } from '@nix/ui';
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
@@ -461,11 +461,10 @@ function Conversation({
           {runtime && runtime.status !== 'connected' ? <PetConnectionPanel compact /> : null}
           <label className="flex flex-col gap-2">
             <Text variant="note">Codex model</Text>
-            <select
+            <Select
               aria-label="Codex model"
               value={model}
               disabled={running || busy}
-              className={`rounded border border-divider bg-background p-2 text-foreground ${focusRing}`}
               onChange={(event) => {
                 setModel(event.currentTarget.value);
                 writeConversationModel(workspaceId, pet.id, event.currentTarget.value);
@@ -480,7 +479,7 @@ function Conversation({
                   {value.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         </div>
       </details>
