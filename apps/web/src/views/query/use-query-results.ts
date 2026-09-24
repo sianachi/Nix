@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
+import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
 import { readerZone } from '../core/timestamps';
 
 /**
@@ -100,29 +101,17 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
 
-  const [status, setStatus] = useState<QueryResultsStatus>('loading');
+  const { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed } =
+    useStaleWhileRevalidate<QueryResultsStatus>('loading');
   const [results, setResults] = useState<ItemQueryResults | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
   const activeLoad = useRef<AbortController | null>(null);
-
-  // See `use-container.ts`'s `hasLoadedOnce`: the same "first run vs. re-run" distinction, for
-  // the same reason `status` alone cannot draw it.
-  const hasLoadedOnce = useRef(false);
 
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
 
-    if (hasLoadedOnce.current) {
-      setRefreshing(true);
-      setRefreshError(null);
-    } else {
-      setStatus('loading');
-    }
-    setError(null);
+    beginLoad();
 
     try {
       const today = readerToday();
@@ -132,26 +121,14 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
       });
       if (controller.signal.aborted || activeLoad.current !== controller) return;
       setResults(loaded);
-      setStatus('ready');
-      hasLoadedOnce.current = true;
-      setRefreshing(false);
-      setRefreshError(null);
+      reportLoaded('ready');
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
       const message = isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.';
-
-      // There are results already on screen: keep them, and say the re-run failed rather than
-      // replacing the list with an error panel that discards what the reader was looking at.
-      if (hasLoadedOnce.current) {
-        setRefreshing(false);
-        setRefreshError(message);
-      } else {
-        setError(message);
-        setStatus('error');
-      }
+      reportFailed(message, 'error');
     }
-  }, [client, itemId, viewId]);
+  }, [client, itemId, viewId, beginLoad, reportLoaded, reportFailed]);
 
   useEffect(() => {
     let disposed = false;

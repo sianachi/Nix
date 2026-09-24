@@ -1,18 +1,18 @@
 /**
- * Where a caret- or selection-anchored menu should sit, kept inside the viewport.
+ * Where a caret-, selection- or trigger-anchored floating menu should sit, kept inside the
+ * viewport.
  *
- * The slash menu, the `[[` reference picker and the bubble menu's colour picker each open at a
- * fixed left edge, always on the same side of the caret, at a fixed width - which is fine on a
- * desktop screen with room to spare in every direction. On a phone the caret sits just above the
- * on-screen keyboard, so "always below, always 280px wide" routinely opens a menu that runs off
- * the bottom or the side of the visible viewport, or under the keyboard entirely.
+ * A menu that opens at a fixed edge, always on the same side of its anchor, at a fixed width is
+ * fine on a desktop screen with room to spare in every direction. On a phone the anchor can sit
+ * just above the on-screen keyboard, so "always below, always this wide" routinely opens a menu
+ * that runs off the bottom or the side of the visible viewport, or under the keyboard entirely.
  *
- * Pure by design. Each call site reads its own anchor rectangle off the editor (`coordsAtPos`)
- * and the live viewport, then hands both to `placeFloatingMenu` - so the geometry that decides
- * where a menu lands is tested once, here, without a DOM or a running editor.
+ * Pure by design. A call site reads its own anchor rectangle (a caret's `coordsAtPos`, a
+ * trigger's `getBoundingClientRect`) and the live viewport, then hands both to
+ * `placeFloatingMenu` - so the geometry that decides where a menu lands is tested once, here,
+ * without a DOM or a running editor. `Menu.tsx` and the editor's slash menu, reference picker
+ * and bubble menu all place themselves through this one pair of functions.
  */
-
-export { isPointerCoarse } from '../lib/pointer';
 
 /** The visible region a menu has to fit inside, in viewport coordinates. */
 export interface FloatingMenuViewport {
@@ -35,8 +35,9 @@ export interface FloatingMenuOptions {
   /** Open above the anchor rather than below it, when there is room. Default `false`. */
   readonly preferAbove?: boolean;
   /**
-   * Always open below, regardless of room above. Set on pointer-coarse for the colour menu,
-   * which otherwise opens above the selection - directly under iOS's Copy/Paste bar.
+   * Always open below, regardless of room above. Set on pointer-coarse for the bubble menu's
+   * colour picker, which otherwise opens above the selection - directly under iOS's Copy/Paste
+   * bar.
    */
   readonly forceBelow?: boolean;
   /** Below this many pixels of room, the preferred side is abandoned for the other one. */
@@ -50,7 +51,8 @@ export interface FloatingMenuPlacement {
   /**
    * The edge to anchor the menu's own edge against: `anchor.top` when `above` is true, so the
    * menu's *bottom* should line up with it (pair with a `-translate-y-full`, as the bubble menu
-   * already does); `anchor.bottom` otherwise, so the menu's *top* lines up with it directly.
+   * and slash menu already do); `anchor.bottom` otherwise, so the menu's *top* lines up with it
+   * directly.
    */
   readonly top: number;
   readonly above: boolean;

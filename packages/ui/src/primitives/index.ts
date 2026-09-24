@@ -21,6 +21,14 @@ export {
 export { Icon, ICON_STROKE_WIDTH, type IconProps, type IconSize } from './Icon';
 export { Duotone, type DuotoneProps } from './Duotone';
 export {
+  placeFloatingMenu,
+  readViewportBounds,
+  type FloatingMenuAnchor,
+  type FloatingMenuOptions,
+  type FloatingMenuPlacement,
+  type FloatingMenuViewport,
+} from './placement';
+export {
   accentFillStates,
   accentWashStates,
   disabledState,

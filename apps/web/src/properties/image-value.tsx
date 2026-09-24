@@ -87,6 +87,8 @@ const UNSUPPORTED_FILE_REFUSAL = 'Choose a PNG, JPEG, WebP or AVIF image no larg
  * now name either kind of thing it is for. The prefix is not itself a valid URL scheme, so it can
  * never collide with an address somebody pasted.
  */
+// Core's PropertyValidator.CheckImage accepts exactly this prefix followed by a GUID; a change
+// here that it does not also make is refused at write time, with no compile-time signal.
 const FILE_IMAGE_PREFIX = 'nix-file:';
 
 /** Whether a stored value points at a file this control uploaded, rather than a web address. */

@@ -1,5 +1,5 @@
 import { files as fileResources, isNixApiError, items as coreItems } from '@nix/api-client';
-import { Button, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Button, Checkbox, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import {
   ArrowDown,
   ArrowUp,
@@ -46,6 +46,10 @@ export const DRIVE_LAYOUTS = ['list', 'grid'] as const;
 export type DriveLayout = (typeof DRIVE_LAYOUTS)[number];
 export const DEFAULT_DRIVE_LAYOUT: DriveLayout = 'list';
 
+/** Uploads in flight at once: enough to overlap network latency across several files without
+ * saturating the connection or losing per-file failure attribution. */
+const MAX_CONCURRENT_UPLOADS = 3;
+
 /** Which layout to draw, given what the view stores. Unrecognised and absent both mean list. */
 function resolveLayout(stored: string | null | undefined): DriveLayout {
   return DRIVE_LAYOUTS.find((candidate) => candidate === stored) ?? DEFAULT_DRIVE_LAYOUT;
@@ -58,15 +62,6 @@ interface SortState {
   readonly key: SortKey;
   readonly direction: SortDirection;
 }
-
-/**
- * A checkbox's own box is 16px, well under the WCAG 2.5.8 floor - so every selection checkbox in
- * the drive sits inside a padded label rather than growing the input itself. `--control-sm` (28px)
- * covers the floor on a mouse; `pointer-coarse:` grows it to `--control-lg` (44px) the same way
- * `Button` grows its own hit area for a coarse pointer.
- */
-const checkboxHitArea =
-  'inline-flex size-(--control-sm) items-center justify-center pointer-coarse:size-(--control-lg)';
 
 /** The size in bytes this row would sort by, or -1 for anything that is not a file yet. */
 function sizeOf(info: DriveFileInfo | undefined): number {
@@ -285,44 +280,58 @@ export function DriveView(props: ViewRendererProps): ReactNode {
    * skipping the reload the moment one file refuses: the files that did make it need to show up,
    * and the person needs to be told, in the status line as well as to a screen reader, exactly
    * which one did not and why.
+   *
+   * Uploads run through a bounded pool rather than the whole batch at once or strictly one file
+   * at a time: `MAX_CONCURRENT_UPLOADS` workers each pull the next file off a shared cursor,
+   * mirroring the pool in `use-habits.ts`'s `readAll`. Failures are recorded by each file's
+   * original index so the reported "first" failure is the earliest file in the picked order, not
+   * whichever request happens to lose the race.
    */
   async function uploadFiles(files: FileList): Promise<void> {
     const list = Array.from(files);
     setStatus(list.length === 1 ? 'Uploading 1 file…' : `Uploading ${String(list.length)} files…`);
-    let uploaded = 0;
-    let firstFailure: { readonly name: string; readonly reason: string } | null = null;
-    for (const file of list) {
-      try {
-        const upload = await client.execute(
-          fileResources.beginUpload({
-            workspaceId,
-            parentId: container.itemId,
-            fileName: file.name,
-            mediaType: file.type || 'application/octet-stream',
-            byteLength: file.size,
-            idempotencyKey: `web-drive-upload:${crypto.randomUUID()}`,
-          }),
-        );
-        await fileResources.uploadAndCompleteFile(client, upload, file);
-        uploaded += 1;
-      } catch (error) {
-        firstFailure ??= {
-          name: file.name,
-          reason: isNixApiError(error)
+    const failures: (string | undefined)[] = new Array<string | undefined>(list.length);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = cursor++;
+        const file = list[index];
+        if (file === undefined) return;
+        try {
+          const upload = await client.execute(
+            fileResources.beginUpload({
+              workspaceId,
+              parentId: container.itemId,
+              fileName: file.name,
+              mediaType: file.type || 'application/octet-stream',
+              byteLength: file.size,
+              idempotencyKey: `web-drive-upload:${crypto.randomUUID()}`,
+            }),
+          );
+          await fileResources.uploadAndCompleteFile(client, upload, file);
+        } catch (error) {
+          failures[index] = isNixApiError(error)
             ? (error.detail ?? 'the upload was refused')
-            : 'the upload was refused',
-        };
+            : 'the upload was refused';
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(MAX_CONCURRENT_UPLOADS, list.length) }, worker),
+    );
     await container.reload();
-    if (firstFailure === null) {
+    const failedIndex = failures.findIndex((reason) => reason !== undefined);
+    if (failedIndex === -1) {
       setStatus(null);
-      announce(uploaded === 1 ? 'File uploaded.' : `${String(uploaded)} files uploaded.`);
+      announce(list.length === 1 ? 'File uploaded.' : `${String(list.length)} files uploaded.`);
       return;
     }
+    const uploaded = list.length - failures.filter((reason) => reason !== undefined).length;
+    const failedFile = list[failedIndex];
+    const failureReason = failures[failedIndex];
     const message = `${String(uploaded)} of ${String(list.length)} uploaded; ${
-      firstFailure.name
-    } could not be uploaded: ${firstFailure.reason}`;
+      failedFile?.name ?? 'a file'
+    } could not be uploaded: ${failureReason ?? 'the upload was refused'}`;
     setStatus(message);
     announce(message);
   }
@@ -577,15 +586,11 @@ function DriveTable(
         <thead>
           <tr>
             <th scope="col" className="border-b border-divider p-2">
-              <label className={checkboxHitArea}>
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={onToggleSelectAll}
-                  aria-label="Select all rows"
-                  className={focusRing}
-                />
-              </label>
+              <Checkbox
+                checked={allSelected}
+                onChange={onToggleSelectAll}
+                aria-label="Select all rows"
+              />
             </th>
             <SortableHeader label="Name" columnKey="name" sort={sort} onChangeSort={onChangeSort} />
             {/* Kind and Modified are context, not identity - on a phone-width table that scrolls
@@ -640,18 +645,14 @@ function DriveTable(
                 )}
               >
                 <td className="border-b border-divider p-2">
-                  <label className={checkboxHitArea}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onClick={(event) => {
-                        onToggleSelect(item.id, event.shiftKey);
-                      }}
-                      onChange={() => undefined}
-                      aria-label={`Select ${item.title || 'Untitled'}`}
-                      className={focusRing}
-                    />
-                  </label>
+                  <Checkbox
+                    checked={isSelected}
+                    onClick={(event) => {
+                      onToggleSelect(item.id, event.shiftKey);
+                    }}
+                    onChange={() => undefined}
+                    aria-label={`Select ${item.title || 'Untitled'}`}
+                  />
                 </td>
                 <td className="border-b border-divider p-2">
                   <button
@@ -793,18 +794,15 @@ function DriveGrid(props: RowsProps): ReactNode {
               dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
             )}
           >
-            <label className={cn('self-start', checkboxHitArea)}>
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onClick={(event) => {
-                  onToggleSelect(item.id, event.shiftKey);
-                }}
-                onChange={() => undefined}
-                aria-label={`Select ${item.title || 'Untitled'}`}
-                className={focusRing}
-              />
-            </label>
+            <Checkbox
+              checked={isSelected}
+              onClick={(event) => {
+                onToggleSelect(item.id, event.shiftKey);
+              }}
+              onChange={() => undefined}
+              aria-label={`Select ${item.title || 'Untitled'}`}
+              className="self-start"
+            />
             <Icon icon={RowIcon} size="lg" />
             <button
               type="button"

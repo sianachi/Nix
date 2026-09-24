@@ -322,6 +322,44 @@ describe('the drive view', () => {
     });
   });
 
+  it('runs uploads through a bounded pool, never more than 3 at once', async () => {
+    let active = 0;
+    let peakActive = 0;
+    uploadAndCompleteFileMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          active += 1;
+          peakActive = Math.max(peakActive, active);
+          setTimeout(() => {
+            active -= 1;
+            resolve({
+              itemId: 'new',
+              workspaceId: WORKSPACE,
+              current: fileVersion('new-v1', 'new.txt', 3),
+              versions: [],
+            });
+          }, 0);
+        }),
+    );
+    render(driveOf({ items: [NOTE] }));
+
+    const files = Array.from(
+      { length: 6 },
+      (_, index) => new File(['x'], `picked-${String(index)}.txt`, { type: 'text/plain' }),
+    );
+    const input = screen.getByLabelText('Files to upload', { selector: 'input' });
+    fireEvent.change(input, { target: { files } });
+
+    await vi.waitFor(() => {
+      expect(uploadAndCompleteFileMock).toHaveBeenCalledTimes(6);
+    });
+    expect(peakActive).toBeLessThanOrEqual(3);
+    expect(peakActive).toBeGreaterThan(1);
+    await vi.waitFor(() => {
+      expect(reloadMock).toHaveBeenCalled();
+    });
+  });
+
   it('shows a refusal visibly and keeps the refused item selected, rather than announcing every item as moved', async () => {
     moveMock.mockImplementation((itemId: string) =>
       Promise.resolve(

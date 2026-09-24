@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
+import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
 import { decorateItems, keepComputed } from '../../properties/computed';
 import {
   ContainerViewsSchema,
@@ -258,10 +259,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
 
-  const [status, setStatus] = useState<ContainerStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed } =
+    useStaleWhileRevalidate<ContainerStatus>('loading');
   const [writeError, setWriteError] = useState<string | null>(null);
   const [schema, storeSchema] = useState<EffectiveSchema | null>(null);
   const [views, storeViews] = useState<ContainerViews | null>(null);
@@ -272,27 +271,12 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const activeLoad = useRef<AbortController | null>(null);
   const activeRequests = useRef(new Set<AbortController>());
 
-  // Whether a load has ever finished successfully, so a later reload knows there is something on
-  // screen worth protecting. A ref rather than a derived check over `status`, because `status`
-  // starts at `'loading'` for the very first load too - there is no way to tell "about to load for
-  // the first time" from "reloading" by looking at it alone.
-  const hasLoadedOnce = useRef(false);
-
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
 
-    // Only the first load blanks the screen. A reload with data already on it keeps that data
-    // mounted - the filters, open dialogs and scroll position a full-panel swap would have thrown
-    // away - and refreshes in the background instead.
-    if (hasLoadedOnce.current) {
-      setRefreshing(true);
-      setRefreshError(null);
-    } else {
-      setStatus('loading');
-    }
-    setError(null);
+    beginLoad();
 
     try {
       const loaded: Item[] = [];
@@ -376,31 +360,21 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       setTruncated(partial);
       storeSchema(nextSchema);
       storeViews(nextViews);
-      setError(boundaryWarnings[0] ?? null);
-      setStatus(boundaryWarnings.length === 0 ? 'ready' : 'partial');
-      hasLoadedOnce.current = true;
-      setRefreshing(false);
-      setRefreshError(null);
+      reportLoaded(
+        boundaryWarnings.length === 0 ? 'ready' : 'partial',
+        boundaryWarnings[0] ?? null,
+      );
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
       const message = isNixApiError(reason)
         ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
         : 'Core could not be reached.';
-
-      // There is already data on screen: keep it, and say the refresh failed rather than
-      // replacing the view with an error panel that discards everything the reader was looking at.
-      if (hasLoadedOnce.current) {
-        setRefreshing(false);
-        setRefreshError(message);
-      } else {
-        setError(message);
-        setStatus('error');
-      }
+      reportFailed(message, 'error');
     } finally {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
-  }, [client, containerId, workspaceId]);
+  }, [client, containerId, workspaceId, beginLoad, reportLoaded, reportFailed]);
 
   useEffect(() => {
     let disposed = false;

@@ -70,6 +70,41 @@ function persistScope(workspaceId: string): void {
   }
 }
 
+/** How long a burst of scroll events is left to settle before the coalesced write lands. */
+const PERSIST_DEBOUNCE_MS = 200;
+
+/**
+ * `positions` is updated synchronously on every scroll event, but the `sessionStorage.setItem`
+ * behind `persistScope` is not free: it JSON-stringifies up to `SCROLL_POSITION_LIMIT` entries
+ * and blocks the main thread, and a fast scroll fires dozens of times a second. Only the write is
+ * coalesced here, trailing-edge - each call pushes the pending write `PERSIST_DEBOUNCE_MS` further
+ * out, so it only actually lands once scrolling pauses. `flushPersist` exists for the moments a
+ * pause is not guaranteed: a tab going away or the pane unmounting.
+ */
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingPersistWorkspaceId: string | null = null;
+
+function schedulePersist(workspaceId: string): void {
+  pendingPersistWorkspaceId = workspaceId;
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const id = pendingPersistWorkspaceId;
+    pendingPersistWorkspaceId = null;
+    if (id !== null) persistScope(id);
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+/** Writes a pending coalesced position immediately rather than waiting out the debounce. */
+function flushPersist(): void {
+  if (persistTimer === null) return;
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  const id = pendingPersistWorkspaceId;
+  pendingPersistWorkspaceId = null;
+  if (id !== null) persistScope(id);
+}
+
 const PaneViewportContext = createContext<RefObject<HTMLDivElement | null> | null>(null);
 
 export interface PaneViewportProps {
@@ -125,12 +160,23 @@ export function PaneViewport({ className, children, scrollKey }: PaneViewportPro
         const oldest = positions.keys().next().value;
         if (oldest !== undefined) positions.delete(oldest);
       }
-      if (scopedWorkspaceId !== null) persistScope(scopedWorkspaceId);
+      if (scopedWorkspaceId !== null) schedulePersist(scopedWorkspaceId);
     };
+    // A tab going to the background - navigated away, closed, or the OS suspending it - may
+    // never run another scroll event or an unmount to flush a pending debounced write, so both
+    // are treated as "leaving now": flush whatever is pending rather than lose it.
+    const flushOnHide = (): void => {
+      if (document.visibilityState === 'hidden') flushPersist();
+    };
+    document.addEventListener('visibilitychange', flushOnHide);
+    window.addEventListener('pagehide', flushPersist);
     pane.addEventListener('scroll', save, { passive: true });
     return () => {
       save();
+      flushPersist();
       pane.removeEventListener('scroll', save);
+      document.removeEventListener('visibilitychange', flushOnHide);
+      window.removeEventListener('pagehide', flushPersist);
       observer?.disconnect();
     };
   }, [scrollKey]);
