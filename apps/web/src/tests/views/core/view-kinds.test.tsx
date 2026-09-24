@@ -90,8 +90,15 @@ describe('the view-kind registry', () => {
     expect(findViewKind('form')?.configures).toEqual([]);
 
     expect(onlyConfiguration('board').field).toBe('groupBy');
-    expect(onlyConfiguration('calendar').field).toBe('dateProperty');
     expect(onlyConfiguration('gallery').field).toBe('coverProperty');
+
+    // The calendar is the second kind configured from two properties, alongside the timeline
+    // below - it shares the timeline's own field names for the same reason `endDateProperty`'s
+    // own comment gives: switching a view between the two kinds carries the pair across untouched.
+    expect(configurations('calendar').map((entry) => entry.field)).toEqual([
+      'dateProperty',
+      'endDateProperty',
+    ]);
 
     // The kind the array shape was written for. This asserts the table; that the editor actually
     // draws two blocks from it is asserted where it happens, in `view-editor.test.tsx` - a claim
@@ -119,7 +126,6 @@ describe('the view-kind registry', () => {
     // wording rather than the presence of a key.
     expect(onlyConfiguration('gallery').emptyChoice).toBe('None');
     expect(onlyConfiguration('board').emptyChoice).toBe('Choose a property');
-    expect(onlyConfiguration('calendar').emptyChoice).toBe('Choose a property');
 
     // A timeline is both at once, which is exactly why the copy lives here rather than being
     // derived from the kind: without a start there is no position, and without an end every item is
@@ -127,14 +133,24 @@ describe('the view-kind registry', () => {
     const [start, end] = configurations('timeline');
     expect(start?.emptyChoice).toBe('Choose a property');
     expect(end?.emptyChoice).toBe('None');
+
+    // A calendar draws the same pair the same way: waiting on a place to put an item, complete
+    // without a length for it.
+    const [calendarStart, calendarEnd] = configurations('calendar');
+    expect(calendarStart?.emptyChoice).toBe('Choose a property');
+    expect(calendarEnd?.emptyChoice).toBe('None');
   });
 
   it('lets each kind be configured only from the property types it can use', () => {
     // This is the same rule the server enforces on write. Offering a property the kind cannot use
     // would let somebody build a view that stores fine and then refuses to draw.
     const board = onlyConfiguration('board');
-    const calendar = onlyConfiguration('calendar');
+    const [calendar] = configurations('calendar');
     const gallery = onlyConfiguration('gallery');
+
+    if (calendar === undefined) {
+      throw new Error('"calendar" lost its first configuration.');
+    }
 
     const select = {
       key: 'status',
@@ -171,6 +187,15 @@ describe('the view-kind registry', () => {
       expect(configuration.accepts(text)).toBe(false);
       expect(configuration.accepts(select)).toBe(false);
     }
+
+    // The calendar's own second field, `endDateProperty`, takes the same types its first field
+    // does - a person is not offered a "End" property the server would refuse to store beside a
+    // stored `dateProperty`.
+    for (const configuration of configurations('calendar')) {
+      expect(configuration.accepts(date)).toBe(true);
+      expect(configuration.accepts(text)).toBe(false);
+      expect(configuration.accepts(select)).toBe(false);
+    }
   });
 
   it('clears the column order when a board changes the property it groups by', () => {
@@ -178,9 +203,14 @@ describe('the view-kind registry', () => {
     // values it does not have, and the board would draw empty.
     expect(onlyConfiguration('board').clears).toEqual({ groupOrder: [] });
 
-    // A calendar and a gallery have nothing that outlives their property, so they clear nothing.
-    expect(onlyConfiguration('calendar').clears).toBeUndefined();
+    // A gallery has nothing that outlives its property, so it clears nothing.
     expect(onlyConfiguration('gallery').clears).toBeUndefined();
+
+    // Neither does the calendar's pair, for the same reason as the timeline's own below: the start
+    // is `dateProperty` under a name a switch to or from a timeline has to carry across untouched.
+    for (const configuration of configurations('calendar')) {
+      expect(configuration.clears).toBeUndefined();
+    }
 
     // Neither does a timeline, and here it is load-bearing rather than incidental: the start is the
     // calendar's own `dateProperty`, so clearing anything on a switch between the two kinds would

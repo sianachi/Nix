@@ -38,7 +38,10 @@ export function WorkspaceSwitcher(): ReactNode {
 
           <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
             {activeWorkspaces.map((entry) => (
-              <li key={entry.id} className="flex items-center gap-1 px-1">
+              <li
+                key={entry.id}
+                className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
+              >
                 <Link
                   to={`/w/${entry.id}`}
                   aria-current={entry.id === workspace.id ? 'page' : undefined}
@@ -56,7 +59,7 @@ export function WorkspaceSwitcher(): ReactNode {
                   to={`/w/${entry.id}/settings`}
                   aria-label={`Manage ${entry.name}`}
                   onClick={close}
-                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent pointer-coarse:size-(--control-lg)"
                 >
                   <Icon icon={Settings} size="sm" />
                 </Link>

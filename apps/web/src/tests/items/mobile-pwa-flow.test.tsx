@@ -128,6 +128,8 @@ it('moves an item through a destination sheet without dragging', async () => {
     }),
   );
   const move = screen.getByRole('dialog', { name: 'Move item' });
+  await userEvent.click(within(move).getByRole('button', { name: 'Up one level' }));
+  await userEvent.click(within(move).getByRole('button', { name: 'Choose position' }));
   await userEvent.click(within(move).getByRole('button', { name: 'Move here' }));
   await waitFor(() => {
     expect(screen.queryByRole('dialog', { name: 'Move item' })).not.toBeInTheDocument();

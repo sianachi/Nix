@@ -432,6 +432,74 @@ describe('the all-day create control by keyboard', () => {
 });
 
 /**
+ * A timed item with an end used to be drawn exactly like one with none - a point, sized to its
+ * own content, with no shape on the grid saying how long it runs. `endDateProperty` threads that
+ * length through to `placeOn`, which is what these cover.
+ */
+describe('a timed item with an end', () => {
+  const MEETING = itemOf('item-meeting', 'Meeting', {
+    starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]',
+    ends: '2026-03-16T10:30:00-10:00[Pacific/Honolulu]',
+  });
+
+  // Starts late on the 16th and ends after midnight on the 17th - a day this one-day grid never
+  // draws a column for.
+  const OVERNIGHT = itemOf('item-overnight', 'Overnight', {
+    starts: '2026-03-16T23:00:00-10:00[Pacific/Honolulu]',
+    ends: '2026-03-17T01:00:00-10:00[Pacific/Honolulu]',
+  });
+
+  function renderDay(items: readonly Item[]): void {
+    const day: CalendarDay = { year: 2026, month: 2, day: 16 };
+    renderAt(
+      <HourGrid
+        days={[day]}
+        items={items}
+        dateProperty="starts"
+        endDateProperty="ends"
+        zone="Pacific/Honolulu"
+        today="2026-03-16"
+        onOpen={vi.fn()}
+        dragged={null}
+      />,
+      '/',
+    );
+  }
+
+  /** The one element carrying the entry's inline position and size - see calendar-hours.tsx. */
+  function cardOf(title: string): HTMLElement {
+    const card = screen.getByRole('button', { name: new RegExp(`^${title}`) }).closest('div');
+    if (card === null) {
+      throw new Error(`No positioned wrapper found for "${title}".`);
+    }
+    return card;
+  }
+
+  it('draws a span with an explicit height proportional to its duration', () => {
+    renderDay([MEETING]);
+
+    // 09:00 to 10:30 is ninety minutes - one and a half of the grid's 44px rows.
+    expect(cardOf('Meeting')).toHaveStyle({ height: '66px' });
+  });
+
+  it('clamps an overnight span to the visible day rather than running past midnight', () => {
+    renderDay([OVERNIGHT]);
+
+    // 23:00 to midnight is sixty minutes, even though the stored end is two hours later on a day
+    // this grid does not draw a column for.
+    expect(cardOf('Overnight')).toHaveStyle({ height: '44px' });
+  });
+
+  it('draws a point with no explicit height, exactly as it always has', () => {
+    renderDay([
+      itemOf('item-standup', 'Standup', { starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]' }),
+    ]);
+
+    expect(cardOf('Standup').style.height).toBe('');
+  });
+});
+
+/**
  * A placed item used to answer only to a click that opened it - a drag was the sole way to move it
  * once it had landed on the grid, which a keyboard and a touch screen alike cannot perform.
  */

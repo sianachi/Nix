@@ -53,4 +53,12 @@ describe('Input', () => {
     rerender(<Input aria-label="Title" tone="plain" />);
     expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-md');
   });
+
+  it('grows to the 44px touch step on a coarse pointer', () => {
+    render(<Input aria-label="Title" />);
+
+    const className = screen.getByRole('textbox', { name: 'Title' }).className;
+    expect(className).toContain('h-(--control-md)');
+    expect(className).toContain('pointer-coarse:h-(--control-lg)');
+  });
 });

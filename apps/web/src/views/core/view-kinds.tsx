@@ -301,6 +301,22 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // shift for a reader in another zone; a timestamp is a moment that must.
         accepts: (property) => isDateShaped(property.type),
       },
+      {
+        field: 'endDateProperty',
+        // "End" rather than the timeline's "Ends on": the calendar's own field is "Place by", not
+        // "Starts on", so the paired label has to read against that one, not the timeline's.
+        label: 'End',
+        // Same filtering as the timeline's own pair below: a date property distinct from the
+        // start. Nothing here refuses picking the same property for both; that would need the
+        // shared editor to know the view's current `dateProperty`, which is a change to
+        // `structured-view-configuration.tsx`, not to this registry.
+        emptyHint:
+          'There is no second date property yet. Without one every item is drawn as a point rather than a span.',
+        hint: 'An item with this property runs to the day or time it names, instead of appearing as a point.',
+        // Not "Choose a property": a calendar of points is complete.
+        emptyChoice: 'None',
+        accepts: (property) => isDateShaped(property.type),
+      },
     ],
     chooses: [],
   },

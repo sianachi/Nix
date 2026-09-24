@@ -303,7 +303,10 @@ function buildColumns(
           onClick={() => {
             onOpen(item.id);
           }}
-          className={cn('cursor-pointer text-left hover:text-accent-text', focusRing)}
+          className={cn(
+            'cursor-pointer text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
+            focusRing,
+          )}
         >
           {item.title.length > 0 ? item.title : 'Untitled'}
         </button>

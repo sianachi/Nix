@@ -60,6 +60,13 @@ import { ListCell } from '../list/list-cell';
  * **The keyboard path is not a courtesy.** A calendar whose only way to move an item is a drag is a
  * calendar a person using a keyboard or a screen reader cannot operate at all, so every card
  * carries a reschedule control that reaches the same write.
+ *
+ * **An item with an `endDateProperty` covers every day between the two, drawn on each one**
+ * (`spanDates`), rather than only on its start day with a marker saying it continues. A month
+ * cell is already a list of cards, not a single-line row a bar could stretch across the way
+ * timeline-view.tsx draws one, so showing the same card again on every covered day costs this
+ * file one loop and no new layout, and is the one rendering that agrees with "where an item sits
+ * is its date" above for a date range rather than a single date.
  */
 
 export interface CalendarViewProps {
@@ -264,6 +271,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     container.schema?.properties.find((property) => property.key === dateProperty)?.type ===
     'timestamp';
 
+  // The view's own end-of-span property, when it has one - see `RescheduleDialogProps.endDateProperty`
+  // for why the calendar's end field assumes the same shape as `dateProperty` rather than checking
+  // its own type against the schema. Read before the buckets are filled: a multi-day item's own
+  // bucketing below needs it.
+  const endDateProperty = view.endDateProperty;
+
   const byDate = new Map<string, Item[]>();
   const unscheduled: Item[] = [];
 
@@ -277,19 +290,40 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       continue;
     }
 
-    const existing = byDate.get(value);
-    if (existing === undefined) {
-      byDate.set(value, [item]);
-    } else {
-      existing.push(item);
+    // An item with an end that lands after its start covers every day in between, and this grid
+    // shows it on each of them - the same "where an item sits is its date" rule extended across a
+    // range rather than a single answer. An end on or before the start (no end configured, none
+    // set on this item, or one that lands before its start - the reversed span timeline-view.tsx
+    // also refuses to draw) collapses to the single-day case every calendar has always had.
+    const end = endDateProperty === null ? null : readDayValue(item, endDateProperty, zone);
+    const dates = end === null || end <= value ? [value] : spanDates(value, end);
+
+    for (const date of dates) {
+      const existing = byDate.get(date);
+      if (existing === undefined) {
+        byDate.set(date, [item]);
+      } else {
+        existing.push(item);
+      }
     }
   }
 
   const prefix = monthPrefix(month);
+
+  // Counted by item, not by bucket: a multi-day item now occupies one bucket per day it covers,
+  // and a bucket outside this month it also reaches on some other day is not an item that has
+  // gone missing from the calendar - it is right there, drawn on the day that is in view.
+  const inMonth = new Set<string>();
+  const outsideMonth = new Set<string>();
+  for (const [date, dated] of byDate) {
+    for (const dayItem of dated) {
+      (date.startsWith(prefix) ? inMonth : outsideMonth).add(dayItem.id);
+    }
+  }
   let elsewhere = 0;
-  for (const [value, dated] of byDate) {
-    if (!value.startsWith(prefix)) {
-      elsewhere += dated.length;
+  for (const id of outsideMonth) {
+    if (!inMonth.has(id)) {
+      elsewhere += 1;
     }
   }
 
@@ -300,11 +334,6 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     secondaryKey === null
       ? null
       : (container.schema?.properties.find((property) => property.key === secondaryKey) ?? null);
-
-  // The view's own end-of-span property, when it has one - see `RescheduleDialogProps.endDateProperty`
-  // for why the calendar's end field assumes the same shape as `dateProperty` rather than checking
-  // its own type against the schema.
-  const endDateProperty = view.endDateProperty;
 
   function moveTo(itemId: string, values: Record<string, string | null>): void {
     void container.setProperties(itemId, values);
@@ -631,6 +660,41 @@ function readDayValue(item: Item, key: string, zone: string): string | null {
 
   const moment = readTimestampValue(item.properties, key);
   return moment === null ? null : dayFor(moment, zone);
+}
+
+/**
+ * The safety valve on a span the interface can only ever have written a sane length: a bound
+ * nobody scheduling a real item would reach, so a malformed value cannot turn one item into a
+ * year of buckets that cost memory and mean nothing.
+ */
+const MAX_SPAN_DAYS = 366;
+
+/**
+ * Every `yyyy-MM-dd` day from `start` to `end`, inclusive.
+ *
+ * Called only once `end` is already known to be after `start` - see the loop that builds
+ * `byDate`. Falls back to the single start day on a date this cannot parse, which should not
+ * happen for text `readDayValue` already produced, but a month grid that could throw on bad data
+ * is worse than one that occasionally under-covers a span.
+ */
+function spanDates(start: string, end: string): readonly string[] {
+  const first = dayFromText(start);
+  if (first === null) {
+    return [start];
+  }
+
+  const dates: string[] = [];
+  let cursor = first;
+  for (let count = 0; count < MAX_SPAN_DAYS; count += 1) {
+    const text = dayText(cursor);
+    dates.push(text);
+    if (text === end) {
+      break;
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  return dates;
 }
 
 /** What every card needs, whether it sits in a day or in the unscheduled list. */
