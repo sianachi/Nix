@@ -12,6 +12,8 @@ python3 - "$fixture/compose.json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1])); s=c['services']
 assert s['nix-versitygw']['image']=='versity/versitygw:v1.7.0'
+assert s['nix-api']['image']=='ghcr.io/sianachi/nix/api:replace-with-commit-sha'
+assert s['nix-import-worker']['image']=='ghcr.io/sianachi/nix/worker:replace-with-commit-sha'
 assert c['volumes']['nix-versity-data']['name']=='nix-versity-data'
 assert c['volumes']['nix-caddy-data']['name']=='nix-caddy-data'
 assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
@@ -106,7 +108,7 @@ if 'config' in args and '--format' in args:
  c['services']['nix-api']['environment']['Nix__Bff__PublicOrigin']='https://production.example'
  print(json.dumps(c))
 elif 'config' in args and '--images' in args:
- print('localhost/nix/api:test')
+ print('localhost/nix/api:test\nghcr.io/sianachi/nix/worker:test')
 elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATION'):
  sys.exit(1)
 PYCODE
@@ -121,7 +123,9 @@ stop=next(i for i,s in enumerate(calls) if ' stop nix-web ' in s)
 migrate=next(i for i,s in enumerate(calls) if s.endswith('run --rm --no-deps nix-migrate'))
 doc=next(i for i,s in enumerate(calls) if s.endswith('run --rm --no-deps nix-collab-migrate'))
 start=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('nix-api nix-collab'))
-assert stop < migrate < doc < start
+pull=next(i for i,s in enumerate(calls) if s=='pull --quiet ghcr.io/sianachi/nix/worker:test')
+assert not any(s.startswith('pull ') and 'localhost/' in s for s in calls)
+assert pull < stop < migrate < doc < start
 assert not any('--remove-orphans' in s or ' down ' in s for s in calls)
 PYCODE
 : > "$DOCKER_TEST_LOG"
