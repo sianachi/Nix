@@ -1,6 +1,14 @@
 import { useSheetGesture } from './use-sheet-gesture';
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
@@ -38,6 +46,15 @@ import { Button } from './Button';
  * reported through `onClose` rather than allowed to close the element, so the DOM can never be
  * closed while the prop still says open. Whoever owns the flag decides when it flips - which is
  * also what lets a dialog refuse to close over unsaved work.
+ *
+ * **`dirty` refuses a dismissal, once, in-place.** A caller with something worth losing - typed
+ * text, a changed selection - sets `dirty` once the person has actually changed something since the
+ * dialog opened. Escape, the backdrop, the corner close control and the mobile swipe gesture then
+ * stop reaching `onClose` directly: the first attempt shows an inline "Discard what you typed?"
+ * prompt in place of the body, with focus on "Keep editing" so an accidental second dismissal
+ * cannot compound the first, and only its own "Discard" button calls `onClose`. An explicit Cancel
+ * button in `actions` is not routed through this - it stays the caller's own control, because a
+ * caller that put a Cancel button there already made its own call about warning on it.
  *
  * **When not to use this.** A disclosure that must render as a sibling of an ancestor the user
  * still needs on screen - a header with its own toggle and search, say - cannot use `showModal()`:
@@ -90,6 +107,15 @@ export interface DialogProps {
   readonly titleHidden?: boolean;
   /** Opt in only when the caller can safely handle a swipe dismissal request. */
   readonly swipeToClose?: boolean;
+
+  /**
+   * There is unsaved work a dismissal would silently discard. While true, Escape, the backdrop,
+   * the close control and the swipe gesture stop calling `onClose` directly and instead show an
+   * inline "Discard what you typed?" prompt; only that prompt's own Discard button calls it.
+   * Leave it `false` for a dialog with nothing to lose, or whose only field mirrors state the
+   * caller already persists as it changes.
+   */
+  readonly dirty?: boolean;
 }
 
 export function Dialog(props: DialogProps): ReactNode {
@@ -105,18 +131,58 @@ export function Dialog(props: DialogProps): ReactNode {
     presentation = 'standard',
     titleHidden = false,
     swipeToClose = false,
+    dirty = false,
   } = props;
 
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const handleRef = useRef<HTMLButtonElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const invokerRef = useRef<HTMLElement | null>(null);
+
+  // A dismissal attempt while `dirty` shows the inline prompt instead of closing. It is not reset
+  // to false as soon as `dirty` drops - only a Keep-editing/Discard decision or the dialog leaving
+  // `open` should clear a prompt already on screen.
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+
+  // Adjusted during render rather than in an effect - the recommended way to reset state on a
+  // prop change - so a prompt left on screen does not survive the dialog actually closing and
+  // reopening for something new.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) setConfirmingDiscard(false);
+  }
+
+  const requestClose = useCallback((): void => {
+    if (dirty) {
+      setConfirmingDiscard(true);
+      return;
+    }
+    onClose();
+  }, [dirty, onClose]);
+
+  const keepEditing = (): void => {
+    setConfirmingDiscard(false);
+  };
+
+  const discard = (): void => {
+    setConfirmingDiscard(false);
+    onClose();
+  };
+
   useSheetGesture(
     dialogRef,
     handleRef,
     open && swipeToClose && presentation === 'standard',
-    onClose,
+    requestClose,
   );
-  const invokerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (confirmingDiscard) {
+      keepEditingRef.current?.focus();
+    }
+  }, [confirmingDiscard]);
 
   useEffect(() => {
     const element = dialogRef.current;
@@ -197,7 +263,7 @@ export function Dialog(props: DialogProps): ReactNode {
     // without recasting the semantic dialog as a generic keyboard control.
     const onCancel = (event: Event): void => {
       event.preventDefault();
-      onClose();
+      requestClose();
     };
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -220,7 +286,7 @@ export function Dialog(props: DialogProps): ReactNode {
       const outside = pressStartedOnBackdrop && event.target === element;
       pressStartedOnBackdrop = false;
       if (outside) {
-        onClose();
+        requestClose();
       }
     };
 
@@ -235,7 +301,9 @@ export function Dialog(props: DialogProps): ReactNode {
       element.removeEventListener('mousedown', onPointerDown);
       element.removeEventListener('click', onClick);
     };
-  }, [onClose]);
+    // `requestClose` closes over `onClose` and `dirty` and is recreated with them, so listing it
+    // alone keeps this in step with both without a separate, easy-to-miss entry for each.
+  }, [requestClose]);
 
   return (
     <dialog
@@ -281,7 +349,7 @@ export function Dialog(props: DialogProps): ReactNode {
           ref={handleRef}
           type="button"
           aria-label="Dismiss sheet"
-          onClick={onClose}
+          onClick={requestClose}
           className="flex min-h-11 w-full touch-none items-center justify-center rounded-t-md focus-visible:outline-2 focus-visible:outline-accent sm:hidden"
         >
           <span aria-hidden="true" className="h-1 w-10 rounded-full bg-divider" />
@@ -318,23 +386,42 @@ export function Dialog(props: DialogProps): ReactNode {
             variant="icon"
             className="max-sm:min-h-11 max-sm:min-w-11"
             aria-label={closeLabel}
-            onClick={onClose}
+            onClick={requestClose}
           >
             <Icon icon={X} size="sm" />
           </Button>
         </div>
 
-        {presentation === 'standard' ? (
-          // The one scroll region in a standard dialog. `min-h-0` overrides the flex item's
-          // default min-content height, which is otherwise exactly tall enough to defeat
-          // `overflow-y-auto` by never shrinking below the body's own content.
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">{children}</div>
+        {confirmingDiscard ? (
+          // Replaces the body and actions rather than layering over them: the dialog only has one
+          // decision live at a time, and the person's unsaved work is still right there underneath,
+          // unchanged, if they choose to keep editing it.
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <Text variant="bodySmall">Discard what you typed?</Text>
+            <div className="flex flex-wrap shrink-0 items-center justify-end gap-2">
+              <Button ref={keepEditingRef} variant="secondary" onClick={keepEditing}>
+                Keep editing
+              </Button>
+              <Button onClick={discard}>Discard</Button>
+            </div>
+          </div>
         ) : (
-          children
-        )}
+          <>
+            {presentation === 'standard' ? (
+              // The one scroll region in a standard dialog. `min-h-0` overrides the flex item's
+              // default min-content height, which is otherwise exactly tall enough to defeat
+              // `overflow-y-auto` by never shrinking below the body's own content.
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">{children}</div>
+            ) : (
+              children
+            )}
 
-        {actions === undefined ? null : (
-          <div className="flex flex-wrap shrink-0 items-center justify-end gap-2">{actions}</div>
+            {actions === undefined ? null : (
+              <div className="flex flex-wrap shrink-0 items-center justify-end gap-2">
+                {actions}
+              </div>
+            )}
+          </>
         )}
       </div>
     </dialog>

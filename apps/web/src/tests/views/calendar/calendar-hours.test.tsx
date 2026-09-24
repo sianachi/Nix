@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CalendarDay } from '../../../views/core/calendar-dates';
-import { HourGrid } from '../../../views/calendar/calendar-hours';
+import { HourGrid, minutesToPx } from '../../../views/calendar/calendar-hours';
 import { CalendarView } from '../../../views/calendar/calendar-view';
 import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
@@ -478,8 +478,8 @@ describe('a timed item with an end', () => {
   it('draws a span with an explicit height proportional to its duration', () => {
     renderDay([MEETING]);
 
-    // 09:00 to 10:30 is ninety minutes - one and a half of the grid's 44px rows.
-    expect(cardOf('Meeting')).toHaveStyle({ height: '66px' });
+    // 09:00 to 10:30 is ninety minutes - one and a half of the grid's rows.
+    expect(cardOf('Meeting')).toHaveStyle({ height: `${String(minutesToPx(90))}px` });
   });
 
   it('clamps an overnight span to the visible day rather than running past midnight', () => {
@@ -487,7 +487,21 @@ describe('a timed item with an end', () => {
 
     // 23:00 to midnight is sixty minutes, even though the stored end is two hours later on a day
     // this grid does not draw a column for.
-    expect(cardOf('Overnight')).toHaveStyle({ height: '44px' });
+    expect(cardOf('Overnight')).toHaveStyle({ height: `${String(minutesToPx(60))}px` });
+  });
+
+  it('gives a span under the minimum duration a floor height so its Reschedule button is not clipped', () => {
+    const BRIEF = itemOf('item-brief', 'Brief', {
+      starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]',
+      ends: '2026-03-16T09:15:00-10:00[Pacific/Honolulu]',
+    });
+    renderDay([BRIEF]);
+
+    // 15 minutes at this grid's scale is well under the floor - `minutesToPx(15)` is smaller than
+    // `--control-sm` - so the rendered height must be the floor, not the raw arithmetic.
+    const height = Number.parseFloat(cardOf('Brief').style.height);
+    expect(height).toBeGreaterThanOrEqual(28);
+    expect(height).toBeGreaterThan(minutesToPx(15));
   });
 
   it('draws a point with no explicit height, exactly as it always has', () => {

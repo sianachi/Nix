@@ -1,5 +1,14 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Button, Text, Table, cn, focusRing, type TableColumn, type TableSort } from '@nix/ui';
+import {
+  Button,
+  Text,
+  Table,
+  Select,
+  cn,
+  focusRing,
+  type TableColumn,
+  type TableSort,
+} from '@nix/ui';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { isKnownPropertyType } from '../../properties/property-input';
@@ -382,10 +391,10 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
         <Text as="span" variant="caption">
           Sort by
         </Text>
-        <select
+        <Select
           aria-label="Sort by"
           value={sort?.columnKey ?? ''}
-          className="min-w-0 rounded-md border border-divider bg-background p-2"
+          className="min-w-0"
           onChange={(event) => {
             onSortChange({
               columnKey: event.target.value,
@@ -401,7 +410,7 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
               {column.header}
             </option>
           ))}
-        </select>
+        </Select>
         <Button
           variant="ghost"
           disabled={!sort}

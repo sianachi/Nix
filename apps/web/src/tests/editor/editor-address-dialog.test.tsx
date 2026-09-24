@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -286,6 +286,28 @@ describe('the link form', () => {
       );
     },
   );
+
+  it('refuses a backdrop dismissal once a destination has been typed', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(<EditorAddressDialog kind="link" onCancel={onCancel} onSubmit={() => undefined} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Link address' }), '/roadmap');
+
+    fireEvent.mouseDown(screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('dialog'));
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard what you typed?')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('textbox', { name: 'Link address' })).toHaveValue('/roadmap');
+
+    fireEvent.mouseDown(screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('dialog'));
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
 
   it.each([
     '/roadmap',

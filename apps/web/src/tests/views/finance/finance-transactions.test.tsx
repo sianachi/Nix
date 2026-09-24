@@ -122,6 +122,40 @@ describe('recording a transaction and adding another', () => {
   });
 });
 
+describe('a stray tap outside the sheet', () => {
+  it('keeps typed input instead of silently discarding it', () => {
+    mount();
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Corner shop' } });
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '12.40' } });
+
+    const dialog = screen.getByRole('dialog', { name: 'Add a transaction' });
+    // A backdrop click, as the browser sends it: pressed and released on the element itself.
+    fireEvent.mouseDown(dialog);
+    fireEvent.click(dialog);
+
+    expect(screen.getByRole('dialog', { name: 'Add a transaction' })).toBeInTheDocument();
+    expect(screen.getByText('Discard what you typed?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+    expect(screen.getByLabelText('Description')).toHaveValue('Corner shop');
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.40');
+  });
+
+  it('discards through the prompt and closes only then', () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Corner shop' } });
+
+    const dialog = screen.getByRole('dialog', { name: 'Add a transaction' });
+    fireEvent.mouseDown(dialog);
+    fireEvent.click(dialog);
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 const otherLine: BudgetLine = {
   ...line,
   id: 'c5555555-5555-4555-8555-555555555555',

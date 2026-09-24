@@ -6,11 +6,12 @@ import { MobileNavigation } from './mobile-navigation';
 import { PwaControls } from '../pwa/pwa-controls';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { ImportDialog } from '../import/import-dialog';
+import { consumeInterruptedImportForWorkspace } from '../import/import-interrupted-notice';
 import { useWorkspaceTree, type TreeItem } from '../items/use-workspace-tree';
 import { announce, useAnnouncement } from '../a11y/announcer';
 import type { ShellContext } from './shell-context';
@@ -21,6 +22,7 @@ import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
 import { useOpenItem } from '../tabs/use-open-item';
+import { useSessionStore } from '../auth/session-store';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
 import { NavRail } from './nav-rail';
@@ -144,6 +146,25 @@ export function AppShell(): ReactNode {
   const treeRegionRef = useRef<HTMLDivElement>(null);
 
   const shellToasts = useShellToasts();
+
+  // A screen that got torn down mid-import - a session expiring underneath it, chief among the
+  // ways that happens - left a short, content-free summary behind for this workspace (see
+  // `import-interrupted-notice.ts`). This is where it finally gets read: once, on arrival in the
+  // workspace it names, as an ordinary shell toast rather than a special screen of its own.
+  const subject = useSessionStore((state) => state.profile?.subject ?? null);
+  useEffect(() => {
+    if (subject === null) {
+      return;
+    }
+    const message = consumeInterruptedImportForWorkspace(workspaceId, subject);
+    if (message !== null) {
+      shellToasts.push({ key: 'import-interrupted', message, autoFocus: false });
+    }
+    // Only the workspace and the person identify which pending notice, if any, belongs here; re-running this
+    // whenever the toast queue itself changes would re-read storage that consuming it already
+    // cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, subject]);
 
   /**
    * Deletes at once and reports it, rather than asking first: the interface used to gate this

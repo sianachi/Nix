@@ -116,6 +116,10 @@ function ActualSummary({
   );
   const query = useFinanceQuery<FinanceTransactions>(endpoint, state.generation);
   const [amount, setAmount] = useState(String(cell.actual));
+  // Captured once, from the value the field opened with, so a backdrop tap or Escape after the
+  // person has actually retyped the total is refused rather than silently discarding it.
+  const [initialAmount] = useState(amount);
+  const dirty = amount !== initialAmount;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -260,6 +264,7 @@ function ActualSummary({
       onClose={onClose}
       initialFocus={amountField}
       presentation="workspace"
+      dirty={dirty}
     >
       <div className="flex flex-col gap-4">
         <dl className="grid grid-cols-2 gap-3 rounded-lg bg-surface-raised p-3 sm:grid-cols-3">

@@ -218,7 +218,14 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       };
     });
   }
-  const [dragged, setDragged] = useState<string | null>(null);
+  const [dragged, setDraggedState] = useState<{
+    readonly id: string;
+    readonly from: string | null;
+  } | null>(null);
+
+  function setDragged(itemId: string, occurrenceDate: string | null): void {
+    setDraggedState({ id: itemId, from: occurrenceDate });
+  }
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const unscheduledHeadingId = useId();
 
@@ -338,7 +345,32 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   function moveTo(itemId: string, values: Record<string, string | null>): void {
     void container.setProperties(itemId, values);
     setRescheduling(null);
-    setDragged(null);
+    setDraggedState(null);
+  }
+
+  /**
+   * What a drop onto a day writes: the whole span shifted together when the item has one, or just
+   * the date property when it does not - see `CardContext.dropOnDate`'s own note for why.
+   */
+  function dropOnDate(itemId: string, from: string | null, to: string): void {
+    if (from !== null && from !== to && endDateProperty !== null) {
+      const item = items.find((entry) => entry.id === itemId);
+      const start = item === undefined ? null : readDayValue(item, dateProperty, zone);
+      const end = item === undefined ? null : readDayValue(item, endDateProperty, zone);
+
+      if (start !== null && end !== null && end > start) {
+        const delta = daysBetween(from, to);
+        const shiftedStart = delta === null ? null : shiftDateText(start, delta);
+        const shiftedEnd = delta === null ? null : shiftDateText(end, delta);
+
+        if (shiftedStart !== null && shiftedEnd !== null) {
+          moveTo(itemId, { [dateProperty]: shiftedStart, [endDateProperty]: shiftedEnd });
+          return;
+        }
+      }
+    }
+
+    moveTo(itemId, { [dateProperty]: to });
   }
 
   /** What a drop into the unscheduled list, or the dialog's own "Remove date", both write. */
@@ -352,7 +384,11 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     onOpen,
     setRescheduling,
     setDragged,
+    clearDragged: () => {
+      setDraggedState(null);
+    },
     moveTo,
+    dropOnDate,
     dateProperty,
     secondaryKey,
     secondaryProperty,
@@ -523,7 +559,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
                 <ul className="flex flex-col gap-2">
                   {dated.map((item) => (
                     <li key={item.id}>
-                      <ItemCard item={item} card={card} />
+                      <ItemCard item={item} card={card} occurrenceDate={date} />
                     </li>
                   ))}
                 </ul>
@@ -577,7 +613,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             today={todayText}
             onOpen={onOpen}
             onCreate={container.create}
-            dragged={dragged}
+            dragged={dragged?.id ?? null}
             onMove={moveTo}
           />
         </Blueprint>
@@ -591,7 +627,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         onDrop={(event: DragEvent<HTMLElement>) => {
           event.preventDefault();
           if (dragged !== null) {
-            moveTo(dragged, clearedDate());
+            moveTo(dragged.id, clearedDate());
           }
         }}
         className="flex flex-col gap-2 border border-divider p-3"
@@ -608,7 +644,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           <ul className="flex flex-col gap-1">
             {unscheduled.map((item) => (
               <li key={item.id}>
-                <ItemCard item={item} card={card} />
+                <ItemCard item={item} card={card} occurrenceDate={null} />
               </li>
             ))}
           </ul>
@@ -697,12 +733,67 @@ function spanDates(start: string, end: string): readonly string[] {
   return dates;
 }
 
+/**
+ * A proleptic-Gregorian day number, counted the way `addDays` counts - as integers, never through
+ * a `Date`. This is the one piece of arithmetic that module's helpers do not offer: a distance
+ * between two days, rather than a day moved by one. `month` here is 1-12, matching the stored text
+ * `dayFromText` already parsed it from, not the 0-11 `CalendarDay` carries.
+ *
+ * The formula is Howard Hinnant's `days_from_civil`: pure integer arithmetic, correct across every
+ * month and year boundary the calendar can reach, and exactly the kind of "no wall clock, no
+ * timezone" fact this file's own dates already are.
+ */
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor((y >= 0 ? y : y - 399) / 400);
+  const yoe = y - era * 400;
+  const monthIndex = (month + 9) % 12;
+  const dayOfYear = Math.floor((153 * monthIndex + 2) / 5) + day - 1;
+  const dayOfEra = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + dayOfYear;
+  return era * 146097 + dayOfEra - 719468;
+}
+
+/** The number of days from `from` to `to`, negative when `to` is the earlier date. Null on text that isn't a whole calendar day. */
+function daysBetween(from: string, to: string): number | null {
+  const start = dayFromText(from);
+  const end = dayFromText(to);
+  if (start === null || end === null) {
+    return null;
+  }
+
+  return (
+    daysFromCivil(end.year, end.month + 1, end.day) -
+    daysFromCivil(start.year, start.month + 1, start.day)
+  );
+}
+
+/** `value`, moved by `delta` days - the text form `spanDates` and every drop already deal in. */
+function shiftDateText(value: string, delta: number): string | null {
+  const day = dayFromText(value);
+  return day === null ? null : dayText(addDays(day, delta));
+}
+
 /** What every card needs, whether it sits in a day or in the unscheduled list. */
 interface CardContext {
   readonly onOpen: (itemId: string) => void;
   readonly setRescheduling: (itemId: string | null) => void;
-  readonly setDragged: (itemId: string | null) => void;
+  readonly setDragged: (itemId: string, occurrenceDate: string | null) => void;
+
+  /** What a drag that never lands on a target - lifted, then dropped nowhere - clears. */
+  readonly clearDragged: () => void;
   readonly moveTo: (itemId: string, values: Record<string, string | null>) => void;
+
+  /**
+   * What a drop onto `to` writes for an item last dragged from `from`.
+   *
+   * `from` is the day the dragged occurrence was drawn on - null when the drag started somewhere
+   * with no day of its own (the unscheduled list). When the item has an end configured and set,
+   * this shifts both the start and the end by the distance from `from` to `to`, so the whole span
+   * moves together rather than just the end the pointer happened to be over - see `spanDates`'s
+   * own note on the reversed-span bug this replaces. Anything else - a point item, or a drag with
+   * no origin day - falls back to writing only the date property, exactly as before.
+   */
+  readonly dropOnDate: (itemId: string, from: string | null, to: string) => void;
   readonly secondaryKey: string | null;
   readonly secondaryProperty: PropertyDefinition | null;
   readonly onWrite: (
@@ -724,7 +815,7 @@ interface DayCellProps {
   readonly name: string;
   readonly isToday: boolean;
   readonly items: readonly Item[];
-  readonly dragged: string | null;
+  readonly dragged: { readonly id: string; readonly from: string | null } | null;
   readonly card: CardContext;
 }
 
@@ -755,10 +846,10 @@ function DayCell(props: DayCellProps): ReactNode {
         setOver(false);
         if (dragged !== null) {
           // A drop writes the date property, not a position: where a card sits is its date, and
-          // anything view-local would disagree with every other view of the same folder. Only the
-          // start moves - a drag says nothing about length, so an item with an end keeps the one
-          // it had.
-          card.moveTo(dragged, { [card.dateProperty]: cell.date });
+          // anything view-local would disagree with every other view of the same folder. An item
+          // with an end configured and set moves as a whole span - see `CardContext.dropOnDate` -
+          // so dragging any day of a multi-day span keeps its length rather than reversing it.
+          card.dropOnDate(dragged.id, dragged.from, cell.date);
         }
       }}
       className={cn(
@@ -776,7 +867,7 @@ function DayCell(props: DayCellProps): ReactNode {
           <ul className="flex flex-col gap-1">
             {visibleItems.map((item) => (
               <li key={item.id}>
-                <ItemCard item={item} card={card} />
+                <ItemCard item={item} card={card} occurrenceDate={cell.date} />
               </li>
             ))}
           </ul>
@@ -819,23 +910,32 @@ function DayCell(props: DayCellProps): ReactNode {
 interface ItemCardProps {
   readonly item: Item;
   readonly card: CardContext;
+
+  /**
+   * The day this card is drawn on right now, or null when it has none - the unscheduled list.
+   * A multi-day span is drawn once per day it covers, so the same item's card carries a different
+   * value here on each of them; `card.dropOnDate` uses it to tell which day of the span the drag
+   * actually started from.
+   */
+  readonly occurrenceDate: string | null;
 }
 
 function ItemCard(props: ItemCardProps): ReactNode {
-  const { item } = props;
-  const { onOpen, setRescheduling, setDragged, secondaryProperty, onWrite } = props.card;
+  const { item, occurrenceDate } = props;
+  const { onOpen, setRescheduling, setDragged, clearDragged, secondaryProperty, onWrite } =
+    props.card;
 
   return (
     <div
       draggable
       onDragStart={(event: DragEvent<HTMLDivElement>) => {
-        setDragged(item.id);
+        setDragged(item.id, occurrenceDate);
         event.dataTransfer.effectAllowed = 'move';
         // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
         event.dataTransfer.setData('text/plain', item.id);
       }}
       onDragEnd={() => {
-        setDragged(null);
+        clearDragged();
       }}
       className="flex items-start gap-1 border border-divider bg-surface px-1"
     >

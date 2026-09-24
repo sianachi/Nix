@@ -16,7 +16,8 @@ import { LoginPage } from '../pages/login-page';
  *
  * **All four states are distinct and none of them lies.** `unknown` and `authenticating` show that
  * something is in flight rather than flashing the login screen at someone who is already signed in;
- * `failed` shows the login screen *with* the reason; `anonymous` shows it plainly.
+ * `failed` shows the login screen *with* the reason; `anonymous` shows it plainly, or with the
+ * reason an expired session left behind (a deliberate sign-out leaves none).
  */
 export function RequireSession(): ReactNode {
   const status = useSessionStore((state) => state.status);

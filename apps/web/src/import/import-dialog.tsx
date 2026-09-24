@@ -17,6 +17,8 @@ import {
   type PathReason,
   type PlannedNode,
 } from './import-plan';
+import { useSessionStore } from '../auth/session-store';
+import { recordInterruptedImport } from './import-interrupted-notice';
 import { runImportPlan, undoImport, type ImportRunReport } from './import-run';
 import { useWorkspace } from '../workspaces/workspace-context';
 
@@ -105,11 +107,45 @@ export function ImportDialog({
   const abort = useRef<AbortController | null>(null);
   const activeDocumentImport = useRef<string | null>(null);
 
+  // Read in the unmount cleanup below, which otherwise closes over the render that scheduled the
+  // effect - refs kept current by their own effect are how that cleanup sees the phase and
+  // workspace that were actually on screen when the dialog went away, not stale ones.
+  const subject = useSessionStore((state) => state.profile?.subject ?? null);
+  const phaseRef = useRef(phase);
+  const workspaceIdRef = useRef(workspaceId);
+  const subjectRef = useRef(subject);
+  useEffect(() => {
+    phaseRef.current = phase;
+    workspaceIdRef.current = workspaceId;
+    // Only ever overwritten with a real subject: an expiring session clears the profile before
+    // this dialog unmounts, and the notice must still name the person whose import it was.
+    if (subject !== null) {
+      subjectRef.current = subject;
+    }
+  }, [phase, workspaceId, subject]);
+
   useEffect(
     () => () => {
       // Unmounting the whole screen mid-run: stop between items so what was created stays and
       // nothing more is made for a report nobody will see.
       abort.current?.abort();
+
+      // A run that was still in progress when this unmount happened was never closed through the
+      // dialog's own controls - "Stop import" keeps the dialog mounted long enough to show its
+      // report, and the close/cancel buttons are disabled while working. So this branch is
+      // specifically the screen being torn down out from under an in-progress import - a session
+      // expiring mid-task chief among them - not a person choosing to leave. What was already
+      // created stays in the workspace with no report and no undo offered, so a short, content-free
+      // summary is left for the workspace to show once the person is back in it.
+      const current = phaseRef.current;
+      if (current.name === 'working' && current.done > 0 && subjectRef.current !== null) {
+        recordInterruptedImport({
+          subject: subjectRef.current,
+          workspaceId: workspaceIdRef.current,
+          createdCount: current.done,
+          totalCount: current.total,
+        });
+      }
     },
     [],
   );

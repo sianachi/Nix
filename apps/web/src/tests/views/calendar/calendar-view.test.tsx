@@ -816,10 +816,10 @@ describe('an end-date property on a month-grain view', () => {
     }
   });
 
-  it('drops each day it covers into the reschedule that only moves the start', () => {
-    // Dragging any of the three cards a multi-day item is now drawn as writes the same single
-    // property a one-day item's drag always has - the length is the end's, untouched by where a
-    // pointer happened to grab the card.
+  it('shifts the whole span, start and end together, when the start day is dragged', () => {
+    // Dragging the card drawn on the start day (the 17th) to the 19th used to write only `due:
+    // '2026-03-19'`, leaving `ends` at its own 19th - a start after its end, which collapsed the
+    // three-day span to one. The whole span now moves by the same two days the pointer did.
     const { setProperties } = renderSpan([SPRINT]);
 
     const target = screen.getByRole('cell', { name: 'Thursday 19 March 2026' });
@@ -829,7 +829,50 @@ describe('an end-date property on a month-grain view', () => {
     fireEvent.dragStart(card, { dataTransfer });
     fireEvent.drop(target, { dataTransfer });
 
-    expect(setProperties).toHaveBeenCalledWith('item-sprint', { due: '2026-03-19' });
+    expect(setProperties).toHaveBeenCalledWith('item-sprint', {
+      due: '2026-03-19',
+      ends: '2026-03-21',
+    });
+  });
+
+  it('shifts the whole span by the same amount when a middle day is dragged', () => {
+    // The card drawn on the 18th - neither end of the span - dragged to the 20th: two days later,
+    // so the start moves from the 17th to the 19th and the end from the 19th to the 21st, the span
+    // keeping its three-day length throughout.
+    const { setProperties } = renderSpan([SPRINT]);
+
+    const middleCell = screen.getByRole('cell', { name: 'Wednesday 18 March 2026' });
+    const card = within(middleCell).getByRole('button', { name: 'Sprint' });
+    const target = screen.getByRole('cell', { name: 'Friday 20 March 2026' });
+
+    const dataTransfer = { effectAllowed: '', setData: vi.fn(), getData: vi.fn() };
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    expect(setProperties).toHaveBeenCalledWith('item-sprint', {
+      due: '2026-03-19',
+      ends: '2026-03-21',
+    });
+  });
+
+  it('writes only the start when the item has no end set, exactly as before', () => {
+    // A view can name `endDateProperty` while a particular item never got one - the ordinary
+    // single-day case, which must keep answering to the same single write.
+    const { setProperties } = renderSpan([
+      itemOf('item-open', 'Open-ended', { due: '2026-03-17' }),
+    ]);
+
+    const card = within(screen.getByRole('cell', { name: 'Tuesday 17 March 2026' })).getByRole(
+      'button',
+      { name: 'Open-ended' },
+    );
+    const target = screen.getByRole('cell', { name: 'Thursday 19 March 2026' });
+
+    const dataTransfer = { effectAllowed: '', setData: vi.fn(), getData: vi.fn() };
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    expect(setProperties).toHaveBeenCalledWith('item-open', { due: '2026-03-19' });
   });
 });
 

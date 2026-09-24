@@ -2,6 +2,7 @@ import { Button, Dialog, Icon, Text } from '@nix/ui';
 import { ArrowDown, ArrowLeft, ArrowUp } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { MobileDestinationPicker } from './mobile-destination-picker';
+import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
 type Step = 'destination' | 'position';
@@ -85,11 +86,18 @@ export function MobileItemMove({
   function moveUp(): void {
     // Before the sibling above, which is after the one above that - the same landing the desktop
     // tree's Alt+ArrowUp produces.
-    void runMove(currentParentId, siblings[index - 2]?.id ?? null);
+    void runMove(currentParentId, siblingMoveTarget(siblings, index, 'up'));
   }
 
   function moveDown(): void {
-    void runMove(currentParentId, siblings[index + 1]?.id ?? null);
+    void runMove(currentParentId, siblingMoveTarget(siblings, index, 'down'));
+  }
+
+  // A destination that is the item's own current parent isn't a new place to browse for a slot -
+  // it's the item's own list, so the position step should open on where the item already sits
+  // rather than silently defaulting to the top.
+  function initialAfterIdFor(destinationParentId: string | null): string | null {
+    return destinationParentId === currentParentId ? currentAfterId : null;
   }
 
   const destinationChildren = tree
@@ -103,7 +111,7 @@ export function MobileItemMove({
   return (
     <Dialog
       open
-      title="Move item"
+      title={step === 'destination' ? 'Move item: choose a place' : 'Move item: choose a position'}
       swipeToClose={!saving}
       onClose={() => {
         if (!pending.current) onClose();
@@ -113,7 +121,7 @@ export function MobileItemMove({
           <Button
             disabled={saving}
             onClick={() => {
-              setAfterId(null);
+              setAfterId(initialAfterIdFor(parentId));
               setStep('position');
             }}
           >
@@ -157,7 +165,7 @@ export function MobileItemMove({
           parentId={parentId}
           onChange={(id) => {
             setParentId(id);
-            setAfterId(null);
+            setAfterId(initialAfterIdFor(id));
           }}
           disabled={saving}
           purpose="move"

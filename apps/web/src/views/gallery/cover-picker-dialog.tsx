@@ -45,6 +45,9 @@ export function CoverPickerDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const addressRef = useRef<HTMLInputElement>(null);
+  // A typed address is the only thing here a dismissal could silently discard - an upload commits
+  // as soon as a file is chosen, with nothing left typed in the dialog afterward.
+  const dirty = address.trim() !== '';
 
   async function pickFile(file: File): Promise<void> {
     if (busy) return;
@@ -109,6 +112,7 @@ export function CoverPickerDialog({
       title={`Cover for "${itemTitle || 'Untitled'}"`}
       onClose={onClose}
       closeLabel="Cancel choosing a cover"
+      dirty={dirty}
     >
       <div className="flex flex-col gap-4">
         {canUpload ? (

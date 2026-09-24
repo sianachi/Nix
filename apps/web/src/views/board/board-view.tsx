@@ -1,5 +1,5 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Field, Select, Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Field, Select, Blueprint, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -571,7 +571,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
           <Text variant="kicker" tone="muted" as="span">
             {property.label}
           </Text>
-          <select
+          <Select
             // Named per card, not per property: a board of twelve cards would otherwise offer twelve
             // controls all called "Status", and neither a screen reader user nor a test could say
             // which one they were operating.
@@ -581,13 +581,6 @@ function BoardCard(props: BoardCardProps): ReactNode {
               const next = event.target.value;
               onMove(item, next === UNSET_VALUE ? null : next);
             }}
-            className={cn(
-              blueprintFrame,
-              // One step below the body copy around it, so a control repeated once per card does
-              // not out-weigh the card's own title. The line height is the step's own.
-              'w-full bg-background px-2 py-1 font-body text-base text-foreground',
-              focusRing,
-            )}
           >
             {/*
             The card's current value is offered even when it is not one of the board's columns, so
@@ -603,7 +596,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
                 {column.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </Blueprint>
     </li>
