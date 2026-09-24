@@ -156,7 +156,7 @@ const BODY_SIZED_VARIANTS = [
 const heading = 'font-heading font-semibold tracking-tight';
 const body = 'font-body font-normal';
 
-const textVariants = cva('', {
+const textVariants = cva('break-words', {
   variants: {
     variant: {
       h1: `text-3xl ${heading}`,
@@ -185,6 +185,21 @@ const textVariants = cva('', {
       // new variant that forgets to declare its contrast class fails loudly
       // (uncolored text) instead of quietly shipping a 3:1 accent.
       accent: '',
+    },
+    // Single-line ellipsis. A caller who reaches for this has already decided the full string is
+    // available elsewhere - the native tooltip via `title`, an adjacent detail view - because this
+    // variant hides the overflow rather than reflowing it.
+    truncate: {
+      true: 'truncate',
+      false: '',
+    },
+    // Multi-line clamp, for the card-and-grid layouts that give a title a fixed number of rows
+    // rather than one. Named `lines` rather than `clamp` because the number is the caller-facing
+    // fact - how many rows this text may take - and `line-clamp-*` is just how the sheet spells it.
+    lines: {
+      1: 'line-clamp-1',
+      2: 'line-clamp-2',
+      3: 'line-clamp-3',
     },
   },
   compoundVariants: [
@@ -242,6 +257,17 @@ export interface TextProps {
   role?: TextRole;
   /** Native tooltip for text that truncates - the full string, unelided. */
   title?: string;
+  /**
+   * Collapse to a single line with a trailing ellipsis, for a title beside a fixed-width control
+   * that cannot grow with the string. Pair with `title` so the elided text is still reachable.
+   */
+  truncate?: boolean;
+  /**
+   * Clamp to this many lines, wrapping otherwise, for a card or grid cell whose height is fixed by
+   * its neighbours rather than by the string in it. Mutually exclusive with `truncate` in practice
+   * - a caller wants one line or a fixed few, not both.
+   */
+  lines?: 1 | 2 | 3;
   /** For a note that appears in place: the live region is the text itself. */
   'aria-live'?: 'off' | 'polite' | 'assertive';
 }
@@ -255,12 +281,14 @@ export function Text({
   className,
   role,
   title,
+  truncate,
+  lines,
   'aria-live': ariaLive,
 }: TextProps): ReactNode {
   return createElement(
     as ?? DEFAULT_ELEMENT[variant],
     {
-      className: cn(textVariants({ variant, tone }), className),
+      className: cn(textVariants({ variant, tone, truncate, lines }), className),
       id,
       role,
       title,

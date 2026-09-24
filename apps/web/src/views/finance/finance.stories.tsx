@@ -170,6 +170,8 @@ const state: FinanceState = {
   status: 'ready',
   finance,
   error: null,
+  refreshing: false,
+  refreshError: null,
   generation: 0,
   reload: () => undefined,
   setSettings: noop,

@@ -58,6 +58,12 @@ import {
  * padding and line height happened to add up to - 32.4px, so a button never
  * quite lined up with the icon button beside it. Naming the step fixes the row
  * and moves the icon button by nothing.
+ *
+ * On a coarse pointer the box grows to `--control-lg`, the 44px step the scale
+ * already reserves for a touch target, and stays at `--control-md` under a
+ * fine one - a mouse and a trackpad get the compact row, a finger gets the
+ * hit area it needs. `pointer-coarse:` is Tailwind's `@media(pointer:coarse)`
+ * variant, the same one the workspace sidebar already reaches for.
  */
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'icon';
@@ -74,7 +80,7 @@ const buttonVariants = cva(
   cn(
     blueprintFrame,
     'inline-flex cursor-pointer items-center justify-center gap-2',
-    'h-(--control-md) font-heading text-md font-semibold no-underline',
+    'h-(--control-md) pointer-coarse:h-(--control-lg) font-heading text-md font-semibold no-underline',
     'transition-colors',
     focusRing,
     disabledState,
@@ -88,7 +94,10 @@ const buttonVariants = cva(
         ),
         secondary: cn(`border-divider text-foreground ${boxPadding}`, inkWashStates),
         ghost: cn('text-accent-text border-transparent px-1', accentWashStates),
-        icon: cn('border-divider text-foreground w-(--control-md) p-0', inkWashStates),
+        icon: cn(
+          'border-divider text-foreground w-(--control-md) pointer-coarse:w-(--control-lg) p-0',
+          inkWashStates,
+        ),
       },
       fullWidth: {
         true: 'w-full',

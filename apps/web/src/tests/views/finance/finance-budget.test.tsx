@@ -186,6 +186,96 @@ describe('narrowing the budget to an account', () => {
   });
 });
 
+describe('recording planned as actual in bulk', () => {
+  const rentId = 'c6666666-6666-4666-8666-666666666666';
+  const rent: BudgetLine = { ...line, id: rentId, name: 'Rent', amount: 900 };
+
+  function twoLineGrid(): BudgetGrid {
+    const grid = budgetGrid();
+    return {
+      ...grid,
+      sections: [
+        {
+          name: line.section,
+          flow: 'expense',
+          totals: grid.sections[0]?.totals ?? [],
+          lines: [
+            { line, cells: [{ ...cell, actual: 0, plan: 100, variance: -100 }] },
+            { line: rent, cells: [{ ...cell, actual: 0, plan: 900, variance: -900 }] },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('confirms with a count, then records the plan one line at a time', async () => {
+    queries.grid = twoLineGrid();
+    mount();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Record planned as actual' }));
+    expect(screen.getByText(/Record the plan as the actual for 2 lines/)).toBeInTheDocument();
+    expect(setActual).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await waitFor(() => {
+      expect(setActual).toHaveBeenCalledWith(line.id, '2026-09', { amount: 100 });
+      expect(setActual).toHaveBeenCalledWith(rentId, '2026-09', { amount: 900 });
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Recorded the plan as the actual for 2 lines.')).toBeInTheDocument();
+    });
+  });
+
+  it('reports a partial failure honestly rather than claiming full success', async () => {
+    queries.grid = twoLineGrid();
+    setActual.mockImplementation((lineId) =>
+      Promise.resolve(
+        lineId === rentId
+          ? 'The month is closed.'
+          : { lineId, month: '2026-09', before: 0, after: 100, transaction: null },
+      ),
+    );
+    mount();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Record planned as actual' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await waitFor(() => {
+      expect(screen.getByText('Recorded 1 of 2; failed for Rent.')).toBeInTheDocument();
+    });
+  });
+
+  it('excludes a line that already has an actual, and skips a closed month entirely', () => {
+    queries.grid = twoLineGrid();
+    const view = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Record planned as actual' }));
+    expect(screen.getByText(/for 2 lines/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    queries.grid = {
+      ...twoLineGrid(),
+      sections: [
+        {
+          name: line.section,
+          flow: 'expense',
+          totals: [],
+          lines: [
+            { line, cells: [{ ...cell, actual: 25, plan: 100, variance: -75 }] },
+            { line: rent, cells: [{ ...cell, actual: 0, plan: 900, variance: -900 }] },
+          ],
+        },
+      ],
+    };
+    view.rerender(budget(finance));
+    fireEvent.click(screen.getByRole('button', { name: 'Record planned as actual' }));
+    expect(screen.getByText(/for 1 line with no actual/)).toBeInTheDocument();
+
+    view.rerender(budget({ ...finance, closedMonths: ['2026-09'] }));
+    expect(
+      screen.queryByRole('button', { name: 'Record planned as actual' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('editing a plan in place', () => {
   it('saves a month override on Enter and keeps every other month as it was', async () => {
     mount();
@@ -319,6 +409,43 @@ describe('what is behind an actual', () => {
         screen.getByRole('dialog', { name: 'Groceries in September 2026' }),
       ).toBeInTheDocument();
     });
+  });
+
+  it('offers a one-click "Same as planned" that records the plan and hides once they match', async () => {
+    mount();
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Actual for Groceries in September 2026/ }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Groceries in September 2026' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Same as planned (£100.00)' }));
+    await waitFor(() => {
+      expect(setActual).toHaveBeenCalledWith(line.id, '2026-09', { amount: 100 });
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Groceries in September 2026' }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it('hides "Same as planned" once the actual already matches the plan', () => {
+    const grid = budgetGrid();
+    queries.grid = {
+      ...grid,
+      sections: grid.sections.map((section) => ({
+        ...section,
+        lines: [{ line, cells: [{ ...cell, actual: 100, variance: 0 }] }],
+      })),
+    };
+    mount();
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Actual for Groceries in September 2026/ }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Groceries in September 2026' });
+    expect(
+      within(dialog).queryByRole('button', { name: /Same as planned/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps a closed month read-only', () => {

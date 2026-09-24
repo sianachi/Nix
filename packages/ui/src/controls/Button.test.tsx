@@ -120,6 +120,23 @@ describe('Button', () => {
     }
   });
 
+  it('grows to the 44px touch step on a coarse pointer, in every variant', () => {
+    for (const variant of ['primary', 'secondary', 'ghost', 'icon'] as const) {
+      const { container, unmount } = render(
+        <Button variant={variant} aria-label="Act">
+          Act
+        </Button>,
+      );
+
+      const className = container.querySelector('button')?.className ?? '';
+      expect(className).toContain('pointer-coarse:h-(--control-lg)');
+      if (variant === 'icon') {
+        expect(className).toContain('pointer-coarse:w-(--control-lg)');
+      }
+      unmount();
+    }
+  });
+
   it('gives each variant its own frame color rather than the primitive default', () => {
     render(
       <>

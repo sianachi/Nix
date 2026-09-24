@@ -82,7 +82,9 @@ function fileRecordFor(itemId: string, fileName: string, byteLength: number) {
 
 const { moveMock, reloadMock, fetchFileContentMock, beginUploadMock, uploadAndCompleteFileMock } =
   vi.hoisted(() => ({
-    moveMock: vi.fn(() => Promise.resolve({ refusal: null })),
+    moveMock: vi.fn<(itemId: string) => Promise<{ refusal: string | null }>>(() =>
+      Promise.resolve({ refusal: null }),
+    ),
     reloadMock: vi.fn(() => Promise.resolve()),
     fetchFileContentMock: vi.fn(() => Promise.resolve({ blob: new Blob(['x']) })),
     beginUploadMock: vi.fn((input: unknown) => ({ operation: 'files.upload.begin', body: input })),
@@ -196,7 +198,8 @@ function driveOf(options: {
 
 beforeEach(() => {
   client = fakeClient();
-  moveMock.mockClear();
+  moveMock.mockReset();
+  moveMock.mockImplementation(() => Promise.resolve({ refusal: null }));
   reloadMock.mockClear();
   fetchFileContentMock.mockClear();
   beginUploadMock.mockClear();
@@ -299,6 +302,48 @@ describe('the drive view', () => {
     expect(moveMock).toHaveBeenCalledWith(NOTE.id, FOLDER.id, null);
     expect(moveMock).toHaveBeenCalledWith(FILE_A.id, FOLDER.id, null);
     expect(reloadMock).toHaveBeenCalled();
+  });
+
+  it('uploads files chosen through the Upload button, for a device with no drag-and-drop', async () => {
+    render(driveOf({ items: [NOTE] }));
+
+    const file = new File(['hello'], 'picked.txt', { type: 'text/plain' });
+    const input = screen.getByLabelText('Files to upload', { selector: 'input' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await vi.waitFor(() => {
+      expect(beginUploadMock).toHaveBeenCalledWith(
+        expect.objectContaining({ workspaceId: WORKSPACE, parentId: null, fileName: 'picked.txt' }),
+      );
+    });
+    expect(uploadAndCompleteFileMock).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(reloadMock).toHaveBeenCalled();
+    });
+  });
+
+  it('shows a refusal visibly and keeps the refused item selected, rather than announcing every item as moved', async () => {
+    moveMock.mockImplementation((itemId: string) =>
+      Promise.resolve(
+        itemId === FILE_A.id ? { refusal: 'Unlock the locked item first.' } : { refusal: null },
+      ),
+    );
+    render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bravo note' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Charlie file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Move to…' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Alpha folder' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /Move 2 items/ }));
+
+    await vi.waitFor(() => {
+      expect(reloadMock).toHaveBeenCalled();
+    });
+    expect(await screen.findByText(/Unlock the locked item first\./)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Charlie file' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Select Bravo note' })).not.toBeChecked();
   });
 
   it('uploads OS files dropped onto the view into this container', async () => {

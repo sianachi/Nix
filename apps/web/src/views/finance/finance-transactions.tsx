@@ -9,7 +9,7 @@ import {
 } from '@nix/api-client';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
-import { Money, SectionHeading, WriteError } from './finance-shared';
+import { Money, SectionHeading, WriteError, editableTextButton } from './finance-shared';
 import { formatDay, formatMonth, monthOf, parseAmount, todayIn } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
@@ -58,7 +58,7 @@ export function FinanceTransactions({
       cell: (row) => (
         <button
           type="button"
-          className="text-left underline-offset-2 hover:underline"
+          className={editableTextButton}
           onClick={() => {
             setEditing(row);
           }}
@@ -316,8 +316,10 @@ export function TransactionDialog({
     setDirection(line.flow === 'income' ? 'in' : 'out');
   };
 
-  const submit = async (event: SyntheticEvent): Promise<void> => {
-    event.preventDefault();
+  // `keepOpen` is the "Save and add another" path: the date, account and line usually carry
+  // over to the next entry, so only what changes row to row - the amount and description - is
+  // cleared, and the dialog stays open for the next one instead of closing.
+  const record = async (keepOpen: boolean): Promise<void> => {
     const magnitude = parseAmount(amount);
     if (magnitude === null || magnitude === 0) {
       setError('Enter the amount that moved.');
@@ -338,7 +340,20 @@ export function TransactionDialog({
         : await state.setTransaction(transaction.id, input);
     setBusy(false);
     setError(refusal);
-    if (refusal === null) onClose();
+    if (refusal === null) {
+      if (keepOpen) {
+        setDescription('');
+        setAmount('');
+        amountField.current?.focus();
+      } else {
+        onClose();
+      }
+    }
+  };
+
+  const submit = async (event: SyntheticEvent): Promise<void> => {
+    event.preventDefault();
+    await record(false);
   };
 
   const remove = async (): Promise<void> => {
@@ -500,6 +515,18 @@ export function TransactionDialog({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
+          {transaction === null ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                void record(true);
+              }}
+            >
+              Save and add another
+            </Button>
+          ) : null}
           <Button type="submit" disabled={busy}>
             {transaction === null ? 'Record' : 'Save'}
           </Button>

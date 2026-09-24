@@ -1,5 +1,6 @@
-import { Button, Segmented, Text } from '@nix/ui';
+import { Button, Icon, Segmented, Text } from '@nix/ui';
 import type { Finance } from '@nix/api-client';
+import { TriangleAlert } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import type { View } from '../core/container-model';
@@ -101,7 +102,19 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
         : selectedMonth;
   const closed = finance.closedMonths.includes(month);
   return (
-    <section className="flex min-w-0 flex-col gap-6" aria-labelledby="finance-title">
+    <section
+      className="flex min-w-0 flex-col gap-6"
+      aria-labelledby="finance-title"
+      aria-busy={state.refreshing}
+    >
+      {state.refreshError === null ? null : (
+        <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+          <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
+          <Text variant="note" as="span" tone="accent">
+            {state.refreshError} The figures on screen are unaffected; try again.
+          </Text>
+        </div>
+      )}
       <header className="flex flex-col gap-4 border-b border-divider pb-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <Text as="h2" variant="h2" id="finance-title">

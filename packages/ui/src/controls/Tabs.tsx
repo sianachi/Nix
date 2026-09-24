@@ -232,7 +232,11 @@ export function Tabs(props: TabsProps): ReactNode {
                 `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
                 a sighted keyboard user who has no screen reader to read that attribute out.
                 Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
-                rule the pane divider and sidebar rows use.
+                rule the pane divider and sidebar rows use. `pointer-coarse:` mirrors that: a touch
+                pointer never fires `:hover`, so without it the close mark would stay invisible and
+                under the 24px target floor on every tab but the active one - it forces the mark
+                visible and grows its box to `--control-sm`, the same pairing the sidebar's expand
+                control uses.
 
                 The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
                 from the accessibility tree for *every* consumer of that tree, which includes
@@ -254,6 +258,7 @@ export function Tabs(props: TabsProps): ReactNode {
                 }}
                 className={cn(
                   'shrink-0 cursor-pointer rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                  'pointer-coarse:flex pointer-coarse:size-(--control-sm) pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100',
                   active && 'opacity-100',
                   inkWashStates,
                 )}

@@ -477,7 +477,10 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
       aria-posinset={position}
       aria-setsize={setSize}
       data-virtual-index={virtualIndex}
-      className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}
+      className={cn(
+        blueprintFrame,
+        'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+      )}
     >
       {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
@@ -503,7 +506,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
             focusRing,
           )}
         >
-          <Text variant="h5" as="span">
+          <Text variant="h5" as="span" lines={2}>
             {item.title || 'Untitled'}
           </Text>
         </button>
@@ -524,7 +527,11 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
       ) : null}
 
       {fields.length === 0 ? null : (
-        <div className="flex flex-col gap-1">
+        // `relative z-10`: the title button's `after:absolute after:inset-0` stretched hit area
+        // sits on top of the card in DOM order, and without a stacking context of its own this
+        // layer would swallow every click a field control below it is meant to receive - a tap
+        // meant for a select or a checkbox opening the item instead.
+        <div className="relative z-10 flex flex-col gap-1">
           {fields.map((field) => (
             <div key={field.key}>
               <Text variant="kicker" tone="muted" as="span">
