@@ -111,7 +111,10 @@ export function FinanceTransactions({
     setAssigning(true);
     setAssignError(null);
     const failed = new Set<string>();
-    let refusalReason: string | null = null;
+    // Counts, not just the last reason: several rows can be refused for different reasons in the
+    // same batch, and reporting only whichever one happened to run last would misdescribe the
+    // rest. Insertion order in this Map is the order each distinct reason was first seen.
+    const reasonCounts = new Map<string, number>();
     for (const row of targets) {
       const refusal = await state.setTransaction(row.id, {
         description: row.description,
@@ -123,7 +126,7 @@ export function FinanceTransactions({
       });
       if (refusal !== null) {
         failed.add(row.id);
-        refusalReason = refusal;
+        reasonCounts.set(refusal, (reasonCounts.get(refusal) ?? 0) + 1);
       }
     }
     setAssigning(false);
@@ -132,9 +135,12 @@ export function FinanceTransactions({
       setAssignLineId('');
     } else {
       const succeeded = targets.length - failed.size;
+      const reasons = [...reasonCounts.entries()]
+        .map(([reason, count]) => `${reason} (${String(count)})`)
+        .join(', ');
       setAssignError(
         `Assigned ${String(succeeded)} of ${String(targets.length)}; ${String(failed.size)} ` +
-          `${failed.size === 1 ? 'was' : 'were'} refused: ${refusalReason ?? 'unknown reason'}`,
+          `${failed.size === 1 ? 'was' : 'were'} refused: ${reasons}`,
       );
     }
   };

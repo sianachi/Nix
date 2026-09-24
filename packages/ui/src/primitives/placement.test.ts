@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  placeFloatingMenu,
-  type FloatingMenuAnchor,
-  type FloatingMenuViewport,
-} from '../../editor/floating-menu-placement';
+import { placeFloatingMenu, type FloatingMenuAnchor, type FloatingMenuViewport } from './placement';
 
 /**
  * The geometry that keeps a floating menu inside the viewport, checked without a DOM.

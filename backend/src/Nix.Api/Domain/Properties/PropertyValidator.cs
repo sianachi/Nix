@@ -487,6 +487,7 @@ public static class PropertyValidator
             : $"{definition.Label} must be a link to an image, over http or https.";
     }
 
+    // Written by apps/web/src/properties/image-value.tsx (FILE_IMAGE_PREFIX); keep the two in step.
     private const string FileImageReferencePrefix = "nix-file:";
 
     private static bool IsFileImageReference(string text) =>

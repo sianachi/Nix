@@ -212,10 +212,47 @@ describe('bulk-assigning a selection of transactions to a budget line', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('Assigned 1 of 2; 1 was refused: That budget line no longer exists.'),
+        screen.getByText('Assigned 1 of 2; 1 was refused: That budget line no longer exists. (1)'),
       ).toBeInTheDocument();
     });
     expect(screen.getByLabelText(`Select ${transactionA.description}`)).not.toBeChecked();
     expect(screen.getByLabelText(`Select ${transactionB.description}`)).toBeChecked();
+  });
+
+  it('reports each distinct refusal reason with its own count, not just the last one', async () => {
+    const transactionC: FinanceTransaction = {
+      ...transactionA,
+      id: 'c8888888-8888-4888-8888-888888888888',
+      description: 'Coffee',
+    };
+    queries.transactions = {
+      transactions: [transactionA, transactionB, transactionC],
+      total: 3,
+      truncated: false,
+    };
+    setTransaction.mockImplementation((transactionId: string) =>
+      Promise.resolve(
+        transactionId === transactionA.id
+          ? null
+          : transactionId === transactionB.id
+            ? 'That budget line no longer exists.'
+            : 'The account is closed.',
+      ),
+    );
+    mountList();
+
+    fireEvent.click(screen.getByLabelText(`Select ${transactionA.description}`));
+    fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
+    fireEvent.click(screen.getByLabelText(`Select ${transactionC.description}`));
+    fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Assigned 1 of 3; 2 were refused: That budget line no longer exists. (1), The account is closed. (1)',
+        ),
+      ).toBeInTheDocument();
+    });
   });
 });

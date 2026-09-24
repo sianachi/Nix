@@ -254,4 +254,80 @@ describe('PaneViewport scroll persistence', () => {
     expect(entries.some(([key]) => key === 'key-0')).toBe(false);
     expect(entries.some(([key]) => key === 'key-50')).toBe(true);
   });
+
+  it('coalesces a burst of scroll events into a single storage write', () => {
+    vi.useFakeTimers();
+    try {
+      window.history.pushState({}, '', '/w/workspace-coalesce/note-1');
+      const rendered = render(
+        <PaneViewport className="" scrollKey="coalesce-key">
+          content
+        </PaneViewport>,
+      );
+      const pane = findPane(rendered.container);
+      setGeometry(pane, { scrollHeight: 800, clientHeight: 200 });
+      Object.defineProperty(pane, 'scrollTop', {
+        configurable: true,
+        writable: true,
+        value: 0,
+      });
+
+      // `sessionStorage` is a jsdom legacy-platform-object: it enforces its interface through the
+      // prototype it exposes on the instance rather than through `Storage.prototype` by identity,
+      // and reassigning the instance's own `setItem` is silently ignored. Spying on that exposed
+      // prototype is the one shape that is actually observable.
+      const setItem = vi.spyOn(Object.getPrototypeOf(sessionStorage) as Storage, 'setItem');
+
+      // Many scroll events in quick succession - a fast fling, dozens of times a second.
+      for (let scrollTop = 1; scrollTop <= 40; scrollTop += 1) {
+        Object.defineProperty(pane, 'scrollTop', { configurable: true, value: scrollTop });
+        fireEvent.scroll(pane);
+      }
+      expect(setItem).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+
+      expect(setItem).toHaveBeenCalledTimes(1);
+      const stored = sessionStorage.getItem('nix.pane-scroll:workspace-coalesce');
+      const entries = JSON.parse(stored ?? '[]') as [string, number][];
+      expect(entries.find(([key]) => key === 'coalesce-key')?.[1]).toBe(40);
+
+      rendered.unmount();
+      setItem.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes the latest position on unmount even before the debounce elapses', () => {
+    vi.useFakeTimers();
+    try {
+      window.history.pushState({}, '', '/w/workspace-flush/note-1');
+      const rendered = render(
+        <PaneViewport className="" scrollKey="flush-key">
+          content
+        </PaneViewport>,
+      );
+      const pane = findPane(rendered.container);
+      setGeometry(pane, { scrollHeight: 800, clientHeight: 200 });
+      Object.defineProperty(pane, 'scrollTop', {
+        configurable: true,
+        writable: true,
+        value: 321,
+      });
+      fireEvent.scroll(pane);
+
+      // Unmount happens well inside the debounce window - nothing has flushed on its own yet.
+      rendered.unmount();
+
+      const stored = sessionStorage.getItem('nix.pane-scroll:workspace-flush');
+      expect(stored).not.toBeNull();
+      const entries = JSON.parse(stored ?? '[]') as [string, number][];
+      expect(entries.find(([key]) => key === 'flush-key')?.[1]).toBe(321);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

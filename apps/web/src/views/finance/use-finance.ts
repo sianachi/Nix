@@ -17,6 +17,7 @@ import {
 } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
+import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
 
 export type FinanceLoadState = 'loading' | 'ready' | 'unconfigured' | 'error';
 
@@ -115,76 +116,46 @@ export function useFinance(itemId: string | null): FinanceState {
     };
   }, [client]);
   const [generation, setGeneration] = useState(0);
-  const [status, setStatus] = useState<FinanceLoadState>('loading');
+  const { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed } =
+    useStaleWhileRevalidate<FinanceLoadState>('loading');
   const [data, setData] = useState<Finance | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
   const reload = useCallback(() => {
     setGeneration((value) => value + 1);
   }, []);
 
-  // Whether a load has ever resolved to a real state ('ready' or 'unconfigured'), so a later
-  // generation bump knows there is a screen worth protecting rather than blanking it again. See
-  // `use-container.ts`'s `hasLoadedOnce` for why this cannot be read back out of `status` alone.
-  const hasLoadedOnce = useRef(false);
-
   useEffect(() => {
     if (itemId === null) {
       queueMicrotask(() => {
-        setStatus('error');
-        setError('A finance view needs an item to live on.');
+        reportFailed('A finance view needs an item to live on.', 'error');
       });
       return;
     }
     const controller = new AbortController();
     queueMicrotask(() => {
       if (controller.signal.aborted) return;
-      if (hasLoadedOnce.current) {
-        setRefreshing(true);
-        setRefreshError(null);
-      } else {
-        setStatus('loading');
-      }
-      setError(null);
+      beginLoad();
     });
     void client
       .query(finance.readFinance(itemId), { signal: controller.signal, forceRefresh: true })
       .then((value) => {
         if (controller.signal.aborted) return;
         setData(value);
-        setStatus('ready');
-        hasLoadedOnce.current = true;
-        setRefreshing(false);
-        setRefreshError(null);
+        reportLoaded('ready');
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted || isCanceledError(reason)) return;
         if (isNixApiError(reason) && reason.code === 'finance.not_configured') {
           setData(null);
-          setStatus('unconfigured');
-          hasLoadedOnce.current = true;
-          setRefreshing(false);
-          setRefreshError(null);
+          reportLoaded('unconfigured');
           return;
         }
         const message = financeRefusal(reason, 'The finances could not be loaded.');
-
-        // Finances are already on screen: keep them mounted - the chosen section, the account
-        // filter, any open dialog - and say the reload failed instead of swapping in an error
-        // panel that would throw all of that away.
-        if (hasLoadedOnce.current) {
-          setRefreshing(false);
-          setRefreshError(message);
-        } else {
-          setStatus('error');
-          setError(message);
-        }
+        reportFailed(message, 'error');
       });
     return () => {
       controller.abort();
     };
-  }, [client, generation, itemId]);
+  }, [client, generation, itemId, beginLoad, reportLoaded, reportFailed]);
 
   const write = useCallback(
     async <T>(

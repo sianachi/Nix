@@ -14,6 +14,7 @@ import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
 import { Icon } from '../primitives/Icon';
 import { disabledState, focusRingInset, inkWashStates } from '../primitives/interaction';
+import { placeFloatingMenu, readViewportBounds } from '../primitives/placement';
 
 /**
  * <Menu> - a button that discloses a list of actions and links.
@@ -38,11 +39,13 @@ import { disabledState, focusRingInset, inkWashStates } from '../primitives/inte
  * **Placement.** The panel anchors below the trigger and is measured against
  * `window.visualViewport` - the same source `Dialog.tsx` reads for the on-screen keyboard - so it
  * flips above the trigger when there is not enough room below, and is clamped 8px inside the
- * viewport either way rather than clipped by it. Below the `sm` breakpoint this measurement is
- * skipped and the panel becomes a full-width bottom sheet instead, `Dialog.tsx`'s other device
- * concession: a menu is exactly as unable to predict a phone's safe area or its keyboard as a
- * dialog is, so it inherits the same `env(safe-area-inset-bottom)` padding rather than a second,
- * slightly different guess at the same problem.
+ * viewport either way rather than clipped by it. The geometry itself is `placeFloatingMenu`, the
+ * same primitive the editor's slash menu, reference picker and bubble menu place themselves
+ * with - one tested implementation rather than this component re-deriving its own. Below the `sm`
+ * breakpoint this measurement is skipped and the panel becomes a full-width bottom sheet instead,
+ * `Dialog.tsx`'s other device concession: a menu is exactly as unable to predict a phone's safe
+ * area or its keyboard as a dialog is, so it inherits the same `env(safe-area-inset-bottom)`
+ * padding rather than a second, slightly different guess at the same problem.
  *
  * **Items are 44px tall under `pointer-coarse:`** - `Button.tsx`'s `--control-lg` step, reached
  * the same way: a fine pointer gets the compact row, a finger gets the touch target the platform
@@ -297,34 +300,29 @@ export function Menu(props: MenuProps): ReactNode {
         // below); an inline position here would only have to be cleared again above.
         panel.style.removeProperty('top');
         panel.style.removeProperty('left');
+        panel.style.removeProperty('transform');
         return;
       }
-
-      const viewport = typeof window.visualViewport === 'object' ? window.visualViewport : null;
-      const viewportWidth = viewport?.width ?? window.innerWidth;
-      const viewportHeight = viewport?.height ?? window.innerHeight;
-      const viewportLeft = viewport?.offsetLeft ?? 0;
-      const viewportTop = viewport?.offsetTop ?? 0;
 
       const triggerRect = trigger.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
 
-      const maxLeft = viewportLeft + viewportWidth - panelRect.width - margin;
-      const left = Math.max(viewportLeft + margin, Math.min(triggerRect.left, maxLeft));
+      // `minHeight` set to the panel's own measured height (plus the same margin) reproduces
+      // this component's previous flip rule - not enough room below for the panel as rendered -
+      // through the shared primitive rather than a second copy of it.
+      const placement = placeFloatingMenu(
+        { left: triggerRect.left, top: triggerRect.top, bottom: triggerRect.bottom },
+        panelRect.width,
+        readViewportBounds(),
+        { minHeight: panelRect.height + margin },
+      );
 
-      const spaceBelow = viewportTop + viewportHeight - triggerRect.bottom;
-      const spaceAbove = triggerRect.top - viewportTop;
-      const flip = spaceBelow < panelRect.height + margin && spaceAbove > spaceBelow;
-
-      const top = flip
-        ? Math.max(viewportTop + margin, triggerRect.top - panelRect.height - 4)
-        : Math.min(
-            triggerRect.bottom + 4,
-            viewportTop + viewportHeight - panelRect.height - margin,
-          );
-
-      panel.style.setProperty('top', `${String(top)}px`);
-      panel.style.setProperty('left', `${String(left)}px`);
+      panel.style.setProperty('left', `${String(placement.left)}px`);
+      panel.style.setProperty(
+        'top',
+        `${String(placement.above ? placement.top - 4 : placement.top + 4)}px`,
+      );
+      panel.style.setProperty('transform', placement.above ? 'translateY(-100%)' : 'none');
     };
 
     place();

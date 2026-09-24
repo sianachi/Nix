@@ -1,7 +1,6 @@
 import type { ItemInsertKind } from './item-insert-dialog';
-import { placeFloatingMenu, readViewportBounds } from './floating-menu-placement';
 import { TOGGLE_LEVELS, type ToggleLevel } from '@nix/editor-schema';
-import { Listbox, useListbox } from '@nix/ui';
+import { Listbox, placeFloatingMenu, readViewportBounds, useListbox } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
 import {

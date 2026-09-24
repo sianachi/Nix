@@ -1,6 +1,11 @@
 import { isCanceledError, search, type SearchResults } from '@nix/api-client';
-import { placeFloatingMenu, readViewportBounds } from './floating-menu-placement';
-import { Listbox, useListbox, type ListboxOption } from '@nix/ui';
+import {
+  Listbox,
+  placeFloatingMenu,
+  readViewportBounds,
+  useListbox,
+  type ListboxOption,
+} from '@nix/ui';
 import { FileText } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';

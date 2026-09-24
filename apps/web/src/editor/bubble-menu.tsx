@@ -1,5 +1,5 @@
-import { Icon } from '@nix/ui';
-import { isPointerCoarse, placeFloatingMenu, readViewportBounds } from './floating-menu-placement';
+import { Icon, placeFloatingMenu, readViewportBounds } from '@nix/ui';
+import { isPointerCoarse } from '../lib/pointer';
 import type { TextColor } from '@nix/editor-schema';
 import type { Editor } from '@tiptap/react';
 import type { MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model';
