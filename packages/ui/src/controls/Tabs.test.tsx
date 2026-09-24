@@ -282,6 +282,36 @@ describe('Tabs', () => {
 
     expect(screen.getByRole('tab', { name: 'Roadmap' })).not.toHaveAttribute('draggable');
   });
+
+  it('caps a long title to a fixed width, leaving truncation and the strip scroll to do the rest', () => {
+    const long: readonly TabItem[] = [
+      {
+        id: 'a',
+        label: 'Q3 planning notes for the whole team, cross-linked to every project this touches',
+        pinned: true,
+      },
+      { id: 'b', label: 'Roadmap', pinned: true },
+    ];
+    render(
+      <Tabs
+        label="Open documents"
+        items={long}
+        activeId="a"
+        onActivate={vi.fn()}
+        className="flex-1"
+      />,
+    );
+
+    const tab = screen.getByRole('tab', { name: /Q3 planning notes/ });
+    // The class, not a measured width jsdom cannot lay out - a fixed cap is what leaves the tab
+    // after it, and the strip's own scroll and close controls, on screen regardless of the string.
+    expect(tab.className).toMatch(/\bmax-w-48\b/);
+    expect(tab.querySelector('span')).toHaveClass('truncate');
+
+    // The strip itself must be able to shrink below its content for `overflow-x-auto` to ever
+    // engage, including when a caller also hands it `flex-1` (`document-tab-strip.tsx` does).
+    expect(screen.getByRole('tablist').className).toMatch(/\bmin-w-0\b/);
+  });
 });
 
 describe('a vertical strip', () => {

@@ -1,7 +1,29 @@
 import { Button, Dialog, Text } from '@nix/ui';
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { browserStorage } from '../lib/browser-storage';
 import { flushPendingWork } from '../lib/pending-work';
 import { getWaitingWorker, subscribeToWorker } from './register-service-worker';
+
+const INSTALL_DISMISSED_KEY = 'nix.pwa.install-dismissed';
+
+/** Reads whether the install banner was already sent away, defaulting to "show it". */
+function readInstallDismissed(storage: Storage | undefined): boolean {
+  try {
+    return storage?.getItem(INSTALL_DISMISSED_KEY) === 'true';
+  } catch {
+    // Private browsing, or a policy that blocks storage. The banner reappearing is a small loss.
+    return false;
+  }
+}
+
+/** Stores the dismissal, tolerating a browser that refuses storage. */
+function storeInstallDismissed(storage: Storage | undefined): void {
+  try {
+    storage?.setItem(INSTALL_DISMISSED_KEY, 'true');
+  } catch {
+    // Nothing to do and nothing worth failing over.
+  }
+}
 
 interface InstallPrompt extends Event {
   prompt: () => Promise<void>;
@@ -32,7 +54,7 @@ export function PwaControls({ compact = false }: { readonly compact?: boolean })
   );
   const [offline, setOffline] = useState(!navigator.onLine);
   const [help, setHelp] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => readInstallDismissed(browserStorage()));
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [installed, setInstalled] = useState(
@@ -151,6 +173,7 @@ export function PwaControls({ compact = false }: { readonly compact?: boolean })
               variant="ghost"
               onClick={() => {
                 setDismissed(true);
+                storeInstallDismissed(browserStorage());
               }}
             >
               Not now

@@ -42,6 +42,7 @@ import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
 import { EmacsKeymap } from './emacs-keymap';
+import { MoveBlock } from './move-block';
 import { useKeyboardModeStore } from './keyboard-mode-store';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
@@ -583,6 +584,9 @@ export function NoteEditor({
         // never rebuilds this editor or its Yjs binding.
         EmacsKeymap,
         VimMotions,
+        // Mod-Shift-ArrowUp/Down: the keyboard's way to reorder a block, beside the pointer-only
+        // drag handle below.
+        MoveBlock,
         // Lets the drag handle select and move a whole block as a node range rather than a text
         // span - without it, grabbing a block would drag whatever text selection happened to
         // exist. The handle itself is the <DragHandle> component below, which registers its own
@@ -922,13 +926,13 @@ export function NoteEditor({
 
             Accessibility, on the true record. The handle is an HTML5 drag affordance, which is
             pointer-only by nature. It adds no capability a keyboard user lacks - block order is
-            keyboard-reachable today the way any contenteditable's is, by selecting a block and
-            cutting and pasting it - so hiding the handle from assistive technology costs nothing
-            (no WCAG 2.1.1 regression) while announcing it would promise a control a screen
-            reader cannot operate. Concretely: the glyph carries aria-hidden (the Icon default
-            when unlabeled), and the wrapper the plugin positions is a role-less, name-less div,
-            so nothing here reaches the accessibility tree - which is the right outcome. A
-            first-class keyboard move-block command is owed, but deferred.
+            keyboard-reachable, by `MoveBlock`'s `Mod-Shift-ArrowUp`/`Mod-Shift-ArrowDown` above
+            and the compact toolbar's "Move up"/"Move down" - so hiding the handle from
+            assistive technology costs nothing (no WCAG 2.1.1 regression) while announcing it
+            would promise a control a screen reader cannot operate. Concretely: the glyph
+            carries aria-hidden (the Icon default when unlabeled), and the wrapper the plugin
+            positions is a role-less, name-less div, so nothing here reaches the accessibility
+            tree - which is the right outcome.
           */}
               <DragHandle
                 editor={editor}

@@ -28,6 +28,16 @@ export function useWorkspace(): WorkspaceContextValue {
   return value;
 }
 
+/**
+ * The current workspace, or null when there is none - a public form link, say, which renders
+ * property controls outside `/w/:workspaceId` entirely. A control that only *sometimes* needs a
+ * workspace (an image property's upload capability) calls this instead of {@link useWorkspace},
+ * so it can turn that capability off rather than crash a page that has no workspace to offer.
+ */
+export function useOptionalWorkspace(): WorkspaceContextValue | null {
+  return use(WorkspaceContext);
+}
+
 export interface WorkspaceLoadState {
   readonly status: WorkspaceListStatus;
   readonly workspaces: readonly Workspace[];

@@ -1,4 +1,4 @@
-import { Icon, focusRing } from '@nix/ui';
+import { Icon, Text, focusRing } from '@nix/ui';
 import {
   Bookmark,
   CalendarClock,
@@ -33,11 +33,16 @@ import { useWorkspace } from '../workspaces/workspace-context';
  * `<Nav>` (packages/ui/src/controls/Nav.tsx) is already the design system's "a list of links, one
  * of which may be the page you are on", and this is deliberately not it. Two things differ, and
  * both are product facts rather than design-system ones. `<Nav>` requires a visible label per item
- * - correctly, for a settings sidebar - while a rail is icon-only and carries its name for
- * assistive technology alone. And a rail is one tab stop with the arrow keys moving inside it,
- * which `<Nav>` does not do and should not learn for a single caller. What is left after those two
- * is a component that knows this application's own destinations and imports this application's
- * router, neither of which belongs in a package that `apps/*` depend on.
+ * - correctly, for a settings sidebar - while this rail is icon-only at the width where it runs
+ * beside the tree, carrying its name for assistive technology alone. Below `lg` it only ever
+ * renders inside the narrow-viewport drawer (`app-shell.tsx` mounts it there and nowhere else once
+ * the window is that narrow), where a `title` tooltip never reaches a touch pointer - so the `max-lg`
+ * variants below turn the hidden name into a visible one instead of leaving it to a tooltip nobody
+ * on a phone can trigger. And a rail is one tab stop
+ * with the arrow keys moving inside it, which `<Nav>` does not do and should not learn for a single
+ * caller. What is left after those two is a component that knows this application's own destinations
+ * and imports this application's router, neither of which belongs in a package that `apps/*` depend
+ * on.
  *
  * ## Keyboard: one tab stop, arrows inside
  *
@@ -230,7 +235,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     // starts partway down. Named, because a shell with a rail and a workspace tree has more than
     // one way to move around and "navigation, navigation" is not a landmark list anybody can use.
     <nav aria-label="Destinations" className="flex shrink-0 border-r border-divider bg-surface">
-      <ul className="flex min-h-0 flex-1 list-none flex-col items-center gap-1 px-1 py-2">
+      <ul className="flex min-h-0 flex-1 list-none flex-col items-center gap-1 px-1 py-2 max-lg:items-stretch max-lg:px-2">
         {items.map((item, index) => {
           const current = index === currentIndex;
           const startsUtilityGroup =
@@ -247,7 +252,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
               setFocusedIndex(index);
             },
           };
-          const className = `flex size-(--control-lg) items-center justify-center rounded-md ${focusRing} ${
+          const className = `flex size-(--control-lg) items-center justify-center gap-3 rounded-md max-lg:h-(--control-lg) max-lg:w-full max-lg:justify-start max-lg:px-3 ${focusRing} ${
             current
               ? // The wash is a filled shape where the others have none, so the current
                 // destination is not told apart by hue alone even before `aria-current`.
@@ -271,8 +276,10 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
                   className={className}
                   {...sharedProps}
                 >
-                  <Icon icon={item.icon} size="sm" />
-                  <span className="sr-only">{item.label}</span>
+                  <Icon icon={item.icon} size="sm" className="shrink-0" />
+                  <Text as="span" variant="body" truncate className="sr-only max-lg:not-sr-only">
+                    {item.label}
+                  </Text>
                 </Link>
               ) : (
                 <button
@@ -284,8 +291,10 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
                   className={className}
                   {...sharedProps}
                 >
-                  <Icon icon={item.icon} size="sm" />
-                  <span className="sr-only">{item.label}</span>
+                  <Icon icon={item.icon} size="sm" className="shrink-0" />
+                  <Text as="span" variant="body" truncate className="sr-only max-lg:not-sr-only">
+                    {item.label}
+                  </Text>
                 </button>
               )}
             </li>

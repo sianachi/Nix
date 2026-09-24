@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
+import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 import { VIEW_GUTTER_BLEED } from '../../../views/core/view-gutter';
 import { CalendarView } from '../../../views/calendar/calendar-view';
@@ -678,5 +679,57 @@ describe('dropping an unscheduled item onto an hour', () => {
       'type',
       'datetime-local',
     );
+  });
+});
+
+/**
+ * A calendar without a pointer: an always-visible way to add something, whether the calendar draws
+ * as a grid or - on a phone, its default - as the agenda.
+ */
+describe('adding an item without a hover or a drag', () => {
+  it('offers a way to add an item from the toolbar, regardless of the width on screen', async () => {
+    const person = user();
+    const create = vi.fn(() => Promise.resolve(null));
+    renderCalendar({ children: [KICKOFF], create });
+
+    await person.click(screen.getByRole('button', { name: 'Add an item' }));
+    await person.type(screen.getByRole('textbox', { name: 'Add an item' }), 'Toolbar pick{Enter}');
+
+    // Made without a date, the same way the empty calendar's own "Add the first item" is: the
+    // toolbar has no day to place it on.
+    expect(create).toHaveBeenCalledWith('Toolbar pick', undefined);
+  });
+
+  describe('the agenda, which is what a phone opens on', () => {
+    beforeEach(() => {
+      stubViewport(false);
+    });
+
+    it('formats a day heading the way the rest of the calendar formats a date, not as raw stored text', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      expect(screen.queryByText('2026-03-17')).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Tue 17 Mar', level: 3 })).toBeVisible();
+    });
+
+    it('offers an always-visible add control on each agenda day, not one gated behind a hover', async () => {
+      const person = user();
+      const create = vi.fn(() => Promise.resolve(null));
+      renderCalendar({ children: [KICKOFF], create });
+
+      const control = screen.getByRole('button', { name: 'Add an item on Tue 17 Mar' });
+      // No hover-only reveal: an agenda control is drawn plainly, unlike the month grid's own
+      // per-day control a few pixels away in the wide layout.
+      expect(control.className).not.toContain('opacity-0');
+
+      await person.click(control);
+      await person.type(
+        screen.getByRole('textbox', { name: 'Add an item on Tue 17 Mar' }),
+        'Agenda pick{Enter}',
+      );
+
+      // Dated to the day its own heading names - the same write a drop onto a month cell makes.
+      expect(create).toHaveBeenCalledWith('Agenda pick', { due: '2026-03-17' });
+    });
   });
 });

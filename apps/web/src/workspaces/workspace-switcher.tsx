@@ -49,7 +49,7 @@ export function WorkspaceSwitcher(): ReactNode {
         onClick={() => {
           setOpen((current) => !current);
         }}
-        className={`flex min-w-0 w-full items-center justify-between gap-2 border border-transparent px-2 py-1 text-left text-xs text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+        className={`flex min-w-0 w-full items-center justify-between gap-2 border border-transparent px-2 py-1 text-left text-xs text-muted hover:bg-foreground/7 hover:text-foreground pointer-coarse:min-h-11 ${focusRing}`}
       >
         <span className="truncate">{workspace.name}</span>
         <Icon icon={ChevronDown} size="sm" />
@@ -59,7 +59,11 @@ export function WorkspaceSwitcher(): ReactNode {
         <section
           id={panelId}
           aria-label="Workspaces"
-          className="absolute left-0 top-full z-20 mt-1 w-80 border border-divider bg-background shadow-md"
+          // `max-w-[calc(100vw-1rem)]` keeps the preferred `w-80` from ever claiming more than the
+          // viewport minus a small margin - the trigger sits close to the tree's left edge, and a
+          // fixed 320px panel run from there was wide enough to be clipped past a 360px phone's
+          // right edge.
+          className="absolute left-0 top-full z-20 mt-1 w-80 max-w-[calc(100vw-1rem)] border border-divider bg-background shadow-md"
         >
           <div className="border-b border-divider px-3 py-2">
             <Text variant="bodySmall">Workspaces</Text>

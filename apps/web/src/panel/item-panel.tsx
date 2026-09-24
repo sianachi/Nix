@@ -1,7 +1,8 @@
-import { Icon, Segmented, Text, cn, focusRing } from '@nix/ui';
+import { Button, Icon, Segmented, Text, cn, focusRing } from '@nix/ui';
 import { PanelRightClose } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
+import { ErrorPanel } from '../components/states/status-panels';
 import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
@@ -118,6 +119,25 @@ function DetailsPane({
   readonly details: ItemPanelProps['details'];
 }): ReactNode {
   const properties = container.schema?.properties ?? [];
+
+  if (details.error !== null) {
+    return (
+      <ErrorPanel
+        title="This item's details could not be loaded"
+        detail={details.error}
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              details.retry();
+            }}
+          >
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
 
   if (details.item === null) {
     return (

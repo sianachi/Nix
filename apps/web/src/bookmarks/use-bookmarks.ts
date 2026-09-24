@@ -37,6 +37,15 @@ export interface BookmarksState {
   readonly hidden: number;
 
   readonly error: string | null;
+
+  /**
+   * The one keep or release the reader is most likely still looking at, and why it failed.
+   *
+   * Named by item rather than a single shelf-wide message: the star that flips back has to say so
+   * next to itself, on whichever item it was, and a control watching a different item has no
+   * business repeating somebody else's failure.
+   */
+  readonly actionError: { readonly itemId: string; readonly message: string } | null;
 }
 
 interface BookmarksStore extends BookmarksState {
@@ -44,6 +53,7 @@ interface BookmarksStore extends BookmarksState {
   readonly keep: (itemId: string) => Promise<void>;
   readonly release: (itemId: string) => Promise<void>;
   readonly toggle: (itemId: string) => Promise<void>;
+  readonly dismissActionError: () => void;
 }
 
 /** Rebuilds the derived set whenever the list changes, so the two cannot disagree. */
@@ -78,6 +88,7 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
   keptIds: new Set<string>(),
   hidden: 0,
   error: null,
+  actionError: null,
 
   reload: async (forceRefresh = false) => {
     try {
@@ -123,7 +134,7 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
     if (!before.has(itemId)) {
       const next = new Set(before);
       next.add(itemId);
-      set({ keptIds: next });
+      set({ keptIds: next, actionError: null });
     }
 
     try {
@@ -133,8 +144,14 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
       // this build has neither, so an invented row would put a name on the shelf that came from
       // nowhere.
       await get().reload(true);
-    } catch {
-      set({ keptIds: before });
+    } catch (reason) {
+      // Put the star back and say why, in the same motion. A star that quietly flips back with no
+      // message reads as a misclick, not a refusal - the reader has every reason to just press it
+      // again and get the same silent nothing.
+      set({
+        keptIds: before,
+        actionError: { itemId, message: keepFailureMessage(reason) },
+      });
     }
   },
 
@@ -144,14 +161,22 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
 
     const next = new Set(beforeIds);
     next.delete(itemId);
-    set({ keptIds: next, items: beforeItems.filter((item) => item.itemId !== itemId) });
+    set({
+      keptIds: next,
+      items: beforeItems.filter((item) => item.itemId !== itemId),
+      actionError: null,
+    });
 
     try {
       await configuredClient().execute(bookmarks.removeBookmark(itemId));
-    } catch {
+    } catch (reason) {
       // Put it back. The optimistic removal was a guess and the guess was wrong; leaving it off
       // would show a shelf missing something the server still holds.
-      set({ keptIds: beforeIds, items: beforeItems });
+      set({
+        keptIds: beforeIds,
+        items: beforeItems,
+        actionError: { itemId, message: releaseFailureMessage(reason) },
+      });
     }
   },
 
@@ -159,7 +184,23 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
     const state = get();
     await (state.keptIds.has(itemId) ? state.release(itemId) : state.keep(itemId));
   },
+
+  dismissActionError: () => {
+    set({ actionError: null });
+  },
 }));
+
+function keepFailureMessage(reason: unknown): string {
+  return isNixApiError(reason)
+    ? (reason.detail ?? 'That could not be kept.')
+    : 'That could not be kept.';
+}
+
+function releaseFailureMessage(reason: unknown): string {
+  return isNixApiError(reason)
+    ? (reason.detail ?? 'That could not be removed.')
+    : 'That could not be removed.';
+}
 
 /** Whether one item is on the shelf. A selector, so a row re-renders only when its own answer moves. */
 export function useIsKept(itemId: string | null): boolean {

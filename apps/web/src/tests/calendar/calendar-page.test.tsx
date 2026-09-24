@@ -67,8 +67,8 @@ describe('the calendar destination', () => {
 
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
 
-    expect(await screen.findByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Standup/i })).toBeInTheDocument();
   });
 
   /**
@@ -284,8 +284,8 @@ describe('filtering the calendar by note', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
 
     expect(await screen.findByText(/showing every note/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Standup/i })).toBeInTheDocument();
   });
 
   it('narrows to the notes that are checked', async () => {
@@ -295,8 +295,8 @@ describe('filtering the calendar by note', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
     await userEvent.click(await screen.findByRole('checkbox', { name: 'Deadlines' }));
 
-    expect(await screen.findByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Standup/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Standup/i })).not.toBeInTheDocument();
   });
 
   it('overlays several notes at once, which is the point of checkboxes', async () => {
@@ -308,8 +308,8 @@ describe('filtering the calendar by note', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Sessions' }));
 
     expect(await screen.findByText(/showing 2 of 2 notes/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Standup/i })).toBeInTheDocument();
   });
 
   it('takes its selection from the address, so a filtered calendar is a link', async () => {
@@ -318,8 +318,8 @@ describe('filtering the calendar by note', () => {
 
     await screen.findByRole('heading', { name: 'Calendar' });
 
-    expect(await screen.findByRole('button', { name: /Standup/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Filing deadline/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Standup/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Filing deadline/i })).not.toBeInTheDocument();
   });
 
   it('goes back to everything', async () => {
@@ -330,7 +330,7 @@ describe('filtering the calendar by note', () => {
     await userEvent.click(await screen.findByRole('button', { name: /show all/i }));
 
     expect(await screen.findByText(/showing every note/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
   });
 
   /**
@@ -344,7 +344,7 @@ describe('filtering the calendar by note', () => {
 
     await screen.findByRole('heading', { name: 'Calendar' });
 
-    expect(await screen.findByRole('button', { name: /Standup/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Standup/i })).toBeInTheDocument();
     expect(screen.getByText(/showing 2 of 2 notes/i)).toBeInTheDocument();
   });
 
@@ -391,9 +391,9 @@ describe('rescheduling by dragging', () => {
 
     await screen.findByRole('tree', { name: /workspace graph/i }).catch(() => null);
     await screen.findByRole('heading', { name: 'Calendar' });
-    await screen.findByRole('button', { name: /Filing deadline/i });
+    await screen.findByRole('button', { name: /^Filing deadline/i });
 
-    const chip = chipFor(/Filing deadline/i);
+    const chip = chipFor(/^Filing deadline/i);
     fireEvent.dragStart(chip);
     fireEvent.drop(cellFor(container, '19 March 2026'));
 
@@ -411,9 +411,9 @@ describe('rescheduling by dragging', () => {
     const { container } = renderAt(<App />, '/calendar');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-    await screen.findByRole('button', { name: /Standup/i });
+    await screen.findByRole('button', { name: /^Standup/i });
 
-    fireEvent.dragStart(chipFor(/Standup/i));
+    fireEvent.dragStart(chipFor(/^Standup/i));
     fireEvent.drop(cellFor(container, '19 March 2026'));
 
     await waitFor(() => {
@@ -434,9 +434,9 @@ describe('rescheduling by dragging', () => {
     const { container } = renderAt(<App />, '/calendar');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-    await screen.findByRole('button', { name: /Filing deadline/i });
+    await screen.findByRole('button', { name: /^Filing deadline/i });
 
-    fireEvent.dragStart(chipFor(/Filing deadline/i));
+    fireEvent.dragStart(chipFor(/^Filing deadline/i));
     fireEvent.drop(cellFor(container, '12 March 2026'));
 
     // A no-op drag is a no-op write. Sending the same value would bump the item's modified stamp
@@ -449,7 +449,7 @@ describe('rescheduling by dragging', () => {
     const { container } = renderAt(<App />, '/calendar');
 
     await screen.findByRole('heading', { name: 'Calendar' });
-    await screen.findByRole('button', { name: /Filing deadline/i });
+    await screen.findByRole('button', { name: /^Filing deadline/i });
 
     fireEvent.drop(cellFor(container, '19 March 2026'));
 

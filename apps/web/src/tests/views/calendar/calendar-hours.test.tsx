@@ -9,6 +9,7 @@ import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
+import { readerZone, writeTimestampValue } from '../../../views/core/timestamps';
 
 /**
  * The week grid's layout at a narrow width: a floor on every day column, one scroller for the
@@ -427,5 +428,71 @@ describe('the all-day create control by keyboard', () => {
     expect(
       screen.getByRole('textbox', { name: 'Add an all-day item on Monday 16 March 2026' }),
     ).toHaveFocus();
+  });
+});
+
+/**
+ * A placed item used to answer only to a click that opened it - a drag was the sole way to move it
+ * once it had landed on the grid, which a keyboard and a touch screen alike cannot perform.
+ */
+describe('rescheduling a placed item without dragging', () => {
+  function person() {
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  function renderWeekWith(setProperties = vi.fn(() => Promise.resolve(null))): {
+    readonly setProperties: typeof setProperties;
+  } {
+    const view = weekView();
+    renderAt(
+      <CalendarView
+        container={aContainer({
+          schema: SCHEMA,
+          views: views([view]),
+          children: [STANDUP],
+          setProperties,
+        })}
+        view={view}
+        onOpen={vi.fn()}
+      />,
+      '/',
+    );
+    return { setProperties };
+  }
+
+  it('offers a reschedule control beside a placed item, distinct from the control that opens it', () => {
+    renderWeekWith();
+
+    expect(screen.getByRole('button', { name: 'Reschedule Standup' })).toBeInTheDocument();
+    // The card's own title is still an open control, not swallowed by the new one beside it.
+    expect(screen.getByRole('button', { name: /^Standup/ })).toBeInTheDocument();
+  });
+
+  it('reschedules a placed item from a tap, writing the moment typed into the dialog', async () => {
+    const { setProperties } = renderWeekWith();
+
+    await person().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    const field = screen.getByLabelText('New date and time for Standup');
+    await person().clear(field);
+    await person().type(field, '2026-03-16T10:30');
+    await person().click(screen.getByRole('button', { name: 'Move' }));
+
+    // The same write a drop onto an hour slot makes - derived through `writeTimestampValue`,
+    // never assembled by hand, so it agrees with whichever zone this environment reads as the
+    // reader's own, rather than pinning one this suite does not otherwise fix.
+    expect(setProperties).toHaveBeenCalledWith('item-standup', {
+      starts: writeTimestampValue('2026-03-16T10:30', readerZone()),
+    });
+  });
+
+  it('closes on cancel and writes nothing', async () => {
+    const { setProperties } = renderWeekWith();
+
+    await person().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+    await person().click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(setProperties).not.toHaveBeenCalled();
   });
 });

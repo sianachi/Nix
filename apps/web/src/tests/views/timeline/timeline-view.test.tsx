@@ -607,6 +607,19 @@ describe('the timeline at a phone width', () => {
       'sm:max-w-[16rem]',
     );
   });
+
+  it('moves focus to the reschedule panel when it opens, rather than leaving it looking dead below the whole agenda list', async () => {
+    // At this width the panel is drawn after the whole agenda (~318 above the grid it replaces,
+    // versus ~374 where the one panel actually lives), with no visual connection to the row that
+    // opened it. Without a focus move, pressing the toggle would appear to do nothing.
+    stubViewport(false);
+    const user = person();
+    render({ children: [ROLLOUT] });
+
+    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
+
+    expect(screen.getByRole('region', { name: 'Reschedule Rollout' })).toHaveFocus();
+  });
 });
 
 describe('the touch targets on the track', () => {

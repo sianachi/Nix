@@ -79,9 +79,13 @@ export interface TabsProps {
   readonly className?: string;
 }
 
-const tablistVariants = cva('flex items-stretch', {
+const tablistVariants = cva('flex min-w-0 items-stretch', {
   variants: {
     orientation: {
+      // `min-w-0` on the base above is what lets `overflow-x-auto` here ever engage: a caller
+      // that sizes the strip with `flex-1` (`document-tab-strip.tsx`) makes it a flex item too,
+      // and a flex item's default `min-width: auto` refuses to shrink below its content's width -
+      // which is exactly the content this scrolls, so the scrollbar never had a reason to appear.
       horizontal: 'flex-row overflow-x-auto border-b border-divider',
       // A fixed width, unlike the horizontal strip's shrink-to-content: a rail's whole point is
       // that a title truncates rather than sets how wide the pane's content gets to be.
@@ -96,7 +100,11 @@ const tabVariants = cva(
   {
     variants: {
       orientation: {
-        horizontal: '-mb-px border-b-2 px-3 py-1.5',
+        // A cap, unlike the vertical rail's own `w-40`: a horizontal strip has no fixed width to
+        // divide, so without one a single long title claims however much space it wants and pushes
+        // every tab after it - and the strip's own scroll and close controls - off the visible
+        // strip. Narrower still under `sm`, where the whole strip is narrower than one uncapped tab.
+        horizontal: '-mb-px max-w-48 border-b-2 px-3 py-1.5 max-sm:max-w-32',
         vertical: '-mr-px border-r-2 px-3 py-1.5',
       },
       active: {
