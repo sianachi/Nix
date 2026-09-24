@@ -1,7 +1,7 @@
 import { Button, Field, Input, Text } from '@nix/ui';
 import { items } from '@nix/api-client';
 import { CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
 import {
@@ -14,6 +14,8 @@ import { useHabits } from './use-habits';
 import type { HabitTracker, SetHabitInput } from '@nix/api-client';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
+import { useNarrowViewport } from '../../layout/viewport';
+import { browserStorage } from '../../lib/browser-storage';
 import { HabitChartWidgets, type HabitWidgetConfig } from './habit-chart-widgets';
 
 export interface HabitTrackerViewProps {
@@ -53,6 +55,29 @@ function monthWindow(day: string): { from: string; to: string } {
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 }
 
+const TODAY_ONLY_STORAGE_KEY = 'nix.habit-tracker.today-only';
+
+/** The person's own Today/week choice, if they have made one. `null` means none was ever stored,
+ * so a narrow screen's own default still applies. */
+function readStoredTodayOnly(storage: Storage | undefined): boolean | null {
+  try {
+    const raw = storage?.getItem(TODAY_ONLY_STORAGE_KEY) ?? null;
+    return raw === null ? null : raw === 'true';
+  } catch {
+    // Private browsing, or a policy that blocks storage. Falling back to the screen-width default
+    // is a small loss; an application that will not start because of it is not.
+    return null;
+  }
+}
+
+function storeTodayOnly(storage: Storage | undefined, value: boolean): void {
+  try {
+    storage?.setItem(TODAY_ONLY_STORAGE_KEY, value ? 'true' : 'false');
+  } catch {
+    // Nothing to do and nothing worth failing over.
+  }
+}
+
 export function weekWindow(offset = 0): { from: string; to: string; days: readonly string[] } {
   const now = new Date();
   const monday = new Date(
@@ -70,7 +95,18 @@ export function weekWindow(offset = 0): { from: string; to: string; days: readon
 
 export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewProps): ReactNode {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [todayOnly, setTodayOnly] = useState(false);
+  const narrow = useNarrowViewport();
+  // `null` means the person has never chosen: a narrow screen defaults to Today, since seven
+  // full-width day blocks stacked on a phone is what this default exists to avoid. Once they pick
+  // either way, the stored choice wins over the screen width from then on.
+  const [todayOnlyChoice, setTodayOnlyChoice] = useState<boolean | null>(() =>
+    readStoredTodayOnly(browserStorage()),
+  );
+  const todayOnly = todayOnlyChoice ?? narrow;
+  const chooseTodayOnly = useCallback((value: boolean) => {
+    setTodayOnlyChoice(value);
+    storeTodayOnly(browserStorage(), value);
+  }, []);
   const [, refreshClock] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {
@@ -102,7 +138,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
     .join('|');
   const previousLocalDaySignature = useRef(localDaySignature);
   const observedLocalDays = useRef(false);
-  const previousTrackerMap = useRef(state.trackers);
+  // Watches `version`, not `trackers`' identity: a single-habit `refetchHabit` also replaces the
+  // `trackers` map, and cascading a full month reload from that would put the 2N requests this
+  // hook exists to avoid right back - one habit's check-in refetching every habit's month data.
+  const previousVersion = useRef(state.version);
   useEffect(() => {
     if (!observedLocalDays.current) {
       if (state.status === 'loading' && state.trackers.size === 0) return;
@@ -118,14 +157,45 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
   }, [localDaySignature, reloadMonth, state]);
   useEffect(() => {
     if (state.status === 'loading') return;
-    if (previousTrackerMap.current !== state.trackers) {
-      previousTrackerMap.current = state.trackers;
+    if (previousVersion.current !== state.version) {
+      previousVersion.current = state.version;
       reloadMonth();
     }
-  }, [reloadMonth, state.status, state.trackers]);
+  }, [reloadMonth, state.status, state.version]);
   const client = useApiClient();
   const workspace = useWorkspace();
   const createdHabitId = useRef<string | null>(null);
+  // A check-in changes exactly one habit's totals, in both the week window and the month window.
+  // Reloading every habit in either range - what a full `reload` does - would cost 2N requests for
+  // a single tap; refetching just this habit in each range costs two.
+  const refetchHabitEverywhere = useCallback(
+    (habitId: string) => {
+      void state.refetchHabit(habitId);
+      void monthlyState.refetchHabit(habitId);
+    },
+    [state, monthlyState],
+  );
+  const saveCheckInAndRefresh = useCallback(
+    async (
+      habitId: string,
+      day: string,
+      completed: boolean,
+      quantity: number | null,
+    ): Promise<string | null> => {
+      const refusal = await state.saveCheckIn(habitId, day, completed, quantity);
+      if (refusal === null) refetchHabitEverywhere(habitId);
+      return refusal;
+    },
+    [state, refetchHabitEverywhere],
+  );
+  const undoCheckInAndRefresh = useCallback(
+    async (habitId: string, day: string): Promise<string | null> => {
+      const refusal = await state.undoCheckIn(habitId, day);
+      if (refusal === null) refetchHabitEverywhere(habitId);
+      return refusal;
+    },
+    [state, refetchHabitEverywhere],
+  );
   const habits = container.children.flatMap((item) => {
     const tracker = state.trackers.get(item.id);
     if (!showArchived && tracker?.status === 'archived') return [];
@@ -156,7 +226,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
             variant="secondary"
             aria-pressed={todayOnly}
             onClick={() => {
-              setTodayOnly((value) => !value);
+              chooseTodayOnly(!todayOnly);
               setWeekOffset(0);
             }}
           >
@@ -166,7 +236,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
             variant="secondary"
             aria-label="Previous week"
             onClick={() => {
-              setTodayOnly(false);
+              chooseTodayOnly(false);
               setWeekOffset((value) => value - 1);
             }}
           >
@@ -176,7 +246,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
             variant="secondary"
             aria-label="Next week"
             onClick={() => {
-              setTodayOnly(false);
+              chooseTodayOnly(false);
               setWeekOffset((value) => value + 1);
             }}
           >
@@ -327,8 +397,8 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
                   days={todayOnly ? [todayInTimezone(item.tracker.timezone)] : window.days}
                   tracker={item.tracker}
                   onOpen={onOpen}
-                  onSave={state.saveCheckIn}
-                  onUndo={state.undoCheckIn}
+                  onSave={saveCheckInAndRefresh}
+                  onUndo={undoCheckInAndRefresh}
                   onEdit={() => {
                     setEditingId(item.id);
                   }}
@@ -349,15 +419,22 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
         >
           {habits.map((item) => {
             const progress = item.tracker.progress;
+            const updating = state.refreshingIds.has(item.id);
             return (
               <div key={item.id} className="rounded-lg bg-surface-raised p-3">
                 <Text variant="bodySmall" className="font-medium">
                   {item.title}
                 </Text>
-                <Text variant="caption" tone="muted">
-                  {progress?.currentStreak ?? 0} day streak · {progress?.bestStreak ?? 0} best ·{' '}
-                  {Math.round((progress?.completionRate ?? 0) * 100)}% complete
-                </Text>
+                {updating ? (
+                  <Text variant="caption" tone="muted">
+                    Updating
+                  </Text>
+                ) : (
+                  <Text variant="caption" tone="muted">
+                    {progress?.currentStreak ?? 0} day streak · {progress?.bestStreak ?? 0} best ·{' '}
+                    {Math.round((progress?.completionRate ?? 0) * 100)}% complete
+                  </Text>
+                )}
               </div>
             );
           })}
@@ -366,19 +443,25 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
             tone="muted"
             className="self-center sm:col-span-2 xl:col-span-3"
           >
-            Overall:{' '}
-            {(() => {
-              const planned = habits.reduce(
-                (sum, item) => sum + (item.tracker.progress?.planned ?? 0),
-                0,
-              );
-              const completed = habits.reduce(
-                (sum, item) => sum + (item.tracker.progress?.completed ?? 0),
-                0,
-              );
-              return planned === 0 ? 0 : Math.round((completed / planned) * 100);
-            })()}
-            % of scheduled days
+            {habits.some((item) => state.refreshingIds.has(item.id)) ? (
+              'Overall: updating'
+            ) : (
+              <>
+                Overall:{' '}
+                {(() => {
+                  const planned = habits.reduce(
+                    (sum, item) => sum + (item.tracker.progress?.planned ?? 0),
+                    0,
+                  );
+                  const completed = habits.reduce(
+                    (sum, item) => sum + (item.tracker.progress?.completed ?? 0),
+                    0,
+                  );
+                  return planned === 0 ? 0 : Math.round((completed / planned) * 100);
+                })()}
+                % of scheduled days
+              </>
+            )}
           </Text>
         </div>
       ) : null}
@@ -398,6 +481,13 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       {monthlyState.status !== 'error' && monthlyState.status !== 'loading' && habits.length > 0 ? (
         <div aria-label="Monthly habit history">
           {habits.map((item) => {
+            if (monthlyState.refreshingIds.has(item.id)) {
+              return (
+                <Text key={item.id} variant="bodySmall" tone="muted">
+                  {item.title}: updating this month&apos;s total
+                </Text>
+              );
+            }
             const monthly = monthlyState.trackers.get(item.id);
             const totals = monthly?.months?.at(-1);
             return totals ? (
@@ -458,6 +548,13 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           aria-label="Progress summary"
         >
           {habits.map((item) => {
+            if (state.refreshingIds.has(item.id)) {
+              return (
+                <Text key={item.id} variant="bodySmall">
+                  {item.title}: updating
+                </Text>
+              );
+            }
             const tracker = state.trackers.get(item.id);
             const week = tracker?.weeks[0];
             return tracker && week ? (
@@ -506,9 +603,32 @@ function HabitRow({
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [statusPending, setStatusPending] = useState(false);
   const [quantities, setQuantities] = useState<Readonly<Record<string, string>>>({});
+  // A day's completion, as tapped, ahead of the write and the refetch that confirms it. Cleared
+  // once the tracker prop itself agrees, or rolled back on a refusal - see the render-time
+  // adjustment below and `act`.
+  const [optimistic, setOptimistic] = useState<Readonly<Record<string, boolean>>>({});
   const checkIns = new Map(tracker.checkIns.map((entry) => [entry.occurredOn, entry]));
   const occurrenceMap = new Map((tracker.occurrences ?? []).map((entry) => [entry.date, entry]));
   const lifecycle = tracker.status;
+  // Adjusted during render rather than in an effect: a fresh `tracker` (the only thing that can
+  // confirm an optimistic tick) has to drop any tick it now agrees with before this render paints,
+  // not one render later. React re-renders immediately when state changes mid-render this way, so
+  // there is no flash of the newly-confirmed tick reverting first.
+  const [previousTracker, setPreviousTracker] = useState(tracker);
+  if (previousTracker !== tracker) {
+    setPreviousTracker(tracker);
+    if (Object.keys(optimistic).length > 0) {
+      const confirmed = Object.entries(optimistic).filter(([day, expected]) => {
+        const entry = tracker.checkIns.find((candidate) => candidate.occurredOn === day);
+        const occurrence = (tracker.occurrences ?? []).find((candidate) => candidate.date === day);
+        const actual = occurrence?.completed ?? entry?.completed === true;
+        return actual !== expected;
+      });
+      if (confirmed.length !== Object.keys(optimistic).length) {
+        setOptimistic(Object.fromEntries(confirmed));
+      }
+    }
+  }
   return (
     <tr className="block overflow-hidden rounded-lg border border-divider bg-surface md:table-row md:rounded-none md:border-0">
       <th
@@ -607,7 +727,10 @@ function HabitRow({
             (tracker.frequency === 'daily' || tracker.weekdays.includes(weekdayFor(day))));
         const future = day > todayInTimezone(tracker.timezone);
         const hasEntry = entry !== undefined;
-        const checked = occurrence?.completed ?? entry?.completed === true;
+        const actual = occurrence?.completed ?? entry?.completed === true;
+        // The optimistic tap wins over the last confirmed read until either the refetch this row
+        // triggered agrees (the effect above clears it) or the write it followed is refused.
+        const checked = optimistic[day] ?? actual;
         const stateLabel =
           occurrence?.state ?? (checked ? 'completed' : hasEntry ? 'partial' : 'scheduled');
         const key = `${itemId}:${day}`;
@@ -624,6 +747,7 @@ function HabitRow({
             Number(quantity) < 0 ||
             Number(quantity) > 1_000_000);
         const act = async (undo: boolean): Promise<void> => {
+          setOptimistic((current) => ({ ...current, [day]: !undo }));
           setPending((current) => new Set(current).add(key));
           const refusal = undo
             ? await onUndo(itemId, day)
@@ -633,12 +757,20 @@ function HabitRow({
             next.delete(key);
             return next;
           });
-          if (refusal === null)
+          if (refusal === null) {
             setQuantities((current) => {
               return Object.fromEntries(
                 Object.entries(current).filter(([entryDay]) => entryDay !== day),
               );
             });
+          } else {
+            // The write was refused: the tap never happened as far as Core is concerned, so the
+            // tick comes back off rather than sitting there until some later refetch disagrees
+            // with it.
+            setOptimistic((current) =>
+              Object.fromEntries(Object.entries(current).filter(([entryDay]) => entryDay !== day)),
+            );
+          }
           setMessage(refusal);
         };
         return (

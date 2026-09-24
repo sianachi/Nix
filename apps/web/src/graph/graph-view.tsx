@@ -10,6 +10,7 @@ import {
   type ReactElement,
 } from 'react';
 
+import { isPointerCoarse } from '../editor/floating-menu-placement';
 import { indentAt, ROW_INDENT } from '../items/workspace-sidebar';
 import {
   applyOffsets,
@@ -42,6 +43,14 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
  * exist, which is honest, because the same actions are on the real buttons in the tree. A
  * `tabIndex` here would not be: a focusable control inside `aria-hidden` is a tab stop that
  * announces nothing, which is worse than either having it or not.
+ *
+ * **A tap is not a click.** A mouse click and a touch tap land on the same pointer events, but a
+ * touch reader never hovered - the label a mouse user sees before committing to open something
+ * never showed up for them, so the same gesture that opens a note for one reader is a blind tap for
+ * the other. On a coarse pointer the first tap on a node only selects it, writing its name and
+ * offering an "Open <title>" button in its place; a second tap on that same node, or the button
+ * itself, opens it. A mouse - `matchMedia('(pointer: coarse)')` says no - keeps the one-tap-opens
+ * behaviour it always had.
  */
 
 /**
@@ -49,14 +58,26 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
  *
  * Labels used to be permanent, and past a few dozen items that is a grey mat of overlapping text
  * rather than a graph - the shape, which is the thing a drawing is for, disappears underneath the
- * words. So a node is a disc until you ask: hover, keyboard focus, or being the item that is
- * currently open.
+ * words. So a node is a disc until you ask: hover, keyboard focus, tapped-and-selected on a coarse
+ * pointer, or being the item that is currently open.
  *
  * Hover is CSS rather than React state on purpose. `group-hover` costs no re-render, and a graph
  * at the 2,000-node ceiling re-rendering every disc on every `mousemove` would be janky for a
- * cosmetic change. Focus is React state because it changes on a key press rather than continuously.
+ * cosmetic change. Focus and touch selection are React state because both change on a discrete
+ * event rather than continuously.
  */
 const LABEL_REVEAL = 'opacity-0 transition-opacity group-hover:opacity-100';
+
+/**
+ * The disc outline against the drawing's ground.
+ *
+ * `stroke-divider` measured at roughly 1.4:1 against the surface fill, well under the 3:1 WCAG
+ * 1.4.11 asks of a control's boundary. `text-muted` is the token already tuned to reach 3:1 against
+ * the page ground in both themes (see the design-token sheet's own comment on the role), so reusing
+ * it here rather than inventing a graph-only colour keeps the drawing answerable to the same
+ * contrast promise as the rest of the product.
+ */
+const NODE_STROKE = 'stroke-muted';
 
 /**
  * How far a pointer may travel between press and release and still count as a click.
@@ -192,6 +213,11 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  // The node a coarse-pointer tap has picked out, waiting for the confirming second tap or its own
+  // "Open" button. `null` on every other pointer, since a mouse never leaves this set - it opens on
+  // the first tap, same as before.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const entryIndex = focusedIndex ?? 0;
   const focusedId = focusedIndex === null ? null : (positioned[focusedIndex]?.id ?? null);
 
@@ -289,9 +315,24 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
 
     // A release that never travelled is a click, and a click opens the note. A release that did is
     // the end of a drag, and opening the item somebody just finished arranging would be a surprise.
-    if (drag !== null && !drag.moved && drag.id === node.id) {
-      onOpen(node.id);
+    if (drag === null || drag.moved || drag.id !== node.id) {
+      return;
     }
+
+    // A mouse opens on the first tap, as it always has. A coarse pointer never hovered, so the
+    // first tap only selects - naming the node and offering an "Open" button - and it takes a
+    // second tap on the same node, or that button, to actually leave the graph.
+    if (isPointerCoarse()) {
+      if (selectedId === node.id) {
+        setSelectedId(null);
+        onOpen(node.id);
+      } else {
+        setSelectedId(node.id);
+      }
+      return;
+    }
+
+    onOpen(node.id);
   };
 
   const scaled = atZoom(layout, zoom);
@@ -429,11 +470,12 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
           </g>
 
           {positioned.map((node) => {
-            // Keyboard-focused nodes keep their label permanently; everything else waits to be
-            // hovered. Activating a node opens its note and leaves this route, so the graph has no
-            // separate selected state to advertise. A class swap rather than a conditional render,
-            // so the text node stays mounted and the transition has something to animate.
-            const named = node.id === focusedId;
+            // Keyboard-focused and coarse-pointer-selected nodes keep their label permanently;
+            // everything else waits to be hovered. Activating a node with a mouse opens its note
+            // and leaves this route, so a mouse never has a separate selected state to advertise -
+            // only a tap does, until it is confirmed. A class swap rather than a conditional
+            // render, so the text node stays mounted and the transition has something to animate.
+            const named = node.id === focusedId || node.id === selectedId;
 
             // Before the first frame every node sits at the middle; afterwards it sits where the
             // layout put it, and the transition between the two is the explosion. `motion-reduce`
@@ -474,7 +516,7 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
                   // so every disc would grow towards the middle of the drawing instead of in place
                   // - and the alternative, a computed `transform-origin` per node, is an inline
                   // style with two raw lengths in it.
-                  className="origin-center fill-surface stroke-divider [transform-box:fill-box] transition-transform group-hover:scale-125 motion-reduce:transition-none"
+                  className={`origin-center fill-surface [transform-box:fill-box] transition-transform group-hover:scale-125 motion-reduce:transition-none ${NODE_STROKE}`}
                 />
                 <text
                   x={node.x + NODE_RADIUS * 2}
@@ -483,6 +525,37 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
                 >
                   {nodeTitle(node)}
                 </text>
+
+                {/* Only a coarse-pointer selection reaches this - a mouse opens on its first click
+                    and never sets `selectedId`. Sized generously rather than tightly around the
+                    label above it: a button a touch reader has to aim for defeats the point of
+                    replacing a blind tap with a confirmed one. `stopPropagation` on press keeps this
+                    button's own tap from being read as the start of a drag on the node underneath
+                    it. */}
+                {node.id === selectedId && (
+                  <foreignObject
+                    x={node.x - 56}
+                    y={node.y + NODE_RADIUS * 2.5}
+                    width={112}
+                    height={28}
+                    className="overflow-visible"
+                  >
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onClick={() => {
+                        setSelectedId(null);
+                        onOpen(node.id);
+                      }}
+                      className="w-full truncate rounded-md bg-accent-fill px-2 py-1 text-center text-xs text-background"
+                    >
+                      {`Open ${nodeTitle(node)}`}
+                    </button>
+                  </foreignObject>
+                )}
               </g>
             );
           })}

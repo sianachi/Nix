@@ -1,6 +1,6 @@
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { files, items, search, type SearchResults } from '@nix/api-client';
-import { Button, Dialog, Field, Input, Text } from '@nix/ui';
+import { Button, Checkbox, Dialog, Field, Input, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 import { useSelectedItem } from '../routing/selected-item';
@@ -159,16 +159,13 @@ export function ItemInsertDialog({
           </Field>
         ) : null}
         {kind !== 'subpage' && kind !== 'image' ? (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={inline}
-              onChange={(event) => {
-                setInline(event.target.checked);
-              }}
-            />
-            <Text variant="note">Insert as inline link</Text>
-          </label>
+          <Checkbox
+            label="Insert as inline link"
+            checked={inline}
+            onChange={(event) => {
+              setInline(event.target.checked);
+            }}
+          />
         ) : null}
         {error !== null ? (
           <Text variant="note" role="alert">

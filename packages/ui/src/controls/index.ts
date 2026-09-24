@@ -8,6 +8,7 @@
 
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card, type CardProps } from './Card';
+export { Checkbox, type CheckboxProps } from './Checkbox';
 export { Dialog, type DialogProps } from './Dialog';
 export { Field, type FieldControlProps, type FieldProps } from './Field';
 export { Input, type InputProps, type InputTone } from './Input';

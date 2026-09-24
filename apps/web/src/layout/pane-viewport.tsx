@@ -6,8 +6,69 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { z } from 'zod';
+
+import { browserSessionStorage } from '../lib/browser-storage';
 
 const positions = new Map<string, number>();
+
+/** Past this many remembered scrollers, the oldest is dropped rather than kept forever. */
+const SCROLL_POSITION_LIMIT = 50;
+
+const SCROLL_ENTRY_SCHEMA = z.tuple([z.string(), z.number()]);
+const SCROLL_ENTRIES_SCHEMA = z.array(SCROLL_ENTRY_SCHEMA);
+
+function storageKey(workspaceId: string): string {
+  return `nix.pane-scroll:${workspaceId}`;
+}
+
+/**
+ * The workspace this tab is currently addressing, read from the path rather than a store or
+ * context - `layout/` only reaches `lib/`, and this module is a leaf itself, so it cannot ask a
+ * feature what the workspace is. `/w/:workspaceId/...` is the one routing shape every editor
+ * surface that mounts a pane lives under.
+ */
+function currentWorkspaceId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return /^\/w\/([^/]+)/.exec(window.location.pathname)?.[1] ?? null;
+}
+
+/**
+ * Which workspace `positions` currently holds entries for. A scroll position is only ever
+ * meaningful within the workspace it was recorded in - restoring it into a different workspace
+ * would show a person somebody else's note at the height they happened to leave it, or their own
+ * from a workspace they have since left. So a change of workspace clears the map before it is
+ * repopulated from that workspace's own storage, rather than merging the two.
+ */
+let scopedWorkspaceId: string | null = null;
+
+function ensureWorkspaceScope(workspaceId: string | null): void {
+  if (workspaceId === scopedWorkspaceId) return;
+  scopedWorkspaceId = workspaceId;
+  positions.clear();
+  if (workspaceId === null) return;
+
+  try {
+    const raw = browserSessionStorage()?.getItem(storageKey(workspaceId));
+    if (raw === null || raw === undefined) return;
+
+    const parsed = SCROLL_ENTRIES_SCHEMA.safeParse(JSON.parse(raw));
+    if (!parsed.success) return; // Corrupt or an older shape - start empty rather than throw.
+
+    for (const [key, value] of parsed.data) positions.set(key, value);
+  } catch {
+    // Private browsing, a policy that blocks storage, or unparseable JSON. Either way the pane
+    // still works with an empty map - only the restore-across-reload convenience is lost.
+  }
+}
+
+function persistScope(workspaceId: string): void {
+  try {
+    browserSessionStorage()?.setItem(storageKey(workspaceId), JSON.stringify([...positions]));
+  } catch {
+    // Best-effort: the in-memory map still serves this tab for the rest of the session.
+  }
+}
 
 const PaneViewportContext = createContext<RefObject<HTMLDivElement | null> | null>(null);
 
@@ -23,6 +84,7 @@ export function PaneViewport({ className, children, scrollKey }: PaneViewportPro
   useLayoutEffect(() => {
     const pane = ref.current;
     if (!pane || !scrollKey) return;
+    ensureWorkspaceScope(currentWorkspaceId());
     const target = positions.get(scrollKey) ?? 0;
 
     // The pane's content - async, most of the time - has not necessarily grown tall enough yet
@@ -59,10 +121,11 @@ export function PaneViewport({ className, children, scrollKey }: PaneViewportPro
       observer?.disconnect();
       positions.delete(scrollKey);
       positions.set(scrollKey, pane.scrollTop);
-      if (positions.size > 100) {
+      if (positions.size > SCROLL_POSITION_LIMIT) {
         const oldest = positions.keys().next().value;
         if (oldest !== undefined) positions.delete(oldest);
       }
+      if (scopedWorkspaceId !== null) persistScope(scopedWorkspaceId);
     };
     pane.addEventListener('scroll', save, { passive: true });
     return () => {
