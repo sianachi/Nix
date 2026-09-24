@@ -75,6 +75,24 @@ export interface QueryResultsState {
   /** The payload, or null while loading and after a failure. Never a half-built stand-in. */
   readonly results: ItemQueryResults | null;
   readonly error: string | null;
+
+  /**
+   * Whether a re-run is under way while the previous results are still on screen.
+   *
+   * `status` only becomes `'loading'` for the very first run - a later re-run (a filter that
+   * changed, the periodic refresh, a deliberate reload) keeps the previous rows mounted instead of
+   * swapping in a full-panel loading state, which used to reset the list's scroll position on every
+   * refresh.
+   */
+  readonly refreshing: boolean;
+
+  /**
+   * Why the most recent background re-run failed, or null when the last one that finished
+   * succeeded. Only ever set once there are results on screen to protect - see the equivalent
+   * field on `ContainerData`.
+   */
+  readonly refreshError: string | null;
+
   readonly reload: () => Promise<void>;
 }
 
@@ -85,13 +103,25 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
   const [status, setStatus] = useState<QueryResultsStatus>('loading');
   const [results, setResults] = useState<ItemQueryResults | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const activeLoad = useRef<AbortController | null>(null);
+
+  // See `use-container.ts`'s `hasLoadedOnce`: the same "first run vs. re-run" distinction, for
+  // the same reason `status` alone cannot draw it.
+  const hasLoadedOnce = useRef(false);
 
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
-    setStatus('loading');
+
+    if (hasLoadedOnce.current) {
+      setRefreshing(true);
+      setRefreshError(null);
+    } else {
+      setStatus('loading');
+    }
     setError(null);
 
     try {
@@ -103,11 +133,23 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
       if (controller.signal.aborted || activeLoad.current !== controller) return;
       setResults(loaded);
       setStatus('ready');
+      hasLoadedOnce.current = true;
+      setRefreshing(false);
+      setRefreshError(null);
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
-      setError(isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.');
-      setStatus('error');
+      const message = isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.';
+
+      // There are results already on screen: keep them, and say the re-run failed rather than
+      // replacing the list with an error panel that discards what the reader was looking at.
+      if (hasLoadedOnce.current) {
+        setRefreshing(false);
+        setRefreshError(message);
+      } else {
+        setError(message);
+        setStatus('error');
+      }
     }
   }, [client, itemId, viewId]);
 
@@ -130,5 +172,5 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
     [load, workspaceId],
   );
 
-  return { status, results, error, reload: load };
+  return { status, results, error, refreshing, refreshError, reload: load };
 }

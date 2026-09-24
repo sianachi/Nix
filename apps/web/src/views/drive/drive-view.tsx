@@ -6,9 +6,18 @@ import {
   ChevronsUpDown,
   Download,
   FolderInput,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 
 import { announce } from '../../a11y/announcer';
 import { useApiClient } from '../../api/api-client-provider';
@@ -49,6 +58,15 @@ interface SortState {
   readonly key: SortKey;
   readonly direction: SortDirection;
 }
+
+/**
+ * A checkbox's own box is 16px, well under the WCAG 2.5.8 floor - so every selection checkbox in
+ * the drive sits inside a padded label rather than growing the input itself. `--control-sm` (28px)
+ * covers the floor on a mouse; `pointer-coarse:` grows it to `--control-lg` (44px) the same way
+ * `Button` grows its own hit area for a coarse pointer.
+ */
+const checkboxHitArea =
+  'inline-flex size-(--control-sm) items-center justify-center pointer-coarse:size-(--control-lg)';
 
 /** The size in bytes this row would sort by, or -1 for anything that is not a file yet. */
 function sizeOf(info: DriveFileInfo | undefined): number {
@@ -105,6 +123,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   const [dropTargetRoot, setDropTargetRoot] = useState(false);
   const [dropTargetRow, setDropTargetRow] = useState<string | null>(null);
   const [dragging, setDragging] = useState<readonly string[] | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // The container's own parent, for the Move dialog's "Parent" destination. `undefined` while it
   // is unknown - either still being asked for, or this drive is drawing a workspace root, which
@@ -198,6 +217,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
           : ''
       }…`,
     );
+    let downloaded = 0;
     for (const item of files) {
       try {
         // Zipping the selection through the export worker is out of scope here; each file is
@@ -210,31 +230,69 @@ export function DriveView(props: ViewRendererProps): ReactNode {
         anchor.download = item.title || 'download';
         anchor.click();
         URL.revokeObjectURL(url);
+        downloaded += 1;
       } catch {
-        // One file's refusal must not stop the rest of the selection from downloading.
+        // One file's refusal must not stop the rest of the selection from downloading, but the
+        // announcement below has to count it as failed rather than claim it succeeded.
       }
     }
     setStatus(null);
-    announce(`${String(files.length)} ${files.length === 1 ? 'file' : 'files'} downloaded.`);
+    const failed = files.length - downloaded;
+    announce(
+      failed === 0
+        ? `${String(downloaded)} ${downloaded === 1 ? 'file' : 'files'} downloaded.`
+        : `${String(downloaded)} of ${String(files.length)} ${
+            files.length === 1 ? 'file' : 'files'
+          } downloaded; ${String(failed)} could not be downloaded.`,
+    );
+  }
+
+  /**
+   * Moves every id to `targetParentId`, one at a time, and takes `tree.move`'s refusal seriously
+   * rather than assuming success: an id `tree.move` refuses stays selected, so the person can see
+   * exactly what did not move and retry it, and the refusal reason is shown rather than swallowed
+   * into a blanket "N items moved".
+   */
+  async function moveItems(ids: readonly string[], targetParentId: string | null): Promise<void> {
+    const refusals = new Map<string, string>();
+    for (const id of ids) {
+      const outcome = await tree.move(id, targetParentId, null);
+      if (outcome.refusal !== null) refusals.set(id, outcome.refusal);
+    }
+    await container.reload();
+    if (refusals.size === 0) {
+      setSelected(new Set());
+      announce(`${String(ids.length)} ${ids.length === 1 ? 'item' : 'items'} moved.`);
+      return;
+    }
+    setSelected(new Set(refusals.keys()));
+    const moved = ids.length - refusals.size;
+    const firstRefusal = refusals.values().next().value ?? 'the move was refused';
+    const message = `${String(moved)} of ${String(ids.length)} ${
+      ids.length === 1 ? 'item' : 'items'
+    } moved; ${String(refusals.size)} refused: ${firstRefusal}`;
+    setStatus(message);
+    announce(message);
   }
 
   async function moveSelected(targetParentId: string | null): Promise<void> {
     setMoveOpen(false);
-    const ids = [...selected];
-    for (const id of ids) {
-      await tree.move(id, targetParentId, null);
-    }
-    setSelected(new Set());
-    await container.reload();
-    announce(`${String(ids.length)} ${ids.length === 1 ? 'item' : 'items'} moved.`);
+    await moveItems([...selected], targetParentId);
   }
 
+  /**
+   * Uploads every file in turn, one failure at a time, rather than stopping the whole batch and
+   * skipping the reload the moment one file refuses: the files that did make it need to show up,
+   * and the person needs to be told, in the status line as well as to a screen reader, exactly
+   * which one did not and why.
+   */
   async function uploadFiles(files: FileList): Promise<void> {
-    setStatus(
-      files.length === 1 ? 'Uploading 1 file…' : `Uploading ${String(files.length)} files…`,
-    );
-    try {
-      for (const file of Array.from(files)) {
+    const list = Array.from(files);
+    setStatus(list.length === 1 ? 'Uploading 1 file…' : `Uploading ${String(list.length)} files…`);
+    let uploaded = 0;
+    let firstFailure: { readonly name: string; readonly reason: string } | null = null;
+    for (const file of list) {
+      try {
         const upload = await client.execute(
           fileResources.beginUpload({
             workspaceId,
@@ -246,18 +304,37 @@ export function DriveView(props: ViewRendererProps): ReactNode {
           }),
         );
         await fileResources.uploadAndCompleteFile(client, upload, file);
+        uploaded += 1;
+      } catch (error) {
+        firstFailure ??= {
+          name: file.name,
+          reason: isNixApiError(error)
+            ? (error.detail ?? 'the upload was refused')
+            : 'the upload was refused',
+        };
       }
-      await container.reload();
-      announce(files.length === 1 ? 'File uploaded.' : `${String(files.length)} files uploaded.`);
-    } catch (error) {
-      announce(
-        isNixApiError(error)
-          ? (error.detail ?? 'The file could not be uploaded.')
-          : 'The file could not be uploaded.',
-      );
-    } finally {
-      setStatus(null);
     }
+    await container.reload();
+    if (firstFailure === null) {
+      setStatus(null);
+      announce(uploaded === 1 ? 'File uploaded.' : `${String(uploaded)} files uploaded.`);
+      return;
+    }
+    const message = `${String(uploaded)} of ${String(list.length)} uploaded; ${
+      firstFailure.name
+    } could not be uploaded: ${firstFailure.reason}`;
+    setStatus(message);
+    announce(message);
+  }
+
+  function pickFiles(): void {
+    fileInputRef.current?.click();
+  }
+
+  function onFileInputChange(event: ChangeEvent<HTMLInputElement>): void {
+    const { files } = event.currentTarget;
+    event.currentTarget.value = '';
+    if (files !== null && files.length > 0) void uploadFiles(files);
   }
 
   function onRootDragOver(event: DragEvent<HTMLDivElement>): void {
@@ -300,13 +377,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     setDragging(null);
     setDropTargetRow(null);
     if (ids === null || ids.includes(item.id) || !isDriveContainerCandidate(item)) return;
-    void (async () => {
-      for (const id of ids) {
-        await tree.move(id, item.id, null);
-      }
-      setSelected(new Set());
-      await container.reload();
-    })();
+    void moveItems(ids, item.id);
   }
 
   if (container.status === 'loading') return <LoadingPanel label="this drive" />;
@@ -318,15 +389,27 @@ export function DriveView(props: ViewRendererProps): ReactNode {
       />
     );
 
-  if (rows.length === 0) {
-    return (
-      <EmptyPanel
-        title="Nothing in here yet"
-        detail="Items added to this one, or files dropped onto this drive, appear here."
-        action={<CreateItemControl label="Add the first item" onCreate={container.create} />}
-      />
-    );
-  }
+  // Out of the tab order and the a11y tree: the Upload button is the control, and a focusable but
+  // invisible input is a focus ring nobody can see. This is the one file input for the whole
+  // drive, so it works from a phone, which has no drag-and-drop to fall back on.
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      multiple
+      className="sr-only"
+      tabIndex={-1}
+      aria-hidden="true"
+      aria-label="Files to upload"
+      onChange={onFileInputChange}
+    />
+  );
+  const uploadButton = (
+    <Button variant="secondary" onClick={pickFiles}>
+      <Icon icon={Upload} size="sm" />
+      Upload
+    </Button>
+  );
 
   return (
     <div
@@ -340,78 +423,98 @@ export function DriveView(props: ViewRendererProps): ReactNode {
       }}
       onDrop={onRootDrop}
     >
+      {fileInput}
+
       {status !== null ? (
         <Text variant="note" tone="muted" role="status">
           {status}
         </Text>
       ) : null}
 
-      {selected.size > 0 ? (
-        <div
-          role="toolbar"
-          aria-label="Selected items"
-          className={cn(blueprintFrame, 'flex items-center gap-3 bg-surface p-2')}
-        >
-          <Text variant="body" as="span">
-            {`${String(selected.size)} selected`}
-          </Text>
-          <Button variant="secondary" onClick={() => void downloadSelected()}>
-            <Icon icon={Download} size="sm" />
-            Download
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setMoveOpen(true);
-            }}
-          >
-            <Icon icon={FolderInput} size="sm" />
-            Move to…
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setSelected(new Set());
-            }}
-          >
-            Clear
-          </Button>
-        </div>
-      ) : null}
-
-      {layout === 'grid' ? (
-        <DriveGrid
-          rows={rows}
-          fileInfo={fileInfo}
-          selected={selected}
-          dropTargetRow={dropTargetRow}
-          onOpen={onOpen}
-          onToggleSelect={toggleSelect}
-          onDragStart={onRowDragStart}
-          onDragOver={onRowDragOver}
-          onDragEnd={onRowDragEnd}
-          onDrop={onRowDrop}
+      {rows.length === 0 ? (
+        <EmptyPanel
+          title="Nothing in here yet"
+          detail="Items added to this one, or files dropped onto this drive, appear here."
+          action={
+            <div className="flex flex-wrap gap-2">
+              <CreateItemControl label="Add the first item" onCreate={container.create} />
+              {uploadButton}
+            </div>
+          }
         />
       ) : (
-        <DriveTable
-          rows={rows}
-          fileInfo={fileInfo}
-          sort={sort}
-          selected={selected}
-          allSelected={allSelected}
-          dropTargetRow={dropTargetRow}
-          onOpen={onOpen}
-          onToggleSelect={toggleSelect}
-          onToggleSelectAll={toggleSelectAll}
-          onChangeSort={changeSort}
-          onDragStart={onRowDragStart}
-          onDragOver={onRowDragOver}
-          onDragEnd={onRowDragEnd}
-          onDrop={onRowDrop}
-        />
-      )}
+        <>
+          {selected.size > 0 ? (
+            <div
+              role="toolbar"
+              aria-label="Selected items"
+              className={cn(blueprintFrame, 'flex flex-wrap items-center gap-3 bg-surface p-2')}
+            >
+              <Text variant="body" as="span">
+                {`${String(selected.size)} selected`}
+              </Text>
+              <Button variant="secondary" onClick={() => void downloadSelected()}>
+                <Icon icon={Download} size="sm" />
+                Download
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setMoveOpen(true);
+                }}
+              >
+                <Icon icon={FolderInput} size="sm" />
+                Move to…
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSelected(new Set());
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          ) : null}
 
-      <CreateItemControl label="Add an item" onCreate={container.create} className="self-start" />
+          {layout === 'grid' ? (
+            <DriveGrid
+              rows={rows}
+              fileInfo={fileInfo}
+              selected={selected}
+              dropTargetRow={dropTargetRow}
+              onOpen={onOpen}
+              onToggleSelect={toggleSelect}
+              onDragStart={onRowDragStart}
+              onDragOver={onRowDragOver}
+              onDragEnd={onRowDragEnd}
+              onDrop={onRowDrop}
+            />
+          ) : (
+            <DriveTable
+              rows={rows}
+              fileInfo={fileInfo}
+              sort={sort}
+              selected={selected}
+              allSelected={allSelected}
+              dropTargetRow={dropTargetRow}
+              onOpen={onOpen}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAll}
+              onChangeSort={changeSort}
+              onDragStart={onRowDragStart}
+              onDragOver={onRowDragOver}
+              onDragEnd={onRowDragEnd}
+              onDrop={onRowDrop}
+            />
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <CreateItemControl label="Add an item" onCreate={container.create} />
+            {uploadButton}
+          </div>
+        </>
+      )}
 
       <DriveMoveDialog
         open={moveOpen}
@@ -474,16 +577,27 @@ function DriveTable(
         <thead>
           <tr>
             <th scope="col" className="border-b border-divider p-2">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={onToggleSelectAll}
-                aria-label="Select all rows"
-                className={focusRing}
-              />
+              <label className={checkboxHitArea}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={onToggleSelectAll}
+                  aria-label="Select all rows"
+                  className={focusRing}
+                />
+              </label>
             </th>
             <SortableHeader label="Name" columnKey="name" sort={sort} onChangeSort={onChangeSort} />
-            <SortableHeader label="Kind" columnKey="kind" sort={sort} onChangeSort={onChangeSort} />
+            {/* Kind and Modified are context, not identity - on a phone-width table that scrolls
+                sideways instead of wrapping, they are the columns to drop first, keeping Name and
+                the one detail (Size) that fits without a horizontal scroll. */}
+            <SortableHeader
+              label="Kind"
+              columnKey="kind"
+              sort={sort}
+              onChangeSort={onChangeSort}
+              className="max-sm:hidden"
+            />
             <SortableHeader
               label="Size"
               columnKey="size"
@@ -497,6 +611,7 @@ function DriveTable(
               sort={sort}
               onChangeSort={onChangeSort}
               align="end"
+              className="max-sm:hidden"
             />
           </tr>
         </thead>
@@ -525,16 +640,18 @@ function DriveTable(
                 )}
               >
                 <td className="border-b border-divider p-2">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onClick={(event) => {
-                      onToggleSelect(item.id, event.shiftKey);
-                    }}
-                    onChange={() => undefined}
-                    aria-label={`Select ${item.title || 'Untitled'}`}
-                    className={focusRing}
-                  />
+                  <label className={checkboxHitArea}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onClick={(event) => {
+                        onToggleSelect(item.id, event.shiftKey);
+                      }}
+                      onChange={() => undefined}
+                      aria-label={`Select ${item.title || 'Untitled'}`}
+                      className={focusRing}
+                    />
+                  </label>
                 </td>
                 <td className="border-b border-divider p-2">
                   <button
@@ -550,7 +667,7 @@ function DriveTable(
                     </Text>
                   </button>
                 </td>
-                <td className="border-b border-divider p-2">
+                <td className="max-sm:hidden border-b border-divider p-2">
                   <Text variant="body" as="span" tone="muted">
                     {kindOf(item, info)}
                   </Text>
@@ -564,7 +681,7 @@ function DriveTable(
                       : '—'}
                   </Text>
                 </td>
-                <td className="border-b border-divider p-2 text-right">
+                <td className="max-sm:hidden border-b border-divider p-2 text-right">
                   <Text variant="body" as="span" tone="muted">
                     {formatWhen(item.updatedAt)}
                   </Text>
@@ -584,12 +701,14 @@ function SortableHeader({
   sort,
   onChangeSort,
   align = 'start',
+  className,
 }: {
   readonly label: string;
   readonly columnKey: SortKey;
   readonly sort: SortState;
   readonly onChangeSort: (key: SortKey) => void;
   readonly align?: 'start' | 'end';
+  readonly className?: string;
 }): ReactNode {
   const sorted = sort.key === columnKey;
   const glyph: LucideIcon = sorted
@@ -602,7 +721,11 @@ function SortableHeader({
     <th
       scope="col"
       aria-sort={sorted ? sort.direction : 'none'}
-      className={cn('border-b border-divider p-0', align === 'end' ? 'text-right' : 'text-left')}
+      className={cn(
+        'border-b border-divider p-0',
+        align === 'end' ? 'text-right' : 'text-left',
+        className,
+      )}
     >
       <button
         type="button"
@@ -665,30 +788,37 @@ function DriveGrid(props: RowsProps): ReactNode {
             }}
             className={cn(
               blueprintFrame,
-              'relative flex flex-col items-center gap-2 bg-surface p-3',
+              'relative flex min-w-0 flex-col items-center gap-2 bg-surface p-3',
               isSelected && 'bg-accent/10',
               dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
             )}
           >
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onClick={(event) => {
-                onToggleSelect(item.id, event.shiftKey);
-              }}
-              onChange={() => undefined}
-              aria-label={`Select ${item.title || 'Untitled'}`}
-              className={cn('self-start', focusRing)}
-            />
+            <label className={cn('self-start', checkboxHitArea)}>
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onClick={(event) => {
+                  onToggleSelect(item.id, event.shiftKey);
+                }}
+                onChange={() => undefined}
+                aria-label={`Select ${item.title || 'Untitled'}`}
+                className={focusRing}
+              />
+            </label>
             <Icon icon={RowIcon} size="lg" />
             <button
               type="button"
               onClick={() => {
                 onOpen(item.id);
               }}
-              className={cn('w-full text-center', focusRing)}
+              className={cn('w-full min-w-0 text-center', focusRing)}
             >
-              <Text variant="body" as="span">
+              <Text
+                variant="body"
+                as="span"
+                title={item.title || 'Untitled'}
+                className="line-clamp-2 break-words"
+              >
                 {item.title || 'Untitled'}
               </Text>
             </button>

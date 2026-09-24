@@ -27,8 +27,22 @@ export interface FinanceState {
   readonly status: FinanceLoadState;
   readonly finance: Finance | null;
   readonly error: string | null;
-  /** Bumps on every write, so every reader under the root refetches together. */
+  /** Bumps on every committing write, so every reader under the root refetches together. */
   readonly generation: number;
+  /**
+   * Whether a reload is under way while the previous finances are still on screen.
+   *
+   * `status` only becomes `'loading'` for the very first load - a later generation bump (a write
+   * elsewhere under the root) keeps the current data mounted instead of swapping the whole section
+   * for a loading panel, which used to reset the chosen section, open dialogs and the account
+   * filter on every write.
+   */
+  readonly refreshing: boolean;
+  /**
+   * Why the most recent background reload failed, or null when the last one that finished
+   * succeeded. Only ever set once there are finances on screen to protect.
+   */
+  readonly refreshError: string | null;
   readonly reload: () => void;
   readonly setSettings: (input: FinanceSettingsInput) => Promise<WriteOutcome>;
   readonly createAccount: (input: FinanceAccountInput) => Promise<WriteOutcome>;
@@ -104,9 +118,16 @@ export function useFinance(itemId: string | null): FinanceState {
   const [status, setStatus] = useState<FinanceLoadState>('loading');
   const [data, setData] = useState<Finance | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const reload = useCallback(() => {
     setGeneration((value) => value + 1);
   }, []);
+
+  // Whether a load has ever resolved to a real state ('ready' or 'unconfigured'), so a later
+  // generation bump knows there is a screen worth protecting rather than blanking it again. See
+  // `use-container.ts`'s `hasLoadedOnce` for why this cannot be read back out of `status` alone.
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
     if (itemId === null) {
@@ -119,7 +140,12 @@ export function useFinance(itemId: string | null): FinanceState {
     const controller = new AbortController();
     queueMicrotask(() => {
       if (controller.signal.aborted) return;
-      setStatus('loading');
+      if (hasLoadedOnce.current) {
+        setRefreshing(true);
+        setRefreshError(null);
+      } else {
+        setStatus('loading');
+      }
       setError(null);
     });
     void client
@@ -128,16 +154,32 @@ export function useFinance(itemId: string | null): FinanceState {
         if (controller.signal.aborted) return;
         setData(value);
         setStatus('ready');
+        hasLoadedOnce.current = true;
+        setRefreshing(false);
+        setRefreshError(null);
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted || isCanceledError(reason)) return;
         if (isNixApiError(reason) && reason.code === 'finance.not_configured') {
           setData(null);
           setStatus('unconfigured');
+          hasLoadedOnce.current = true;
+          setRefreshing(false);
+          setRefreshError(null);
           return;
         }
-        setStatus('error');
-        setError(financeRefusal(reason, 'The finances could not be loaded.'));
+        const message = financeRefusal(reason, 'The finances could not be loaded.');
+
+        // Finances are already on screen: keep them mounted - the chosen section, the account
+        // filter, any open dialog - and say the reload failed instead of swapping in an error
+        // panel that would throw all of that away.
+        if (hasLoadedOnce.current) {
+          setRefreshing(false);
+          setRefreshError(message);
+        } else {
+          setStatus('error');
+          setError(message);
+        }
       });
     return () => {
       controller.abort();
@@ -148,11 +190,15 @@ export function useFinance(itemId: string | null): FinanceState {
     async <T>(
       endpoint: (id: string) => CommandEndpoint<T>,
       fallback: string,
+      // A preview - the CSV import's `commit: false` pass - changes nothing under the root, so it
+      // must not bump the generation: doing so used to make every reader refetch for a request
+      // that stored nothing, and reset every section's local state along the way.
+      bumpGeneration = true,
     ): Promise<T | string> => {
       if (itemId === null) return 'A finance view needs an item to live on.';
       try {
         const value = await client.execute(endpoint(itemId), { signal: writes.current?.signal });
-        setGeneration((count) => count + 1);
+        if (bumpGeneration) setGeneration((count) => count + 1);
         return value;
       } catch (reason) {
         return financeRefusal(reason, fallback);
@@ -170,6 +216,8 @@ export function useFinance(itemId: string | null): FinanceState {
     status,
     finance: data,
     error,
+    refreshing,
+    refreshError,
     generation,
     reload,
     setSettings: (input) =>
@@ -222,6 +270,9 @@ export function useFinance(itemId: string | null): FinanceState {
       write<FinanceImport>(
         (id) => finance.importStatement(id, input),
         'The statement could not be imported.',
+        // Only a commit changes anything under the root; a preview reads what a commit would do
+        // without doing it, and must not make every other reader refetch.
+        input.commit,
       ),
   };
 }

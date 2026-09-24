@@ -53,7 +53,7 @@ export function Card(props: CardProps): ReactNode {
     >
       {/* A plain div rather than a <header>: the only banner in the document is the application
           header, and a card announcing itself as one would put two in the landmark list. */}
-      <div className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-1">
         {kicker === undefined ? null : <Text variant="kicker">{kicker}</Text>}
         <Text variant={heading}>{title}</Text>
       </div>

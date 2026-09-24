@@ -1,6 +1,18 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Text, cn, focusRing, inkWashStates } from '@nix/ui';
 import type { ReactNode } from 'react';
 import { formatMoney, formatMoneyRound, formatMonth, shiftMonth } from './money';
+
+/**
+ * A piece of text that is also a button: a line's name, a transaction's description. The dotted
+ * rule beneath says at rest that it opens something; the wash on hover and the ring on focus say
+ * the same for pointer and keyboard.
+ */
+export const editableTextButton = cn(
+  '-mx-1 rounded px-1 py-0.5 text-left',
+  'underline decoration-dotted decoration-divider underline-offset-4',
+  inkWashStates,
+  focusRing,
+);
 
 /** A figure, printed; never computed here. */
 export function Money({

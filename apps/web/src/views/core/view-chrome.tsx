@@ -1,4 +1,4 @@
-import { Button } from '@nix/ui';
+import { Button, Text } from '@nix/ui';
 import { useMemo, type ReactNode } from 'react';
 
 import {
@@ -238,12 +238,69 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     hidden === 0 ? null : hiddenNotice(hidden),
   ].filter((sentence): sentence is string => sentence !== null);
 
+  const partialityNotice =
+    partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />;
+  const backgroundNotice = refreshNotice(
+    container.refreshing,
+    container.refreshError,
+    args.subject,
+  );
+
   return {
     kind: 'items',
     items: sorted,
     drawable: args.drawable.value,
-    notice: partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />,
+    notice:
+      partialityNotice === null && backgroundNotice === null ? null : (
+        <>
+          {partialityNotice}
+          {backgroundNotice}
+        </>
+      ),
   };
+}
+
+/**
+ * What a view says, alongside the items already on screen, about a reload running or failing in
+ * the background.
+ *
+ * Rendered next to the data rather than instead of it - see {@link resolveLoadState}, which only
+ * ever blanks the view for the load that has no data to protect yet. An error here is announced
+ * (`role="alert"`) because it is a failure; a refresh in progress is merely informational
+ * (`role="status"`), the same distinction {@link ErrorPanel} and {@link PartialNotice} draw.
+ */
+function refreshNotice(
+  refreshing: boolean,
+  refreshError: string | null,
+  subject: string,
+): ReactNode | null {
+  if (refreshError !== null) {
+    return (
+      <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+        <Text variant="note" as="span" tone="accent">
+          {refreshError} What is on screen is unaffected; try reloading {subject} again.
+        </Text>
+      </div>
+    );
+  }
+
+  if (refreshing) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy={true}
+        className="flex items-start gap-2 border border-divider p-3"
+      >
+        <Text variant="note" as="span" tone="muted">
+          Refreshing {subject}
+          {'…'}
+        </Text>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /**

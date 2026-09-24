@@ -145,6 +145,8 @@ const setMonth = vi.fn<FinanceState['setMonth']>();
 const reload = vi.fn();
 let status: FinanceState['status'] = 'ready';
 let current: Finance | null = finance;
+let refreshing = false;
+let refreshError: string | null = null;
 
 vi.mock('../../../views/finance/use-finance', async () => {
   const actual = await vi.importActual<typeof UseFinance>('../../../views/finance/use-finance');
@@ -154,6 +156,8 @@ vi.mock('../../../views/finance/use-finance', async () => {
       status,
       finance: current,
       error: status === 'error' ? 'The server is away.' : null,
+      refreshing,
+      refreshError,
       generation: 0,
       reload,
       setSettings: vi.fn(),
@@ -208,6 +212,8 @@ const mount = () =>
 beforeEach(() => {
   status = 'ready';
   current = finance;
+  refreshing = false;
+  refreshError = null;
   createTransaction.mockResolvedValue(null);
   setMonth.mockResolvedValue(null);
 });
@@ -314,5 +320,26 @@ describe('the finance view', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('The server is away.');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(reload).toHaveBeenCalled();
+  });
+
+  it('keeps the section and an open dialog mounted when a background reload fails', () => {
+    const result = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Add transaction' }));
+    expect(screen.getByRole('dialog', { name: 'Add a transaction' })).toBeInTheDocument();
+
+    // A write elsewhere under the root bumped the generation and the reload failed - the root
+    // stays 'ready' with the data it already had, so nothing here should unmount.
+    refreshError = 'The finances could not be loaded.';
+    result.rerender(
+      <FinanceView
+        container={aContainer({ itemId: rootId, children: [] })}
+        view={aView({ id: 'view-1', name: 'Finances', kind: 'finance' })}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Add a transaction' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Finances' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('The finances could not be loaded.');
   });
 });

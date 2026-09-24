@@ -54,6 +54,26 @@ export interface ContainerData {
   readonly error: string | null;
 
   /**
+   * Whether a reload is under way while the previous data is still on screen.
+   *
+   * `status` only ever becomes `'loading'` for the very first load of this container - after
+   * that, a reload keeps the last-known schema, views and children mounted and flips this instead,
+   * so a filter panel, an open dialog or a scroll position that a full-panel swap would have thrown
+   * away survives the refresh. A region can put this on its own `aria-busy`.
+   */
+  readonly refreshing: boolean;
+
+  /**
+   * Why the most recent background reload failed, or null when the last one that finished succeeded.
+   *
+   * Only ever set once there is data on screen to keep: a reload that fails before the first
+   * successful load still becomes `status: 'error'`, because there is nothing to protect. A reload
+   * that fails after the first one keeps the existing children, schema and views exactly as they
+   * were and reports the failure here instead of discarding them.
+   */
+  readonly refreshError: string | null;
+
+  /**
    * Whether Core withheld the children because a lock covers this item and this session has not
    * opened it. Not an error, and not "empty": the children exist and are behind a password, so a
    * view says so rather than drawing nothing. Reload after unlocking to read them.
@@ -240,6 +260,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
 
   const [status, setStatus] = useState<ContainerStatus>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const [schema, storeSchema] = useState<EffectiveSchema | null>(null);
   const [views, storeViews] = useState<ContainerViews | null>(null);
@@ -250,11 +272,26 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const activeLoad = useRef<AbortController | null>(null);
   const activeRequests = useRef(new Set<AbortController>());
 
+  // Whether a load has ever finished successfully, so a later reload knows there is something on
+  // screen worth protecting. A ref rather than a derived check over `status`, because `status`
+  // starts at `'loading'` for the very first load too - there is no way to tell "about to load for
+  // the first time" from "reloading" by looking at it alone.
+  const hasLoadedOnce = useRef(false);
+
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
-    setStatus('loading');
+
+    // Only the first load blanks the screen. A reload with data already on it keeps that data
+    // mounted - the filters, open dialogs and scroll position a full-panel swap would have thrown
+    // away - and refreshes in the background instead.
+    if (hasLoadedOnce.current) {
+      setRefreshing(true);
+      setRefreshError(null);
+    } else {
+      setStatus('loading');
+    }
     setError(null);
 
     try {
@@ -341,15 +378,25 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       storeViews(nextViews);
       setError(boundaryWarnings[0] ?? null);
       setStatus(boundaryWarnings.length === 0 ? 'ready' : 'partial');
+      hasLoadedOnce.current = true;
+      setRefreshing(false);
+      setRefreshError(null);
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
-      setError(
-        isNixApiError(reason)
-          ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
-          : 'Core could not be reached.',
-      );
-      setStatus('error');
+      const message = isNixApiError(reason)
+        ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
+        : 'Core could not be reached.';
+
+      // There is already data on screen: keep it, and say the refresh failed rather than
+      // replacing the view with an error panel that discards everything the reader was looking at.
+      if (hasLoadedOnce.current) {
+        setRefreshing(false);
+        setRefreshError(message);
+      } else {
+        setError(message);
+        setStatus('error');
+      }
     } finally {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
@@ -809,6 +856,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     itemId: containerId,
     status,
     error,
+    refreshing,
+    refreshError,
     locked,
     create,
     schema,
