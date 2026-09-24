@@ -102,7 +102,7 @@ services:
       - no-new-privileges:true
 
   nix-migrate:
-    image: localhost/nix/migrator:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/migrator:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: "no"
     depends_on:
       postgres:
@@ -142,7 +142,7 @@ services:
       - no-new-privileges:true
 
   nix-api:
-    image: localhost/nix/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -205,7 +205,7 @@ services:
           - nix-api
 
   nix-collab-migrate:
-    image: localhost/nix/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     profiles: [maintenance]
     restart: "no"
     environment:
@@ -217,7 +217,7 @@ services:
       - no-new-privileges:true
 
   nix-collab:
-    image: localhost/nix/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/collab:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped
     stop_grace_period: 60s
     depends_on:
@@ -258,7 +258,7 @@ services:
           - nix-collab
 
   nix-import-worker:
-    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -302,7 +302,7 @@ services:
           - nix-import-worker
 
   nix-export-worker:
-    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -344,7 +344,7 @@ services:
           - nix-export-worker
 
   nix-indexer:
-    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -386,7 +386,7 @@ services:
           - nix-indexer
 
   nix-plugin-worker:
-    image: localhost/nix/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/worker:${NIX_WORKER_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
     user: "65532:65532"
     restart: unless-stopped
     depends_on:
@@ -456,7 +456,7 @@ services:
       - no-new-privileges:true
 
   nix-web:
-    image: localhost/nix/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
     restart: unless-stopped
     depends_on:
       nix-api:

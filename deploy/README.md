@@ -58,19 +58,26 @@ executable. It must act as the operator through Core, never query application ta
 
 ## Build and release
 
-Build on the target host architecture. All five local images come from one committed tree;
-`git archive` excludes uncommitted secrets and avoids macOS AppleDouble files in build contexts.
+Release images are built by CI, not on the host. On every push to `main` the CI images workflow
+(`.github/workflows/ci-images.yml`) publishes `api`, `migrator`, `collab`, `worker` and `web` for
+linux/amd64 and linux/arm64 to `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are
+public, so the host needs no registry login. Wait for that workflow to succeed for the commit
+before deploying it. The host still needs the matching checkout for the manifest and smoke tools:
 
 ```sh
 git fetch origin main
 git checkout --detach origin/main
-bash deploy/compose/build.sh HEAD
+git rev-parse HEAD
 ```
 
-The build prints the full SHA. Set `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` to that SHA in the
-private env file. Normally leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix,
-it may select another immutable worker image while other services keep their existing tags;
-record the complete image matrix. The build script does not push to a registry or run Kubernetes.
+Set `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` to that full SHA in the private env file. Normally
+leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix, it may select another
+immutable worker image while other services keep their existing tags; record the complete image
+matrix. The release script pulls the images before stopping any writer.
+
+To run an unpublished tree instead, build it on the host with `bash deploy/compose/build.sh HEAD`
+and set `NIX_IMAGE_REGISTRY=localhost/nix`; the release then checks those local images exist
+rather than pulling. The build uses `git archive`, so uncommitted secrets never enter a context.
 
 Before rollout, take and verify a restorable Postgres backup and a consistent Versity volume
 backup, plus the private configuration and signing keys. Record their locations securely and
@@ -85,7 +92,7 @@ export NIX_BACKUP_REFERENCE=<verified-backup-reference>
 bash deploy/compose/deploy.sh
 ```
 
-The script validates configuration and local images, checks verification credentials and confirms the profile URL matches the deployed public origin, brings up
+The script validates configuration, pulls or checks the release images, checks verification credentials and confirms the profile URL matches the deployed public origin, brings up
 infrastructure and the bucket, stops application writers, runs Core/template/document migrations,
 then starts compatible services before the frontend. Expect a maintenance window. It deliberately
 does not seed users, delete volumes, force an automatic schema rollback or restart unrelated stacks.

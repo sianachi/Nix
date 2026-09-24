@@ -20,9 +20,15 @@ let s=""; process.stdin.on("data", d=>s+=d); process.stdin.on("end",()=>{
 });')
 export NIX_SMOKE_ORIGIN
 node "$root/deploy/compose/smoke.mjs" --preflight
+# Fetch release images before writers stop, so the maintenance window excludes the download.
+# Host-built images (NIX_IMAGE_REGISTRY=localhost/nix) must already exist locally.
+release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-web)
 while IFS= read -r image; do
-  case "$image" in localhost/nix/*) docker image inspect "$image" >/dev/null ;; esac
-done < <("${compose[@]}" config --images)
+  case "$image" in
+    localhost/*) docker image inspect "$image" >/dev/null ;;
+    *) docker pull --quiet "$image" >/dev/null ;;
+  esac
+done < <("${compose[@]}" --profile maintenance config --images "${release_services[@]}" | sort -u)
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-opensearch nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 # Stop writers while document/schema migrations run. Failure leaves them stopped for inspection.
