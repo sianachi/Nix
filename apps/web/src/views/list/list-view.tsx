@@ -394,7 +394,7 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
         <Select
           aria-label="Sort by"
           value={sort?.columnKey ?? ''}
-          className="min-w-0"
+          className="w-auto min-w-0 flex-1"
           onChange={(event) => {
             onSortChange({
               columnKey: event.target.value,

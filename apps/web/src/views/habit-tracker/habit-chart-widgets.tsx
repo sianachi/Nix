@@ -2,6 +2,7 @@ import { Button, Select, Text } from '@nix/ui';
 import type { HabitTracker } from '@nix/api-client';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
+import { formatShortDate } from '../../lib/date-format';
 import { useHabits } from './use-habits';
 
 export type HabitWidgetKind = 'completion' | 'quantity' | 'heatmap';
@@ -44,12 +45,7 @@ export function HabitChartWidgets({
   const add = () => {
     if (selectedHabitId === '') return;
     const timezone = trackers.get(selectedHabitId)?.timezone ?? 'UTC';
-    const to = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const to = formatShortDate(new Date(), timezone);
     const fromDate = new Date(`${to}T00:00:00Z`);
     fromDate.setUTCDate(fromDate.getUTCDate() - range + 1);
     const from = fromDate.toISOString().slice(0, 10);
