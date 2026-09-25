@@ -7,7 +7,9 @@
 #   4. delete local nightly-* directories older than 7 days (never pre-* or anything else)
 #
 # Settings come from release.conf (NIX_RELEASE_CONF, default ~/nix-production/release.conf):
-# NIX_DEPLOY_ENV, NIX_BACKUP_ROOT and NIX_RELEASE_LOCK. The host release lock is held throughout,
+# NIX_DEPLOY_ENV, NIX_BACKUP_ROOT, NIX_RELEASE_LOCK and optionally NIX_NIGHTLY_MARKER. A complete
+# run rewrites that marker (default ~/nix-production/last-nightly-success), which release.sh
+# reads to warn when nightly backups have stopped succeeding. The host release lock is held throughout,
 # so a nightly backup never overlaps a release. Any failure stops the later steps, logs the
 # failed step to the journal and exits nonzero; local copies are only deleted after a
 # successful push and retention run.
@@ -35,6 +37,17 @@ done
 [[ $NIX_BACKUP_ROOT == /* ]] || die 'NIX_BACKUP_ROOT must be an absolute path'
 export NIX_DEPLOY_ENV NIX_BACKUP_ROOT
 lock=${NIX_RELEASE_LOCK:-$HOME/nix-release.lock}
+marker=${NIX_NIGHTLY_MARKER:-$HOME/nix-production/last-nightly-success}
+
+# A systemd user manager keeps the groups it started with, so a user added to `docker` later
+# can reach the socket over SSH while the timer cannot. Say so, rather than a raw socket error.
+step='docker access'
+docker_error=$(docker info 2>&1 >/dev/null) || {
+  if [[ $docker_error == *'permission denied'* ]] && ! id -Gn | tr ' ' '\n' | grep -qx docker; then
+    die "this process is not in the docker group (it has: $(id -Gn)). If $(id -un) was added to docker after the systemd user manager started, run 'sudo systemctl restart user@$(id -u).service' or reboot."
+  fi
+  die "cannot reach Docker: ${docker_error%%$'\n'*}"
+}
 
 step='waiting for the release lock'
 exec 9>>"$lock"
@@ -70,5 +83,10 @@ for old in "$NIX_BACKUP_ROOT"/nightly-*; do
   rm -rf -- "$old"
   log "deleted local $old (older than $keep_days days)"
 done
+step='success marker'
+# Written last and atomically: its presence means every step above succeeded.
+printf 'completed_epoch=%s\ncompleted_at=%s\nlabel=%s\n' "$(date -u +%s)" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${dir##*/}" > "$marker.new"
+mv -f "$marker.new" "$marker"
 step=completion
 log "nightly backup complete: $dir"
