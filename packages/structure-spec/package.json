@@ -1,0 +1,35 @@
+{
+  "name": "@nix/structure-spec",
+  "version": "0.0.0",
+  "sideEffects": false,
+  "private": true,
+  "type": "module",
+  "description": "The pure structure vocabulary and blueprint specs the pet's structure tools and the web wizards share: property types, structured recipes, smart-list presets and schema-merge rules, with no dependency on a browser or a Core client",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@nix/sheet": "workspace:*",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

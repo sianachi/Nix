@@ -154,6 +154,9 @@ importers:
       '@nix/sheet':
         specifier: workspace:*
         version: link:../../packages/sheet
+      '@nix/structure-spec':
+        specifier: workspace:*
+        version: link:../../packages/structure-spec
       '@nix/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -545,6 +548,25 @@ importers:
       yjs:
         specifier: ^13.6.31
         version: 13.6.31
+
+  packages/structure-spec:
+    dependencies:
+      '@nix/sheet':
+        specifier: workspace:*
+        version: link:../sheet
+      zod:
+        specifier: ^4.1.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
 
   packages/template-catalog:
     dependencies:

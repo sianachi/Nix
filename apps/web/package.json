@@ -21,6 +21,7 @@
     "@nix/editor-schema": "workspace:*",
     "@nix/markdown": "workspace:*",
     "@nix/sheet": "workspace:*",
+    "@nix/structure-spec": "workspace:*",
     "@nix/ui": "workspace:*",
     "@nix/view-render": "workspace:*",
     "@tiptap/core": "^3.29.0",
