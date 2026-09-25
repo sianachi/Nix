@@ -37,3 +37,5 @@ export { findSmartList, SMART_LISTS, smartListView } from './vocabulary/smart-li
 export type { SmartListPreset } from './vocabulary/smart-lists.js';
 
 export { mergeProperties } from './vocabulary/merge-properties.js';
+
+export * from './spec/index.js';
