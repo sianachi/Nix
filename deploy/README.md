@@ -53,11 +53,22 @@ separate from the runtime. The Compose manifest assumes the database and restric
 exist. For a new host, provision those roles, ownership, credentials and OIDC outside this upgrade
 procedure; never run development/demo seed scripts against production.
 
-Create an operator-owned `nixctl` profile pointing at the public HTTPS origin, with access to a
-dedicated smoke workspace. Authenticate through the supported `nixctl auth login` flow; keep the
-PAT in its mode-0600 profile and out of shell history/logs. No production profile is checked in.
-The default smoke runner uses `deploy/compose/nixctl.sh`; `NIXCTL_BIN` can select an installed
-executable. It must act as the operator through Core, never query application tables directly.
+Release checks use a dedicated release-check token, never a personal working token: a revoked
+personal token broke the last smoke run. The release operator owns it and records its expiry
+date. Tokens narrow scopes but not workspaces, so mint it as a separate, non-administrator release-check principal
+whose only membership is the dedicated `release-checks` workspace (`NIX_SMOKE_WORKSPACE`); that
+confines its reach to disposable smoke items. Mint it in the web app under Settings > Access
+tokens with `read` and `write` scopes only (no `admin`), named `release-check`, with a 90-day
+expiry. Store it with `nixctl --profile <profile> auth login --api-url <public origin> --token
+"$TOKEN"`, reading `TOKEN` from a silent prompt (`read -rs TOKEN`) so it stays out of shell history
+and logs; the PAT then lives only in the mode-0600 profile on the release host. Rotate at least 14
+days before expiry, and at once after any suspected exposure or operator change: mint the
+replacement, log the profile in again, run `smoke.mjs --preflight`, then revoke the old token.
+Core does not report a token's expiry to the token itself, so preflight cannot warn in advance;
+it fails before any image pull or writer stop and names the profile when the token is revoked,
+expired or unrecognised. No production profile is checked in. The default smoke runner uses
+`deploy/compose/nixctl.sh`; `NIXCTL_BIN` can select an installed executable. It must act through
+Core, never query application tables directly.
 
 ## Build and release
 
@@ -170,3 +181,29 @@ restore its recorded image matrix/configuration, then use the same release check
 older document migrator against a newer schema without verifying support. For incompatible schema
 changes, stop writers and use the tested database/object backup recovery procedure; image rollback
 alone cannot reverse a migration. Retain both releases and backups until functional checks pass.
+
+### Drift and clean-up
+
+Compose recreates any service whose effective configuration differs from its running container,
+including configuration once supplied by an old checkout or override. Before the first `up`, the
+release runs `deploy/compose/drift.sh`, which warns when the running project's
+`com.docker.compose.project.config_files` label names other files, lists the services Compose
+will recreate or create, and exits 3 if `postgres`, `nix-versitygw` or `nix-opensearch` would be
+recreated. Nothing has changed at that point. Compare the effective configuration with the running
+containers; set `NIX_ALLOW_INFRA_RECREATE=1` only once the restart is understood and backed up.
+Run the preview on its own with the release's Compose command:
+
+```sh
+bash deploy/compose/drift.sh docker compose -p nix --env-file "$NIX_DEPLOY_ENV" -f "$PWD/deploy/compose.prod.yml"
+```
+
+`bash deploy/compose/prune.sh` lists `~/nix-release-*` checkouts and `~/nix-backups/pre-*`
+backups it would delete; add `--apply` to delete them. It keeps the running release (the
+`nix-api` image tag), the one before it, anything newer, any checkout a container was created
+from, and backups of those releases. It deletes nothing if the running tag has no checkout, and
+never touches volumes, symbolic links or `~/nix-production`. Order is directory modification
+time, so review the dry run first.
+
+`nix-api` has no Compose health check: the chiseled image contains only `dotnet`, with no shell,
+`wget` or `curl`. Its liveness route is `/healthz` on port 8080, reachable only on the private
+network. Public `/health` is served by the web fallback, so a 200 there does not prove Core is up.
