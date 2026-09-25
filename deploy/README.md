@@ -88,7 +88,8 @@ Setup once. Keep one canonical secrets file at `~/nix-production/production.env`
 prepared as described above. Copy `deploy/compose/release.conf.example` to
 `~/nix-production/release.conf` and fill in the non-secret host settings: `NIX_DEPLOY_ENV` (the
 absolute path of that secrets file), `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`, `NIX_BACKUP_ROOT`,
-`NIX_RELEASE_LEDGER`, `NIX_RELEASE_LOCK` and `NIX_IMAGE_REGISTRY`. The script sources it as
+`NIX_RELEASE_LEDGER`, `NIX_RELEASE_LOCK`, `NIX_IMAGE_REGISTRY` and `NIX_OFFSITE_REQUIRED` (see
+[Off-host backups](#off-host-backups)). The script sources it as
 shell, so keep it operator-owned and free of secrets. `NIX_RELEASE_CONF` selects another path.
 
 Per release, check out the SHA and run the script:
@@ -105,12 +106,14 @@ release image matrix through Compose and confirms every image exists in the regi
 (`docker manifest inspect`) before anything else, takes the host release lock with `flock`,
 prints the plan and asks for confirmation before any writer stops (`--yes` skips the prompt; a
 non-interactive run without `--yes` is refused). It runs `backup.sh <sha>` and checks the result,
-unless `NIX_BACKUP_REFERENCE` already names a directory that passes `backup.sh --check`. It then
+unless `NIX_BACKUP_REFERENCE` already names a directory that passes `backup.sh --check`, then
+pushes that directory off-host with `offsite.sh push` (a failure aborts before any writer stops
+while `NIX_OFFSITE_REQUIRED=1`, the default, and only warns when it is `0`). It then
 exports `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` as the SHA and runs `deploy.sh`. Compose
 interpolation prefers shell variables over `--env-file` values (verified with
 `docker compose config --images` on Compose v2.35), so the tag placeholders in the secrets file
 are ignored. Every confirmed attempt appends one tab-separated line to the ledger: UTC time,
-SHA, backup directory, result (`succeeded`, `failed:backup` or `failed:deploy`) and
+SHA, backup directory, result (`succeeded`, `failed:backup`, `failed:offsite` or `failed:deploy`) and
 `operator=$USER`.
 
 Normally leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix it may select
@@ -130,8 +133,12 @@ never deletes anything. The directory (mode 700, files mode 600) holds a custom-
 `roles.sql`, tar archives of `nix-versity-data` (taken with Versity paused, always unpaused
 afterwards), `nix-api-data-protection` and `nix-companion-data`, copies of the private env file,
 the core access-token key (found from the `nix-api` mount, or `NIX_CORE_ACCESS_TOKEN_PEM`), the
-running compose file and Caddyfile, `containers.private.json` and `SHA256SUMS`. It then restores
-roles and the dump into an isolated `--network none` pgvector container. The dump runs on a
+running compose file and Caddyfile, `containers.private.json` and `SHA256SUMS`. When the Zitadel
+Postgres container runs (Compose project `zitadel`, found by service name, or named by
+`NIX_ZITADEL_DB_CONTAINER`) it also holds `zitadel.dump` and `zitadel-roles.sql`; without it the
+backup warns, or fails when `NIX_REQUIRE_ZITADEL=1`. It then restores
+roles and the dump into an isolated `--network none` pgvector container, and the Zitadel roles and
+dump into a second one built from the Zitadel database's own image, comparing its table count. The dump runs on a
 snapshot exported from a held `REPEATABLE READ` transaction that also records the table count and
 the largest tables' row counts, so the restored counts must match exactly even with writers live.
 It compares each archive's file count with its volume (drift in the companion volume is only a
@@ -141,6 +148,66 @@ directory. Check schema
 rollback compatibility separately. `deploy.sh` requires `NIX_BACKUP_REFERENCE` to be that
 absolute directory and runs `backup.sh --check` on it before anything else; the check fails
 unless every file is present, `SHA256SUMS` verifies and `verified.txt` records a passed restore.
+Backups made before Zitadel capture lack the two Zitadel files; `--check` still accepts them and
+prints a note (it rejects them only under `NIX_REQUIRE_ZITADEL=1`).
+
+### Off-host backups
+
+`deploy/compose/offsite.sh` copies verified backup directories to an encrypted restic repository
+on Cloudflare R2, using the pinned restic image in a hardened container (read-only root, no
+capabilities beyond reading files, private tmpfs cache, default bridge network only). It pushes
+only directories that pass `backup.sh --check`, runs `restic check` after each push and prints the
+snapshot id. Credentials live only in `~/nix-production/backup.env` (`NIX_BACKUP_OFFSITE_ENV`
+selects another path), which reaches restic through `--env-file`; the scripts never source,
+print or copy it, and refuse it unless it is owned by the operator and mode 600.
+
+Setup once. Create the credentials file with exactly restic's variables, then initialize the
+repository (`init` refuses an existing one). Keep `RESTIC_PASSWORD` in a password manager: without
+it no snapshot can be restored, and it must never be regenerated.
+
+```sh
+install -m 600 /dev/null ~/nix-production/backup.env
+# edit it: RESTIC_REPOSITORY=s3:https://<account>.r2.cloudflarestorage.com/<bucket>/<prefix>,
+# RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION=auto
+bash deploy/compose/offsite.sh init
+```
+
+Per release this is automatic: `release.sh` pushes the release backup tagged `kind=release` and
+`sha=<sha>` before `deploy.sh`. Set `NIX_OFFSITE_REQUIRED=0` in `release.conf` only while the
+repository is unavailable; the release then warns and continues.
+
+Nightly, `deploy/compose/nightly.sh` holds the release lock, runs `backup.sh --nightly` (a verified
+`~/nix-backups/nightly-<UTC stamp>` with the same contents), pushes it tagged `kind=nightly`, runs
+`offsite.sh forget` (release snapshots keep the last 10; nightly ones keep 7 daily, 4 weekly and
+6 monthly; each kind is its own group, then pruned) and deletes local `nightly-*` directories
+older than 7 days. It never deletes `pre-*` directories, and `prune.sh` never deletes `nightly-*`.
+A failed step is logged to the journal by name, stops the later steps and exits nonzero. Install
+the systemd user timer (02:30 local, persistent, up to 10 minutes random delay) from the release
+checkout; the service runs a copy of the scripts, so reinstall them after a release that changes
+`backup.sh`, `offsite.sh` or `nightly.sh`:
+
+```sh
+install -d -m 700 ~/nix-production/backup-tools ~/.config/systemd/user
+install -m 700 deploy/compose/backup.sh deploy/compose/offsite.sh deploy/compose/nightly.sh ~/nix-production/backup-tools/
+install -m 644 deploy/compose/systemd/nix-backup-nightly.service deploy/compose/systemd/nix-backup-nightly.timer ~/.config/systemd/user/
+sudo loginctl enable-linger "$USER"   # run user timers without a login session
+systemctl --user daemon-reload
+systemctl --user enable --now nix-backup-nightly.timer
+systemctl --user start nix-backup-nightly.service   # first run now; then check the journal
+journalctl --user -u nix-backup-nightly.service --since today
+```
+
+Inspect with `offsite.sh snapshots`, and sample stored data periodically with
+`offsite.sh check --read-data-subset=5%`. To restore, extract a snapshot into an empty directory,
+verify it, then follow the same isolated restore steps as for a local backup (roles, then the dump,
+into a throwaway `--network none` container; the Zitadel files into one of the Zitadel image)
+before touching production:
+
+```sh
+bash deploy/compose/offsite.sh snapshots
+bash deploy/compose/offsite.sh restore <snapshot-id> /absolute/empty/restore-dir
+bash deploy/compose/backup.sh --check /absolute/empty/restore-dir/backup/<pre-sha-or-nightly-stamp>
+```
 
 `release.sh` passes `NIX_DEPLOY_ENV`, `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`,
 `NIX_BACKUP_REFERENCE` and the image tags to `deploy/compose/deploy.sh`. Run `deploy.sh`
@@ -228,7 +295,8 @@ bash deploy/compose/drift.sh docker compose -p nix --env-file "$NIX_DEPLOY_ENV" 
 backups it would delete; add `--apply` to delete them. It keeps the running release (the
 `nix-api` image tag), the one before it, anything newer, any checkout a container was created
 from, and backups of those releases. It deletes nothing if the running tag has no checkout, and
-never touches volumes, symbolic links or `~/nix-production`. Order is directory modification
+never touches volumes, symbolic links, `~/nix-production` or the `nightly-*` backups that
+`nightly.sh` manages. Order is directory modification
 time, so review the dry run first.
 
 `nix-api` has no Compose health check: the chiseled image contains only `dotnet`, with no shell,

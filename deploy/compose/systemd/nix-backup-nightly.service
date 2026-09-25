@@ -1,0 +1,12 @@
+# Nightly verified backup, off-host push and retention for the Compose deployment.
+# Install as a systemd user unit; see "Off-host backups" in deploy/README.md.
+[Unit]
+Description=Nix nightly backup (local, verified, pushed off-host)
+
+[Service]
+Type=oneshot
+Environment=NIX_RELEASE_CONF=%h/nix-production/release.conf
+ExecStart=/bin/bash %h/nix-production/backup-tools/nightly.sh
+SyslogIdentifier=nix-backup-nightly
+TimeoutStartSec=4h
+Nice=10

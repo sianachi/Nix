@@ -193,4 +193,6 @@ if rg -q 'up .*nix-api nix-collab' "$DOCKER_TEST_LOG"; then
 fi
 bash deploy/compose/drift.test.sh
 bash deploy/compose/prune.test.sh
+bash deploy/compose/offsite.test.sh
+bash deploy/compose/nightly.test.sh
 echo 'Compose configuration, smoke success/failure cleanup, and default target checks passed.'

@@ -32,6 +32,8 @@ mkdir "$home/nix-backups/pre-legacy"; touch -t 202512010000 "$home/nix-backups/p
 # An old backup whose name ties it to the previous release is kept despite its age.
 mkdir "$home/nix-backups/pre-33333333-manual"; touch -t 202501010000 "$home/nix-backups/pre-33333333-manual"
 ln -s "$home/nix-production" "$home/nix-release-link"
+# Nightly backups belong to nightly.sh: prune never lists or deletes them, however old.
+mkdir "$home/nix-backups/nightly-20250101T023000Z"; touch -t 202501010000 "$home/nix-backups/nightly-20250101T023000Z"
 touch -t 202001010000 "$home/nix-production"
 export PRUNE_API_IMAGE=ghcr.io/sianachi/nix/api:4444444412345678901234567890123456789012
 # The oldest checkout still labels a running container (the old-override case).
@@ -48,6 +50,7 @@ grep -q "^keep    $home/nix-release-11111111 (used by a running container)" "$fi
 grep -q 'would be deleted' "$fixture/dry" || fail 'dry run not reported'
 [ -d "$home/nix-release-22222222" ] && [ -d "$home/nix-backups/pre-11111111" ] || fail 'dry run deleted'
 if grep -q 'nix-production\|nix-release-link' "$fixture/dry"; then fail 'listed production or a symlink'; fi
+if grep -q 'nightly-' "$fixture/dry"; then fail 'listed a nightly backup'; fi
 
 prune --apply > "$fixture/apply"
 for gone in nix-release-22222222 nix-backups/pre-11111111 nix-backups/pre-22222222 nix-backups/pre-legacy; do
@@ -55,7 +58,7 @@ for gone in nix-release-22222222 nix-backups/pre-11111111 nix-backups/pre-222222
 done
 for kept in nix-release-11111111 nix-release-33333333 nix-release-44444444 nix-release-55555555 \
   nix-backups/pre-33333333 nix-backups/pre-33333333-manual nix-backups/pre-44444444 \
-  nix-backups/pre-55555555 nix-production nix-release-link; do
+  nix-backups/pre-55555555 nix-backups/nightly-20250101T023000Z nix-production nix-release-link; do
   [ -e "$home/$kept" ] || fail "$kept was deleted"
 done
 grep -q 'deleted 4 path(s)' "$fixture/apply" || fail 'apply count wrong'

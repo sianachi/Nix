@@ -4,6 +4,10 @@ Status, 5 September 2026: this helper is included in the repository. This docume
 not establish that a backup schedule is installed or a remote backup/restore has succeeded.
 See [repository recovery scope](../../docs/operations.md).
 
+Production (the Compose host) uses `deploy/compose/offsite.sh` and `nightly.sh` instead; see
+"Off-host backups" in [deploy/README.md](../README.md#off-host-backups). `backup-r2.py` remains
+the dev-stack tool.
+
 `scripts/backup-r2.py` backs up the local Docker deployment using restic. It includes
 Nix and Zitadel logical database dumps, database roles, the Versity attachment
 volume and configured recovery files. It does not back up live PostgreSQL data
