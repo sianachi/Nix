@@ -30,6 +30,7 @@ material and live in `docs/agent-guides/`.
 | `apps/go-workers/**` | `workers.md` |
 | Auth, RLS, permissions, migrations, `/internal`, tokens | `architecture-and-security.md` in addition to the area guide |
 | CI, scripts, validation, commits, reviews | `workflow-and-validation.md` |
+| `deploy/**`, `.github/workflows/ci-images.yml`, production releases | `workflow-and-validation.md` and the release runbook `deploy/README.md` |
 | Unsure or cross-cutting work | `architecture-and-security.md` and `workflow-and-validation.md` |
 
 ## Fast validation selection
@@ -49,6 +50,9 @@ the cases that require broader proof. It does not replace CI or judgment.
   embeddings are rebuildable derived state.
 - OpenAPI is a contract seam: explicitly generated `backend/openapi/nix-api.json`
   and generated API-client code are never hand-edited.
+- Production runs CI-published images from `ghcr.io/sianachi/nix`, tagged with the
+  full commit SHA. Do not build release images on the production host except
+  through the fallback documented in `deploy/README.md`.
 
 The previous complete policy is retained at
 `docs/agent-guides/legacy-full-standards.md` during this transition. Prefer the
