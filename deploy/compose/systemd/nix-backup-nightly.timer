@@ -1,0 +1,12 @@
+# Starts nix-backup-nightly.service at 02:30 local time; a run missed while the host was down
+# starts once the user manager is back.
+[Unit]
+Description=Nix nightly backup at 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Exercise release.sh validation, image checks and ledger records with stubbed docker, git,
-# backup.sh and deploy.sh. Nothing here touches Docker, a registry or a real host.
+# Exercise release.sh validation, image checks, the off-host step and ledger records with stubbed
+# docker, git, backup.sh, offsite.sh and deploy.sh. Nothing here touches Docker, a registry or a
+# real host.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 fixture=$(mktemp -d)
@@ -8,7 +9,7 @@ trap 'rm -rf "$fixture"' EXIT
 sha=0123456789abcdef0123456789abcdef01234567
 other=fedcba9876543210fedcba9876543210fedcba98
 
-# A throwaway release tree: the real release.sh beside stub backup.sh and deploy.sh.
+# A throwaway release tree: the real release.sh beside stub backup.sh, offsite.sh and deploy.sh.
 tree="$fixture/tree"
 mkdir -p "$tree/deploy/compose" "$fixture/bin" "$fixture/home/nix-production"
 cp "$here/release.sh" "$tree/deploy/compose/release.sh"
@@ -18,6 +19,12 @@ cat > "$tree/deploy/compose/backup.sh" <<'SH'
 echo "backup $*" >> "$TEST_LOG"
 if [[ "$1" == --check ]]; then [[ -d "$2" ]]; else mkdir -p "$NIX_BACKUP_ROOT/pre-$1"; fi
 SH
+cat > "$tree/deploy/compose/offsite.sh" <<'SH'
+#!/usr/bin/env bash
+echo "offsite $*" >> "$TEST_LOG"
+[[ -z "${FAIL_OFFSITE:-}" ]]
+SH
+printf '#!/usr/bin/env bash\n# stub nightly\n' > "$tree/deploy/compose/nightly.sh"
 cat > "$tree/deploy/compose/deploy.sh" <<'SH'
 #!/usr/bin/env bash
 echo "deploy tag=$NIX_IMAGE_TAG web=$NIX_WEB_IMAGE_TAG backup=$NIX_BACKUP_REFERENCE" >> "$TEST_LOG"
@@ -63,14 +70,15 @@ NIX_IMAGE_REGISTRY=ghcr.io/sianachi/nix
 CONF
 
 export PATH="$fixture/bin:$PATH" HOME="$fixture/home" TEST_LOG="$fixture/calls" TEST_HEAD="$sha" USER=tester
-unset NIX_RELEASE_CONF NIX_BACKUP_REFERENCE NIX_IMAGE_TAG NIX_WEB_IMAGE_TAG MISSING_IMAGE FAIL_DEPLOY
+unset NIX_RELEASE_CONF NIX_BACKUP_REFERENCE NIX_IMAGE_TAG NIX_WEB_IMAGE_TAG MISSING_IMAGE FAIL_DEPLOY \
+  FAIL_OFFSITE NIX_OFFSITE_REQUIRED
 release() { bash "$tree/deploy/compose/release.sh" "$@" > "$fixture/out" 2>&1 < /dev/null; }
 refuses() { # expected-message args...
   local expected=$1; shift
   : > "$TEST_LOG"
   if release "$@"; then echo "release.sh accepted: $*" >&2; exit 1; fi
   grep -q -- "$expected" "$fixture/out" || { echo "missing '$expected' in:" >&2; cat "$fixture/out" >&2; exit 1; }
-  if grep -Eq '^(backup|deploy)' "$TEST_LOG"; then echo "release.sh acted before refusing: $*" >&2; exit 1; fi
+  if grep -Eq '^(backup|offsite|deploy)' "$TEST_LOG"; then echo "release.sh acted before refusing: $*" >&2; exit 1; fi
   [[ ! -e "$ledger" ]] || { echo 'refused release wrote the ledger' >&2; exit 1; }
 }
 
@@ -83,13 +91,18 @@ NIX_RELEASE_CONF="$fixture/absent.conf" refuses 'release configuration not found
 MISSING_IMAGE="ghcr.io/sianachi/nix/worker:$sha" refuses "image not published: ghcr.io/sianachi/nix/worker:$sha" --yes "$sha"
 NIX_BACKUP_REFERENCE="$fixture/no-such-backup" refuses 'not an existing directory' --yes "$sha"
 refuses 'without --yes' "$sha"
+NIX_OFFSITE_REQUIRED=yes refuses 'NIX_OFFSITE_REQUIRED must be 0 or 1' --yes "$sha"
 
 # Success: backup is taken and checked, tags reach deploy.sh from the environment, ledger records it.
 : > "$TEST_LOG"
 release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
 grep -qx "backup $sha" "$TEST_LOG"
 grep -qx "backup --check $fixture/backups/pre-$sha" "$TEST_LOG"
+grep -qx "offsite push $fixture/backups/pre-$sha --tag kind=release --tag sha=$sha" "$TEST_LOG"
 grep -qx "deploy tag=$sha web=$sha backup=$fixture/backups/pre-$sha" "$TEST_LOG"
+# The off-host push follows the local check and precedes deploy.sh; the plan shows it.
+grep -E '^(backup --check|offsite|deploy)' "$TEST_LOG" | cut -d' ' -f1 | tr '\n' ' ' | grep -qx 'backup offsite deploy '
+grep -q '^  offsite       offsite.sh push (kind=release, sha); a failure aborts before writers stop' "$fixture/out"
 [[ $(wc -l < "$ledger") -eq 1 ]]
 IFS=$'\t' read -r when got_sha got_backup got_result got_operator < "$ledger"
 [[ "$when" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]]
@@ -105,4 +118,31 @@ fi
 if grep -qx "backup $sha" "$TEST_LOG"; then echo 'release.sh took a second backup' >&2; exit 1; fi
 [[ $(wc -l < "$ledger") -eq 2 ]]
 tail -n 1 "$ledger" | grep -q $'\t'"$sha"$'\t'"$fixture/backups/pre-$sha"$'\tfailed:deploy\toperator=tester$'
+
+# A required off-host push that fails aborts before deploy.sh and records failed:offsite.
+: > "$TEST_LOG"
+if FAIL_OFFSITE=1 release --yes "$sha"; then echo 'release.sh continued after a required push failed' >&2; exit 1; fi
+grep -qx "offsite push $fixture/backups/pre-$sha --tag kind=release --tag sha=$sha" "$TEST_LOG"
+if grep -q '^deploy' "$TEST_LOG"; then echo 'release.sh ran deploy.sh after a required push failed' >&2; exit 1; fi
+grep -q 'aborting before any writer stops' "$fixture/out"
+tail -n 1 "$ledger" | grep -q $'\tfailed:offsite\toperator=tester$'
+
+# With NIX_OFFSITE_REQUIRED=0 a failed push only warns and the release goes on.
+: > "$TEST_LOG"
+echo 'NIX_OFFSITE_REQUIRED=0' >> "$conf"
+FAIL_OFFSITE=1 release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+grep -q 'warning: off-host push' "$fixture/out"
+grep -q '^  offsite .*only warns' "$fixture/out"
+grep -q '^deploy' "$TEST_LOG"
+tail -n 1 "$ledger" | grep -q $'\tsucceeded\toperator=tester$'
+[[ $(wc -l < "$ledger") -eq 4 ]]
+
+# A successful release refreshes the nightly timer's copy of the backup scripts, when installed.
+mkdir -p "$HOME/nix-production/backup-tools"
+echo stale > "$HOME/nix-production/backup-tools/nightly.sh"
+release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+for script in backup.sh offsite.sh nightly.sh; do
+  cmp -s "$tree/deploy/compose/$script" "$HOME/nix-production/backup-tools/$script" || { echo "nightly copy of $script not refreshed" >&2; exit 1; }
+done
+grep -q 'refreshed the nightly backup scripts' "$fixture/out"
 echo 'Release argument, configuration, image and ledger checks passed.'

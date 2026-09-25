@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Pre-release backup for the Compose deployment.
+# Verified local backup for the Compose deployment.
 #
 #   backup.sh <sha>          create and verify $NIX_BACKUP_ROOT/pre-<sha> (default ~/nix-backups)
+#   backup.sh --nightly      create and verify $NIX_BACKUP_ROOT/nightly-<UTC YYYYmmddTHHMMSSZ>
 #   backup.sh --check <dir>  exit 0 only for a complete backup whose restore verification passed
 #
 # Creation needs NIX_DEPLOY_ENV (absolute path to the private env file). Optional overrides:
 # NIX_CORE_ACCESS_TOKEN_PEM, NIX_BACKUP_COMPOSE_FILE, NIX_BACKUP_CADDYFILE. Never deletes anything
 # and never prints secrets: dumps, env and key copies go only to mode-600 files in a mode-700 dir.
+#
+# The Zitadel identity database (Compose project `zitadel`) is dumped too when its Postgres
+# container runs: zitadel.dump and zitadel-roles.sql, restored into a second throwaway container.
+# NIX_ZITADEL_DB_CONTAINER names the container instead of discovering it; NIX_ZITADEL_DB_NAME and
+# NIX_ZITADEL_DB_USER default to zitadel and postgres. A missing Zitadel database is a warning
+# unless NIX_REQUIRE_ZITADEL=1. Backups made before Zitadel capture have no zitadel files; --check
+# accepts them (and notes it) unless NIX_REQUIRE_ZITADEL=1.
 set -euo pipefail
 
 project=nix
@@ -14,20 +22,38 @@ pg_image=pgvector/pgvector:pg16
 volumes=(nix-versity-data nix-api-data-protection nix-companion-data)
 data_files=(nix.dump roles.sql nix-versity-data.tar nix-api-data-protection.tar nix-companion-data.tar
   env.private core-access-token.pem compose.prod.yml Caddyfile.prod containers.private.json)
+zitadel_files=(zitadel.dump zitadel-roles.sql)
 row_count_tables=10
 
 die() { echo "backup: $*" >&2; exit 1; }
-usage() { echo 'usage: backup.sh <release-sha> | backup.sh --check <backup-dir>' >&2; exit 2; }
+usage() { echo 'usage: backup.sh <release-sha> | backup.sh --nightly | backup.sh --check <backup-dir>' >&2; exit 2; }
 
 check_backup() {
-  local dir=$1 name recorded actual
+  local dir=$1 name recorded actual present=0 covered note=''
   [[ $dir == /* ]] || die "backup directory must be an absolute path: $dir"
   [[ -d $dir ]] || die "backup directory does not exist: $dir"
-  for name in "${data_files[@]}" SHA256SUMS verified.txt; do
+  covered=("${data_files[@]}")
+  for name in "${zitadel_files[@]}"; do
+    if [[ -e $dir/$name ]]; then present=$((present + 1)); fi
+  done
+  if (( present == ${#zitadel_files[@]} )); then
+    covered+=("${zitadel_files[@]}")
+  elif (( present > 0 )); then
+    die "incomplete zitadel backup in $dir: expected both ${zitadel_files[*]}"
+  elif [[ ${NIX_REQUIRE_ZITADEL:-0} == 1 ]]; then
+    die "no zitadel dump in $dir and NIX_REQUIRE_ZITADEL=1"
+  else
+    note="no zitadel dump in $dir (made before zitadel capture, or zitadel was not running)"
+  fi
+  for name in "${covered[@]}" SHA256SUMS verified.txt; do
     [[ -f $dir/$name ]] || die "missing $name in $dir"
     [[ -s $dir/$name ]] || die "empty $name in $dir"
   done
-  for name in "${data_files[@]}"; do
+  if (( present > 0 )); then
+    grep -qx 'zitadel=verified' "$dir/verified.txt" \
+      || die "verified.txt does not record a verified zitadel restore in $dir"
+  fi
+  for name in "${covered[@]}"; do
     awk -v f="$name" '{ sub(/^\*/, "", $2) } $2 == f { found=1 } END { exit !found }' "$dir/SHA256SUMS" \
       || die "SHA256SUMS does not cover $name"
   done
@@ -46,6 +72,7 @@ paths = [d] + [os.path.join(d, n) for n in os.listdir(d)]
 sys.exit(1 if any(os.stat(p).st_mode & 0o077 for p in paths) else 0)
 PY
   echo "backup verified: $dir"
+  if [[ -n $note ]]; then echo "backup: note: $note"; fi
 }
 
 if [[ ${1:-} == --check ]]; then
@@ -53,9 +80,17 @@ if [[ ${1:-} == --check ]]; then
   check_backup "$2"
   exit 0
 fi
-[[ $# -eq 1 && -n $1 && $1 != -* ]] || usage
-sha=$1
-[[ $sha =~ ^[0-9A-Za-z._-]+$ ]] || die 'release sha may contain only letters, digits, dot, dash and underscore'
+if [[ ${1:-} == --nightly ]]; then
+  [[ $# -eq 1 ]] || usage
+  kind=nightly sha=''
+  label=nightly-$(date -u +%Y%m%dT%H%M%SZ)
+  name=$label
+else
+  [[ $# -eq 1 && -n $1 && $1 != -* ]] || usage
+  sha=$1
+  [[ $sha =~ ^[0-9A-Za-z._-]+$ ]] || die 'release sha may contain only letters, digits, dot, dash and underscore'
+  kind=release label=$sha name=pre-$sha
+fi
 : "${NIX_DEPLOY_ENV:?absolute path to the private production env file}"
 [[ $NIX_DEPLOY_ENV == /* && -f $NIX_DEPLOY_ENV ]] || die 'NIX_DEPLOY_ENV must be an absolute path to a file'
 command -v docker >/dev/null || die 'docker is required'
@@ -65,7 +100,7 @@ command -v python3 >/dev/null || die 'python3 is required'
 root=$(cd "$(dirname "$0")/../.." && pwd)
 backup_root=${NIX_BACKUP_ROOT:-$HOME/nix-backups}
 [[ $backup_root == /* ]] || die 'NIX_BACKUP_ROOT must be absolute'
-dir=$backup_root/pre-$sha
+dir=$backup_root/$name
 umask 077
 
 service_container() {
@@ -100,11 +135,37 @@ if [[ -z $caddyfile ]]; then
 fi
 [[ -f $compose_file && -f $caddyfile ]] || die 'compose or Caddy file not found; set NIX_BACKUP_COMPOSE_FILE/NIX_BACKUP_CADDYFILE'
 
+# Zitadel runs as its own Compose project; its Postgres service is found by service name.
+zitadel_db=${NIX_ZITADEL_DB_NAME:-zitadel}
+zitadel_user=${NIX_ZITADEL_DB_USER:-postgres}
+[[ $zitadel_db =~ ^[a-z_][a-z0-9_]*$ && $zitadel_user =~ ^[a-z_][a-z0-9_]*$ ]] \
+  || die 'NIX_ZITADEL_DB_NAME and NIX_ZITADEL_DB_USER must be plain lowercase identifiers'
+zitadel=''
+if [[ -n ${NIX_ZITADEL_DB_CONTAINER:-} ]]; then
+  [[ $(docker inspect --format '{{.State.Running}}' "$NIX_ZITADEL_DB_CONTAINER" 2>/dev/null) == true ]] \
+    || die "NIX_ZITADEL_DB_CONTAINER is not a running container: $NIX_ZITADEL_DB_CONTAINER"
+  zitadel=$NIX_ZITADEL_DB_CONTAINER
+else
+  zitadel=$(docker ps --filter label=com.docker.compose.project=zitadel \
+    --format '{{.ID}} {{.Label "com.docker.compose.service"}}' \
+    | awk '$2 ~ /(^|[-_])(db|postgres|postgresql|database)$/ { print $1 }')
+  [[ $zitadel != *$'\n'* ]] \
+    || die 'more than one zitadel database container is running; set NIX_ZITADEL_DB_CONTAINER'
+fi
+if [[ -n $zitadel ]]; then
+  zitadel_image=${NIX_ZITADEL_VERIFY_IMAGE:-$(docker inspect --format '{{.Config.Image}}' "$zitadel")}
+  [[ -n $zitadel_image ]] || die "could not read the image of zitadel database container $zitadel"
+elif [[ ${NIX_REQUIRE_ZITADEL:-0} == 1 ]]; then
+  die 'no running zitadel database container and NIX_REQUIRE_ZITADEL=1; set NIX_ZITADEL_DB_CONTAINER'
+else
+  echo 'backup: warning: no running zitadel database container; this backup will not include zitadel' >&2
+fi
+
 [[ -e $dir ]] && die "$dir already exists; refusing to overwrite it (choose another NIX_BACKUP_ROOT)"
 mkdir -p "$backup_root"
 mkdir -m 700 "$dir"
 
-paused='' verify_container='' snapshot_pid='' snapshot_open='' snapshot_reply=''
+paused='' verify_containers=() snapshot_pid='' snapshot_open='' snapshot_reply=''
 # One psql session holds a REPEATABLE READ transaction whose exported snapshot pg_dump shares, so
 # the row counts recorded in it describe exactly the dumped data even while writers stay live.
 # The session is a background psql fed through FIFOs: fd 7 writes SQL, fd 8 reads results.
@@ -140,7 +201,9 @@ snapshot_stop() {
 cleanup() {
   snapshot_stop || true
   if [[ -n $paused ]]; then docker unpause "$paused" >/dev/null || echo "backup: UNPAUSE $paused MANUALLY" >&2; fi
-  if [[ -n $verify_container ]]; then docker rm -f "$verify_container" >/dev/null 2>&1 || true; fi
+  for container in ${verify_containers[@]+"${verify_containers[@]}"}; do
+    docker rm -f "$container" >/dev/null 2>&1 || true
+  done
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -168,6 +231,15 @@ docker exec "$postgres" pg_dump -U postgres -Fc --snapshot="$snapshot_id" nix > 
 snapshot_send 'COMMIT;'
 snapshot_stop || die 'snapshot session did not end cleanly'
 docker exec "$postgres" pg_dumpall -U postgres --roles-only > "$dir/roles.sql"
+files=("${data_files[@]}")
+if [[ -n $zitadel ]]; then
+  # Zitadel's schema changes only on its own upgrades, so the live table count is a fair check.
+  zitadel_live_tables=$(docker exec "$zitadel" psql -X -At -U "$zitadel_user" -d "$zitadel_db" \
+    -c 'SELECT count(*) FROM pg_stat_user_tables')
+  docker exec "$zitadel" pg_dump -U "$zitadel_user" -Fc "$zitadel_db" > "$dir/zitadel.dump"
+  docker exec "$zitadel" pg_dumpall -U "$zitadel_user" --roles-only > "$dir/zitadel-roles.sql"
+  files+=("${zitadel_files[@]}")
+fi
 archive_volume() {
   docker run --rm --network none -v "$1:/data:ro" "$pg_image" tar -C /data -cf - . > "$dir/$1.tar"
 }
@@ -186,20 +258,24 @@ cp "$caddyfile" "$dir/Caddyfile.prod"
 # shellcheck disable=SC2046 # one argument per container id
 docker inspect $(docker ps -aq --filter "label=com.docker.compose.project=$project") > "$dir/containers.private.json"
 chmod 600 "$dir"/*
-(cd "$dir" && sha256sum -- "${data_files[@]}" > SHA256SUMS && chmod 600 SHA256SUMS)
+(cd "$dir" && sha256sum -- "${files[@]}" > SHA256SUMS && chmod 600 SHA256SUMS)
 (cd "$dir" && sha256sum --quiet -c SHA256SUMS)
 
 echo 'backup: restoring into an isolated container'
 failures=() warnings=() report=()
-verify_container=nix-backup-verify-$sha-$$
-docker run -d --name "$verify_container" --network none -e POSTGRES_HOST_AUTH_METHOD=trust \
-  "$pg_image" >/dev/null
-for _ in $(seq 1 60); do
-  # The entrypoint's init server listens only on the socket; TCP means the final server is up.
-  docker exec "$verify_container" pg_isready -q -h 127.0.0.1 -U postgres && break
-  sleep 1
-done
-docker exec "$verify_container" pg_isready -q -h 127.0.0.1 -U postgres || die 'verify container did not start'
+start_verify() { # name image superuser
+  verify_containers+=("$1")
+  docker run -d --name "$1" --network none -e POSTGRES_HOST_AUTH_METHOD=trust -e "POSTGRES_USER=$3" \
+    "$2" >/dev/null
+  for _ in $(seq 1 60); do
+    # The entrypoint's init server listens only on the socket; TCP means the final server is up.
+    docker exec "$1" pg_isready -q -h 127.0.0.1 -U "$3" && break
+    sleep 1
+  done
+  docker exec "$1" pg_isready -q -h 127.0.0.1 -U "$3" || die "verify container $1 did not start"
+}
+verify_container=nix-backup-verify-$label-$$
+start_verify "$verify_container" "$pg_image" postgres
 # The postgres role already exists in a fresh cluster; everything else must apply cleanly.
 grep -vx 'CREATE ROLE postgres;' "$dir/roles.sql" \
   | docker exec -i "$verify_container" psql -q -X -v ON_ERROR_STOP=1 -U postgres -d postgres >/dev/null
@@ -239,12 +315,37 @@ for vol in "${volumes[@]}"; do
   fi
 done
 
+# Zitadel may run another Postgres major version, so it restores into a container of its own image.
+zitadel_state=absent
+if [[ -n $zitadel ]]; then
+  zitadel_verify=nix-backup-verify-zitadel-$label-$$
+  start_verify "$zitadel_verify" "$zitadel_image" "$zitadel_user"
+  grep -vx "CREATE ROLE $zitadel_user;" "$dir/zitadel-roles.sql" \
+    | docker exec -i "$zitadel_verify" psql -q -X -v ON_ERROR_STOP=1 -U "$zitadel_user" -d postgres >/dev/null
+  if [[ -z $(docker exec "$zitadel_verify" psql -X -At -U "$zitadel_user" -d postgres \
+      -c "SELECT 1 FROM pg_database WHERE datname = '$zitadel_db'") ]]; then
+    docker exec "$zitadel_verify" createdb -U "$zitadel_user" "$zitadel_db"
+  fi
+  docker exec -i "$zitadel_verify" pg_restore -U "$zitadel_user" -d "$zitadel_db" --exit-on-error \
+    < "$dir/zitadel.dump"
+  zitadel_restored_tables=$(docker exec "$zitadel_verify" psql -X -At -U "$zitadel_user" \
+    -d "$zitadel_db" -c 'SELECT count(*) FROM pg_stat_user_tables')
+  report+=("zitadel tables live=$zitadel_live_tables restored=$zitadel_restored_tables")
+  if [[ $zitadel_live_tables != "$zitadel_restored_tables" || $zitadel_restored_tables == 0 ]]; then
+    failures+=("zitadel tables live=$zitadel_live_tables restored=$zitadel_restored_tables")
+  else
+    zitadel_state=verified
+  fi
+fi
+
 result=passed
 (( ${#failures[@]} == 0 )) || result=failed
 {
   echo "result=$result"
   echo "verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "release=$sha"
+  echo "kind=$kind"
+  if [[ $kind == release ]]; then echo "release=$sha"; else echo "label=$label"; fi
+  echo "zitadel=$zitadel_state"
   echo "sha256sums=$(sha256sum < "$dir/SHA256SUMS" | cut -d' ' -f1)"
   for line in "${report[@]}"; do echo "check $line"; done
   for line in "${warnings[@]+"${warnings[@]}"}"; do echo "warning $line"; done

@@ -7,7 +7,8 @@
 # backup at least as new as the previous release checkout or naming the current, previous
 # or a newer release. Order is directory modification time. Deletes nothing when the
 # running release cannot be matched to a checkout. Never touches Docker volumes,
-# ~/nix-production, symbolic links or anything outside those two patterns.
+# ~/nix-production, symbolic links or anything outside those two patterns. Nightly backups
+# (~/nix-backups/nightly-*) belong to nightly.sh, which applies their retention; never add them here.
 set -euo pipefail
 
 apply=0

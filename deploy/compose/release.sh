@@ -33,6 +33,8 @@ done
 case "$NIX_DEPLOY_ENV" in /*) ;; *) die 'NIX_DEPLOY_ENV must be an absolute path' ;; esac
 [[ -f "$NIX_DEPLOY_ENV" ]] || die "secrets file not found: $NIX_DEPLOY_ENV"
 NIX_IMAGE_REGISTRY=${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}
+offsite_required=${NIX_OFFSITE_REQUIRED:-1}
+[[ "$offsite_required" == 0 || "$offsite_required" == 1 ]] || die 'NIX_OFFSITE_REQUIRED must be 0 or 1'
 lock=${NIX_RELEASE_LOCK:-$HOME/nix-release.lock}
 
 # The checked-out manifest and smoke tools must be the ones built into the images.
@@ -77,6 +79,11 @@ echo "Release $sha to Compose project nix"
 echo "  secrets file  $NIX_DEPLOY_ENV (read only)"
 echo "  nixctl        profile $NIXCTL_PROFILE, smoke workspace $NIX_SMOKE_WORKSPACE"
 echo "  backup        $backup_plan"
+if [[ "$offsite_required" == 1 ]]; then
+  echo "  offsite       offsite.sh push (kind=release, sha); a failure aborts before writers stop"
+else
+  echo "  offsite       offsite.sh push (kind=release, sha); a failure only warns (NIX_OFFSITE_REQUIRED=0)"
+fi
 echo "  ledger        $NIX_RELEASE_LEDGER"
 echo "  images"
 printf '    %s\n' "${images[@]}"
@@ -103,7 +110,36 @@ if [[ -z "$backup_dir" ]]; then
 fi
 export NIX_BACKUP_REFERENCE="$backup_dir"
 
+# The off-host copy is taken before deploy.sh, so a required push that fails stops nothing.
+result=failed:offsite
+if ! bash "$here/offsite.sh" push "$backup_dir" --tag kind=release --tag "sha=$sha"; then
+  if [[ "$offsite_required" == 1 ]]; then
+    printf 'release: off-host push of %s failed; aborting before any writer stops.\n' "$backup_dir" >&2
+    printf 'release: fix it and rerun with NIX_BACKUP_REFERENCE=%s, or set NIX_OFFSITE_REQUIRED=0.\n' "$backup_dir" >&2
+    exit 1
+  fi
+  printf 'release: warning: off-host push of %s failed; continuing (NIX_OFFSITE_REQUIRED=0).\n' "$backup_dir" >&2
+fi
+
 result=failed:deploy
 bash "$here/deploy.sh"
 result=succeeded
 echo "Release $sha succeeded; recorded in $NIX_RELEASE_LEDGER."
+
+# The nightly timer runs its own copy of the backup scripts (a release checkout can be pruned
+# under it); keep that copy in step with the release just deployed. A failure here only warns:
+# the release itself has already succeeded.
+tools=${NIX_BACKUP_TOOLS_DIR:-$HOME/nix-production/backup-tools}
+if [[ -d "$tools" ]]; then
+  refreshed=1
+  for script in backup.sh offsite.sh nightly.sh; do
+    if ! { install -m 700 "$here/$script" "$tools/.$script.new" && mv -f "$tools/.$script.new" "$tools/$script"; }; then
+      refreshed=0
+    fi
+  done
+  if [[ "$refreshed" == 1 ]]; then
+    echo "release: refreshed the nightly backup scripts in $tools."
+  else
+    printf 'release: warning: could not refresh the nightly backup scripts in %s.\n' "$tools" >&2
+  fi
+fi

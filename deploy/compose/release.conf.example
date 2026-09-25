@@ -14,6 +14,11 @@ NIX_SMOKE_WORKSPACE=replace-with-smoke-workspace-uuid
 # backup.sh <sha> writes $NIX_BACKUP_ROOT/pre-<sha>.
 NIX_BACKUP_ROOT=/home/nvidia/nix-backups
 
+# 1: release.sh pushes the release backup off-host (deploy/compose/offsite.sh, credentials in
+# ~/nix-production/backup.env) and aborts before any writer stops if that push fails, recording
+# failed:offsite. 0: a failed push only warns and the release continues.
+NIX_OFFSITE_REQUIRED=1
+
 # Append-only, tab-separated record of every release attempt.
 NIX_RELEASE_LEDGER=/home/nvidia/nix-production/releases.tsv
 
