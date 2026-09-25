@@ -131,11 +131,13 @@ never deletes anything. The directory (mode 700, files mode 600) holds a custom-
 afterwards), `nix-api-data-protection` and `nix-companion-data`, copies of the private env file,
 the core access-token key (found from the `nix-api` mount, or `NIX_CORE_ACCESS_TOKEN_PEM`), the
 running compose file and Caddyfile, `containers.private.json` and `SHA256SUMS`. It then restores
-roles and the dump into an isolated `--network none` pgvector container, compares table counts and
-the largest tables' row counts with live, compares each archive's file count with its volume (drift
-in the companion volume is only a warning) and records the outcome in `verified.txt`. These files
-contain secrets; the script never prints them. Row drift means writers changed data during the
-backup; rerun under a new `NIX_BACKUP_ROOT` rather than editing the directory. Check schema
+roles and the dump into an isolated `--network none` pgvector container. The dump runs on a
+snapshot exported from a held `REPEATABLE READ` transaction that also records the table count and
+the largest tables' row counts, so the restored counts must match exactly even with writers live.
+It compares each archive's file count with its volume (drift in the companion volume is only a
+warning) and records the outcome in `verified.txt`. These files contain secrets; the script never
+prints them. After a failure, rerun under a new `NIX_BACKUP_ROOT` rather than editing the
+directory. Check schema
 rollback compatibility separately. `deploy.sh` requires `NIX_BACKUP_REFERENCE` to be that
 absolute directory and runs `backup.sh --check` on it before anything else; the check fails
 unless every file is present, `SHA256SUMS` verifies and `verified.txt` records a passed restore.
