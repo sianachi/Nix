@@ -21,6 +21,9 @@ assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
 assert s['nix-api']['environment']['Nix__Pets__WorkerUrl'] == 'http://nix-import-worker:8301'
+# The api image is chiseled: it holds only /usr/bin/dotnet (no shell, wget, curl or /dev/tcp).
+api_check = s['nix-api'].get('healthcheck', {}).get('test', [])
+assert not api_check or (api_check[0] == 'CMD' and api_check[1] not in ('wget', 'curl', 'sh', 'bash')), api_check
 assert s['nix-import-worker']['environment']['NIX_COMPANION_DATA_DIR'] == '/var/lib/nix-worker/companion'
 assert any(v.get('source') == 'nix-companion-data' for v in s['nix-import-worker']['volumes'])
 assert not s['nix-import-worker'].get('ports')
@@ -141,6 +144,13 @@ assert len(smokes)==2 and calls[smokes[0]].endswith(' smoke --preflight') and ca
 assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 PYCODE
+# The drift preview must run before the first `up` can recreate a service.
+python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
+import sys
+calls=open(sys.argv[1]).read().splitlines()
+drift=next(i for i,s in enumerate(calls) if s.endswith("config --hash *"))
+assert drift < next(i for i,s in enumerate(calls) if ' up ' in s)
+PYCODE
 : > "$DOCKER_TEST_LOG"
 if FAIL_MIGRATION=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
  echo 'Rollout accepted a failed migration' >&2; exit 1
@@ -148,4 +158,6 @@ fi
 if rg -q 'up .*nix-api nix-collab' "$DOCKER_TEST_LOG"; then
  echo 'Rollout restarted writers after a failed migration' >&2; exit 1
 fi
+bash deploy/compose/drift.test.sh
+bash deploy/compose/prune.test.sh
 echo 'Compose configuration, smoke success/failure cleanup, and default target checks passed.'

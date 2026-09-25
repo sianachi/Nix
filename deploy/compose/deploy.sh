@@ -43,6 +43,8 @@ while IFS= read -r image; do
     *) docker pull --quiet "$image" >/dev/null ;;
   esac
 done < <("${compose[@]}" --profile maintenance config --images "${release_services[@]}" | sort -u)
+# Preview drift before the first `up` can recreate anything; refuses infrastructure recreation.
+bash "$root/deploy/compose/drift.sh" "${compose[@]}"
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-opensearch nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 # Stop writers while document/schema migrations run. Failure leaves them stopped for inspection.
