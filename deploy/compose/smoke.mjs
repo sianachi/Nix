@@ -18,9 +18,13 @@ function run(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(cli, ['--profile', profile, '--json', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
+    let diagnostics = '';
     let timedOut = false;
-    // Do not print CLI diagnostics that may contain sensitive response details.
-    child.stderr.resume();
+    // Keep CLI diagnostics private: they may contain sensitive response details. Only the
+    // credential check below reads them, to classify a refusal, and it never echoes them.
+    child.stderr.on('data', (data) => {
+      if (diagnostics.length < 65_536) diagnostics += data;
+    });
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
@@ -33,7 +37,11 @@ function run(args) {
     child.on('error', (error) => { clearTimeout(timer); clearTimeout(killTimer); reject(error); });
     child.on('close', (code) => {
       clearTimeout(timer); clearTimeout(killTimer);
-      if (code !== 0 || timedOut) return reject(new Error(`nixctl ${args[0]} failed${timedOut ? ' (180s timeout)' : ''}; inspect job state using nixctl/MCP.`));
+      if (code !== 0 || timedOut) {
+        const error = new Error(`nixctl ${args[0]} failed${timedOut ? ' (180s timeout)' : ''}; inspect job state using nixctl/MCP.`);
+        Object.defineProperty(error, 'diagnostics', { value: diagnostics, enumerable: false });
+        return reject(error);
+      }
       try { resolve(JSON.parse(output)); } catch { reject(new Error(`nixctl ${args[0]} returned invalid JSON.`)); }
     });
   });
@@ -41,7 +49,28 @@ function run(args) {
 
 execFileSync('python3', ['--version']);
 execFileSync('pdftotext', ['-v'], { stdio: 'ignore' });
-const auth = await run(['auth', 'status']);
+// Core does not tell a token-authenticated caller its own expiry (the token list refuses token
+// sessions), so the credential cannot be warned about ahead of time. Instead, fail on the exchange
+// refusal with a reason and the rotation steps, before anything is pulled or stopped.
+const rotation = `Rotate the release-check token: mint a new one (read and write scopes) as the release-check principal under Settings > Access tokens, run \`nixctl --profile ${profile} auth login --api-url ${expectedURL.origin} --token "$TOKEN"\` with the token read from a private prompt, then revoke the old token. See deploy/README.md, Prerequisites.`;
+function credentialFailure(diagnostics) {
+  const expired = /expired at (\S+?)\.?$/m.exec(diagnostics);
+  if (expired) return `has an expired access token (expired ${expired[1]})`;
+  const revoked = /was revoked at (\S+?)\.?$/m.exec(diagnostics);
+  if (revoked) return `has a revoked access token (revoked ${revoked[1]})`;
+  if (/suspended or deprovisioned/.test(diagnostics)) return 'acts as a principal that is suspended or deprovisioned';
+  if (/not a personal access token that authenticates/.test(diagnostics)) return 'holds a token Core does not recognise';
+  if (/No profile (called|is signed in)/.test(diagnostics)) return 'does not exist on this host';
+  return null;
+}
+let auth;
+try {
+  auth = await run(['auth', 'status']);
+} catch (error) {
+  const reason = credentialFailure(error.diagnostics ?? '');
+  if (reason === null) throw new Error(`nixctl profile '${profile}' could not authenticate against ${expectedURL.origin}; check the origin is reachable and run \`nixctl --profile ${profile} auth status\` by hand.`);
+  throw new Error(`nixctl profile '${profile}' ${reason}. ${rotation}`);
+}
 if (auth.apiUrl?.replace(/\/$/, '') !== expectedURL.origin) throw new Error('nixctl profile URL does not match this deployment; refusing to verify another instance.');
 await run(['item', 'ls', '--workspace', workspace]);
 if (process.argv.includes('--preflight')) {

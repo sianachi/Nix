@@ -27,9 +27,12 @@ Do not apply the old override blindly: it pins old worker images. Keep a private
 
 ## Prerequisites and configuration
 
-Use Docker Engine with Compose v2 supporting `up --wait`, Git, Node 22+, pnpm, Python 3 and
-Poppler's `pdftotext` on the release/verification host. Run `pnpm install --frozen-lockfile`
-in the release checkout to build the packages used by `nixctl`.
+Use Docker Engine with Compose v2 supporting `up --wait`, Git and Python 3 on the release host;
+it needs no Node, pnpm or `pdftotext`. `nixctl` and the smoke runner ship in the `release-tools`
+image (`release-tools smoke [--preflight]`, `release-tools nixctl <args>`), which `deploy.sh`
+runs at the release tag with the host profile file mounted read-only at
+`/config/nixctl/config.json`. It reads `$NIXCTL_CONFIG`, defaulting to
+`${XDG_CONFIG_HOME:-~/.config}/nixctl/config.json`.
 
 Copy `deploy/compose.prod.env.example` to a private absolute path, restrict it to mode 0600,
 and replace every placeholder. Never commit it or print `docker compose config` with resolved
@@ -50,45 +53,105 @@ separate from the runtime. The Compose manifest assumes the database and restric
 exist. For a new host, provision those roles, ownership, credentials and OIDC outside this upgrade
 procedure; never run development/demo seed scripts against production.
 
-Create an operator-owned `nixctl` profile pointing at the public HTTPS origin, with access to a
-dedicated smoke workspace. Authenticate through the supported `nixctl auth login` flow; keep the
-PAT in its mode-0600 profile and out of shell history/logs. No production profile is checked in.
-The default smoke runner uses `deploy/compose/nixctl.sh`; `NIXCTL_BIN` can select an installed
-executable. It must act as the operator through Core, never query application tables directly.
+Release checks use a dedicated release-check token, never a personal working token: a revoked
+personal token broke the last smoke run. The release operator owns it and records its expiry
+date. Tokens narrow scopes but not workspaces, so mint it as a separate, non-administrator release-check principal
+whose only membership is the dedicated `release-checks` workspace (`NIX_SMOKE_WORKSPACE`); that
+confines its reach to disposable smoke items. Mint it in the web app under Settings > Access
+tokens with `read` and `write` scopes only (no `admin`), named `release-check`, with a 90-day
+expiry. Store it with `nixctl --profile <profile> auth login --api-url <public origin> --token
+"$TOKEN"`, reading `TOKEN` from a silent prompt (`read -rs TOKEN`) so it stays out of shell history
+and logs; the PAT then lives only in the mode-0600 profile on the release host. Rotate at least 14
+days before expiry, and at once after any suspected exposure or operator change: mint the
+replacement, log the profile in again, run `smoke.mjs --preflight`, then revoke the old token.
+Core does not report a token's expiry to the token itself, so preflight cannot warn in advance;
+it fails before any image pull or writer stop and names the profile when the token is revoked,
+expired or unrecognised. No production profile is checked in. The default smoke runner uses
+`deploy/compose/nixctl.sh`; `NIXCTL_BIN` can select an installed executable. It must act through
+Core, never query application tables directly.
 
 ## Build and release
 
 Release images are built by CI, not on the host. On every push to `main` the CI images workflow
-(`.github/workflows/ci-images.yml`) publishes `api`, `migrator`, `collab`, `worker` and `web` for
-linux/amd64 and linux/arm64 to `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are
-public, so the host needs no registry login. Wait for that workflow to succeed for the commit
-before deploying it. The host still needs the matching checkout for the manifest and smoke tools:
+(`.github/workflows/ci-images.yml`) publishes `api`, `migrator`, `collab`, `worker`, `web` and
+`release-tools` for linux/amd64 and linux/arm64 to
+`ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are public, so the host needs no
+registry login. Wait for that workflow to succeed for the commit before deploying it. The host
+still needs the matching checkout for the Compose manifest and release scripts, but no
+`pnpm install`; the smoke tools come from the `release-tools` image.
+
+A release is one command, `deploy/compose/release.sh <full-40-char-sha>`, run on the host from a
+checkout of that SHA. Secrets and release details stay apart: the secrets file is never edited
+per release, and the image tags come from the SHA argument.
+
+Setup once. Keep one canonical secrets file at `~/nix-production/production.env` (mode 0600),
+prepared as described above. Copy `deploy/compose/release.conf.example` to
+`~/nix-production/release.conf` and fill in the non-secret host settings: `NIX_DEPLOY_ENV` (the
+absolute path of that secrets file), `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`, `NIX_BACKUP_ROOT`,
+`NIX_RELEASE_LEDGER`, `NIX_RELEASE_LOCK` and `NIX_IMAGE_REGISTRY`. The script sources it as
+shell, so keep it operator-owned and free of secrets. `NIX_RELEASE_CONF` selects another path.
+
+Per release, check out the SHA and run the script:
 
 ```sh
 git fetch origin main
-git checkout --detach origin/main
-git rev-parse HEAD
+git checkout --detach <full-40-char-sha>
+bash deploy/compose/release.sh <full-40-char-sha>
 ```
 
-Set `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` to that full SHA in the private env file. Normally
-leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix, it may select another
-immutable worker image while other services keep their existing tags; record the complete image
-matrix. The release script pulls the images before stopping any writer.
+`release.sh` refuses a short or non-hex SHA, a checkout whose `HEAD` is not that SHA, or modified
+tracked files, because the manifest and smoke tools must match the images. It resolves the
+release image matrix through Compose and confirms every image exists in the registry
+(`docker manifest inspect`) before anything else, takes the host release lock with `flock`,
+prints the plan and asks for confirmation before any writer stops (`--yes` skips the prompt; a
+non-interactive run without `--yes` is refused). It runs `backup.sh <sha>` and checks the result,
+unless `NIX_BACKUP_REFERENCE` already names a directory that passes `backup.sh --check`. It then
+exports `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` as the SHA and runs `deploy.sh`. Compose
+interpolation prefers shell variables over `--env-file` values (verified with
+`docker compose config --images` on Compose v2.35), so the tag placeholders in the secrets file
+are ignored. Every confirmed attempt appends one tab-separated line to the ledger: UTC time,
+SHA, backup directory, result (`succeeded`, `failed:backup` or `failed:deploy`) and
+`operator=$USER`.
+
+Normally leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix it may select
+another immutable worker image in the secrets file while other services take the release SHA;
+the printed plan shows the resulting matrix and `release.sh` checks it like the others. The
+images are pulled before any writer stops.
 
 To run an unpublished tree instead, build it on the host with `bash deploy/compose/build.sh HEAD`
-and set `NIX_IMAGE_REGISTRY=localhost/nix`; the release then checks those local images exist
-rather than pulling. The build uses `git archive`, so uncommitted secrets never enter a context.
+and set `NIX_IMAGE_REGISTRY=localhost/nix` in `release.conf`; the release then checks those local
+images exist rather than querying a registry. The build uses `git archive`, so uncommitted
+secrets never enter a context.
 
-Before rollout, take and verify a restorable Postgres backup and a consistent Versity volume
-backup, plus the private configuration and signing keys. Record their locations securely and
-check schema rollback compatibility. A string in the following variable records the operator's
-verification; the release script does not create or validate backups itself.
+Before rollout, take and verify a backup with `deploy/compose/backup.sh`, run on the host from
+the release checkout while the current release is still serving. It writes
+`~/nix-backups/pre-<sha>` (base directory `NIX_BACKUP_ROOT`), refuses an existing directory and
+never deletes anything. The directory (mode 700, files mode 600) holds a custom-format `nix.dump`,
+`roles.sql`, tar archives of `nix-versity-data` (taken with Versity paused, always unpaused
+afterwards), `nix-api-data-protection` and `nix-companion-data`, copies of the private env file,
+the core access-token key (found from the `nix-api` mount, or `NIX_CORE_ACCESS_TOKEN_PEM`), the
+running compose file and Caddyfile, `containers.private.json` and `SHA256SUMS`. It then restores
+roles and the dump into an isolated `--network none` pgvector container. The dump runs on a
+snapshot exported from a held `REPEATABLE READ` transaction that also records the table count and
+the largest tables' row counts, so the restored counts must match exactly even with writers live.
+It compares each archive's file count with its volume (drift in the companion volume is only a
+warning) and records the outcome in `verified.txt`. These files contain secrets; the script never
+prints them. After a failure, rerun under a new `NIX_BACKUP_ROOT` rather than editing the
+directory. Check schema
+rollback compatibility separately. `deploy.sh` requires `NIX_BACKUP_REFERENCE` to be that
+absolute directory and runs `backup.sh --check` on it before anything else; the check fails
+unless every file is present, `SHA256SUMS` verifies and `verified.txt` records a passed restore.
+
+`release.sh` passes `NIX_DEPLOY_ENV`, `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`,
+`NIX_BACKUP_REFERENCE` and the image tags to `deploy/compose/deploy.sh`. Run `deploy.sh`
+directly only to recover from a failed release, with those variables exported by hand. A manual run looks like this:
 
 ```sh
 export NIX_DEPLOY_ENV=/absolute/private/production.env
 export NIXCTL_PROFILE=production
 export NIX_SMOKE_WORKSPACE=<dedicated-workspace-uuid>
-export NIX_BACKUP_REFERENCE=<verified-backup-reference>
+bash deploy/compose/backup.sh <release-sha>
+export NIX_BACKUP_REFERENCE="$HOME/nix-backups/pre-<release-sha>"
 bash deploy/compose/deploy.sh
 ```
 
@@ -141,3 +204,29 @@ restore its recorded image matrix/configuration, then use the same release check
 older document migrator against a newer schema without verifying support. For incompatible schema
 changes, stop writers and use the tested database/object backup recovery procedure; image rollback
 alone cannot reverse a migration. Retain both releases and backups until functional checks pass.
+
+### Drift and clean-up
+
+Compose recreates any service whose effective configuration differs from its running container,
+including configuration once supplied by an old checkout or override. Before the first `up`, the
+release runs `deploy/compose/drift.sh`, which warns when the running project's
+`com.docker.compose.project.config_files` label names other files, lists the services Compose
+will recreate or create, and exits 3 if `postgres`, `nix-versitygw` or `nix-opensearch` would be
+recreated. Nothing has changed at that point. Compare the effective configuration with the running
+containers; set `NIX_ALLOW_INFRA_RECREATE=1` only once the restart is understood and backed up.
+Run the preview on its own with the release's Compose command:
+
+```sh
+bash deploy/compose/drift.sh docker compose -p nix --env-file "$NIX_DEPLOY_ENV" -f "$PWD/deploy/compose.prod.yml"
+```
+
+`bash deploy/compose/prune.sh` lists `~/nix-release-*` checkouts and `~/nix-backups/pre-*`
+backups it would delete; add `--apply` to delete them. It keeps the running release (the
+`nix-api` image tag), the one before it, anything newer, any checkout a container was created
+from, and backups of those releases. It deletes nothing if the running tag has no checkout, and
+never touches volumes, symbolic links or `~/nix-production`. Order is directory modification
+time, so review the dry run first.
+
+`nix-api` has no Compose health check: the chiseled image contains only `dotnet`, with no shell,
+`wget` or `curl`. Its liveness route is `/healthz` on port 8080, reachable only on the private
+network. Public `/health` is served by the web fallback, so a 200 there does not prove Core is up.

@@ -6,6 +6,7 @@ fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh
 node --check deploy/compose/smoke.mjs
+bash deploy/compose/release.test.sh
 # Validate real Compose interpolation, without printing credentials.
 docker compose --env-file deploy/compose.prod.env.example -f deploy/compose.prod.yml --profile maintenance config --format json > "$fixture/compose.json"
 python3 - "$fixture/compose.json" <<'PY'
@@ -20,6 +21,9 @@ assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
 assert s['nix-api']['environment']['Nix__Pets__WorkerUrl'] == 'http://nix-import-worker:8301'
+# The api image is chiseled: it holds only /usr/bin/dotnet (no shell, wget, curl or /dev/tcp).
+api_check = s['nix-api'].get('healthcheck', {}).get('test', [])
+assert not api_check or (api_check[0] == 'CMD' and api_check[1] not in ('wget', 'curl', 'sh', 'bash')), api_check
 assert s['nix-import-worker']['environment']['NIX_COMPANION_DATA_DIR'] == '/var/lib/nix-worker/companion'
 assert any(v.get('source') == 'nix-companion-data' for v in s['nix-import-worker']['volumes'])
 assert not s['nix-import-worker'].get('ports')
@@ -53,7 +57,9 @@ import sys,json,os,zipfile
 args=sys.argv[4:]
 with open(os.environ['TEST_LOG'],'a') as f: f.write(' '.join(args)+'\n')
 command=args[0]
-if command=='auth': print(json.dumps(dict(apiUrl=os.environ.get('TEST_API_URL','https://production.example'))))
+if command=='auth' and os.environ.get('FAIL_AUTH'):
+ sys.stderr.write(os.environ['FAIL_AUTH']+'\n'); sys.exit(4)
+elif command=='auth': print(json.dumps(dict(apiUrl=os.environ.get('TEST_API_URL','https://production.example'))))
 elif command=='import':
  print(json.dumps(dict(rootItemId='smoke-root',createdCount=2,atomic=True,omissions=[],loss=[])))
 elif command=='item' and '--parent' in args:
@@ -85,6 +91,25 @@ if TEST_API_URL=https://staging.example node deploy/compose/smoke.mjs > "$fixtur
 fi
 if rg -q '^import ' "$TEST_LOG"; then echo 'Origin mismatch mutated data' >&2; exit 1; fi
 : > "$TEST_LOG"
+# A refused release credential fails preflight by reason, names the profile and never echoes CLI diagnostics.
+for kind in revoked expired; do
+  case "$kind" in
+    revoked) refusal="Personal access token 'tok-private-id' was revoked at 2026-09-01T10:00:00.0000000+00:00." ;;
+    expired) refusal="Personal access token 'tok-private-id' expired at 2026-09-01T10:00:00.0000000+00:00." ;;
+  esac
+  if FAIL_AUTH="$refusal" node deploy/compose/smoke.mjs --preflight > "$fixture/credential" 2>&1; then
+    echo "Preflight accepted a $kind token" >&2; exit 1
+  fi
+  rg -q "nixctl profile 'test' has an? $kind access token \\($kind 2026-09-01T10:00:00" "$fixture/credential"
+  rg -q 'Rotate the release-check token' "$fixture/credential"
+  if rg -q 'tok-private-id' "$fixture/credential"; then echo 'Preflight echoed CLI diagnostics' >&2; exit 1; fi
+done
+if FAIL_AUTH='connect ECONNREFUSED' node deploy/compose/smoke.mjs --preflight > "$fixture/credential" 2>&1; then
+  echo 'Preflight accepted an unreachable origin' >&2; exit 1
+fi
+rg -q "nixctl profile 'test' could not authenticate" "$fixture/credential"
+if rg -q '^(item|import) ' "$TEST_LOG"; then echo 'Credential failure ran further commands' >&2; exit 1; fi
+: > "$TEST_LOG"
 if FAIL_EXPORT=pdf node deploy/compose/smoke.mjs > "$fixture/failure" 2>&1; then
   echo 'Smoke runner accepted a failed PDF export' >&2; exit 1
 fi
@@ -114,8 +139,24 @@ elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATIO
 PYCODE
 chmod +x "$fixture/bin/docker"
 export DOCKER_TEST_LOG="$fixture/docker-calls" COMPOSE_TEST_CONFIG="$fixture/compose.json"
-export NIX_DEPLOY_ENV="$root/deploy/compose.prod.env.example" NIX_BACKUP_REFERENCE=fixture-backup
-bash deploy/compose/deploy.sh > "$fixture/deploy-result"
+bash deploy/compose/backup.test.sh
+bash deploy/compose/backup.test.sh --fixture "$fixture/backup"
+export NIX_DEPLOY_ENV="$root/deploy/compose.prod.env.example" NIX_BACKUP_REFERENCE="$fixture/backup"
+echo '{}' > "$fixture/nixctl-config.json"
+export NIXCTL_CONFIG="$fixture/nixctl-config.json"
+# An unverified or free-text backup reference stops the rollout before Docker is touched.
+for reference in fixture-backup "$fixture/missing-backup"; do
+ if NIX_BACKUP_REFERENCE="$reference" bash deploy/compose/deploy.sh > "$fixture/deploy-no-backup" 2>&1; then
+  echo "Rollout accepted backup reference $reference" >&2; exit 1
+ fi
+done
+if [ -s "$DOCKER_TEST_LOG" ]; then echo 'Rollout touched Docker without a verified backup' >&2; exit 1; fi
+# The host has no Node: deploy.sh reaches nixctl and smoke only through the release-tools image.
+if rg -q '\bnode\b' deploy/compose/deploy.sh; then echo 'deploy.sh still calls node' >&2; exit 1; fi
+mkdir "$fixture/nodeless"
+printf '#!/bin/sh\necho "node called on the host" >&2\nexit 97\n' > "$fixture/nodeless/node"
+chmod +x "$fixture/nodeless/node"
+PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-result"
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys
 calls=open(sys.argv[1]).read().splitlines()
@@ -127,12 +168,26 @@ pull=next(i for i,s in enumerate(calls) if s=='pull --quiet ghcr.io/sianachi/nix
 assert not any(s.startswith('pull ') and 'localhost/' in s for s in calls)
 assert pull < stop < migrate < doc < start
 assert not any('--remove-orphans' in s or ' down ' in s for s in calls)
+tools='ghcr.io/sianachi/nix/release-tools:replace-with-commit-sha'
+smokes=[i for i,s in enumerate(calls) if s.startswith('run --rm ') and tools+' smoke' in s]
+assert len(smokes)==2 and calls[smokes[0]].endswith(' smoke --preflight') and calls[smokes[1]].endswith(tools+' smoke')
+assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
+assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
+PYCODE
+# The drift preview must run before the first `up` can recreate a service.
+python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
+import sys
+calls=open(sys.argv[1]).read().splitlines()
+drift=next(i for i,s in enumerate(calls) if s.endswith("config --hash *"))
+assert drift < next(i for i,s in enumerate(calls) if ' up ' in s)
 PYCODE
 : > "$DOCKER_TEST_LOG"
-if FAIL_MIGRATION=1 bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
+if FAIL_MIGRATION=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
  echo 'Rollout accepted a failed migration' >&2; exit 1
 fi
 if rg -q 'up .*nix-api nix-collab' "$DOCKER_TEST_LOG"; then
  echo 'Rollout restarted writers after a failed migration' >&2; exit 1
 fi
+bash deploy/compose/drift.test.sh
+bash deploy/compose/prune.test.sh
 echo 'Compose configuration, smoke success/failure cleanup, and default target checks passed.'
