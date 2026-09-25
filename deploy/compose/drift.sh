@@ -33,7 +33,7 @@ if [ -z "$project" ] || [ "${#files[@]}" -eq 0 ]; then
   echo 'drift: the Compose command must name the project (-p) and at least one file (-f)' >&2
   exit 2
 fi
-read -r -a infra <<< "${NIX_INFRA_SERVICES:-postgres nix-versitygw nix-opensearch}"
+read -r -a infra <<< "${NIX_INFRA_SERVICES:-postgres rabbitmq nix-versitygw nix-opensearch}"
 
 # Compose records absolute manifest paths joined by commas.
 expected=''

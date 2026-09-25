@@ -51,6 +51,8 @@ while IFS= read -r image; do
   if [[ "$image" == "$NIX_IMAGE_REGISTRY/"* ]]; then images+=("$image"); fi
 done < <("${compose[@]}" --profile maintenance config --images | sort -u)
 [[ ${#images[@]} -gt 0 ]] || die "no release images resolved for registry $NIX_IMAGE_REGISTRY"
+# Not a Compose service: deploy.sh runs the smoke checks from it at the release tag.
+images+=("$NIX_IMAGE_REGISTRY/release-tools:$sha")
 for image in "${images[@]}"; do
   if [[ "$NIX_IMAGE_REGISTRY" == localhost/nix ]]; then
     docker image inspect "$image" >/dev/null 2>&1 || die "local image missing: $image (run deploy/compose/build.sh $sha)"

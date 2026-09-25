@@ -35,15 +35,25 @@ drift > "$fixture/out" 2>&1 || fail 'refused an application-only change'
 grep -qx 'drift: Compose will recreate: nix-api ' "$fixture/out" || fail 'nix-api recreate not listed'
 if grep -q WARNING "$fixture/out"; then fail 'warned about matching config files'; fi
 
-# 3. Old checkouts and an override in the running label: loud warning, RabbitMQ listed.
+# 3. Old checkouts and an override in the running label: loud warning; RabbitMQ is
+# infrastructure (the 2026-09-25 release recreated it unannounced), so it is refused.
 old=/home/nvidia/nix-pr23/deploy/compose.prod.yml,/home/nvidia/nix-release-14e0a39d/deploy/compose.host.yml
 { running postgres 1 "$old"; running rabbitmq 2-old "$old"; running nix-api 3 "$old"
   running nix-opensearch 4 "$old"; running nix-versitygw 5 "$old"; running legacy-media 9 "$old"; } > "$fixture/running"
-drift > "$fixture/out" 2>&1 || fail 'refused a non-infrastructure recreate'
+status=0
+drift > "$fixture/out" 2>&1 || status=$?
+[ "$status" = 3 ] || fail "rabbitmq recreate exited $status, expected 3"
 grep -q "WARNING: project 'nix' is running from different Compose files" "$fixture/out" || fail 'no drift warning'
 grep -q '/home/nvidia/nix-release-14e0a39d/deploy/compose.host.yml' "$fixture/out" || fail 'override not listed'
 grep -q 'will recreate: rabbitmq nix-api ' "$fixture/out" || fail 'rabbitmq recreate not listed'
+grep -q 'refusing to recreate infrastructure: rabbitmq' "$fixture/out" || fail 'refusal does not name rabbitmq'
 grep -q 'left alone): legacy-media' "$fixture/out" || fail 'orphan not listed'
+
+# 3b. An application-only recreate is listed but not refused.
+{ running postgres 1 "$manifest"; running rabbitmq 2 "$manifest"; running nix-api 3 "$manifest"
+  running nix-opensearch 4 "$manifest"; running nix-versitygw 5 "$manifest"; } > "$fixture/running"
+drift > "$fixture/out" 2>&1 || fail 'refused a non-infrastructure recreate'
+grep -q 'will recreate: nix-api' "$fixture/out" || fail 'nix-api recreate not listed'
 
 # 4. Infrastructure would be recreated: refused unless explicitly allowed.
 { running postgres 0 "$manifest"; running rabbitmq 2 "$manifest"; running nix-api 3 "$manifest"
