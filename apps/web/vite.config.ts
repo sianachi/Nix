@@ -317,9 +317,9 @@ export default defineConfig({
     // busy runner is indistinguishable from a real regression until someone
     // reruns it alone.
     //
-    // Node-environment packages do not need this, and packages/ui's component
-    // tests peak at 703ms idle, so the value stays here rather than spreading
-    // across the workspace.
+    // Node-environment packages do not need this. packages/ui's component
+    // tests no longer peak at 703ms idle (first-in-file tests now take about
+    // 2s), so it carries the same value with its own measurements.
     testTimeout: 15_000,
   },
 });
