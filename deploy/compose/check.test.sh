@@ -57,7 +57,9 @@ import sys,json,os,zipfile
 args=sys.argv[4:]
 with open(os.environ['TEST_LOG'],'a') as f: f.write(' '.join(args)+'\n')
 command=args[0]
-if command=='auth': print(json.dumps(dict(apiUrl=os.environ.get('TEST_API_URL','https://production.example'))))
+if command=='auth' and os.environ.get('FAIL_AUTH'):
+ sys.stderr.write(os.environ['FAIL_AUTH']+'\n'); sys.exit(4)
+elif command=='auth': print(json.dumps(dict(apiUrl=os.environ.get('TEST_API_URL','https://production.example'))))
 elif command=='import':
  print(json.dumps(dict(rootItemId='smoke-root',createdCount=2,atomic=True,omissions=[],loss=[])))
 elif command=='item' and '--parent' in args:
@@ -88,6 +90,25 @@ if TEST_API_URL=https://staging.example node deploy/compose/smoke.mjs > "$fixtur
   echo 'Smoke runner accepted the wrong instance' >&2; exit 1
 fi
 if rg -q '^import ' "$TEST_LOG"; then echo 'Origin mismatch mutated data' >&2; exit 1; fi
+: > "$TEST_LOG"
+# A refused release credential fails preflight by reason, names the profile and never echoes CLI diagnostics.
+for kind in revoked expired; do
+  case "$kind" in
+    revoked) refusal="Personal access token 'tok-private-id' was revoked at 2026-09-01T10:00:00.0000000+00:00." ;;
+    expired) refusal="Personal access token 'tok-private-id' expired at 2026-09-01T10:00:00.0000000+00:00." ;;
+  esac
+  if FAIL_AUTH="$refusal" node deploy/compose/smoke.mjs --preflight > "$fixture/credential" 2>&1; then
+    echo "Preflight accepted a $kind token" >&2; exit 1
+  fi
+  rg -q "nixctl profile 'test' has an? $kind access token \\($kind 2026-09-01T10:00:00" "$fixture/credential"
+  rg -q 'Rotate the release-check token' "$fixture/credential"
+  if rg -q 'tok-private-id' "$fixture/credential"; then echo 'Preflight echoed CLI diagnostics' >&2; exit 1; fi
+done
+if FAIL_AUTH='connect ECONNREFUSED' node deploy/compose/smoke.mjs --preflight > "$fixture/credential" 2>&1; then
+  echo 'Preflight accepted an unreachable origin' >&2; exit 1
+fi
+rg -q "nixctl profile 'test' could not authenticate" "$fixture/credential"
+if rg -q '^(item|import) ' "$TEST_LOG"; then echo 'Credential failure ran further commands' >&2; exit 1; fi
 : > "$TEST_LOG"
 if FAIL_EXPORT=pdf node deploy/compose/smoke.mjs > "$fixture/failure" 2>&1; then
   echo 'Smoke runner accepted a failed PDF export' >&2; exit 1
