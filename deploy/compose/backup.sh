@@ -104,16 +104,69 @@ fi
 mkdir -p "$backup_root"
 mkdir -m 700 "$dir"
 
-paused='' verify_container=''
+paused='' verify_container='' snapshot_pid='' snapshot_open='' snapshot_reply=''
+# One psql session holds a REPEATABLE READ transaction whose exported snapshot pg_dump shares, so
+# the row counts recorded in it describe exactly the dumped data even while writers stay live.
+# The session is a background psql fed through FIFOs: fd 7 writes SQL, fd 8 reads results.
+snapshot_start() {
+  local fifos
+  fifos=$(mktemp -d)
+  mkfifo "$fifos/in" "$fifos/out"
+  docker exec -i "$postgres" psql -X -At -q -v ON_ERROR_STOP=1 -U postgres -d nix \
+    < "$fifos/in" > "$fifos/out" &
+  snapshot_pid=$!
+  exec 7> "$fifos/in" 8< "$fifos/out"
+  snapshot_open=1
+  rm -r "$fifos"
+}
+snapshot_send() { printf '%s\n' "$1" >&7 || die 'snapshot session closed unexpectedly'; }
+snapshot_read() {
+  IFS= read -r -t 120 snapshot_reply <&8 || die 'snapshot session ended or stalled'
+}
+snapshot_query() { snapshot_send "$1"; snapshot_read; }
+# Closing stdin ends psql, which rolls back anything uncommitted; the kill is a last resort.
+snapshot_stop() {
+  local status=0
+  if [[ -n $snapshot_open ]]; then exec 7>&-; fi
+  if [[ -n $snapshot_pid ]]; then
+    for _ in $(seq 1 30); do kill -0 "$snapshot_pid" 2>/dev/null || break; sleep 1; done
+    kill "$snapshot_pid" 2>/dev/null || true
+    wait "$snapshot_pid" 2>/dev/null || status=$?
+    snapshot_pid=''
+  fi
+  if [[ -n $snapshot_open ]]; then exec 8<&-; snapshot_open=''; fi
+  return "$status"
+}
 cleanup() {
+  snapshot_stop || true
   if [[ -n $paused ]]; then docker unpause "$paused" >/dev/null || echo "backup: UNPAUSE $paused MANUALLY" >&2; fi
   if [[ -n $verify_container ]]; then docker rm -f "$verify_container" >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
+# A write to a dead snapshot session must fail through the EXIT trap, not kill the shell silently.
+trap 'exit 141' PIPE
 
 echo "backup: writing $dir"
-docker exec "$postgres" pg_dump -U postgres -Fc nix > "$dir/nix.dump"
+snapshot_start
+snapshot_send 'BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;'
+snapshot_query 'SELECT pg_export_snapshot();'
+snapshot_id=$snapshot_reply
+[[ $snapshot_id =~ ^[0-9A-Fa-f-]+$ ]] || die 'could not export a database snapshot'
+snapshot_query 'SELECT count(*) FROM pg_stat_user_tables;'
+snapshot_tables=$snapshot_reply
+snapshot_send "SELECT format('%I.%I', schemaname, relname) FROM pg_stat_user_tables
+  ORDER BY n_live_tup DESC, 1 LIMIT $row_count_tables;"
+snapshot_send "SELECT 'end-of-tables';"
+count_tables=() snapshot_counts=()
+while snapshot_read && [[ $snapshot_reply != end-of-tables ]]; do count_tables+=("$snapshot_reply"); done
+for table in "${count_tables[@]+"${count_tables[@]}"}"; do
+  snapshot_query "SELECT count(*) FROM $table;"
+  snapshot_counts+=("$snapshot_reply")
+done
+docker exec "$postgres" pg_dump -U postgres -Fc --snapshot="$snapshot_id" nix > "$dir/nix.dump"
+snapshot_send 'COMMIT;'
+snapshot_stop || die 'snapshot session did not end cleanly'
 docker exec "$postgres" pg_dumpall -U postgres --roles-only > "$dir/roles.sql"
 archive_volume() {
   docker run --rm --network none -v "$1:/data:ro" "$pg_image" tar -C /data -cf - . > "$dir/$1.tar"
@@ -153,21 +206,17 @@ grep -vx 'CREATE ROLE postgres;' "$dir/roles.sql" \
 docker exec "$verify_container" createdb -U postgres nix
 docker exec -i "$verify_container" pg_restore -U postgres -d nix --exit-on-error < "$dir/nix.dump"
 
-live_sql() { docker exec "$postgres" psql -X -At -U postgres -d nix -c "$1"; }
 restored_sql() { docker exec "$verify_container" psql -X -At -U postgres -d nix -c "$1"; }
-table_count_sql="SELECT count(*) FROM pg_stat_user_tables"
-live_tables=$(live_sql "$table_count_sql")
-restored_tables=$(restored_sql "$table_count_sql")
-report+=("tables live=$live_tables restored=$restored_tables")
-[[ $live_tables == "$restored_tables" ]] || failures+=("table count live=$live_tables restored=$restored_tables")
-while IFS= read -r table; do
-  [[ -n $table ]] || continue
-  live=$(live_sql "SELECT count(*) FROM $table")
+restored_tables=$(restored_sql 'SELECT count(*) FROM pg_stat_user_tables')
+report+=("tables snapshot=$snapshot_tables restored=$restored_tables")
+[[ $snapshot_tables == "$restored_tables" ]] \
+  || failures+=("table count snapshot=$snapshot_tables restored=$restored_tables")
+for i in "${!count_tables[@]}"; do
+  table=${count_tables[$i]} expected=${snapshot_counts[$i]}
   restored=$(restored_sql "SELECT count(*) FROM $table")
-  report+=("rows $table live=$live restored=$restored")
-  [[ $live == "$restored" ]] || failures+=("rows $table live=$live restored=$restored")
-done < <(live_sql "SELECT format('%I.%I', schemaname, relname) FROM pg_stat_user_tables
-  ORDER BY n_live_tup DESC, 1 LIMIT $row_count_tables")
+  report+=("rows $table snapshot=$expected restored=$restored")
+  [[ $expected == "$restored" ]] || failures+=("rows $table snapshot=$expected restored=$restored")
+done
 
 archive_entries() {
   python3 - "$1" <<'PY'
@@ -205,6 +254,6 @@ chmod 600 "$dir/verified.txt"
 for line in "${warnings[@]+"${warnings[@]}"}"; do echo "backup: warning: $line" >&2; done
 if [[ $result != passed ]]; then
   for line in "${failures[@]}"; do echo "backup: failure: $line" >&2; done
-  die "verification failed; $dir is kept for inspection (row drift means writers were active)"
+  die "verification failed; $dir is kept for inspection"
 fi
 check_backup "$dir"
