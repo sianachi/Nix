@@ -24,6 +24,13 @@ internal sealed record CreateStructuredItemRequest(
     SetViewsRequest Views,
     string? PublishInteractiveFormViewId);
 
+/// <summary>
+/// Additively appends fields, views, or both to an item's declared schema and stored views.
+/// </summary>
+/// <remarks>
+/// <c>Views</c> may be empty when <c>Properties</c> is non-empty: a guided setup can add
+/// fields alone without configuring a new view. At least one of the two must be non-empty.
+/// </remarks>
 internal sealed record AppendViewSetupRequest(
     IReadOnlyList<PropertyDefinitionRequest> Properties,
     IReadOnlyList<ViewRequest> Views,
@@ -203,10 +210,10 @@ public sealed class AppendViewSetupHandler : ICommandHandler<AppendViewSetup, It
             return Result.Failure<Item>(ItemErrors.LifecycleConflict("A deleted item cannot be configured."));
         }
 
-        if (command.Views.IsDefaultOrEmpty)
+        if (command.Views.IsDefaultOrEmpty && command.Properties.IsDefaultOrEmpty)
         {
             return Result.Failure<Item>(PropertyErrors.InvalidViews(
-                "A guided setup needs at least one configured view."));
+                "A guided setup needs at least one field or one configured view."));
         }
 
         var effective = await _schemas.ResolveForChildrenAsync(item.Id, cancellationToken).ConfigureAwait(false);
@@ -233,26 +240,37 @@ public sealed class AppendViewSetupHandler : ICommandHandler<AppendViewSetup, It
 
         var declared = PropertySchemaJson.Read(item.Schema);
         var mergedSchema = declared with { Properties = [.. declared.Properties, .. command.Properties] };
-        var mergedViews = storedViews.Views.AddRange(command.Views);
-        var defaultView = command.MakeDefault && !command.Views.IsDefaultOrEmpty
-            ? command.Views[0].Id
-            : storedViews.Default;
         if (SetItemSchemaHandler.Validate(mergedSchema) is { } schemaError)
         {
             return Result.Failure<Item>(schemaError);
         }
 
-        if (SetContainerViewsHandler.Validate(mergedViews, defaultView) is { } viewError)
-        {
-            return Result.Failure<Item>(viewError);
-        }
-
         var schemaJson = mergedSchema.IsEmpty ? null : PropertySchemaJson.Write(mergedSchema);
-        var viewsJson = ViewDefinitionsJson.Write(mergedViews, defaultView);
-        if ((schemaJson is not null && Encoding.UTF8.GetByteCount(schemaJson) > PropertyValidator.MaximumBytes)
-            || (viewsJson is not null && Encoding.UTF8.GetByteCount(viewsJson) > ViewDefinitionsJson.MaximumBytes))
+        if (schemaJson is not null && Encoding.UTF8.GetByteCount(schemaJson) > PropertyValidator.MaximumBytes)
         {
             return Result.Failure<Item>(PropertyErrors.InvalidViews("This setup is too large to store."));
+        }
+
+        // A fields-only append (empty Views) never re-validates or rewrites the views column: doing so
+        // would round-trip it through ViewDefinitionsJson.Read/Write, which silently drops anything it
+        // cannot parse, and would race a concurrent SetContainerViews with a last-writer-wins overwrite,
+        // even though this request never meant to change views.
+        var touchesViews = !command.Views.IsDefaultOrEmpty;
+        string? viewsJson = null;
+        if (touchesViews)
+        {
+            var mergedViews = storedViews.Views.AddRange(command.Views);
+            var defaultView = command.MakeDefault ? command.Views[0].Id : storedViews.Default;
+            if (SetContainerViewsHandler.Validate(mergedViews, defaultView) is { } viewError)
+            {
+                return Result.Failure<Item>(viewError);
+            }
+
+            viewsJson = ViewDefinitionsJson.Write(mergedViews, defaultView);
+            if (viewsJson is not null && Encoding.UTF8.GetByteCount(viewsJson) > ViewDefinitionsJson.MaximumBytes)
+            {
+                return Result.Failure<Item>(PropertyErrors.InvalidViews("This setup is too large to store."));
+            }
         }
 
         var context = _session.Current
@@ -260,8 +278,12 @@ public sealed class AppendViewSetupHandler : ICommandHandler<AppendViewSetup, It
         var now = _clock.GetUtcNow();
         await _tree.UpdateSchemaAsync(item.Id, schemaJson, context.PrincipalId, now, cancellationToken)
             .ConfigureAwait(false);
-        await _tree.UpdateViewsAsync(item.Id, viewsJson, context.PrincipalId, now, cancellationToken)
-            .ConfigureAwait(false);
+        if (touchesViews)
+        {
+            await _tree.UpdateViewsAsync(item.Id, viewsJson, context.PrincipalId, now, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return Result.Success(item);
     }
 }

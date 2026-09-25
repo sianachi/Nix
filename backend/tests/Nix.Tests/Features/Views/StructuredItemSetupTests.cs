@@ -68,6 +68,102 @@ public sealed class StructuredItemSetupTests
     }
 
     [Fact]
+    public async Task Appending_a_view_merges_it_and_honours_make_default()
+    {
+        var schema = Schema(Property("status"));
+        var item = Container(schema, ImmutableArray.Create(View("existing")));
+        var tree = new RecordingTree(item);
+        var handler = new AppendViewSetupHandler(
+            tree,
+            new FixedSchemas(schema),
+            new WritablePermissions(),
+            new Session(),
+            TimeProvider.System);
+
+        var result = await handler.HandleAsync(
+            new AppendViewSetup(item.Id, [], [View("new")], true),
+            Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(tree.WrittenSchema);
+        Assert.Equal(["status"], PropertySchemaJson.Read(tree.WrittenSchema).Properties.Select(property => property.Key));
+        Assert.NotNull(tree.WrittenViews);
+        var savedViews = ViewDefinitionsJson.Read(tree.WrittenViews);
+        Assert.Equal(["existing", "new"], savedViews.Views.Select(view => view.Id));
+        Assert.Equal("new", savedViews.Default);
+    }
+
+    [Fact]
+    public async Task Append_with_properties_and_no_views_merges_the_schema_only()
+    {
+        var schema = Schema(Property("status"));
+        var item = Container(schema, ImmutableArray.Create(View("existing")));
+        var tree = new RecordingTree(item);
+        var handler = new AppendViewSetupHandler(
+            tree,
+            new FixedSchemas(schema),
+            new WritablePermissions(),
+            new Session(),
+            TimeProvider.System);
+
+        var result = await handler.HandleAsync(
+            new AppendViewSetup(item.Id, [Property("rating")], [], false),
+            Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(tree.WrittenSchema);
+        var savedSchema = PropertySchemaJson.Read(tree.WrittenSchema);
+        Assert.Equal(["status", "rating"], savedSchema.Properties.Select(property => property.Key));
+        Assert.Equal(0, tree.ViewsWrites);
+        Assert.Null(tree.WrittenViews);
+    }
+
+    [Fact]
+    public async Task Append_with_neither_properties_nor_views_is_refused()
+    {
+        var schema = Schema(Property("status"));
+        var item = Container(schema, ImmutableArray.Create(View("existing")));
+        var tree = new RecordingTree(item);
+        var handler = new AppendViewSetupHandler(
+            tree,
+            new FixedSchemas(schema),
+            new WritablePermissions(),
+            new Session(),
+            TimeProvider.System);
+
+        var result = await handler.HandleAsync(
+            new AppendViewSetup(item.Id, [], [], false),
+            Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PropertyErrors.InvalidViewsCode, result.Error.Code);
+        Assert.Null(tree.WrittenSchema);
+        Assert.Null(tree.WrittenViews);
+    }
+
+    [Fact]
+    public async Task Append_with_no_views_never_changes_the_default_view()
+    {
+        var schema = Schema(Property("status"));
+        var item = Container(schema, ImmutableArray.Create(View("existing")));
+        var tree = new RecordingTree(item);
+        var handler = new AppendViewSetupHandler(
+            tree,
+            new FixedSchemas(schema),
+            new WritablePermissions(),
+            new Session(),
+            TimeProvider.System);
+
+        var result = await handler.HandleAsync(
+            new AppendViewSetup(item.Id, [Property("rating")], [], true),
+            Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, tree.ViewsWrites);
+        Assert.Null(tree.WrittenViews);
+    }
+
+    [Fact]
     public async Task Replacing_preserves_a_field_added_after_the_studio_opened()
     {
         var original = Property("owner");
@@ -196,6 +292,8 @@ public sealed class StructuredItemSetupTests
 
         public string? WrittenViews { get; private set; }
 
+        public int ViewsWrites { get; private set; }
+
         public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
             ValueTask.FromResult(item?.Id == id ? item : null);
 
@@ -263,6 +361,7 @@ public sealed class StructuredItemSetupTests
             CancellationToken cancellationToken)
         {
             WrittenViews = views;
+            ViewsWrites++;
             return ValueTask.CompletedTask;
         }
 
