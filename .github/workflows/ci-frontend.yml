@@ -63,15 +63,15 @@ permissions:
 jobs:
   frontend-static:
     name: frontend static
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # No version input: pnpm/action-setup reads the root package.json
       # "packageManager" field, keeping CI pinned with the repo.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # mise.toml pins node = "22"; track the same major here.
           node-version: 22
@@ -164,14 +164,14 @@ jobs:
 
   frontend-unit:
     name: frontend unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: frontend-static
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -190,7 +190,7 @@ jobs:
 
   frontend-storybook:
     name: frontend storybook
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: frontend-static
     # The suite is known to hang rather than fail in some headless environments
     # (before collecting a single test), and the vitest config's own timeouts
@@ -198,11 +198,11 @@ jobs:
     # turns a wedged runner into a red job instead of a six-hour default.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -226,7 +226,7 @@ jobs:
 
   collab-integration:
     name: collab integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: frontend-static
 
     services:
@@ -245,16 +245,16 @@ jobs:
           --health-retries 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 

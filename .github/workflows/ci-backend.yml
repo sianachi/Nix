@@ -52,11 +52,11 @@ env:
 jobs:
   go-workers:
     name: Go workers
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: apps/go-workers/go.mod
           cache-dependency-path: apps/go-workers/go.mod
@@ -83,11 +83,11 @@ jobs:
 
   backend-static:
     name: backend static
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # mise.toml pins dotnet = "10"; track the same major here.
           dotnet-version: 10.0.x
@@ -129,12 +129,12 @@ jobs:
 
   backend-unit:
     name: backend unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: backend-static
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
@@ -162,16 +162,16 @@ jobs:
   # a unit suite to be reported.
   backend-integration:
     name: backend integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: backend-static
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
-      # No docker setup step: ubuntu-latest ships a running daemon, and
+      # No docker setup step: ubuntu-24.04 ships a running daemon, and
       # Testcontainers finds it through the default socket. Asserted rather than
       # assumed, because the failure mode otherwise is a confusing timeout deep
       # inside the fixture rather than a clear message here.
