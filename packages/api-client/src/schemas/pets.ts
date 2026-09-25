@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const petProfileSchema = z.object({
   id: z.uuid(),
   name: z.string().trim().min(1).max(80),
-  appearance: z.enum(['owl', 'cat', 'fox', 'eye-of-ra']),
+  appearance: z.enum(['owl', 'cat', 'fox', 'eye-of-ra', 'demiurge', 'red']),
   personality: z.enum(['calm', 'playful', 'encouraging', 'concise']),
   responseLength: z.enum(['concise', 'balanced', 'detailed']),
   instructions: z.string().max(2000),

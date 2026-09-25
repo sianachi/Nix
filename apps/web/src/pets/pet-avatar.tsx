@@ -3,6 +3,18 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { PetProfile, PetSettings } from '@nix/api-client';
 import atlas from './owl-atlas.json';
 import eyeOfRaAtlas from './eye-of-ra-atlas.json';
+import demiurgeAtlas from './demiurge-atlas.json';
+import redAtlas from './red-atlas.json';
+import foxAtlas from './fox-atlas.json';
+import nekoAtlas from './neko-atlas.json';
+
+export const petAtlases = {
+  'eye-of-ra': eyeOfRaAtlas,
+  demiurge: demiurgeAtlas,
+  red: redAtlas,
+  fox: foxAtlas,
+  cat: nekoAtlas,
+} as const;
 
 export const petAnimationStates = [
   'idle',
@@ -31,50 +43,14 @@ export function PetAvatar({
 }): ReactElement {
   return appearance === 'owl' ? (
     <OwlAvatar state={state} motion={motion} label={label} />
-  ) : appearance === 'eye-of-ra' ? (
-    <AtlasAvatar atlas={eyeOfRaAtlas} state={state} motion={motion} label={label} />
   ) : (
-    <svg
-      viewBox="0 0 100 100"
-      role="img"
-      aria-label={label}
-      className="size-24 shrink-0 text-accent"
-      data-state={state}
-    >
-      <path
-        d={
-          appearance === 'fox'
-            ? 'M18 12 38 28 62 28 82 12 85 55 50 88 15 55Z'
-            : 'M18 15 38 30 62 30 82 15 85 65 Q50 92 15 65Z'
-        }
-        fill="currentColor"
-      />
-      <path d="M24 46Q37 42 50 57Q63 42 76 46L68 70Q50 84 32 70Z" className="fill-background" />
-      <path
-        d={state === 'success' ? 'M29 48Q35 40 41 48 M59 48Q65 40 71 48' : 'M32 46V51 M68 46V51'}
-        className="stroke-foreground"
-        strokeWidth="4"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <path d="M44 59H56L50 65Z" className="fill-foreground" />
-      {state === 'speaking' || state === 'listening' ? (
-        <ellipse cx="50" cy="71" rx="5" ry="4" className="fill-foreground" />
-      ) : (
-        <path d="M43 70Q50 76 57 70" className="stroke-foreground" fill="none" strokeWidth="2" />
-      )}
-      {state === 'thinking' || state === 'working' ? (
-        <circle
-          cx="86"
-          cy="20"
-          r="6"
-          className={`fill-foreground ${motion === 'full' ? 'animate-pulse' : motion === 'system' ? 'motion-safe:animate-pulse' : ''}`}
-        />
-      ) : null}
-      {state === 'error' || state === 'awaiting-approval' ? (
-        <path d="M88 29V39M88 45V47" className="stroke-foreground" strokeWidth="3" />
-      ) : null}
-    </svg>
+    <AtlasAvatar
+      key={appearance}
+      atlas={petAtlases[appearance]}
+      state={state}
+      motion={motion}
+      label={label}
+    />
   );
 }
 
@@ -187,7 +163,7 @@ function AtlasAvatar({
     };
   }, [motion, spriteAtlas, state]);
   return failed ? (
-    <Text variant="note">Eye of Ra preview unavailable</Text>
+    <Text variant="note">Companion preview unavailable</Text>
   ) : (
     <canvas
       ref={canvas}

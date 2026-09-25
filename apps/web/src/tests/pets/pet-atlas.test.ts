@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import atlas from '../../pets/owl-atlas.json';
-import eyeOfRaAtlas from '../../pets/eye-of-ra-atlas.json';
+import { petAtlases } from '../../pets/pet-avatar';
 import { petAnimationStates } from '../../pets/pet-avatar';
 
 describe('owl atlas geometry', () => {
@@ -22,7 +22,7 @@ describe('owl atlas geometry', () => {
   });
 });
 
-describe('Eye of Ra atlas geometry', () => {
+describe.each(Object.entries(petAtlases))('%s atlas geometry', (_appearance, eyeOfRaAtlas) => {
   it('uses the v2 grid and maps every runtime state to a populated animation row', () => {
     expect(eyeOfRaAtlas.version).toBe(2);
     expect(eyeOfRaAtlas.columns * eyeOfRaAtlas.cellWidth).toBe(eyeOfRaAtlas.imageWidth);

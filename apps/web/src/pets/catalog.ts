@@ -9,9 +9,9 @@ export const petCatalog = [
   },
   {
     appearance: 'cat',
-    name: 'Cat',
+    name: 'Neko',
     personality: 'concise',
-    description: 'An attentive, curious companion.',
+    description: 'An attentive calico cat with a calm, curious nature.',
   },
   {
     appearance: 'fox',
@@ -24,6 +24,18 @@ export const petCatalog = [
     name: 'Eye of Ra',
     personality: 'encouraging',
     description: 'A watchful golden falcon companion with steady, practical guidance.',
+  },
+  {
+    appearance: 'demiurge',
+    name: 'Demiurge',
+    personality: 'calm',
+    description: 'A thoughtful lion-headed serpent with patient, considered guidance.',
+  },
+  {
+    appearance: 'red',
+    name: 'Red',
+    personality: 'concise',
+    description: 'The determined Angry Bird. Direct answers and a focused approach.',
   },
 ] as const;
 

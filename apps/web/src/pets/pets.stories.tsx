@@ -1,6 +1,8 @@
 import type { ReactElement } from 'react';
 import { Text } from '@nix/ui';
-import { PetAvatar, petAnimationStates } from './pet-avatar';
+import { petCatalog } from './catalog';
+import { PetAvatar, petAnimationStates, type PetAnimationState } from './pet-avatar';
+import type { PetProfile } from '@nix/api-client';
 import { PetSettingsEditor } from './pet-settings-section';
 import { PetWorkTools } from './pet-work-tools';
 import { createNixClient, petConnectionSchema } from '@nix/api-client';
@@ -14,7 +16,7 @@ export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 export const AnimationStates = {
   render: (): ReactElement => (
     <div className="grid grid-cols-3 gap-4">
-      {(['owl', 'cat', 'fox', 'eye-of-ra'] as const).flatMap((appearance) =>
+      {petCatalog.flatMap(({ appearance }) =>
         petAnimationStates.map((state) => (
           <div key={`${appearance}:${state}`} className="flex flex-col items-center gap-2">
             <PetAvatar
@@ -63,6 +65,28 @@ export const Settings = {
 
 export const DarkSettings = { ...Settings, globals: { ground: 'dark' } };
 export const DarkAnimationStates = { ...AnimationStates, globals: { ground: 'dark' } };
+
+export const AnimatedCompanion = {
+  args: { appearance: 'demiurge' as PetProfile['appearance'], state: 'idle' as PetAnimationState },
+  argTypes: {
+    appearance: { control: 'select', options: petCatalog.map((pet) => pet.appearance) },
+    state: { control: 'select', options: petAnimationStates },
+  },
+  render: ({
+    appearance,
+    state,
+  }: {
+    appearance: PetProfile['appearance'];
+    state: PetAnimationState;
+  }): ReactElement => (
+    <PetAvatar
+      appearance={appearance}
+      state={state}
+      motion="full"
+      label={`${appearance}: ${state}`}
+    />
+  ),
+};
 
 const previewClient = createNixClient({
   baseUrl: 'http://nix.invalid',
