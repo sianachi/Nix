@@ -21,14 +21,17 @@ describe('pet boundary schemas', () => {
   it('accepts an owl independently of its personality', () => {
     expect(petSettingsSchema.parse(settings).profiles[0]?.personality).toBe('playful');
   });
-  it('accepts the Eye of Ra appearance', () => {
-    expect(
-      petSettingsSchema.parse({
-        ...settings,
-        profiles: [{ ...pet, appearance: 'eye-of-ra', name: 'Eye of Ra' }],
-      }).profiles[0]?.appearance,
-    ).toBe('eye-of-ra');
-  });
+  it.each(['eye-of-ra', 'demiurge', 'red', 'fox', 'cat'])(
+    'accepts the %s appearance',
+    (appearance) => {
+      expect(
+        petSettingsSchema.parse({
+          ...settings,
+          profiles: [{ ...pet, appearance, name: 'Companion' }],
+        }).profiles[0]?.appearance,
+      ).toBe(appearance);
+    },
+  );
   it('rejects duplicate identities, unknown designs, and dangling active pets', () => {
     expect(petSettingsSchema.safeParse({ ...settings, profiles: [pet, pet] }).success).toBe(false);
     expect(

@@ -23,6 +23,23 @@ public sealed class PetSettingsTests
         }
     }
 
+    [Theory]
+    [InlineData("demiurge")]
+    [InlineData("red")]
+    [InlineData("cat")]
+    [InlineData("fox")]
+    public async Task New_appearances_can_be_saved_and_read(string appearance)
+    {
+        var session = new ScopedNixSessionContextAccessor();
+        session.Set(new NixSessionContext(TenantId.Create(), null, PrincipalId.Create()));
+        var store = new MemoryStore();
+        var settings = Settings with { Profiles = [Owl with { Appearance = appearance }] };
+        var result = await new SavePetSettingsHandler(store, session).HandleAsync(new(0, settings), Cancellation);
+        Assert.True(result.IsSuccess);
+        var read = await new GetPetSettingsHandler(store, session).HandleAsync(new(), Cancellation);
+        Assert.Equal(appearance, Assert.Single(read.Settings.Profiles).Appearance);
+    }
+
     [Fact]
     public void Invalid_profiles_and_dangling_active_references_are_refused()
     {
