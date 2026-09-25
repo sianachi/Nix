@@ -1,8 +1,8 @@
 # Multi-architecture release images, published to GitHub Container Registry.
 #
-# Builds the same five images as deploy/docker/build-and-push.sh (api, migrator,
-# collab, worker, web) for linux/amd64 and linux/arm64. Each architecture builds
-# on its own native runner rather than under QEMU emulation, which is several
+# Builds the same six images as deploy/docker/build-and-push.sh (api, migrator,
+# collab, worker, web, release-tools) for linux/amd64 and linux/arm64. Each
+# architecture builds on its own native runner rather than under QEMU emulation, which is several
 # times slower for the .NET and Go compiles. The per-architecture digests are
 # then stitched into one multi-arch manifest per image, so a plain `docker pull`
 # on either an Intel/AMD or an ARM host resolves to the matching build.
@@ -48,6 +48,7 @@ jobs:
           - { name: collab, dockerfile: deploy/docker/node.Dockerfile, target: collab }
           - { name: worker, dockerfile: deploy/docker/go-workers.Dockerfile, target: '' }
           - { name: web, dockerfile: deploy/docker/web.Dockerfile, target: web }
+          - { name: release-tools, dockerfile: deploy/docker/release-tools.Dockerfile, target: release-tools }
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -105,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [api, migrator, collab, worker, web]
+        image: [api, migrator, collab, worker, web, release-tools]
     steps:
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image }}" >> "$GITHUB_ENV"

@@ -27,9 +27,12 @@ Do not apply the old override blindly: it pins old worker images. Keep a private
 
 ## Prerequisites and configuration
 
-Use Docker Engine with Compose v2 supporting `up --wait`, Git, Node 22+, pnpm, Python 3 and
-Poppler's `pdftotext` on the release/verification host. Run `pnpm install --frozen-lockfile`
-in the release checkout to build the packages used by `nixctl`.
+Use Docker Engine with Compose v2 supporting `up --wait`, Git and Python 3 on the release host;
+it needs no Node, pnpm or `pdftotext`. `nixctl` and the smoke runner ship in the `release-tools`
+image (`release-tools smoke [--preflight]`, `release-tools nixctl <args>`), which `deploy.sh`
+runs at the release tag with the host profile file mounted read-only at
+`/config/nixctl/config.json`. It reads `$NIXCTL_CONFIG`, defaulting to
+`${XDG_CONFIG_HOME:-~/.config}/nixctl/config.json`.
 
 Copy `deploy/compose.prod.env.example` to a private absolute path, restrict it to mode 0600,
 and replace every placeholder. Never commit it or print `docker compose config` with resolved
@@ -59,10 +62,12 @@ executable. It must act as the operator through Core, never query application ta
 ## Build and release
 
 Release images are built by CI, not on the host. On every push to `main` the CI images workflow
-(`.github/workflows/ci-images.yml`) publishes `api`, `migrator`, `collab`, `worker` and `web` for
-linux/amd64 and linux/arm64 to `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are
-public, so the host needs no registry login. Wait for that workflow to succeed for the commit
-before deploying it. The host still needs the matching checkout for the manifest and smoke tools:
+(`.github/workflows/ci-images.yml`) publishes `api`, `migrator`, `collab`, `worker`, `web` and
+`release-tools` for linux/amd64 and linux/arm64 to
+`ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are public, so the host needs no
+registry login. Wait for that workflow to succeed for the commit before deploying it. The host
+still needs the matching checkout for the Compose manifest and release scripts, but no
+`pnpm install`; the smoke tools come from the `release-tools` image:
 
 ```sh
 git fetch origin main

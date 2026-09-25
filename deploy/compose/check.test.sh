@@ -115,7 +115,14 @@ PYCODE
 chmod +x "$fixture/bin/docker"
 export DOCKER_TEST_LOG="$fixture/docker-calls" COMPOSE_TEST_CONFIG="$fixture/compose.json"
 export NIX_DEPLOY_ENV="$root/deploy/compose.prod.env.example" NIX_BACKUP_REFERENCE=fixture-backup
-bash deploy/compose/deploy.sh > "$fixture/deploy-result"
+# The host has no Node: deploy.sh reaches nixctl and smoke only through the release-tools image.
+if rg -q '\bnode\b' deploy/compose/deploy.sh; then echo 'deploy.sh still calls node' >&2; exit 1; fi
+mkdir "$fixture/nodeless"
+printf '#!/bin/sh\necho "node called on the host" >&2\nexit 97\n' > "$fixture/nodeless/node"
+chmod +x "$fixture/nodeless/node"
+echo '{}' > "$fixture/nixctl-config.json"
+export NIXCTL_CONFIG="$fixture/nixctl-config.json"
+PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-result"
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys
 calls=open(sys.argv[1]).read().splitlines()
@@ -127,9 +134,14 @@ pull=next(i for i,s in enumerate(calls) if s=='pull --quiet ghcr.io/sianachi/nix
 assert not any(s.startswith('pull ') and 'localhost/' in s for s in calls)
 assert pull < stop < migrate < doc < start
 assert not any('--remove-orphans' in s or ' down ' in s for s in calls)
+tools='ghcr.io/sianachi/nix/release-tools:replace-with-commit-sha'
+smokes=[i for i,s in enumerate(calls) if s.startswith('run --rm ') and tools+' smoke' in s]
+assert len(smokes)==2 and calls[smokes[0]].endswith(' smoke --preflight') and calls[smokes[1]].endswith(tools+' smoke')
+assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
+assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 PYCODE
 : > "$DOCKER_TEST_LOG"
-if FAIL_MIGRATION=1 bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
+if FAIL_MIGRATION=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
  echo 'Rollout accepted a failed migration' >&2; exit 1
 fi
 if rg -q 'up .*nix-api nix-collab' "$DOCKER_TEST_LOG"; then

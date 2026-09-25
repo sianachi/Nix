@@ -22,7 +22,7 @@ cd "$(git rev-parse --show-toplevel)"
 PLATFORM="${PLATFORM:-linux/arm64}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 
-echo "Building $REGISTRY/{api,migrator,collab,worker,web}:$TAG for $PLATFORM"
+echo "Building $REGISTRY/{api,migrator,collab,worker,web,release-tools}:$TAG for $PLATFORM"
 
 docker buildx build --platform "$PLATFORM" --target api \
   -f deploy/docker/backend.Dockerfile -t "$REGISTRY/api:$TAG" --push .
@@ -39,6 +39,9 @@ docker buildx build --platform "$PLATFORM" \
 docker buildx build --platform "$PLATFORM" --target web \
   -f deploy/docker/web.Dockerfile \
   -t "$REGISTRY/web:$TAG" --push .
+
+docker buildx build --platform "$PLATFORM" --target release-tools \
+  -f deploy/docker/release-tools.Dockerfile -t "$REGISTRY/release-tools:$TAG" --push .
 
 echo "Built and pushed tag $TAG. Deploy with:"
 echo "  REGISTRY=$REGISTRY TAG=$TAG deploy/k8s/deploy.sh"

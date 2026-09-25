@@ -10,16 +10,30 @@ case "$NIX_DEPLOY_ENV" in /*) ;; *) echo 'NIX_DEPLOY_ENV must be absolute' >&2; 
 compose=(docker compose -p nix --env-file "$NIX_DEPLOY_ENV" -f "$root/deploy/compose.prod.yml")
 # Validate without printing interpolated credentials.
 "${compose[@]}" config --quiet
-NIX_SMOKE_ORIGIN=$("${compose[@]}" --profile maintenance config --format json | node -e '
-let s=""; process.stdin.on("data", d=>s+=d); process.stdin.on("end",()=>{
- const c=JSON.parse(s);
- if (!c.services["nix-collab-migrate"].environment.NIX_COLLAB_MIGRATOR_CONNECTION_STRING) {
-  console.error("Set the separate collaboration migrator connection before deployment."); process.exit(1);
- }
- console.log(c.services["nix-api"].environment.Nix__Bff__PublicOrigin);
-});')
+release_config=$("${compose[@]}" --profile maintenance config --format json | python3 -c '
+import json, sys
+s = json.load(sys.stdin)["services"]
+if not s["nix-collab-migrate"]["environment"].get("NIX_COLLAB_MIGRATOR_CONNECTION_STRING"):
+    sys.exit("Set the separate collaboration migrator connection before deployment.")
+registry, sep, tag = s["nix-api"]["image"].rpartition("/api:")
+if not sep:
+    sys.exit("Cannot derive the release-tools image from the nix-api image.")
+print(s["nix-api"]["environment"]["Nix__Bff__PublicOrigin"])
+print(registry + "/release-tools:" + tag)')
+{ read -r NIX_SMOKE_ORIGIN; read -r release_tools_image; } <<< "$release_config"
 export NIX_SMOKE_ORIGIN
-node "$root/deploy/compose/smoke.mjs" --preflight
+# Smoke checks run from the release-tools image at the release tag; the host needs no Node.
+nixctl_config=${NIXCTL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/nixctl/config.json}
+[ -f "$nixctl_config" ] || { echo "nixctl profile file not found: $nixctl_config" >&2; exit 2; }
+case "$release_tools_image" in
+  localhost/*) docker image inspect "$release_tools_image" >/dev/null ;;
+  *) docker pull --quiet "$release_tools_image" >/dev/null ;;
+esac
+smoke() {
+  docker run --rm --user "$(id -u):$(id -g)" -v "$nixctl_config:/config/nixctl/config.json:ro" \
+    -e NIXCTL_PROFILE -e NIX_SMOKE_WORKSPACE -e NIX_SMOKE_ORIGIN "$release_tools_image" smoke "$@"
+}
+smoke --preflight
 # Fetch release images before writers stop, so the maintenance window excludes the download.
 # Host-built images (NIX_IMAGE_REGISTRY=localhost/nix) must already exist locally.
 release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-web)
@@ -39,5 +53,5 @@ done < <("${compose[@]}" --profile maintenance config --images "${release_servic
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-collab-migrate
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-api nix-collab
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-web cloudflared
-node "$root/deploy/compose/smoke.mjs"
+smoke
 echo 'Compose release passed import/export verification. Complete browser checks in the runbook.'
