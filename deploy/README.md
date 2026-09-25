@@ -153,6 +153,10 @@ prints a note (it rejects them only under `NIX_REQUIRE_ZITADEL=1`).
 
 ### Off-host backups
 
+[deploy/backup/production.md](backup/production.md) is the operator guide to the whole backup
+system: what each backup contains and leaves out, how it is verified, health checks, restore and
+disaster recovery, credentials and troubleshooting. This section covers setup.
+
 `deploy/compose/offsite.sh` copies verified backup directories to an encrypted restic repository
 on Cloudflare R2, using the pinned restic image in a hardened container (read-only root, no
 capabilities beyond reading files, private tmpfs cache, default bridge network only). It pushes
