@@ -123,14 +123,35 @@ and set `NIX_IMAGE_REGISTRY=localhost/nix` in `release.conf`; the release then c
 images exist rather than querying a registry. The build uses `git archive`, so uncommitted
 secrets never enter a context.
 
-Before rollout, take and verify a restorable Postgres backup and a consistent Versity volume
-backup, plus the private configuration and signing keys. Record their locations securely and
-check schema rollback compatibility. A string in the following variable records the operator's
-verification; the release script does not create or validate backups itself.
+Before rollout, take and verify a backup with `deploy/compose/backup.sh`, run on the host from
+the release checkout while the current release is still serving. It writes
+`~/nix-backups/pre-<sha>` (base directory `NIX_BACKUP_ROOT`), refuses an existing directory and
+never deletes anything. The directory (mode 700, files mode 600) holds a custom-format `nix.dump`,
+`roles.sql`, tar archives of `nix-versity-data` (taken with Versity paused, always unpaused
+afterwards), `nix-api-data-protection` and `nix-companion-data`, copies of the private env file,
+the core access-token key (found from the `nix-api` mount, or `NIX_CORE_ACCESS_TOKEN_PEM`), the
+running compose file and Caddyfile, `containers.private.json` and `SHA256SUMS`. It then restores
+roles and the dump into an isolated `--network none` pgvector container, compares table counts and
+the largest tables' row counts with live, compares each archive's file count with its volume (drift
+in the companion volume is only a warning) and records the outcome in `verified.txt`. These files
+contain secrets; the script never prints them. Row drift means writers changed data during the
+backup; rerun under a new `NIX_BACKUP_ROOT` rather than editing the directory. Check schema
+rollback compatibility separately. `deploy.sh` requires `NIX_BACKUP_REFERENCE` to be that
+absolute directory and runs `backup.sh --check` on it before anything else; the check fails
+unless every file is present, `SHA256SUMS` verifies and `verified.txt` records a passed restore.
 
 `release.sh` passes `NIX_DEPLOY_ENV`, `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`,
 `NIX_BACKUP_REFERENCE` and the image tags to `deploy/compose/deploy.sh`. Run `deploy.sh`
-directly only to recover from a failed release, with those variables exported by hand.
+directly only to recover from a failed release, with those variables exported by hand. A manual run looks like this:
+
+```sh
+export NIX_DEPLOY_ENV=/absolute/private/production.env
+export NIXCTL_PROFILE=production
+export NIX_SMOKE_WORKSPACE=<dedicated-workspace-uuid>
+bash deploy/compose/backup.sh <release-sha>
+export NIX_BACKUP_REFERENCE="$HOME/nix-backups/pre-<release-sha>"
+bash deploy/compose/deploy.sh
+```
 
 The script validates configuration, pulls or checks the release images, checks verification credentials and confirms the profile URL matches the deployed public origin, brings up
 infrastructure and the bucket, stops application writers, runs Core/template/document migrations,
