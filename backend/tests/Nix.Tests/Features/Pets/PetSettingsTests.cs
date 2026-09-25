@@ -25,7 +25,6 @@ public sealed class PetSettingsTests
 
     [Theory]
     [InlineData("demiurge")]
-    [InlineData("red")]
     [InlineData("cat")]
     [InlineData("fox")]
     public async Task New_appearances_can_be_saved_and_read(string appearance)

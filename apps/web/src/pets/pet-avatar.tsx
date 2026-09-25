@@ -4,14 +4,12 @@ import type { PetProfile, PetSettings } from '@nix/api-client';
 import atlas from './owl-atlas.json';
 import eyeOfRaAtlas from './eye-of-ra-atlas.json';
 import demiurgeAtlas from './demiurge-atlas.json';
-import redAtlas from './red-atlas.json';
 import foxAtlas from './fox-atlas.json';
 import nekoAtlas from './neko-atlas.json';
 
 export const petAtlases = {
   'eye-of-ra': eyeOfRaAtlas,
   demiurge: demiurgeAtlas,
-  red: redAtlas,
   fox: foxAtlas,
   cat: nekoAtlas,
 } as const;

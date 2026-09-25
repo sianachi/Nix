@@ -31,12 +31,6 @@ export const petCatalog = [
     personality: 'calm',
     description: 'A thoughtful lion-headed serpent with patient, considered guidance.',
   },
-  {
-    appearance: 'red',
-    name: 'Red',
-    personality: 'concise',
-    description: 'The determined Angry Bird. Direct answers and a focused approach.',
-  },
 ] as const;
 
 export const personalityDescriptions = {

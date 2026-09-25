@@ -33,7 +33,7 @@ describe('pet configuration', () => {
     });
   });
 
-  it.each(['eye-of-ra', 'demiurge', 'red', 'fox', 'cat'])(
+  it.each(['eye-of-ra', 'demiurge', 'fox', 'cat'])(
     'offers and saves %s',
     async (appearance) => {
       const save = vi.fn().mockResolvedValue(true);
