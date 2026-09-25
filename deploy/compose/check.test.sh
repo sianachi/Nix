@@ -6,6 +6,7 @@ fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh
 node --check deploy/compose/smoke.mjs
+bash deploy/compose/release.test.sh
 # Validate real Compose interpolation, without printing credentials.
 docker compose --env-file deploy/compose.prod.env.example -f deploy/compose.prod.yml --profile maintenance config --format json > "$fixture/compose.json"
 python3 - "$fixture/compose.json" <<'PY'

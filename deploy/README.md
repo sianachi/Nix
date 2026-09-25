@@ -67,35 +67,59 @@ Release images are built by CI, not on the host. On every push to `main` the CI 
 `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are public, so the host needs no
 registry login. Wait for that workflow to succeed for the commit before deploying it. The host
 still needs the matching checkout for the Compose manifest and release scripts, but no
-`pnpm install`; the smoke tools come from the `release-tools` image:
+`pnpm install`; the smoke tools come from the `release-tools` image.
+
+A release is one command, `deploy/compose/release.sh <full-40-char-sha>`, run on the host from a
+checkout of that SHA. Secrets and release details stay apart: the secrets file is never edited
+per release, and the image tags come from the SHA argument.
+
+Setup once. Keep one canonical secrets file at `~/nix-production/production.env` (mode 0600),
+prepared as described above. Copy `deploy/compose/release.conf.example` to
+`~/nix-production/release.conf` and fill in the non-secret host settings: `NIX_DEPLOY_ENV` (the
+absolute path of that secrets file), `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`, `NIX_BACKUP_ROOT`,
+`NIX_RELEASE_LEDGER`, `NIX_RELEASE_LOCK` and `NIX_IMAGE_REGISTRY`. The script sources it as
+shell, so keep it operator-owned and free of secrets. `NIX_RELEASE_CONF` selects another path.
+
+Per release, check out the SHA and run the script:
 
 ```sh
 git fetch origin main
-git checkout --detach origin/main
-git rev-parse HEAD
+git checkout --detach <full-40-char-sha>
+bash deploy/compose/release.sh <full-40-char-sha>
 ```
 
-Set `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` to that full SHA in the private env file. Normally
-leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix, it may select another
-immutable worker image while other services keep their existing tags; record the complete image
-matrix. The release script pulls the images before stopping any writer.
+`release.sh` refuses a short or non-hex SHA, a checkout whose `HEAD` is not that SHA, or modified
+tracked files, because the manifest and smoke tools must match the images. It resolves the
+release image matrix through Compose and confirms every image exists in the registry
+(`docker manifest inspect`) before anything else, takes the host release lock with `flock`,
+prints the plan and asks for confirmation before any writer stops (`--yes` skips the prompt; a
+non-interactive run without `--yes` is refused). It runs `backup.sh <sha>` and checks the result,
+unless `NIX_BACKUP_REFERENCE` already names a directory that passes `backup.sh --check`. It then
+exports `NIX_IMAGE_TAG` and `NIX_WEB_IMAGE_TAG` as the SHA and runs `deploy.sh`. Compose
+interpolation prefers shell variables over `--env-file` values (verified with
+`docker compose config --images` on Compose v2.35), so the tag placeholders in the secrets file
+are ignored. Every confirmed attempt appends one tab-separated line to the ledger: UTC time,
+SHA, backup directory, result (`succeeded`, `failed:backup` or `failed:deploy`) and
+`operator=$USER`.
+
+Normally leave `NIX_WORKER_IMAGE_TAG` unset. For a reviewed worker-only hotfix it may select
+another immutable worker image in the secrets file while other services take the release SHA;
+the printed plan shows the resulting matrix and `release.sh` checks it like the others. The
+images are pulled before any writer stops.
 
 To run an unpublished tree instead, build it on the host with `bash deploy/compose/build.sh HEAD`
-and set `NIX_IMAGE_REGISTRY=localhost/nix`; the release then checks those local images exist
-rather than pulling. The build uses `git archive`, so uncommitted secrets never enter a context.
+and set `NIX_IMAGE_REGISTRY=localhost/nix` in `release.conf`; the release then checks those local
+images exist rather than querying a registry. The build uses `git archive`, so uncommitted
+secrets never enter a context.
 
 Before rollout, take and verify a restorable Postgres backup and a consistent Versity volume
 backup, plus the private configuration and signing keys. Record their locations securely and
 check schema rollback compatibility. A string in the following variable records the operator's
 verification; the release script does not create or validate backups itself.
 
-```sh
-export NIX_DEPLOY_ENV=/absolute/private/production.env
-export NIXCTL_PROFILE=production
-export NIX_SMOKE_WORKSPACE=<dedicated-workspace-uuid>
-export NIX_BACKUP_REFERENCE=<verified-backup-reference>
-bash deploy/compose/deploy.sh
-```
+`release.sh` passes `NIX_DEPLOY_ENV`, `NIXCTL_PROFILE`, `NIX_SMOKE_WORKSPACE`,
+`NIX_BACKUP_REFERENCE` and the image tags to `deploy/compose/deploy.sh`. Run `deploy.sh`
+directly only to recover from a failed release, with those variables exported by hand.
 
 The script validates configuration, pulls or checks the release images, checks verification credentials and confirms the profile URL matches the deployed public origin, brings up
 infrastructure and the bucket, stops application writers, runs Core/template/document migrations,

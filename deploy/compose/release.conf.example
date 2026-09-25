@@ -1,0 +1,25 @@
+# Non-secret release settings for the Compose host. Copy to ~/nix-production/release.conf
+# (or point NIX_RELEASE_CONF at another path). release.sh sources this file as shell, so keep it
+# operator-owned and not group/world-writable. Never put passwords, tokens or keys here: those
+# live only in the private env file named by NIX_DEPLOY_ENV.
+
+# Canonical private secrets file (mode 0600). release.sh never edits it; release image tags
+# are supplied from the shell environment, which Compose prefers over --env-file values.
+NIX_DEPLOY_ENV=/home/nvidia/nix-production/production.env
+
+# Operator nixctl profile and the dedicated workspace used for disposable smoke items.
+NIXCTL_PROFILE=production
+NIX_SMOKE_WORKSPACE=replace-with-smoke-workspace-uuid
+
+# backup.sh <sha> writes $NIX_BACKUP_ROOT/pre-<sha>.
+NIX_BACKUP_ROOT=/home/nvidia/nix-backups
+
+# Append-only, tab-separated record of every release attempt.
+NIX_RELEASE_LEDGER=/home/nvidia/nix-production/releases.tsv
+
+# Host-wide release lock shared with any other release tooling.
+NIX_RELEASE_LOCK=/home/nvidia/nix-release.lock
+
+# Image registry. CI publishes to ghcr.io/sianachi/nix. Use localhost/nix only for images built
+# on the host with deploy/compose/build.sh; the registry existence check is then skipped.
+NIX_IMAGE_REGISTRY=ghcr.io/sianachi/nix
