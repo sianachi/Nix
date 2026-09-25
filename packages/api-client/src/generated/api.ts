@@ -3090,6 +3090,8 @@ export interface components {
       toolSuccess: boolean;
       /** Format: uuid */
       historyId?: null | string;
+      /** @default  */
+      mode: string;
     };
     PetSettings: {
       enabled: boolean;

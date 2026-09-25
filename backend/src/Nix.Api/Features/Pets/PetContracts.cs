@@ -39,12 +39,13 @@ public sealed record PetMessage(string Id, string Role, string Text, IReadOnlyLi
 /// <summary>Companion operation. Identity and permissions are always derived by Core.</summary>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
-    string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null);
+    string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
+    string Mode = "");
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
     string ItemId, string ItemTitle, string SharedText, string Model, bool WorkspaceAccess,
-    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId);
+    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PetSettings))]
