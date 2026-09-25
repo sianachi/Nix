@@ -7,39 +7,34 @@
 # then stitched into one multi-arch manifest per image, so a plain `docker pull`
 # on either an Intel/AMD or an ARM host resolves to the matching build.
 #
-# Published as ghcr.io/<owner>/nix/<image>:<full commit SHA>, plus the version
-# (without the leading v) for a v* tag. There is deliberately no "latest": a
-# floating tag with imagePullPolicy IfNotPresent keeps running the old build.
-# Deploy with REGISTRY=ghcr.io/<owner>/nix TAG=$(git rev-parse HEAD).
+# Published as ghcr.io/<owner>/nix/<image>:<full commit SHA>. There is
+# deliberately no "latest": a floating tag with imagePullPolicy IfNotPresent
+# keeps running the old build. Deploy with REGISTRY=ghcr.io/<owner>/nix
+# TAG=$(git rev-parse HEAD).
 #
-# Pull requests that touch the Dockerfiles build both architectures without
-# pushing, so a broken image is caught before it reaches main.
+# Builds run only for main: on a push to it, or a manual dispatch against it.
+# Pull requests, other branches and tags do not build images; the backend,
+# frontend and deploy workflows still check pull requests before they merge.
 name: CI images
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
-    paths:
-      - 'deploy/docker/**'
-      - '.dockerignore'
-      - '.github/workflows/ci-images.yml'
   workflow_dispatch:
 
+# One main-branch build at a time, never cancelled: a published SHA is what a release deploys.
 concurrency:
   group: ci-images-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
-env:
-  PUSH: ${{ github.event_name != 'pull_request' }}
-
 jobs:
   build:
     name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
+    # A manual dispatch can name any branch; only main is ever built and published.
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -69,7 +64,6 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
-        if: env.PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -84,19 +78,17 @@ jobs:
           target: ${{ matrix.image.target }}
           platforms: linux/${{ matrix.arch }}
           # Pushed by digest only; the merge job attaches the tags to the manifest list.
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
 
       - name: Record digest
-        if: env.PUSH == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/digests"
           digest='${{ steps.build.outputs.digest }}'
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
 
       - uses: actions/upload-artifact@v4
-        if: env.PUSH == 'true'
         with:
           name: digests-${{ matrix.image.name }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
@@ -105,7 +97,6 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.image }}
-    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -140,7 +131,6 @@ jobs:
           flavor: latest=false
           tags: |
             type=sha,prefix=,format=long
-            type=semver,pattern={{version}}
 
       - name: Create multi-arch manifest
         working-directory: ${{ runner.temp }}/digests
