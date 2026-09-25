@@ -175,6 +175,13 @@ cmd_restore() {
   restic_run --cap-add=CHOWN --cap-add=FOWNER --cap-add=DAC_OVERRIDE \
     --mount "type=bind,src=$target,dst=/restore" -- \
     restore "$snapshot" --host "$host" --target /restore --verify
+  # restic runs as root in its container, so the directories it creates above the snapshot's
+  # own files (backup/) are root-owned and the operator could not remove the restore afterwards.
+  # Hand the whole target to the invoking user, from the same image, with no network and only
+  # the capabilities chown needs: CHOWN, and DAC_READ_SEARCH to enter the mode-700 target.
+  docker run --rm --read-only --network none --cap-drop=ALL --cap-add=CHOWN --cap-add=DAC_READ_SEARCH \
+    --security-opt=no-new-privileges:true --entrypoint /bin/chown \
+    --mount "type=bind,src=$target,dst=/restore" "$image" -R "$(id -u):$(id -g)" /restore
   echo "offsite: restored $snapshot into $target"
   for restored in "$target"/backup/*; do
     [[ -d $restored ]] && echo "offsite: verify it with: bash $here/backup.sh --check $restored"

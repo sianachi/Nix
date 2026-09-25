@@ -15,6 +15,8 @@ args = sys.argv[1:]
 with open(os.environ['OFFSITE_DOCKER_LOG'], 'a') as log:
     log.write(' '.join(args) + '\n')
 restic = args[args.index('--cache-dir') + 2:] if '--cache-dir' in args else []
+if not restic and args[args.index('--entrypoint') + 1:args.index('--entrypoint') + 2] == ['/bin/chown'] if '--entrypoint' in args else False:
+    sys.exit(0)
 if not restic:
     sys.exit('unexpected docker call')
 if restic[:2] == ['cat', 'config']:
@@ -138,5 +140,8 @@ run restore 0123abcd "$work/restore" || { cat "$work/out" >&2; fail 'restore fai
 grep -q -- "--cap-add=CHOWN --cap-add=FOWNER --cap-add=DAC_OVERRIDE --mount type=bind,src=$work/restore,dst=/restore " "$work/docker.log" \
   || fail 'restore call wrong'
 grep -q -- 'restore 0123abcd --host nix-production --target /restore --verify$' "$work/docker.log" || fail 'restore arguments wrong'
+# The restored tree is handed to the invoking user, from an offline, chown-only container.
+grep -q -- "--network none --cap-drop=ALL --cap-add=CHOWN --cap-add=DAC_READ_SEARCH --security-opt=no-new-privileges:true --entrypoint /bin/chown --mount type=bind,src=$work/restore,dst=/restore .* -R $(id -u):$(id -g) /restore$" "$work/docker.log" \
+  || fail 'restore did not hand the tree to the invoking user'
 no_secret restore
 echo 'offsite.sh checks passed.'
