@@ -78,8 +78,11 @@ export function SidebarDrawer({ onClose, children }: SidebarDrawerProps): ReactN
 
       {/* design-token-exempt: a drawer's width is a dimension picked by looking at a composition,
           the same category `layout/regions.ts` puts the sidebar's own flex width in - not a step on any
-          scale. Capped at 85vw so a narrow phone always shows a sliver of the scrim behind it,
-          which is the visual cue that this is an overlay and not the page.
+          scale. Capped at 85% so a narrow phone always shows a sliver of the scrim behind it,
+          which is the visual cue that this is an overlay and not the page. A percentage of the
+          pane row this panel is anchored to, never `vw`: with the drawer open the nav rail sits
+          to the left of that row, so a viewport-relative width ran the panel off the right edge
+          of a phone by the rail's own width.
 
           `z-10`, not `z-20`: this panel and the scrim below it sit *beside* `<main>`, not inside
           it, so `<main>`'s own `isolate` (see `app-shell.tsx`) does nothing to keep this pair out
@@ -89,7 +92,7 @@ export function SidebarDrawer({ onClose, children }: SidebarDrawerProps): ReactN
           in the one stacking context they all share. Ordering the panel above its own scrim
           (`z-10` over `z-0`) is the only thing this pair's numbers need to do relative to each
           other. See `app-shell.tsx`'s skip-link comment for the full ladder. */}
-      <div className="absolute inset-y-0 left-0 z-10 flex w-[min(85vw,320px)] shrink-0 overflow-hidden shadow-lg">
+      <div className="absolute inset-y-0 left-0 z-10 flex w-[min(85%,320px)] shrink-0 overflow-hidden shadow-lg">
         {children}
       </div>
     </>

@@ -22,7 +22,7 @@ export function MobileWorkspaceBrowser({
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
   return (
     <aside aria-label="Workspace" className="flex min-h-0 w-full flex-col bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider p-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-divider p-3">
         {parentId !== null ? (
           <Button
             variant="ghost"

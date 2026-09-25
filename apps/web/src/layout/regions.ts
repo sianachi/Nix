@@ -26,7 +26,7 @@
  * two that are deliberately absent are worth naming so the next reader can see
  * the line was drawn rather than forgotten:
  *
- *   - the drawer's `w-[min(85vw,320px)]` cap (`sidebar-drawer.tsx`), which no
+ *   - the drawer's `w-[min(85%,320px)]` cap (`sidebar-drawer.tsx`), which no
  *     other file reasons about, and
  *   - the rail's width, which is never declared numerically at all - it falls
  *     out of `size-(--control-lg)` and its padding, and inventing a constant
