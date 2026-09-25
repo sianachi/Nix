@@ -32,11 +32,11 @@ type toolTransport interface {
 
 func workspaceTools() []any {
 	properties := map[string]any{}
-	for _, key := range []string{"itemId", "parentId", "title", "markdown", "query", "propertiesJson"} {
+	for _, key := range []string{"itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"} {
 		properties[key] = map[string]string{"type": "string"}
 	}
-	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list_items", "search", "read_item", "read_note", "read_schema", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item"}}
-	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. list_items uses parentId (empty for roots); search uses query. read_item, read_note and read_schema use itemId. create_note uses title, markdown and optional parentId. append_note adds markdown without replacing existing content. rename_item uses itemId and title. move_item uses itemId and parentId (empty for root). set_properties merges a JSON object in propertiesJson; first read_schema for valid fields, including task semantics. trash_item is recoverable; permanent deletion and workspace administration are not available.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson"}, "properties": properties}}}
+	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "list_templates", "read_template", "apply_template"}}
+	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
 }
 
 func (a *account) listModels(ctx context.Context) error {
@@ -154,7 +154,7 @@ func toolIdentity(raw string) (string, bool) {
 		return "", false
 	}
 	operation, _ := args["operation"].(string)
-	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_schema"
+	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template"
 	if properties, ok := args["propertiesJson"].(string); ok && properties != "" {
 		var object map[string]any
 		decoder := json.NewDecoder(strings.NewReader(properties))
@@ -162,6 +162,15 @@ func toolIdentity(raw string) (string, bool) {
 		if json.Valid([]byte(properties)) && decoder.Decode(&object) == nil && object != nil {
 			canonical, _ := json.Marshal(object)
 			args["propertiesJson"] = string(canonical)
+		}
+	}
+	if spec, ok := args["specJson"].(string); ok && spec != "" {
+		var object map[string]any
+		decoder := json.NewDecoder(strings.NewReader(spec))
+		decoder.UseNumber()
+		if json.Valid([]byte(spec)) && decoder.Decode(&object) == nil && object != nil {
+			canonical, _ := json.Marshal(object)
+			args["specJson"] = string(canonical)
 		}
 	}
 	canonical, err := json.Marshal(args)
@@ -184,6 +193,7 @@ func validateToolArguments(raw json.RawMessage) string {
 		Markdown   string `json:"markdown"`
 		Query      string `json:"query"`
 		Properties string `json:"propertiesJson"`
+		Spec       string `json:"specJson"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
@@ -192,6 +202,15 @@ func validateToolArguments(raw json.RawMessage) string {
 	}
 	if len(p.Title) > 240 || len(p.Markdown) > 16000 || len(p.Query) > 240 || len(p.Properties) > 8000 {
 		return "Tool arguments exceed the supported size limit."
+	}
+	if len(p.Spec) > 24000 {
+		return "The design is too large. Use fewer items and fields."
+	}
+	if p.Spec != "" && p.Markdown != "" {
+		return "Put markdown inside specJson entries, not alongside it."
+	}
+	if p.Spec != "" && jsonDepth(p.Spec) > 24 {
+		return "The design is too large. Use fewer items and fields."
 	}
 	if p.ParentID != "" && !uuid.MatchString(p.ParentID) {
 		return "parentId must be a Nix item UUID or empty for the workspace root."
@@ -205,11 +224,12 @@ func validateToolArguments(raw json.RawMessage) string {
 		if strings.TrimSpace(p.Query) == "" {
 			return "search requires a nonempty query."
 		}
+	case "list_templates":
 	case "create_note":
 		if strings.TrimSpace(p.Title) == "" {
 			return "create_note requires a title."
 		}
-	case "read_item", "read_note", "read_schema", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item":
+	case "read_item", "read_note", "read_structure", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "read_template":
 		if !uuid.MatchString(p.ItemID) {
 			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
 		}
@@ -225,10 +245,81 @@ func validateToolArguments(raw json.RawMessage) string {
 				return "set_properties requires a JSON object in propertiesJson."
 			}
 		}
+	case "create_structured":
+		if strings.TrimSpace(p.Title) == "" {
+			return "create_structured requires a title."
+		}
+		if !isJSONObject(p.Spec) {
+			return "create_structured requires a JSON object in specJson."
+		}
+	case "add_view":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if !isJSONObject(p.Spec) {
+			return "add_view requires a JSON object in specJson."
+		}
+	case "create_entries":
+		if !uuid.MatchString(p.ParentID) {
+			return "create_entries requires the exact parentId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if !isJSONObject(p.Spec) {
+			return "create_entries requires a JSON object in specJson."
+		}
+	case "apply_template":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if strings.TrimSpace(p.Title) == "" {
+			return "apply_template requires a title."
+		}
+		if p.Spec != "" && !isJSONObject(p.Spec) {
+			return "apply_template requires a JSON object in specJson when supplied."
+		}
 	default:
 		return "Unsupported workspace operation."
 	}
 	return ""
+}
+
+// isJSONObject reports whether raw decodes as a JSON object (not an array, scalar or
+// empty string).
+func isJSONObject(raw string) bool {
+	var object map[string]json.RawMessage
+	return raw != "" && json.Unmarshal([]byte(raw), &object) == nil && object != nil
+}
+
+// jsonDepth counts the maximum nesting of '{' and '[' in raw, ignoring anything inside a
+// JSON string, without decoding the document. Used to bound specJson before it is parsed.
+func jsonDepth(raw string) int {
+	depth, maxDepth := 0, 0
+	inString, escaped := false, false
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		case '}', ']':
+			depth--
+		}
+	}
+	return maxDepth
 }
 
 func (a *account) resolveTool(key string, r Request) error {

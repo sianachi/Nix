@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -82,7 +83,20 @@ func TestToolIdentityPreservesPayloadAndNormalizesObjectKeys(t *testing.T) {
 }
 
 func TestInvalidToolArgumentsNeverReachApproval(t *testing.T) {
-	for _, raw := range []string{`{"operation":"read_schema"}`, `{"operation":"shell"}`, `{"operation":"create_note","title":""}`, `{"operation":"create_note","title":"Safe","url":"https://example.com"}`, `{"operation":"read_note","itemId":"https://example.com"}`, `{"operation":"search","query":""}`} {
+	for _, raw := range []string{
+		`{"operation":"read_schema"}`,
+		`{"operation":"shell"}`,
+		`{"operation":"create_note","title":""}`,
+		`{"operation":"create_note","title":"Safe","url":"https://example.com"}`,
+		`{"operation":"read_note","itemId":"https://example.com"}`,
+		`{"operation":"search","query":""}`,
+		`{"operation":"create_structured","title":""}`,
+		`{"operation":"create_structured","title":"Plan","specJson":"[]"}`,
+		`{"operation":"create_structured","title":"Plan","specJson":"1"}`,
+		`{"operation":"add_view","itemId":"not-a-uuid","specJson":"{}"}`,
+		`{"operation":"create_entries","parentId":"","specJson":"{}"}`,
+		`{"operation":"apply_template","itemId":"11111111-1111-4111-8111-111111111111","title":""}`,
+	} {
 		peer := &toolPeer{}
 		a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", State: "thinking", WorkspaceAccess: true}}}
 		request := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_workspace","callId":"bad","arguments":%s}`, raw))
@@ -91,6 +105,117 @@ func TestInvalidToolArgumentsNeverReachApproval(t *testing.T) {
 		}
 		if len(a.snapshot("x").Tools) != 0 || len(peer.replies) != 1 {
 			t.Fatalf("invalid request reached approval: %s", raw)
+		}
+	}
+}
+
+func TestSpecJsonLimitsAndDepth(t *testing.T) {
+	oversized := `{"operation":"create_structured","parentId":"","title":"Plan","specJson":"` + strings.Repeat("a", 24001) + `"}`
+	if got := validateToolArguments(json.RawMessage(oversized)); got != "The design is too large. Use fewer items and fields." {
+		t.Fatalf("oversized specJson not refused with the exact message: %q", got)
+	}
+	deep := strings.Repeat(`{"a":`, 25) + "1" + strings.Repeat("}", 25)
+	deepArgs, err := json.Marshal(map[string]string{"operation": "create_structured", "parentId": "", "title": "Plan", "specJson": deep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := validateToolArguments(json.RawMessage(deepArgs)); got != "The design is too large. Use fewer items and fields." {
+		t.Fatalf("depth-25 specJson not refused with the exact message: %q", got)
+	}
+	atLimit := strings.Repeat(`{"a":`, 24) + "1" + strings.Repeat("}", 24)
+	atLimitArgs, err := json.Marshal(map[string]string{"operation": "create_structured", "parentId": "", "title": "Plan", "specJson": atLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := validateToolArguments(json.RawMessage(atLimitArgs)); got != "" {
+		t.Fatalf("depth-24 specJson wrongly refused: %q", got)
+	}
+	shallow := `{"a":1}`
+	if jsonDepth(shallow) != 1 {
+		t.Fatalf("shallow object misjudged: %d", jsonDepth(shallow))
+	}
+	bracketsInString := `{"a":"{{{{[[[["}`
+	if jsonDepth(bracketsInString) != 1 {
+		t.Fatalf("brackets inside a string counted as nesting: %d", jsonDepth(bracketsInString))
+	}
+	alongsideMarkdown := `{"operation":"create_note","title":"Plan","markdown":"body","specJson":"{}"}`
+	if got := validateToolArguments(json.RawMessage(alongsideMarkdown)); got != "Put markdown inside specJson entries, not alongside it." {
+		t.Fatalf("markdown alongside specJson not refused: %q", got)
+	}
+}
+
+func TestNewOperationsAcceptValidArguments(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, raw := range []string{
+		fmt.Sprintf(`{"operation":"read_structure","itemId":%q}`, itemID),
+		`{"operation":"create_structured","title":"Plan","specJson":"{\"recipe\":\"list\",\"fields\":[]}"}`,
+		fmt.Sprintf(`{"operation":"add_view","itemId":%q,"specJson":"{\"views\":[]}"}`, itemID),
+		fmt.Sprintf(`{"operation":"create_entries","parentId":%q,"specJson":"{\"entries\":[]}"}`, itemID),
+		`{"operation":"list_templates"}`,
+		fmt.Sprintf(`{"operation":"read_template","itemId":%q}`, itemID),
+		fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
+	} {
+		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+			t.Fatalf("valid arguments refused: %s -> %q", raw, got)
+		}
+	}
+}
+
+func TestReadSchemaIsNoLongerAnOperation(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)))
+	if got != "Unsupported workspace operation." {
+		t.Fatalf("read_schema still accepted: %q", got)
+	}
+}
+
+func TestSpecJsonIdentityIsCanonical(t *testing.T) {
+	one, _ := toolIdentity(`{"operation":"create_structured","specJson":"{\"a\":1,\"b\":2}"}`)
+	two, _ := toolIdentity(`{"specJson":"{\"b\":2, \"a\":1}","operation":"create_structured"}`)
+	if one != two {
+		t.Fatal("specJson key order changes identity")
+	}
+}
+
+func TestNewReadOperationsAreReadOnly(t *testing.T) {
+	for _, raw := range []string{
+		`{"operation":"read_structure","itemId":"11111111-1111-4111-8111-111111111111"}`,
+		`{"operation":"list_templates"}`,
+		`{"operation":"read_template","itemId":"11111111-1111-4111-8111-111111111111"}`,
+	} {
+		_, readOnly := toolIdentity(raw)
+		if !readOnly {
+			t.Fatalf("operation not marked read-only: %s", raw)
+		}
+	}
+	for _, raw := range []string{
+		`{"operation":"create_structured"}`,
+		`{"operation":"add_view"}`,
+		`{"operation":"create_entries"}`,
+		`{"operation":"apply_template"}`,
+	} {
+		_, readOnly := toolIdentity(raw)
+		if readOnly {
+			t.Fatalf("write operation marked read-only: %s", raw)
+		}
+	}
+}
+
+func TestChatCatalogIsEmbeddedAndBounded(t *testing.T) {
+	if chatCatalog == "" {
+		t.Fatal("chat catalog is empty")
+	}
+	if len(chatCatalog) > 3000 {
+		t.Fatalf("chat catalog exceeds the 3000 byte budget: %d", len(chatCatalog))
+	}
+	for _, word := range []string{"Field types", "View kinds and requirements", "Recipes", "Never"} {
+		if !strings.Contains(chatCatalog, word) {
+			t.Fatalf("chat catalog missing section %q", word)
+		}
+	}
+	for _, op := range []string{"create_structured", "add_view", "create_entries"} {
+		if !strings.Contains(chatCatalog, op) {
+			t.Fatalf("chat catalog does not name structure operation %q", op)
 		}
 	}
 }

@@ -1,0 +1,50 @@
+create_structured, add_view and create_entries use the following field types, view kinds and recipes.
+
+Field types
+text: a string
+number: a number
+select: a string matching one of the field's options
+multi_select: an array of strings, each matching one of the field's options
+date: a date, yyyy-MM-dd
+timestamp: a date and time, ISO 8601
+checkbox: true or false
+url: a link, as a string
+image: a picture link, as a string
+due_date: a date, yyyy-MM-dd
+start_date: a date, yyyy-MM-dd
+completion: true or false
+priority: a number from 1 to 4
+estimate: a number
+formula: computed from other fields, never given a value
+rollup: computed from children, never given a value
+
+View kinds and requirements
+board needs a select field as groupBy
+calendar needs a date-shaped field as date
+timeline needs a date-shaped field as date
+gallery needs an image field as cover
+chart needs a select field as groupBy and a numeric field as measureField
+list needs nothing beyond fields
+sheet needs nothing beyond fields
+form needs nothing beyond fields
+interactive_form needs nothing beyond fields
+query needs nothing beyond fields
+habit_tracker needs nothing beyond fields
+
+Recipes
+form
+interactive-form
+board
+sheet
+list
+calendar
+timeline
+gallery
+habit-tracker
+query
+
+Never
+publish a public form link
+permanently delete anything
+remove or retype an existing field
+delete a view

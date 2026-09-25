@@ -325,6 +325,34 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 	}
 }
 
+// The Phase A tool version bump (specJson and the structure operations) must restart any
+// thread that still carries the old schema. TestToolVersionChangeStartsFreshThreadAndKeepsMessages
+// proves the mechanism generically, relative to toolVersion; this pins the constant itself
+// to 2, so a future bump that forgets to change it would not silently pass either test.
+func TestToolVersionTwoRestartsThreads(t *testing.T) {
+	if toolVersion != 2 {
+		t.Fatalf("Phase A expects toolVersion 2, got %d", toolVersion)
+	}
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	f := &fakeTransport{}
+	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	a.conversations[key] = &conversation{ToolVersion: 1, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if f.calls[0] != "thread/start" {
+		t.Fatalf("a ToolVersion 1 conversation should start a fresh thread on the version 2 bump: %v", f.calls)
+	}
+	got := a.snapshot(key)
+	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
+		t.Fatalf("no system notice appended on the version 2 bump: %+v", got.Messages)
+	}
+	if a.conversations[key].ToolVersion != 2 {
+		t.Fatalf("conversation not recorded at tool version 2: %d", a.conversations[key].ToolVersion)
+	}
+}
+
 // A failed send must not leave a notice behind that a retry then duplicates: the
 // commit that appends it and the commit that clears the stale version happen in the
 // same locked section, so only the attempt that actually starts a fresh thread appends it.

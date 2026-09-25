@@ -18,7 +18,7 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-const toolVersion = 1
+const toolVersion = 2
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -478,7 +478,8 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	base += " Before each tool call, give one short commentary sentence explaining what you are about to do and why. State the affected item and whether you will read or change it. Do not ask for permission in chat, ask the user to say yes, or end your turn to await permission: the Nix approval card is the only permission request. After that decision, continue from the tool result without asking again. Never repeat a declined or uncertain operation, and never repeat a completed write; report its existing result. A different target or changed payload needs its own approval."
 	base += " Use only the tool calls needed for the requested work. Link to Nix items using /w/{workspaceId}?item={itemId}, using workspaceId from the input and itemId from a successful result. Construct these links directly; do not query schemas or unrelated metadata just to make links."
 	base += " When the user supplies an exact item UUID, use it directly with read_item or the requested operation. Do not search for a UUID or walk the workspace tree to rediscover a supplied ID. Use search for names and content, and list_items only when the parent or target identity is not known."
-	base += " The toolset cannot inspect, run, create or configure views, change property schemas, administer workspaces or replace whole note bodies. If the requested operation requires one of these unsupported capabilities, explain that limitation immediately; do not read unrelated notes, manufacture a substitute artifact or claim completion. You can update item properties that existing views display."
+	base += " You can read an item's structure with read_structure and create structure with create_structured, add_view and create_entries; specJson describes fields and views in plain terms and Nix builds them. You cannot administer workspaces, replace whole note bodies, publish links, delete permanently, remove or retype fields, or delete views; say so immediately if asked. For designing a whole new system from scratch, suggest the Design tab."
+	base += " Nix capabilities: " + catalogFor("chat")
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": base, "developerInstructions": r.Instructions}
 	if r.Model != "" {
 		if err := a.listModels(ctx); err != nil {
