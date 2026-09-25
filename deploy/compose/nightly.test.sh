@@ -20,12 +20,20 @@ echo "offsite $*" >> "$TEST_LOG"
 [[ $1 != push || -z ${FAIL_PUSH:-} ]]
 SH
 if ! command -v flock >/dev/null; then printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/flock"; fi
+cat > "$work/bin/docker" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == info ]] || { echo "unexpected docker call: $*" >&2; exit 9; }
+if [[ -n ${DOCKER_DENIED:-} ]]; then
+  echo 'permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock' >&2; exit 1
+fi
+SH
 chmod +x "$work/bin/"* "$tools/"*.sh 2>/dev/null || true
 conf=$work/release.conf
 cat > "$conf" <<CONF
 NIX_DEPLOY_ENV=$work/production.env
 NIX_BACKUP_ROOT=$work/backups
 NIX_RELEASE_LOCK=$work/release.lock
+NIX_NIGHTLY_MARKER=$work/last-nightly-success
 CONF
 export PATH="$work/bin:$PATH" NIX_RELEASE_CONF="$conf" TEST_LOG="$work/calls"
 fail() { echo "nightly.test: $*" >&2; exit 1; }
@@ -40,11 +48,23 @@ touch -t 202001010000 "$b/pre-1234567"
 ln -s "$work/elsewhere" "$b/nightly-$(stamp 30)"
 link=$b/nightly-$(stamp 30)
 
+# No Docker access: a plain explanation, no backup attempted, no marker.
+: > "$TEST_LOG"
+if DOCKER_DENIED=1 bash "$tools/nightly.sh" > "$work/out" 2>&1; then fail 'ran without Docker access'; fi
+if id -Gn | tr ' ' '\n' | grep -qx docker; then
+  grep -q 'cannot reach Docker: permission denied' "$work/out" || fail 'docker error not reported'
+else
+  grep -q 'not in the docker group' "$work/out" || fail 'missing docker group not explained'
+  grep -q 'systemctl restart user@' "$work/out" || fail 'no remedy given'
+fi
+[[ ! -s $TEST_LOG ]] || fail 'backup attempted without Docker access'
+
 # A failed push stops retention and keeps every local copy.
 : > "$TEST_LOG"
 if FAIL_PUSH=1 bash "$tools/nightly.sh" > "$work/out" 2>&1; then fail 'accepted a failed push'; fi
 grep -q 'nightly: FAILED during off-host push' "$work/out" || fail 'failure not logged by step'
 if grep -q '^offsite forget' "$TEST_LOG"; then fail 'forget ran after a failed push'; fi
+[[ ! -e $work/last-nightly-success ]] || fail 'success marker written after a failed push'
 [[ -d $old && -d $ancient ]] || fail 'local copies deleted after a failed push'
 
 # A failed backup pushes nothing.
@@ -67,4 +87,6 @@ for kept in "$recent" "$new" "$b/pre-1234567" "$b/nightly-manual" "$link" "$work
 done
 grep -q "deleted local $old" "$work/out" || fail 'deletion not logged'
 grep -q 'nightly backup complete' "$work/out" || fail 'completion not logged'
+grep -q "^label=${new##*/}$" "$work/last-nightly-success" || fail 'success marker missing or wrong'
+grep -Eq '^completed_epoch=[0-9]+$' "$work/last-nightly-success" || fail 'success marker has no epoch'
 echo 'nightly.sh checks passed.'

@@ -85,6 +85,20 @@ else
   echo "  offsite       offsite.sh push (kind=release, sha); a failure only warns (NIX_OFFSITE_REQUIRED=0)"
 fi
 echo "  ledger        $NIX_RELEASE_LEDGER"
+# Nightly health: a warning only, since a release takes its own verified backup anyway.
+nightly_marker=${NIX_NIGHTLY_MARKER:-$HOME/nix-production/last-nightly-success}
+nightly_max_hours=${NIX_NIGHTLY_MAX_AGE_HOURS:-36}
+nightly_epoch=$(sed -n 's/^completed_epoch=\([0-9][0-9]*\)$/\1/p' "$nightly_marker" 2>/dev/null || true)
+if [[ -z "$nightly_epoch" ]]; then
+  echo "  nightly       WARNING: no successful nightly backup recorded ($nightly_marker)"
+else
+  nightly_hours=$(( ($(date -u +%s) - nightly_epoch) / 3600 ))
+  if (( nightly_hours > nightly_max_hours )); then
+    echo "  nightly       WARNING: last successful nightly backup was ${nightly_hours}h ago (limit ${nightly_max_hours}h); check journalctl --user -u nix-backup-nightly.service"
+  else
+    echo "  nightly       last success ${nightly_hours}h ago"
+  fi
+fi
 echo "  images"
 printf '    %s\n' "${images[@]}"
 echo "deploy.sh then stops application writers while migrations run (maintenance window)."

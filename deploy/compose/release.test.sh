@@ -145,4 +145,16 @@ for script in backup.sh offsite.sh nightly.sh; do
   cmp -s "$tree/deploy/compose/$script" "$HOME/nix-production/backup-tools/$script" || { echo "nightly copy of $script not refreshed" >&2; exit 1; }
 done
 grep -q 'refreshed the nightly backup scripts' "$fixture/out"
+# Nightly health is reported in the plan: missing and stale markers warn, a fresh one does not.
+marker="$HOME/nix-production/last-nightly-success"
+rm -f "$marker"
+release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+grep -q 'nightly       WARNING: no successful nightly backup recorded' "$fixture/out"
+printf 'completed_epoch=%s\n' "$(( $(date -u +%s) - 3600 ))" > "$marker"
+release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+grep -q 'nightly       last success 1h ago' "$fixture/out"
+if grep -q 'nightly .*WARNING' "$fixture/out"; then echo 'warned about a fresh nightly' >&2; exit 1; fi
+printf 'completed_epoch=%s\n' "$(( $(date -u +%s) - 50 * 3600 ))" > "$marker"
+release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+grep -q 'nightly       WARNING: last successful nightly backup was 50h ago (limit 36h)' "$fixture/out"
 echo 'Release argument, configuration, image and ledger checks passed.'

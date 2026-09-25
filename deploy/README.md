@@ -197,6 +197,18 @@ systemctl --user start nix-backup-nightly.service   # first run now; then check 
 journalctl --user -u nix-backup-nightly.service --since today
 ```
 
+Two host prerequisites are easy to miss. The systemd user manager keeps the groups it started
+with, so if the operator was added to `docker` after it started, the timer cannot reach Docker
+even though SSH sessions can; `nightly.sh` says so and names the fix
+(`sudo systemctl restart user@$(id -u).service`, or a reboot). And a user journal kept only in
+`/run` loses each night's log at reboot; keep it on disk with
+`sudo mkdir -p /var/log/journal && sudo systemd-tmpfiles --create --prefix /var/log/journal && sudo journalctl --flush`.
+
+Every complete nightly run rewrites `~/nix-production/last-nightly-success` (override with
+`NIX_NIGHTLY_MARKER` in `release.conf`). `release.sh` reads it in its plan and warns, without
+stopping, when no nightly has succeeded or the last success is older than
+`NIX_NIGHTLY_MAX_AGE_HOURS` (default 36), so a silently failing timer surfaces at the next release.
+
 Inspect with `offsite.sh snapshots`, and sample stored data periodically with
 `offsite.sh check --read-data-subset=5%`. To restore, extract a snapshot into an empty directory,
 verify it, then follow the same isolated restore steps as for a local backup (roles, then the dump,
