@@ -139,14 +139,23 @@ elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATIO
 PYCODE
 chmod +x "$fixture/bin/docker"
 export DOCKER_TEST_LOG="$fixture/docker-calls" COMPOSE_TEST_CONFIG="$fixture/compose.json"
-export NIX_DEPLOY_ENV="$root/deploy/compose.prod.env.example" NIX_BACKUP_REFERENCE=fixture-backup
+bash deploy/compose/backup.test.sh
+bash deploy/compose/backup.test.sh --fixture "$fixture/backup"
+export NIX_DEPLOY_ENV="$root/deploy/compose.prod.env.example" NIX_BACKUP_REFERENCE="$fixture/backup"
+echo '{}' > "$fixture/nixctl-config.json"
+export NIXCTL_CONFIG="$fixture/nixctl-config.json"
+# An unverified or free-text backup reference stops the rollout before Docker is touched.
+for reference in fixture-backup "$fixture/missing-backup"; do
+ if NIX_BACKUP_REFERENCE="$reference" bash deploy/compose/deploy.sh > "$fixture/deploy-no-backup" 2>&1; then
+  echo "Rollout accepted backup reference $reference" >&2; exit 1
+ fi
+done
+if [ -s "$DOCKER_TEST_LOG" ]; then echo 'Rollout touched Docker without a verified backup' >&2; exit 1; fi
 # The host has no Node: deploy.sh reaches nixctl and smoke only through the release-tools image.
 if rg -q '\bnode\b' deploy/compose/deploy.sh; then echo 'deploy.sh still calls node' >&2; exit 1; fi
 mkdir "$fixture/nodeless"
 printf '#!/bin/sh\necho "node called on the host" >&2\nexit 97\n' > "$fixture/nodeless/node"
 chmod +x "$fixture/nodeless/node"
-echo '{}' > "$fixture/nixctl-config.json"
-export NIXCTL_CONFIG="$fixture/nixctl-config.json"
 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-result"
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys

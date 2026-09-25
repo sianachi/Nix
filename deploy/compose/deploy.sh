@@ -5,7 +5,9 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 : "${NIX_DEPLOY_ENV:?absolute path to the private production env file}"
 : "${NIXCTL_PROFILE:?authenticated nixctl profile for release verification}"
 : "${NIX_SMOKE_WORKSPACE:?dedicated workspace for disposable smoke-test items}"
-: "${NIX_BACKUP_REFERENCE:?record the verified database and object-store backup reference}"
+: "${NIX_BACKUP_REFERENCE:?absolute path to the backup directory made by deploy/compose/backup.sh}"
+case "$NIX_BACKUP_REFERENCE" in /*) ;; *) echo 'NIX_BACKUP_REFERENCE must be an absolute backup directory path' >&2; exit 2;; esac
+bash "$root/deploy/compose/backup.sh" --check "$NIX_BACKUP_REFERENCE"
 case "$NIX_DEPLOY_ENV" in /*) ;; *) echo 'NIX_DEPLOY_ENV must be absolute' >&2; exit 2;; esac
 compose=(docker compose -p nix --env-file "$NIX_DEPLOY_ENV" -f "$root/deploy/compose.prod.yml")
 # Validate without printing interpolated credentials.
