@@ -45,12 +45,15 @@ while IFS= read -r image; do
     *) docker pull --quiet "$image" >/dev/null ;;
   esac
 done < <("${compose[@]}" --profile maintenance config --images "${release_services[@]}" | sort -u)
-# Preview drift before the first `up` can recreate anything; refuses infrastructure recreation.
+# Preview drift before anything is recreated; refuses recreating stateful infrastructure.
 bash "$root/deploy/compose/drift.sh" "${compose[@]}"
+# Stop writers before the infrastructure `up`, and keep them stopped while document/schema
+# migrations run. RabbitMQ mounts its configuration from the release checkout, so every release
+# recreates it; with publishers and consumers stopped, that restart cannot interrupt a delivery
+# (queues are durable and messages persistent). Failure leaves writers stopped for inspection.
+"${compose[@]}" stop nix-web nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-collab nix-api
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-opensearch nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
-# Stop writers while document/schema migrations run. Failure leaves them stopped for inspection.
-"${compose[@]}" stop nix-web nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-collab nix-api
 "${compose[@]}" run --rm --no-deps nix-migrate
 "${compose[@]}" run --rm --no-deps nix-template-presets
 "${compose[@]}" run --rm --no-deps nix-api-init

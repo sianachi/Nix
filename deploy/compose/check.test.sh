@@ -172,6 +172,9 @@ tools='ghcr.io/sianachi/nix/release-tools:replace-with-commit-sha'
 smokes=[i for i,s in enumerate(calls) if s.startswith('run --rm ') and tools+' smoke' in s]
 assert len(smokes)==2 and calls[smokes[0]].endswith(' smoke --preflight') and calls[smokes[1]].endswith(tools+' smoke')
 assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
+# Writers stop before the infrastructure `up`, so a RabbitMQ recreate never meets a publisher.
+infra=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('postgres rabbitmq nix-opensearch nix-versitygw'))
+assert stop < infra < migrate
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 PYCODE
 # The drift preview must run before the first `up` can recreate a service.

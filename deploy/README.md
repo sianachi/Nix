@@ -155,9 +155,13 @@ export NIX_BACKUP_REFERENCE="$HOME/nix-backups/pre-<release-sha>"
 bash deploy/compose/deploy.sh
 ```
 
-The script validates configuration, pulls or checks the release images, checks verification credentials and confirms the profile URL matches the deployed public origin, brings up
-infrastructure and the bucket, stops application writers, runs Core/template/document migrations,
-then starts compatible services before the frontend. Expect a maintenance window. It deliberately
+The script validates configuration, pulls or checks the release images, checks verification
+credentials and confirms the profile URL matches the deployed public origin, previews drift, stops
+application writers, brings up infrastructure and the bucket, runs Core/template/document
+migrations, then starts compatible services before the frontend. RabbitMQ mounts its configuration
+from the release checkout, so each release recreates it; writers are stopped first so that restart
+cannot interrupt a delivery (queues are durable and messages persistent). The drift preview names
+that restart and refuses only a recreate of Postgres, Versity or OpenSearch. Expect a maintenance window. It deliberately
 does not seed users, delete volumes, force an automatic schema rollback or restart unrelated stacks.
 Any failure exits nonzero. Migration failures leave writers stopped for inspection. Once startup
 has begun, a later failure may leave some services running; inspect state before resuming.
