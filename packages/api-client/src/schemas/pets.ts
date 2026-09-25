@@ -44,7 +44,7 @@ export const petActionSchema = z
 
 export const petMessageSchema = z.object({
   id: z.string().min(1).max(80),
-  role: z.enum(['user', 'assistant']),
+  role: z.enum(['user', 'assistant', 'system']),
   text: z.string().max(32000),
   actions: z.array(petActionSchema).max(5),
 });

@@ -1,8 +1,6 @@
 import {
   isCanceledError,
-  items,
   pets,
-  type PetAction,
   type PetConnection,
   type PetProfile,
   type PetSettings,
@@ -22,7 +20,6 @@ import {
   writePetPosition,
   writeConversationModel,
 } from './device-preferences';
-import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { PetWorkTools } from './pet-work-tools';
 import { PetConnectionPanel } from './pet-connection-panel';
 import { PetHistory } from './pet-history';
@@ -205,8 +202,6 @@ function Conversation({
   const [shared, setShared] = useState<{ itemId: string; text: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [working, setWorking] = useState(false);
-  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id));
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
@@ -220,32 +215,20 @@ function Conversation({
   });
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
-  const approvalPending =
-    (runtime?.tools?.some((tool) => tool.status === 'pending') ?? false) ||
-    messages.some((message) =>
-      message.actions.some(
-        (_, actionIndex) =>
-          !(
-            outcomes[`${message.id}:${String(actionIndex)}`] ??
-            readActionReceipt(`${message.id}:${String(actionIndex)}`)
-          ),
-      ),
-    );
+  const approvalPending = runtime?.tools?.some((tool) => tool.status === 'pending') ?? false;
   const animation: PetAnimationState = voice.listening
     ? 'listening'
     : voice.speaking
       ? 'speaking'
-      : working
-        ? 'working'
-        : approvalPending
-          ? 'awaiting-approval'
-          : running || busy
-            ? 'thinking'
-            : error || runtime?.state === 'error'
-              ? 'error'
-              : runtime?.state === 'success'
-                ? 'success'
-                : 'idle';
+      : approvalPending
+        ? 'awaiting-approval'
+        : running || busy
+          ? 'thinking'
+          : error || runtime?.state === 'error'
+            ? 'error'
+            : runtime?.state === 'success'
+              ? 'success'
+              : 'idle';
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -334,7 +317,6 @@ function Conversation({
         setShared(null);
         setRequestId(crypto.randomUUID());
       }
-      if (operation === 'reset') setOutcomes({});
     } catch (cause) {
       if (!isCanceledError(cause) && !isAborted(controller.signal))
         setError(
@@ -353,52 +335,6 @@ function Conversation({
     }
     setShared({ itemId: currentItem, text: text.slice(0, 16000) });
     setError('');
-  }
-
-  async function approve(action: PetAction, key: string) {
-    const controller = lifetime.current;
-    if (
-      working ||
-      outcomes[key] ||
-      readActionReceipt(key) ||
-      !controller ||
-      isAborted(controller.signal)
-    )
-      return;
-    setWorking(true);
-    setError('');
-    // A write is never retried automatically, including after an ambiguous network response.
-    writeActionReceipt(
-      key,
-      'Not confirmed. Check the workspace before attempting this change again.',
-    );
-    setOutcomes((old) => ({ ...old, [key]: 'Applying…' }));
-    try {
-      if (action.kind === 'rename_item') {
-        const item = await client.query(items.itemById(action.itemId), {
-          signal: controller.signal,
-          forceRefresh: true,
-        });
-        if (item.workspaceId !== workspaceId) throw new Error('Action is outside this workspace.');
-        await client.execute(items.renameItem(workspaceId, action.itemId, action.title), {
-          signal: controller.signal,
-        });
-      } else {
-        await client.execute(items.createItem(workspaceId, { type: 'note', title: action.title }), {
-          signal: controller.signal,
-        });
-      }
-      writeActionReceipt(key, 'Applied');
-      if (!isAborted(controller.signal)) setOutcomes((old) => ({ ...old, [key]: 'Applied' }));
-    } catch {
-      if (!isAborted(controller.signal))
-        setOutcomes((old) => ({
-          ...old,
-          [key]: 'Not confirmed. Check the workspace before attempting this change again.',
-        }));
-    } finally {
-      if (!isAborted(controller.signal)) setWorking(false);
-    }
   }
 
   return (
@@ -503,66 +439,28 @@ function Conversation({
               data-pet-latest-message={index === messages.length - 1 ? '' : undefined}
               className={`flex shrink-0 flex-col gap-2 ${message.role === 'user' ? 'rounded-lg bg-surface p-3' : ''}`}
             >
-              <Text variant="note" tone="muted">
-                {message.role === 'user' ? 'You' : pet.name}
-              </Text>
-              <PetMessageText text={message.text} workspaceId={workspaceId} />
-              {message.role === 'assistant' && voice.canSpeak ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    voice.speak(message.text);
-                  }}
-                >
-                  Read aloud
-                </Button>
-              ) : null}
-              {message.actions.map((action, actionIndex) => {
-                const key = `${message.id}:${String(actionIndex)}`;
-                const outcome = outcomes[key] ?? readActionReceipt(key);
-                return (
-                  <div key={key} className="flex flex-col gap-2 border border-divider p-3">
-                    <Text variant="note">
-                      {action.kind === 'create_item' ? 'Create a blank note' : 'Rename item'}:{' '}
-                      {action.title}
-                    </Text>
-                    {action.kind === 'rename_item' ? (
-                      <Link
-                        to={`/w/${workspaceId}/?item=${encodeURIComponent(action.itemId)}`}
-                        className="underline"
-                      >
-                        Inspect target item
-                      </Link>
-                    ) : null}
-                    {outcome ? (
-                      <Text role="status" variant="note">
-                        {outcome}
-                      </Text>
-                    ) : (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          disabled={working || running}
-                          onClick={() => {
-                            void approve(action, key);
-                          }}
-                        >
-                          Approve change
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            writeActionReceipt(key, 'Declined');
-                            setOutcomes((old) => ({ ...old, [key]: 'Declined' }));
-                          }}
-                        >
-                          Decline
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {message.role === 'system' ? (
+                <Text variant="note" tone="muted">
+                  {message.text}
+                </Text>
+              ) : (
+                <>
+                  <Text variant="note" tone="muted">
+                    {message.role === 'user' ? 'You' : pet.name}
+                  </Text>
+                  <PetMessageText text={message.text} workspaceId={workspaceId} />
+                  {message.role === 'assistant' && voice.canSpeak ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        voice.speak(message.text);
+                      }}
+                    >
+                      Read aloud
+                    </Button>
+                  ) : null}
+                </>
+              )}
             </div>
           ))
         )}
@@ -701,6 +599,7 @@ function Conversation({
               disabled={!messages.length}
               onClick={() => {
                 const text = messages
+                  .filter((message) => message.role !== 'system')
                   .map(
                     (message) => `${message.role === 'user' ? 'You' : pet.name}\n\n${message.text}`,
                   )

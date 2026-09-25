@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,7 +44,7 @@ func request() Request {
 	return Request{TenantID: "11111111-1111-4111-8111-111111111111", PrincipalID: "22222222-2222-4222-8222-222222222222", WorkspaceID: "33333333-3333-4333-8333-333333333333", PetID: "44444444-4444-4444-8444-444444444444", RequestID: "55555555-5555-4555-8555-555555555555", Operation: "send", Text: "Help me write", Instructions: "Be calm and concise"}
 }
 
-func TestPreActionCommentaryIsVisibleOnceWithoutAnotherPermissionCard(t *testing.T) {
+func TestPreActionCommentaryIsVisibleOnceAndAnswerActionsAreIgnored(t *testing.T) {
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
 	r := request()
@@ -60,10 +61,18 @@ func TestPreActionCommentaryIsVisibleOnceWithoutAnotherPermissionCard(t *testing
 	if len(a.snapshot(key).Messages[1].ID) > 80 {
 		t.Fatal("commentary ID exceeds client contract")
 	}
-	a.conversations[key].Tools = []ToolCall{{ID: "tool", Status: "completed"}}
+	// The output schema no longer asks for "actions", but a model that returns one
+	// anyway must still be accepted as plain text, not fail the turn.
 	a.notify("item/completed", json.RawMessage(`{"threadId":"provider-thread","item":{"type":"agentMessage","phase":"final_answer","text":"{\"answer\":\"Created.\",\"actions\":[{\"kind\":\"create_item\",\"itemId\":\"\",\"title\":\"Release\"}]}"}}`))
-	if len(a.snapshot(key).Messages[2].Actions) != 0 {
-		t.Fatal("legacy card asked again after a tool")
+	final := a.snapshot(key).Messages[2]
+	if final.Text != "Created." {
+		t.Fatalf("answer text lost: %+v", final)
+	}
+	if len(final.Actions) != 0 {
+		t.Fatal("legacy actions were rendered")
+	}
+	if a.snapshot(key).State == "error" {
+		t.Fatal("an extra actions field failed the turn")
 	}
 }
 
@@ -145,7 +154,7 @@ func TestProtocolPersistenceAndDuplicateSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != "success" || len(result.Messages) != 2 || result.Messages[1].Actions[0].Title != "Draft" {
+	if result.State != "success" || len(result.Messages) != 2 || len(result.Messages[1].Actions) != 0 || result.Messages[1].Text != "Here is a suggestion." {
 		t.Fatalf("bad final state: %+v", result)
 	}
 	if len(f.calls) != 2 {
@@ -239,4 +248,129 @@ func TestCodexHandshakeWithoutUserCredentials(t *testing.T) {
 	if _, err = transport.Call(context.Background(), "thread/start", map[string]any{"dynamicTools": workspaceTools(), "sandbox": "read-only", "approvalPolicy": "on-request"}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+
+	// A first-ever conversation (ToolVersion 0, no thread yet) starts fresh and gets no notice.
+	first := &fakeTransport{}
+	a := &account{transport: first, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	a.conversations[key] = &conversation{Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if first.calls[0] != "thread/start" {
+		t.Fatalf("first-ever conversation should start fresh: %v", first.calls)
+	}
+	for _, m := range a.snapshot(key).Messages {
+		if m.Role == "system" {
+			t.Fatal("first-ever conversation got a system notice")
+		}
+	}
+
+	// A conversation already at a stale, non-zero tool version starts fresh, keeps its
+	// messages, and gets the system notice, with an ID the client can render.
+	stale := &fakeTransport{}
+	b := &account{transport: stale, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	b.conversations[key] = &conversation{ToolVersion: toolVersion + 1, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	if _, err := b.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if stale.calls[0] != "thread/start" {
+		t.Fatalf("stale-version send should start a fresh thread, not resume: %v", stale.calls)
+	}
+	if start, ok := stale.params[0].(map[string]any); !ok || start["dynamicTools"] == nil {
+		t.Fatalf("fresh thread did not register the tool schema: %+v", stale.params[0])
+	}
+	got := b.snapshot(key)
+	if len(got.Messages) != 3 || got.Messages[0].Text != "hi" || got.Messages[1].Role != "system" || got.Messages[2].ID != r.RequestID {
+		t.Fatalf("messages out of order on version bump: %+v", got.Messages)
+	}
+	if !strings.Contains(got.Messages[1].Text, "fresh conversation") {
+		t.Fatalf("no system notice appended on version bump: %+v", got.Messages[1])
+	}
+	if len(got.Messages[1].ID) > 80 {
+		t.Fatal("notice ID exceeds client contract")
+	}
+
+	// A conversation already at the current tool version resumes its thread.
+	current := &fakeTransport{}
+	c := &account{transport: current, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	c.conversations[key] = &conversation{ToolVersion: toolVersion, ThreadID: "current-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	if _, err := c.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if current.calls[0] != "thread/resume" {
+		t.Fatalf("matching tool version should resume: %v", current.calls)
+	}
+
+	// A version-0 conversation that already has a thread (predates tool versioning) starts
+	// fresh silently, like the very first case: version 0 is never treated as "stale", only
+	// as "not yet versioned".
+	legacy := &fakeTransport{}
+	d := &account{transport: legacy, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	d.conversations[key] = &conversation{ThreadID: "legacy-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	if _, err := d.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.calls[0] != "thread/start" {
+		t.Fatalf("version-0 conversation should start fresh: %v", legacy.calls)
+	}
+	for _, m := range d.snapshot(key).Messages {
+		if m.Role == "system" {
+			t.Fatal("version-0 conversation got a system notice")
+		}
+	}
+}
+
+// A failed send must not leave a notice behind that a retry then duplicates: the
+// commit that appends it and the commit that clears the stale version happen in the
+// same locked section, so only the attempt that actually starts a fresh thread appends it.
+func TestFailedSendNeverDuplicatesTheVersionNotice(t *testing.T) {
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	f := &flakyTransport{failFirstThreadStart: true}
+	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	a.conversations[key] = &conversation{ToolVersion: toolVersion + 1, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+
+	if _, err := a.handle(context.Background(), r); err == nil {
+		t.Fatal("expected the first attempt to fail")
+	}
+	for _, m := range a.snapshot(key).Messages {
+		if m.Role == "system" {
+			t.Fatal("a failed send appended the notice before the thread actually restarted")
+		}
+	}
+
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	notices := 0
+	for _, m := range a.snapshot(key).Messages {
+		if m.Role == "system" {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("retry after a failed send produced %d notices, want 1", notices)
+	}
+}
+
+type flakyTransport struct {
+	fakeTransport
+	failFirstThreadStart bool
+}
+
+func (f *flakyTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "thread/start" && f.failFirstThreadStart {
+		f.failFirstThreadStart = false
+		f.mu.Lock()
+		f.calls = append(f.calls, method)
+		f.params = append(f.params, params)
+		f.mu.Unlock()
+		return nil, errors.New("transport unavailable")
+	}
+	return f.fakeTransport.Call(ctx, method, params)
 }
