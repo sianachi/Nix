@@ -125,3 +125,21 @@ result=failed:deploy
 bash "$here/deploy.sh"
 result=succeeded
 echo "Release $sha succeeded; recorded in $NIX_RELEASE_LEDGER."
+
+# The nightly timer runs its own copy of the backup scripts (a release checkout can be pruned
+# under it); keep that copy in step with the release just deployed. A failure here only warns:
+# the release itself has already succeeded.
+tools=${NIX_BACKUP_TOOLS_DIR:-$HOME/nix-production/backup-tools}
+if [[ -d "$tools" ]]; then
+  refreshed=1
+  for script in backup.sh offsite.sh nightly.sh; do
+    if ! { install -m 700 "$here/$script" "$tools/.$script.new" && mv -f "$tools/.$script.new" "$tools/$script"; }; then
+      refreshed=0
+    fi
+  done
+  if [[ "$refreshed" == 1 ]]; then
+    echo "release: refreshed the nightly backup scripts in $tools."
+  else
+    printf 'release: warning: could not refresh the nightly backup scripts in %s.\n' "$tools" >&2
+  fi
+fi

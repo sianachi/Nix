@@ -24,6 +24,7 @@ cat > "$tree/deploy/compose/offsite.sh" <<'SH'
 echo "offsite $*" >> "$TEST_LOG"
 [[ -z "${FAIL_OFFSITE:-}" ]]
 SH
+printf '#!/usr/bin/env bash\n# stub nightly\n' > "$tree/deploy/compose/nightly.sh"
 cat > "$tree/deploy/compose/deploy.sh" <<'SH'
 #!/usr/bin/env bash
 echo "deploy tag=$NIX_IMAGE_TAG web=$NIX_WEB_IMAGE_TAG backup=$NIX_BACKUP_REFERENCE" >> "$TEST_LOG"
@@ -135,4 +136,13 @@ grep -q '^  offsite .*only warns' "$fixture/out"
 grep -q '^deploy' "$TEST_LOG"
 tail -n 1 "$ledger" | grep -q $'\tsucceeded\toperator=tester$'
 [[ $(wc -l < "$ledger") -eq 4 ]]
+
+# A successful release refreshes the nightly timer's copy of the backup scripts, when installed.
+mkdir -p "$HOME/nix-production/backup-tools"
+echo stale > "$HOME/nix-production/backup-tools/nightly.sh"
+release --yes "$sha" || { cat "$fixture/out" >&2; exit 1; }
+for script in backup.sh offsite.sh nightly.sh; do
+  cmp -s "$tree/deploy/compose/$script" "$HOME/nix-production/backup-tools/$script" || { echo "nightly copy of $script not refreshed" >&2; exit 1; }
+done
+grep -q 'refreshed the nightly backup scripts' "$fixture/out"
 echo 'Release argument, configuration, image and ledger checks passed.'

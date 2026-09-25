@@ -183,8 +183,8 @@ Nightly, `deploy/compose/nightly.sh` holds the release lock, runs `backup.sh --n
 older than 7 days. It never deletes `pre-*` directories, and `prune.sh` never deletes `nightly-*`.
 A failed step is logged to the journal by name, stops the later steps and exits nonzero. Install
 the systemd user timer (02:30 local, persistent, up to 10 minutes random delay) from the release
-checkout; the service runs a copy of the scripts, so reinstall them after a release that changes
-`backup.sh`, `offsite.sh` or `nightly.sh`:
+checkout. The service runs a copy of the scripts so a pruned checkout cannot break it; every
+successful `release.sh` refreshes that copy, so it follows the deployed release:
 
 ```sh
 install -d -m 700 ~/nix-production/backup-tools ~/.config/systemd/user
