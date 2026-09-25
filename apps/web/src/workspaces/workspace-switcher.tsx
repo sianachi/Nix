@@ -1,6 +1,6 @@
-import { Icon, Text, focusRing } from '@nix/ui';
+import { Icon, Menu, Text, focusRing, type MenuEntry } from '@nix/ui';
 import { Archive, Check, ChevronDown, Plus, Settings } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { useWorkspace } from './workspace-context';
@@ -9,58 +9,26 @@ import { useWorkspace } from './workspace-context';
  * The workspace switcher is also the workspace index: every accessible workspace has a direct
  * route to its content and its management page. Switching always starts at a workspace root, so
  * neither an item nor a pane from one workspace can leak into another by way of the address bar.
+ *
+ * Built on `<Menu>` for its disclosure mechanics only - open state, outside-click and Escape
+ * dismissal, viewport-clamped placement, the phone bottom sheet - carried entirely by one
+ * `content` entry. The panel stays a `region` of real links rather than becoming a `role="menu"`
+ * of `menuitem`s: every workspace row is *two* destinations (open it, or manage it), and several
+ * other test suites (`workspace-routing`, `workspace-binding`, `workspace-management`) already
+ * query this panel as `getByRole('region', { name: 'Workspaces' })` with plain links inside it.
+ * Changing that shape here would be correct in isolation and a regression everywhere else that
+ * already agreed on it.
  */
 export function WorkspaceSwitcher(): ReactNode {
   const { workspace, workspaces, listStatus, listWarning, reload } = useWorkspace();
   const activeWorkspaces = workspaces.filter((entry) => entry.lifecycleState === 'active');
   const archivedCount = workspaces.filter((entry) => entry.lifecycleState === 'archived').length;
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const panelId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-
-    function closeOutside(event: MouseEvent): void {
-      if (containerRef.current?.contains(event.target as Node) === false) setOpen(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent): void {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      setOpen(false);
-    }
-
-    document.addEventListener('mousedown', closeOutside);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOutside);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div ref={containerRef} className="relative flex min-w-0 flex-1">
-      <button
-        type="button"
-        aria-label="Workspace menu"
-        aria-controls={panelId}
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((current) => !current);
-        }}
-        className={`flex min-w-0 w-full items-center justify-between gap-2 border border-transparent px-2 py-1 text-left text-xs text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
-      >
-        <span className="truncate">{workspace.name}</span>
-        <Icon icon={ChevronDown} size="sm" />
-      </button>
-
-      {open ? (
-        <section
-          id={panelId}
-          aria-label="Workspaces"
-          className="absolute left-0 top-full z-20 mt-1 w-80 border border-divider bg-background shadow-md"
-        >
+  const items: MenuEntry[] = [
+    {
+      kind: 'content',
+      content: ({ close }) => (
+        <section aria-label="Workspaces">
           <div className="border-b border-divider px-3 py-2">
             <Text variant="bodySmall">Workspaces</Text>
             <Text variant="caption" as="p" tone="muted">
@@ -70,13 +38,14 @@ export function WorkspaceSwitcher(): ReactNode {
 
           <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
             {activeWorkspaces.map((entry) => (
-              <li key={entry.id} className="flex items-center gap-1 px-1">
+              <li
+                key={entry.id}
+                className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
+              >
                 <Link
                   to={`/w/${entry.id}`}
                   aria-current={entry.id === workspace.id ? 'page' : undefined}
-                  onClick={() => {
-                    setOpen(false);
-                  }}
+                  onClick={close}
                   className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                 >
                   <Icon
@@ -89,10 +58,8 @@ export function WorkspaceSwitcher(): ReactNode {
                 <Link
                   to={`/w/${entry.id}/settings`}
                   aria-label={`Manage ${entry.name}`}
-                  onClick={() => {
-                    setOpen(false);
-                  }}
-                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  onClick={close}
+                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent pointer-coarse:size-(--control-lg)"
                 >
                   <Icon icon={Settings} size="sm" />
                 </Link>
@@ -118,9 +85,7 @@ export function WorkspaceSwitcher(): ReactNode {
           {archivedCount > 0 ? (
             <Link
               to="/workspaces/archived"
-              onClick={() => {
-                setOpen(false);
-              }}
+              onClick={close}
               className="flex items-center gap-2 border-t border-divider px-3 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
               <Icon icon={Archive} size="sm" />
@@ -130,16 +95,29 @@ export function WorkspaceSwitcher(): ReactNode {
 
           <Link
             to={`/w/${workspace.id}/settings`}
-            onClick={() => {
-              setOpen(false);
-            }}
+            onClick={close}
             className="flex items-center gap-2 border-t border-divider px-3 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={Plus} size="sm" />
             Create a workspace
           </Link>
         </section>
-      ) : null}
-    </div>
+      ),
+    },
+  ];
+
+  return (
+    <Menu label="Workspaces" items={items} className="w-80 max-w-[calc(100vw-1rem)]">
+      {(trigger) => (
+        <button
+          {...trigger}
+          aria-label="Workspace menu"
+          className={`flex min-w-0 w-full flex-1 items-center justify-between gap-2 border border-transparent px-2 py-1 text-left text-xs text-muted hover:bg-foreground/7 hover:text-foreground pointer-coarse:min-h-11 ${focusRing}`}
+        >
+          <span className="truncate">{workspace.name}</span>
+          <Icon icon={ChevronDown} size="sm" />
+        </button>
+      )}
+    </Menu>
   );
 }

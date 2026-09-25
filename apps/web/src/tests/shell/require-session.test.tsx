@@ -72,6 +72,29 @@ describe('the session gate', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/unregistered issuers/i);
   });
 
+  it('explains an expired session rather than showing the plain sign-in screen a first-time visitor sees', () => {
+    // `signedOut` reaches `anonymous`, the same status a deliberate sign-out lands in - the
+    // reason carried in `error` is what keeps the two from looking identical.
+    useSessionStore.setState({
+      status: 'anonymous',
+      profile: null,
+      error: 'Your session expired. Sign in again to continue.',
+    });
+
+    renderAt(<App />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/session expired/i);
+  });
+
+  it('shows the plain sign-in screen for a deliberate sign-out, with no leftover reason', () => {
+    useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
+
+    renderAt(<App />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
+  });
+
   it('never renders a password field, because Nix stores no passwords', () => {
     useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
 

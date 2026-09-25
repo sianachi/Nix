@@ -218,7 +218,37 @@ describe('Core-mediated browser sessions', () => {
       '/auth/logout',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
+    // A deliberate sign-out needs no excuse - it is not the answer to "what happened", it is
+    // what the person just asked for. Checked before the next click, which itself triggers a
+    // renewal attempt (and this fixture's mocked 401) that is not part of what this test is about.
+    expect(useSessionStore.getState().error).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Read access token' }));
     expect(await screen.findByText('No token')).toBeInTheDocument();
+  });
+
+  it('explains that the session expired when a renew finds it gone, unlike a deliberate sign-out', async () => {
+    const user = userEvent.setup();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({
+          authenticated: true,
+          configured: true,
+          profile: { subject: 'person-1', name: 'Stored Person' },
+          accessToken: 'expired-core-token',
+          expiresAt: '2000-01-01T00:00:00+00:00',
+        }),
+      )
+      .mockResolvedValueOnce(json({}, 401));
+    vi.stubGlobal('fetch', fetch);
+    renderProvider();
+    await screen.findByText('authenticated');
+
+    await user.click(screen.getByRole('button', { name: 'Read access token' }));
+
+    expect(await screen.findByText('anonymous')).toBeInTheDocument();
+    expect(useSessionStore.getState().error).toBe(
+      'Your session expired. Sign in again to continue.',
+    );
   });
 });

@@ -283,6 +283,21 @@ public sealed class PropertyValidatorTests
         AssertAccepted(PropertyType.Image, value);
     }
 
+    [Fact]
+    public void Image_accepts_a_reference_to_an_uploaded_file() =>
+        AssertAccepted(PropertyType.Image, "\"nix-file:3f2504e0-4f89-41d3-9a0c-0305e82c3301\"");
+
+    [Theory]
+    [InlineData("\"nix-file:\"")]
+    [InlineData("\"nix-file:not-an-id\"")]
+    [InlineData("\"nix-file:3f2504e0-4f89-41d3-9a0c-0305e82c3301/../x\"")]
+    [InlineData("\"NIX-FILE:3f2504e0-4f89-41d3-9a0c-0305e82c3301\"")]
+    public void Image_refuses_a_file_reference_that_is_not_exactly_an_id(string value) =>
+        AssertRefused(
+            PropertyType.Image,
+            value,
+            "Field must be a link to an image, over http or https.");
+
     [Theory]
     [InlineData("\"images.example.test/cover.jpg\"")]
     [InlineData("\"/uploads/cover.jpg\"")]

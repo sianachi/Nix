@@ -36,6 +36,16 @@ function BoardConfiguration(): ReactNode {
   return <StructuredViewConfiguration view={view} fields={FIELDS} onChange={setView} />;
 }
 
+const DATE_FIELDS: readonly PropertyDefinition[] = [
+  { key: 'starts', label: 'Starts', type: 'date', options: [], required: false },
+  { key: 'ends', label: 'Ends', type: 'date', options: [], required: false },
+];
+
+function CalendarConfiguration(): ReactNode {
+  const [view, setView] = useState<View>(aView({ kind: 'calendar', dateProperty: 'starts' }));
+  return <StructuredViewConfiguration view={view} fields={DATE_FIELDS} onChange={setView} />;
+}
+
 describe('shared structured-view configuration', () => {
   it('allows new lines and multiword board columns to be typed', async () => {
     const user = userEvent.setup();
@@ -64,5 +74,21 @@ describe('shared structured-view configuration', () => {
 
     expect(screen.getByRole('button', { name: 'Hide Priority' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Hide Status' })).not.toBeInTheDocument();
+  });
+
+  it('offers a calendar view an optional End field beside Place by', async () => {
+    // The setting a calendar view's endDateProperty needs was reachable nowhere - view-kinds.tsx
+    // offered it only to a timeline. This is the regression test for the fix: the shared editor
+    // draws it the moment the registry says the kind configures it.
+    const user = userEvent.setup();
+    render(<CalendarConfiguration />);
+
+    expect(screen.getByRole('combobox', { name: 'Place by' })).toHaveValue('starts');
+
+    const end = screen.getByRole('combobox', { name: 'End' });
+    expect(end).toHaveValue('');
+
+    await user.selectOptions(end, 'ends');
+    expect(end).toHaveValue('ends');
   });
 });

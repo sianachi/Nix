@@ -1,5 +1,5 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Field, Select, Blueprint, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Field, Select, Blueprint, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -69,6 +69,14 @@ export function BoardView(props: BoardViewProps): ReactNode {
   const narrow = useNarrowViewport();
   const [mobileColumn, setMobileColumn] = useState<string | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
+
+  // The banner below is specifically about a column move, so its sentence has to be true only of
+  // one: `container.writeError` is set by every failed `setProperties` call, including a field
+  // edit made through a card's own `ListCell` - which already reports its own refusal beside the
+  // field (see `list-cell.tsx`). Reading that shared channel here would print "the card has
+  // returned to the column it was in" over a field edit that never touched the column, so the
+  // move failure is tracked locally instead and the shared channel is left alone.
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   // Whether the board can be drawn at all is resolved before the chrome so the chrome can report
   // it, and handed back by the chrome so this does not have to check it twice. An empty board and a
@@ -144,19 +152,24 @@ export function BoardView(props: BoardViewProps): ReactNode {
       return;
     }
 
+    setMoveError(null);
+
     // Null clears the property. The board writes the grouping property and only the grouping
-    // property: there is nothing view-local to keep in step.
-    void container.setProperties(item.id, { [key]: value });
+    // property: there is nothing view-local to keep in step. The gesture that fired this is a drag
+    // or a select's onChange - nobody here awaits it - so the refusal is caught and kept local
+    // rather than left to reject into the void.
+    void container.setProperties(item.id, { [key]: value }).then((failure) => {
+      setMoveError(failure);
+    });
   }
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      {container.writeError === null ? null : (
+      {moveError === null ? null : (
         <div role="alert" className="flex items-start gap-2 border border-divider p-3">
           <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
           <Text variant="bodySmall" as="span" tone="accent">
-            {container.writeError} The card has returned to the column it was in; nothing was
-            changed.
+            {moveError} The card has returned to the column it was in; nothing was changed.
           </Text>
         </div>
       )}
@@ -300,7 +313,9 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
       )}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <Text variant="h6" as="h3">
+        {/* `break-words` is `Text`'s default now; `min-w-0` is what lets a flex child actually
+            shrink and wrap instead of pushing the count beside it out of the fixed-width column. */}
+        <Text variant="h6" as="h3" className="min-w-0">
           {column.label}
         </Text>
         <Text variant="caption" tone="muted" as="span">
@@ -495,6 +510,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
       aria-posinset={position}
       aria-setsize={setSize}
       data-virtual-index={virtualIndex}
+      className="min-w-0"
     >
       <Blueprint
         className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
@@ -519,7 +535,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
             }}
             className={cn('w-full text-left', focusRing)}
           >
-            <Text variant="h5" as="span">
+            <Text variant="h5" as="span" lines={2}>
               {item.title || 'Untitled'}
             </Text>
           </button>
@@ -555,7 +571,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
           <Text variant="kicker" tone="muted" as="span">
             {property.label}
           </Text>
-          <select
+          <Select
             // Named per card, not per property: a board of twelve cards would otherwise offer twelve
             // controls all called "Status", and neither a screen reader user nor a test could say
             // which one they were operating.
@@ -565,13 +581,6 @@ function BoardCard(props: BoardCardProps): ReactNode {
               const next = event.target.value;
               onMove(item, next === UNSET_VALUE ? null : next);
             }}
-            className={cn(
-              blueprintFrame,
-              // One step below the body copy around it, so a control repeated once per card does
-              // not out-weigh the card's own title. The line height is the step's own.
-              'w-full bg-background px-2 py-1 font-body text-base text-foreground',
-              focusRing,
-            )}
           >
             {/*
             The card's current value is offered even when it is not one of the board's columns, so
@@ -587,7 +596,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
                 {column.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </Blueprint>
     </li>

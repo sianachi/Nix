@@ -1,7 +1,7 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Blueprint, Button, Dialog, Field, Icon, Input, Text, cn } from '@nix/ui';
+import { Blueprint, Button, Icon, Text, cn } from '@nix/ui';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useId, useState, type DragEvent, type ReactNode } from 'react';
 
 import {
   readDateValue,
@@ -15,21 +15,26 @@ import {
 import { CreateItemControl } from '../core/create-item-control';
 import {
   addDays,
+  dayFromText,
   dayLabel,
   dayText,
   daysInMonth,
+  monthEntry,
   monthLabel,
   monthPrefix,
   shiftMonth,
+  weekdayIndex,
   weekLabel,
   weekOf,
+  WEEKDAY_ABBREVIATIONS,
   type CalendarDay,
   type CalendarMonth,
 } from '../core/calendar-dates';
 import { HourGrid } from './calendar-hours';
 import { MonthGrid, type DayCellSpec } from './month-grid';
+import { RescheduleDialog } from './reschedule-dialog';
 import { VIEW_GUTTER_BLEED } from '../core/view-gutter';
-import { dayFor, readTimestampValue, readerZone, writeTimestampValue } from '../core/timestamps';
+import { dayFor, readTimestampValue, readerZone } from '../core/timestamps';
 import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
@@ -55,6 +60,13 @@ import { ListCell } from '../list/list-cell';
  * **The keyboard path is not a courtesy.** A calendar whose only way to move an item is a drag is a
  * calendar a person using a keyboard or a screen reader cannot operate at all, so every card
  * carries a reschedule control that reaches the same write.
+ *
+ * **An item with an `endDateProperty` covers every day between the two, drawn on each one**
+ * (`spanDates`), rather than only on its start day with a marker saying it continues. A month
+ * cell is already a list of cards, not a single-line row a bar could stretch across the way
+ * timeline-view.tsx draws one, so showing the same card again on every covered day costs this
+ * file one loop and no new layout, and is the one rendering that agrees with "where an item sits
+ * is its date" above for a date range rather than a single date.
  */
 
 export interface CalendarViewProps {
@@ -87,6 +99,43 @@ function todayDay(): CalendarDay {
 /** The three grains, with anything unrecognised falling back to the one every view had. */
 function readMode(value: string | null): 'month' | 'week' | 'day' {
   return value === 'week' || value === 'day' ? value : 'month';
+}
+
+/** A month, abbreviated to three letters, in the order `MONTH_NAMES` names them. */
+const MONTH_ABBREVIATIONS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/**
+ * A `yyyy-MM-dd` date, said the way the rest of the calendar says a day when the sentence has room
+ * for one but not for `dayLabel`'s full spelling: a weekday and a month abbreviated, as
+ * `month-grid.tsx`'s header row and `timeline-scale.ts`'s own compact column already abbreviate
+ * theirs. The agenda used to print the stored text verbatim - "2026-09-24" - which is the one date
+ * shape nobody reading a calendar actually thinks in.
+ *
+ * Falls back to the raw text on a date this cannot parse, which should not happen for a key already
+ * used to bucket the agenda, but a heading that could throw is worse than one that is occasionally
+ * literal.
+ */
+function agendaDayLabel(date: string): string {
+  const day = dayFromText(date);
+  if (day === null) {
+    return date;
+  }
+
+  const weekday = monthEntry(WEEKDAY_ABBREVIATIONS, weekdayIndex(day.year, day.month, day.day));
+  return `${weekday} ${String(day.day)} ${monthEntry(MONTH_ABBREVIATIONS, day.month)}`;
 }
 
 const NO_DATE_PROPERTY =
@@ -169,7 +218,14 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       };
     });
   }
-  const [dragged, setDragged] = useState<string | null>(null);
+  const [dragged, setDraggedState] = useState<{
+    readonly id: string;
+    readonly from: string | null;
+  } | null>(null);
+
+  function setDragged(itemId: string, occurrenceDate: string | null): void {
+    setDraggedState({ id: itemId, from: occurrenceDate });
+  }
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const unscheduledHeadingId = useId();
 
@@ -222,6 +278,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     container.schema?.properties.find((property) => property.key === dateProperty)?.type ===
     'timestamp';
 
+  // The view's own end-of-span property, when it has one - see `RescheduleDialogProps.endDateProperty`
+  // for why the calendar's end field assumes the same shape as `dateProperty` rather than checking
+  // its own type against the schema. Read before the buckets are filled: a multi-day item's own
+  // bucketing below needs it.
+  const endDateProperty = view.endDateProperty;
+
   const byDate = new Map<string, Item[]>();
   const unscheduled: Item[] = [];
 
@@ -235,19 +297,40 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       continue;
     }
 
-    const existing = byDate.get(value);
-    if (existing === undefined) {
-      byDate.set(value, [item]);
-    } else {
-      existing.push(item);
+    // An item with an end that lands after its start covers every day in between, and this grid
+    // shows it on each of them - the same "where an item sits is its date" rule extended across a
+    // range rather than a single answer. An end on or before the start (no end configured, none
+    // set on this item, or one that lands before its start - the reversed span timeline-view.tsx
+    // also refuses to draw) collapses to the single-day case every calendar has always had.
+    const end = endDateProperty === null ? null : readDayValue(item, endDateProperty, zone);
+    const dates = end === null || end <= value ? [value] : spanDates(value, end);
+
+    for (const date of dates) {
+      const existing = byDate.get(date);
+      if (existing === undefined) {
+        byDate.set(date, [item]);
+      } else {
+        existing.push(item);
+      }
     }
   }
 
   const prefix = monthPrefix(month);
+
+  // Counted by item, not by bucket: a multi-day item now occupies one bucket per day it covers,
+  // and a bucket outside this month it also reaches on some other day is not an item that has
+  // gone missing from the calendar - it is right there, drawn on the day that is in view.
+  const inMonth = new Set<string>();
+  const outsideMonth = new Set<string>();
+  for (const [date, dated] of byDate) {
+    for (const dayItem of dated) {
+      (date.startsWith(prefix) ? inMonth : outsideMonth).add(dayItem.id);
+    }
+  }
   let elsewhere = 0;
-  for (const [value, dated] of byDate) {
-    if (!value.startsWith(prefix)) {
-      elsewhere += dated.length;
+  for (const id of outsideMonth) {
+    if (!inMonth.has(id)) {
+      elsewhere += 1;
     }
   }
 
@@ -259,23 +342,59 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       ? null
       : (container.schema?.properties.find((property) => property.key === secondaryKey) ?? null);
 
-  function moveTo(itemId: string, value: string | null): void {
-    void container.setProperties(itemId, { [dateProperty]: value });
+  function moveTo(itemId: string, values: Record<string, string | null>): void {
+    void container.setProperties(itemId, values);
     setRescheduling(null);
-    setDragged(null);
+    setDraggedState(null);
+  }
+
+  /**
+   * What a drop onto a day writes: the whole span shifted together when the item has one, or just
+   * the date property when it does not - see `CardContext.dropOnDate`'s own note for why.
+   */
+  function dropOnDate(itemId: string, from: string | null, to: string): void {
+    if (from !== null && from !== to && endDateProperty !== null) {
+      const item = items.find((entry) => entry.id === itemId);
+      const start = item === undefined ? null : readDayValue(item, dateProperty, zone);
+      const end = item === undefined ? null : readDayValue(item, endDateProperty, zone);
+
+      if (start !== null && end !== null && end > start) {
+        const delta = daysBetween(from, to);
+        const shiftedStart = delta === null ? null : shiftDateText(start, delta);
+        const shiftedEnd = delta === null ? null : shiftDateText(end, delta);
+
+        if (shiftedStart !== null && shiftedEnd !== null) {
+          moveTo(itemId, { [dateProperty]: shiftedStart, [endDateProperty]: shiftedEnd });
+          return;
+        }
+      }
+    }
+
+    moveTo(itemId, { [dateProperty]: to });
+  }
+
+  /** What a drop into the unscheduled list, or the dialog's own "Remove date", both write. */
+  function clearedDate(): Record<string, string | null> {
+    return endDateProperty === null
+      ? { [dateProperty]: null }
+      : { [dateProperty]: null, [endDateProperty]: null };
   }
 
   const card: CardContext = {
     onOpen,
     setRescheduling,
     setDragged,
+    clearDragged: () => {
+      setDraggedState(null);
+    },
     moveTo,
+    dropOnDate,
+    dateProperty,
     secondaryKey,
     secondaryProperty,
     onWrite: (itemId: string, propertyKey: string, value: PropertyValue) =>
       container.setProperties(itemId, { [propertyKey]: value }),
     onCreate: container.create,
-    dateProperty,
   };
 
   // The item the reschedule dialog is open for, resolved from the id rather than stored as an
@@ -353,6 +472,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           ))}
         </nav>
 
+        {/* Always visible, never gated behind a hover. The agenda is the default on a phone and
+            had no way to add anything at all until a day's own control was reached below - this
+            is the one that is reachable the moment the calendar opens, made without a date the
+            same way "Add the first item" is on an empty calendar. */}
+        <CreateItemControl label="Add an item" onCreate={container.create} />
+
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant="ghost"
@@ -427,17 +552,28 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             )
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([date, dated]) => (
-              <section key={date} aria-label={date}>
+              <section key={date} aria-label={agendaDayLabel(date)}>
                 <Text as="h3" variant="h6">
-                  {date}
+                  {agendaDayLabel(date)}
                 </Text>
                 <ul className="flex flex-col gap-2">
                   {dated.map((item) => (
                     <li key={item.id}>
-                      <ItemCard item={item} card={card} />
+                      <ItemCard item={item} card={card} occurrenceDate={date} />
                     </li>
                   ))}
                 </ul>
+
+                {/* Always visible - this is the agenda's own per-day add, and the agenda is the
+                    view a phone opens on. The month grid's equivalent control can afford to wait
+                    for a hover or a focus because a pointer that can hover a cell can also reach
+                    the toolbar's control above; a phone has neither, so this one does not hide. */}
+                <CreateItemControl
+                  label={`Add an item on ${agendaDayLabel(date)}`}
+                  properties={{ [card.dateProperty]: date }}
+                  onCreate={card.onCreate}
+                  className="mt-1 self-start"
+                />
               </section>
             ))}
           <Text as="p" variant="caption" tone="muted">
@@ -472,11 +608,12 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
             days={mode === 'week' ? weekOf(anchor) : [anchor]}
             items={items}
             dateProperty={dateProperty}
+            endDateProperty={endDateProperty}
             zone={zone}
             today={todayText}
             onOpen={onOpen}
             onCreate={container.create}
-            dragged={dragged}
+            dragged={dragged?.id ?? null}
             onMove={moveTo}
           />
         </Blueprint>
@@ -490,7 +627,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         onDrop={(event: DragEvent<HTMLElement>) => {
           event.preventDefault();
           if (dragged !== null) {
-            moveTo(dragged, null);
+            moveTo(dragged.id, clearedDate());
           }
         }}
         className="flex flex-col gap-2 border border-divider p-3"
@@ -507,7 +644,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           <ul className="flex flex-col gap-1">
             {unscheduled.map((item) => (
               <li key={item.id}>
-                <ItemCard item={item} card={card} />
+                <ItemCard item={item} card={card} occurrenceDate={null} />
               </li>
             ))}
           </ul>
@@ -524,13 +661,14 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           key={reschedulingItem.id}
           item={reschedulingItem}
           dateProperty={dateProperty}
+          endDateProperty={endDateProperty}
           placesByTime={placesByTime}
           zone={zone}
           onCancel={() => {
             setRescheduling(null);
           }}
-          onMove={(value) => {
-            moveTo(reschedulingItem.id, value);
+          onMove={(values) => {
+            moveTo(reschedulingItem.id, values);
           }}
         />
       )}
@@ -560,12 +698,102 @@ function readDayValue(item: Item, key: string, zone: string): string | null {
   return moment === null ? null : dayFor(moment, zone);
 }
 
+/**
+ * The safety valve on a span the interface can only ever have written a sane length: a bound
+ * nobody scheduling a real item would reach, so a malformed value cannot turn one item into a
+ * year of buckets that cost memory and mean nothing.
+ */
+const MAX_SPAN_DAYS = 366;
+
+/**
+ * Every `yyyy-MM-dd` day from `start` to `end`, inclusive.
+ *
+ * Called only once `end` is already known to be after `start` - see the loop that builds
+ * `byDate`. Falls back to the single start day on a date this cannot parse, which should not
+ * happen for text `readDayValue` already produced, but a month grid that could throw on bad data
+ * is worse than one that occasionally under-covers a span.
+ */
+function spanDates(start: string, end: string): readonly string[] {
+  const first = dayFromText(start);
+  if (first === null) {
+    return [start];
+  }
+
+  const dates: string[] = [];
+  let cursor = first;
+  for (let count = 0; count < MAX_SPAN_DAYS; count += 1) {
+    const text = dayText(cursor);
+    dates.push(text);
+    if (text === end) {
+      break;
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  return dates;
+}
+
+/**
+ * A proleptic-Gregorian day number, counted the way `addDays` counts - as integers, never through
+ * a `Date`. This is the one piece of arithmetic that module's helpers do not offer: a distance
+ * between two days, rather than a day moved by one. `month` here is 1-12, matching the stored text
+ * `dayFromText` already parsed it from, not the 0-11 `CalendarDay` carries.
+ *
+ * The formula is Howard Hinnant's `days_from_civil`: pure integer arithmetic, correct across every
+ * month and year boundary the calendar can reach, and exactly the kind of "no wall clock, no
+ * timezone" fact this file's own dates already are.
+ */
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor((y >= 0 ? y : y - 399) / 400);
+  const yoe = y - era * 400;
+  const monthIndex = (month + 9) % 12;
+  const dayOfYear = Math.floor((153 * monthIndex + 2) / 5) + day - 1;
+  const dayOfEra = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + dayOfYear;
+  return era * 146097 + dayOfEra - 719468;
+}
+
+/** The number of days from `from` to `to`, negative when `to` is the earlier date. Null on text that isn't a whole calendar day. */
+function daysBetween(from: string, to: string): number | null {
+  const start = dayFromText(from);
+  const end = dayFromText(to);
+  if (start === null || end === null) {
+    return null;
+  }
+
+  return (
+    daysFromCivil(end.year, end.month + 1, end.day) -
+    daysFromCivil(start.year, start.month + 1, start.day)
+  );
+}
+
+/** `value`, moved by `delta` days - the text form `spanDates` and every drop already deal in. */
+function shiftDateText(value: string, delta: number): string | null {
+  const day = dayFromText(value);
+  return day === null ? null : dayText(addDays(day, delta));
+}
+
 /** What every card needs, whether it sits in a day or in the unscheduled list. */
 interface CardContext {
   readonly onOpen: (itemId: string) => void;
   readonly setRescheduling: (itemId: string | null) => void;
-  readonly setDragged: (itemId: string | null) => void;
-  readonly moveTo: (itemId: string, value: string | null) => void;
+  readonly setDragged: (itemId: string, occurrenceDate: string | null) => void;
+
+  /** What a drag that never lands on a target - lifted, then dropped nowhere - clears. */
+  readonly clearDragged: () => void;
+  readonly moveTo: (itemId: string, values: Record<string, string | null>) => void;
+
+  /**
+   * What a drop onto `to` writes for an item last dragged from `from`.
+   *
+   * `from` is the day the dragged occurrence was drawn on - null when the drag started somewhere
+   * with no day of its own (the unscheduled list). When the item has an end configured and set,
+   * this shifts both the start and the end by the distance from `from` to `to`, so the whole span
+   * moves together rather than just the end the pointer happened to be over - see `spanDates`'s
+   * own note on the reversed-span bug this replaces. Anything else - a point item, or a drag with
+   * no origin day - falls back to writing only the date property, exactly as before.
+   */
+  readonly dropOnDate: (itemId: string, from: string | null, to: string) => void;
   readonly secondaryKey: string | null;
   readonly secondaryProperty: PropertyDefinition | null;
   readonly onWrite: (
@@ -587,7 +815,7 @@ interface DayCellProps {
   readonly name: string;
   readonly isToday: boolean;
   readonly items: readonly Item[];
-  readonly dragged: string | null;
+  readonly dragged: { readonly id: string; readonly from: string | null } | null;
   readonly card: CardContext;
 }
 
@@ -618,8 +846,10 @@ function DayCell(props: DayCellProps): ReactNode {
         setOver(false);
         if (dragged !== null) {
           // A drop writes the date property, not a position: where a card sits is its date, and
-          // anything view-local would disagree with every other view of the same folder.
-          card.moveTo(dragged, cell.date);
+          // anything view-local would disagree with every other view of the same folder. An item
+          // with an end configured and set moves as a whole span - see `CardContext.dropOnDate` -
+          // so dragging any day of a multi-day span keeps its length rather than reversing it.
+          card.dropOnDate(dragged.id, dragged.from, cell.date);
         }
       }}
       className={cn(
@@ -637,7 +867,7 @@ function DayCell(props: DayCellProps): ReactNode {
           <ul className="flex flex-col gap-1">
             {visibleItems.map((item) => (
               <li key={item.id}>
-                <ItemCard item={item} card={card} />
+                <ItemCard item={item} card={card} occurrenceDate={cell.date} />
               </li>
             ))}
           </ul>
@@ -661,13 +891,16 @@ function DayCell(props: DayCellProps): ReactNode {
             buttons would be more plus signs than calendar, but one that only exists for a pointer
             would be a way to add things that a keyboard does not have.
             `opacity-0`/`pointer-events-none`, not `invisible` - see calendar-hours.tsx's hour-slot
-            and all-day controls for why `visibility: hidden` breaks the keyboard path entirely. */}
+            and all-day controls for why `visibility: hidden` breaks the keyboard path entirely.
+            `pointer-coarse:*` keeps it shown and tappable on a phone, which has neither hover nor
+            focus-by-tab to reveal it with - the same trio `workspace-sidebar.tsx`'s row controls
+            and `drive-view.tsx`'s own touch target already use. */}
         <CreateItemControl
           compact
           label={`Add an item on ${name}`}
           properties={{ [card.dateProperty]: cell.date }}
           onCreate={card.onCreate}
-          className="opacity-0 pointer-events-none mt-auto self-start focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/day:pointer-events-auto group-hover/day:opacity-100"
+          className="opacity-0 pointer-events-none mt-auto self-start focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/day:pointer-events-auto group-hover/day:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
         />
       </div>
     </td>
@@ -677,23 +910,32 @@ function DayCell(props: DayCellProps): ReactNode {
 interface ItemCardProps {
   readonly item: Item;
   readonly card: CardContext;
+
+  /**
+   * The day this card is drawn on right now, or null when it has none - the unscheduled list.
+   * A multi-day span is drawn once per day it covers, so the same item's card carries a different
+   * value here on each of them; `card.dropOnDate` uses it to tell which day of the span the drag
+   * actually started from.
+   */
+  readonly occurrenceDate: string | null;
 }
 
 function ItemCard(props: ItemCardProps): ReactNode {
-  const { item } = props;
-  const { onOpen, setRescheduling, setDragged, secondaryProperty, onWrite } = props.card;
+  const { item, occurrenceDate } = props;
+  const { onOpen, setRescheduling, setDragged, clearDragged, secondaryProperty, onWrite } =
+    props.card;
 
   return (
     <div
       draggable
       onDragStart={(event: DragEvent<HTMLDivElement>) => {
-        setDragged(item.id);
+        setDragged(item.id, occurrenceDate);
         event.dataTransfer.effectAllowed = 'move';
         // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
         event.dataTransfer.setData('text/plain', item.id);
       }}
       onDragEnd={() => {
-        setDragged(null);
+        clearDragged();
       }}
       className="flex items-start gap-1 border border-divider bg-surface px-1"
     >
@@ -743,162 +985,5 @@ function ItemCard(props: ItemCardProps): ReactNode {
         <Icon icon={CalendarClock} size="sm" />
       </Button>
     </div>
-  );
-}
-
-/**
- * What the reschedule field starts with: the value the item already has, in the shape the control
- * takes.
- *
- * A `datetime-local` input refuses anything that is not a bare wall clock, so a stored moment is
- * converted into the reader's zone and stripped of its offset first - the same reading the grid
- * places it by, so the field agrees with the row the card is sitting on.
- */
-function readDraft(item: Item, key: string, placesByTime: boolean, zone: string): string {
-  if (!placesByTime) {
-    return readDateValue(item, key) ?? '';
-  }
-
-  const moment = readTimestampValue(item.properties, key);
-  return moment === null ? '' : moment.at.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
-}
-
-interface RescheduleDialogProps {
-  readonly item: Item;
-
-  /** The property the calendar places by, for reading the date the item has now. */
-  readonly dateProperty: string;
-
-  /**
-   * Whether the property holds a moment rather than a day.
-   *
-   * When it does, this dialog takes an hour as well - because an hour slot accepts a drop, and a
-   * capability the pointer has and the keyboard does not is the thing ADR-0009 removed.
-   */
-  readonly placesByTime: boolean;
-
-  /** The reader's zone, which a typed wall-clock time means what it says in. */
-  readonly zone: string;
-  readonly onCancel: () => void;
-  readonly onMove: (value: string | null) => void;
-}
-
-/**
- * The keyboard road to the same write a drag performs, in a modal.
- *
- * A modal rather than a form swapped into the card's place, because the card's place is a
- * `w-[6.5rem]` month column and a native date input needs roughly 120px to draw its value - the
- * old inline form rendered a control that could not show the date being typed into it.
- *
- * The draft starts as the date the item has now, when it has one. The inline form started empty
- * and said why: the current date was the cell the card sat in, visible right behind the field.
- * A modal covers the grid, so the one fact the form used to lean on is now hidden by it - the
- * value is the field's honest starting point, seeded once at mount (the dialog is keyed by item),
- * not mirrored thereafter.
- *
- * What the form must not do is guess. A draft that is not a `yyyy-MM-dd` date is refused here, in
- * the field that can say so, rather than written and refused by Core.
- */
-function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
-  const { item, dateProperty, placesByTime, zone, onCancel, onMove } = props;
-  const [draft, setDraft] = useState(() => readDraft(item, dateProperty, placesByTime, zone));
-  const [error, setError] = useState<string | null>(null);
-  const fieldRef = useRef<HTMLInputElement>(null);
-
-  function submit(): void {
-    if (placesByTime) {
-      // What `datetime-local` produces, and what the hour slots write: a wall clock, which the
-      // reader's zone turns into a moment. Seconds are optional in the control's own output.
-      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(draft)) {
-        setError('Enter a date and a time of day.');
-        return;
-      }
-
-      const stored = writeTimestampValue(draft, zone);
-      if (stored === null) {
-        setError('That is not a time this calendar can place.');
-        return;
-      }
-
-      onMove(stored);
-      return;
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft)) {
-      setError('Enter a date as year, month and day.');
-      return;
-    }
-
-    onMove(draft);
-  }
-
-  return (
-    <Dialog
-      open
-      title={`Reschedule ${item.title || 'Untitled'}`}
-      onClose={onCancel}
-      // The dialog's whole purpose is one field, which is the case Dialog documents initialFocus
-      // for: landing on the element itself would make the first press a Tab nobody needed.
-      initialFocus={fieldRef}
-    >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Justification: the handler adds no interaction of its own - the field and buttons inside stay the controls - it only stops an Escape press, already translated to the dialog's cancel, from bubbling on to outer layers (ADR-0029). */}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-        onKeyDown={(event) => {
-          // ADR-0029's layering rule: the innermost open layer owns Escape and stops it where it
-          // is handled. The platform translates this very keydown into the dialog's `cancel`
-          // event, which is what closes it - so propagation is stopped, keeping the press from
-          // also reaching a window-level listener like the sidebar drawer's, but the default is
-          // NOT prevented, because preventing it here would suppress the cancel event itself.
-          if (event.key === 'Escape') {
-            event.stopPropagation();
-          }
-        }}
-        className="flex flex-col gap-3"
-      >
-        <Field
-          label={`${placesByTime ? 'New date and time' : 'New date'} for ${item.title || 'Untitled'}`}
-          error={error}
-        >
-          {(control) => (
-            <Input
-              {...control}
-              ref={fieldRef}
-              type={placesByTime ? 'datetime-local' : 'date'}
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setError(null);
-              }}
-            />
-          )}
-        </Field>
-
-        <div className="flex flex-wrap items-center gap-1">
-          <Button type="submit" className="py-1 text-sm">
-            Move
-          </Button>
-
-          <Button
-            variant="secondary"
-            className="py-1 text-sm"
-            onClick={() => {
-              // Parity with dropping a card into the unscheduled list. A gesture the mouse has and
-              // the keyboard does not is a gesture half the people here cannot perform.
-              onMove(null);
-            }}
-          >
-            Remove date
-          </Button>
-
-          <Button variant="ghost" className="py-1 text-sm" onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </Dialog>
   );
 }

@@ -1,7 +1,8 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Select, Text } from '@nix/ui';
 import type { HabitTracker } from '@nix/api-client';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
+import { formatShortDate } from '../../lib/date-format';
 import { useHabits } from './use-habits';
 
 export type HabitWidgetKind = 'completion' | 'quantity' | 'heatmap';
@@ -44,12 +45,7 @@ export function HabitChartWidgets({
   const add = () => {
     if (selectedHabitId === '') return;
     const timezone = trackers.get(selectedHabitId)?.timezone ?? 'UTC';
-    const to = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const to = formatShortDate(new Date(), timezone);
     const fromDate = new Date(`${to}T00:00:00Z`);
     fromDate.setUTCDate(fromDate.getUTCDate() - range + 1);
     const from = fromDate.toISOString().slice(0, 10);
@@ -86,8 +82,7 @@ export function HabitChartWidgets({
           <Text variant="note" tone="muted" as="span">
             Chart
           </Text>
-          <select
-            className="rounded-md border border-divider bg-surface px-2 py-1"
+          <Select
             value={kind}
             onChange={(event) => {
               setKind(event.target.value as HabitWidgetKind);
@@ -98,14 +93,13 @@ export function HabitChartWidgets({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="flex flex-col gap-1">
           <Text variant="note" tone="muted" as="span">
             Habit
           </Text>
-          <select
-            className="rounded-md border border-divider bg-surface px-2 py-1"
+          <Select
             value={selectedHabitId}
             onChange={(event) => {
               setHabitId(event.target.value);
@@ -116,14 +110,13 @@ export function HabitChartWidgets({
                 {habit.title}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="flex flex-col gap-1">
           <Text variant="note" tone="muted" as="span">
             Days
           </Text>
-          <select
-            className="rounded-md border border-divider bg-surface px-2 py-1"
+          <Select
             value={range}
             onChange={(event) => {
               setRange(Number(event.target.value));
@@ -134,7 +127,7 @@ export function HabitChartWidgets({
                 {days}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <Button
           variant="secondary"
@@ -193,8 +186,7 @@ export function HabitChartWidgets({
                 <Text variant="note" tone="muted" as="span">
                   Chart
                 </Text>
-                <select
-                  className="rounded-md border border-divider bg-surface px-2 py-1"
+                <Select
                   value={widget.kind}
                   onChange={(event) => {
                     update(widget.id, { kind: event.target.value as HabitWidgetKind });
@@ -205,14 +197,13 @@ export function HabitChartWidgets({
                       {label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label className="flex flex-col gap-1">
                 <Text variant="note" tone="muted" as="span">
                   Habit
                 </Text>
-                <select
-                  className="rounded-md border border-divider bg-surface px-2 py-1"
+                <Select
                   value={widget.habitId}
                   onChange={(event) => {
                     update(widget.id, { habitId: event.target.value });
@@ -223,7 +214,7 @@ export function HabitChartWidgets({
                       {habit.title}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label className="flex flex-col gap-1">
                 <Text variant="note" tone="muted" as="span">

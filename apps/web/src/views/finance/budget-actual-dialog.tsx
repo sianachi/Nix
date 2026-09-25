@@ -116,6 +116,10 @@ function ActualSummary({
   );
   const query = useFinanceQuery<FinanceTransactions>(endpoint, state.generation);
   const [amount, setAmount] = useState(String(cell.actual));
+  // Captured once, from the value the field opened with, so a backdrop tap or Escape after the
+  // person has actually retyped the total is refused rather than silently discarding it.
+  const [initialAmount] = useState(amount);
+  const dirty = amount !== initialAmount;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -145,13 +149,7 @@ function ActualSummary({
             ? `Records ${formatMoney(typed - cell.actual, currency)} spent from ${accountName} as "${cell.transactions === 0 ? line.name : `${line.name} adjustment`}".`
             : `Records ${formatMoney(cell.actual - typed, currency)} back into ${accountName} as "${line.name} adjustment".`;
 
-  const submit = async (event: SyntheticEvent): Promise<void> => {
-    event.preventDefault();
-    const total = parseAmount(amount);
-    if (total === null || total < 0) {
-      setError('The total for the month is an amount of zero or more.');
-      return;
-    }
+  const save = async (total: number): Promise<void> => {
     setBusy(true);
     const outcome = await state.setActual(line.id, month, { amount: total });
     setBusy(false);
@@ -161,6 +159,23 @@ function ActualSummary({
     }
     setError(null);
     onClose();
+  };
+
+  const submit = async (event: SyntheticEvent): Promise<void> => {
+    event.preventDefault();
+    const total = parseAmount(amount);
+    if (total === null || total < 0) {
+      setError('The total for the month is an amount of zero or more.');
+      return;
+    }
+    await save(total);
+  };
+
+  // The easy button for the common case: the month went exactly to plan, so there is nothing to
+  // type. One click records it; it only appears when actual and plan actually differ.
+  const matchesPlan = cell.actual === cell.plan;
+  const samePlan = async (): Promise<void> => {
+    await save(cell.plan);
   };
 
   const remove = async (transaction: FinanceTransaction): Promise<void> => {
@@ -249,6 +264,7 @@ function ActualSummary({
       onClose={onClose}
       initialFocus={amountField}
       presentation="workspace"
+      dirty={dirty}
     >
       <div className="flex flex-col gap-4">
         <dl className="grid grid-cols-2 gap-3 rounded-lg bg-surface-raised p-3 sm:grid-cols-3">
@@ -318,6 +334,18 @@ function ActualSummary({
                 </div>
               )}
             </Field>
+            {matchesPlan ? null : (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  void samePlan();
+                }}
+              >
+                Same as planned ({formatMoney(cell.plan, currency)})
+              </Button>
+            )}
             {preview === null ? null : (
               <Text as="p" variant="caption" tone="muted" role="status">
                 {preview}

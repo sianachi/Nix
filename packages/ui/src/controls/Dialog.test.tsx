@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef, useState, type ReactNode } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -33,9 +33,15 @@ afterAll(() => {
   Reflect.deleteProperty(HTMLDialogElement.prototype, 'close');
 });
 
-/** Escape, as the platform reports it to a `<dialog>`: a cancellable `cancel` event. */
+/**
+ * Escape, as the platform reports it to a `<dialog>`: a cancellable `cancel` event. Wrapped in
+ * `act` because, once a dirty dialog turns this into a state update of its own - showing the
+ * discard prompt - React needs to be told to flush it before the test looks at the DOM.
+ */
 function pressEscape(dialog: HTMLElement): void {
-  dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+  act(() => {
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+  });
 }
 
 /** A click on the backdrop: pressed and released on the element itself, outside its content. */
@@ -347,6 +353,95 @@ describe('Dialog', () => {
     );
 
     expect(screen.getByRole('heading', { level: 2, name: 'Rename document' })).toBeInTheDocument();
+  });
+
+  it('refuses to dismiss when dirty and shows the discard prompt instead', () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole('dialog');
+    pressEscape(dialog);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard what you typed?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keep editing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+  });
+
+  it('also refuses a backdrop click and the close control when dirty', async () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    await clickBackdrop(screen.getByRole('dialog'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard what you typed?')).toBeInTheDocument();
+  });
+
+  it('moves focus to Keep editing when the prompt appears', () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    pressEscape(screen.getByRole('dialog'));
+
+    expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+  });
+
+  it('closes through Discard, and only through it', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    pressEscape(screen.getByRole('dialog'));
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns to the body and refocuses Keep editing when the person keeps editing', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    pressEscape(screen.getByRole('dialog'));
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText('Discard what you typed?')).not.toBeInTheDocument();
+    expect(screen.getByText('Pick a new name.')).toBeInTheDocument();
+  });
+
+  it('closes directly, without a prompt, once dirty work is no longer at risk', () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Rename document" onClose={onClose} dirty={false}>
+        <p>Pick a new name.</p>
+      </Dialog>,
+    );
+
+    pressEscape(screen.getByRole('dialog'));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Discard what you typed?')).not.toBeInTheDocument();
   });
 
   it('leaves the user agent free to centre it', () => {

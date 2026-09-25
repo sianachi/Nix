@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement, type SyntheticEvent } from 'react';
 
+import { formatFullDate, formatTime } from '../lib/date-format';
 import { proseRoot } from '../editor/prose';
 import { readingExtensions } from '../editor/reading-extensions';
 import { blockTexts, diffBlocks, type DiffEntry } from './block-diff';
@@ -75,9 +76,7 @@ function shortActorId(actorId: string): string {
 }
 
 function timeLabel(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(iso),
-  );
+  return formatTime(new Date(iso));
 }
 
 function timeRangeLabel(revision: HistoryRevision): string {
@@ -92,12 +91,7 @@ function dayKey(iso: string): string {
 }
 
 function dayLabel(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(iso));
+  return formatFullDate(new Date(iso));
 }
 
 interface RevisionGroup {

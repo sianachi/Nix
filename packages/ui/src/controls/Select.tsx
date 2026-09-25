@@ -19,7 +19,8 @@ import { cn } from '../lib/cn';
  *
  * The frame, height, focus ring and disabled treatment are `<Input>`'s, deliberately: a select and
  * a text field standing next to each other in a form that did not agree on their height is the
- * thing this package exists to prevent.
+ * thing this package exists to prevent. That includes the coarse-pointer growth to
+ * `--control-lg`: the two are meant to share a height on every pointer, not just a fine one.
  */
 
 export interface SelectProps extends Omit<ComponentPropsWithRef<'select'>, 'style' | 'size'> {
@@ -34,7 +35,7 @@ export function Select({ children, className, ...rest }: SelectProps): ReactNode
       className={cn(
         blueprintFrame,
         'w-full border-divider bg-background px-3',
-        'h-(--control-md) font-body text-md text-foreground',
+        'h-(--control-md) pointer-coarse:h-(--control-lg) font-body text-md text-foreground',
         focusRing,
         disabledState,
         'aria-invalid:border-foreground',

@@ -28,7 +28,7 @@ import {
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
 import { BudgetActualDialog } from './budget-actual-dialog';
 import { LineDialog } from './finance-setup';
-import { Money, SectionHeading } from './finance-shared';
+import { Money, SectionHeading, editableTextButton } from './finance-shared';
 import { formatMonth, parseAmount, shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
@@ -72,6 +72,14 @@ export function FinanceBudget({
   const [opened, setOpened] = useState<{ readonly lineId: string; readonly month: string } | null>(
     null,
   );
+  // The bulk "record planned as actual" action: idle, asking to confirm a count, working through
+  // the lines one at a time, or reporting what actually went through.
+  const [bulk, setBulk] = useState<
+    | 'idle'
+    | 'confirming'
+    | 'running'
+    | { readonly done: number; readonly failed: readonly string[] }
+  >('idle');
   // A year window: up to twelve months, starting at the selected month, inside the horizon.
   const from = month;
   const to =
@@ -117,6 +125,28 @@ export function FinanceBudget({
   const accountName = finance.accounts.find((each) => each.id === grid.accountId)?.name;
   const switching = query.status === 'loading' && (grid.accountId ?? '') !== accountId;
   const closedMonth = finance.closedMonths.includes(month);
+  // Lines with no actual yet, whose plan is not nothing, for the selected month: `cells[0]`
+  // always keys to `month` regardless of the span toggle, since the query starts its window
+  // there. The account filter is already baked into `grid`, so nothing more is needed to honour it.
+  const bulkCandidates = grid.sections
+    .flatMap((section) => section.lines)
+    .filter((row) => {
+      const cell = row.cells[0];
+      return cell?.actual === 0 && cell.plan !== 0;
+    });
+  const runBulk = async (): Promise<void> => {
+    setBulk('running');
+    let done = 0;
+    const failed: string[] = [];
+    for (const row of bulkCandidates) {
+      const cell = row.cells[0];
+      if (cell === undefined) continue;
+      const outcome = await state.setActual(row.line.id, month, { amount: cell.plan });
+      if (typeof outcome === 'string') failed.push(row.line.name);
+      else done += 1;
+    }
+    setBulk({ done, failed });
+  };
   const openedRow =
     opened === null
       ? undefined
@@ -198,9 +228,52 @@ export function FinanceBudget({
             >
               Add a line
             </Button>
+            {closedMonth ? null : (
+              <Button
+                variant="secondary"
+                disabled={bulkCandidates.length === 0}
+                onClick={() => {
+                  setBulk('confirming');
+                }}
+              >
+                Record planned as actual
+              </Button>
+            )}
           </>
         }
       />
+      {bulk === 'confirming' ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-raised p-3">
+          <Text as="p" variant="bodySmall">
+            Record the plan as the actual for {String(bulkCandidates.length)} line
+            {bulkCandidates.length === 1 ? '' : 's'} with no actual yet in{' '}
+            {formatMonth(month, 'long')}
+            {scope}?
+          </Text>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setBulk('idle');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              void runBulk();
+            }}
+          >
+            Record
+          </Button>
+        </div>
+      ) : null}
+      {typeof bulk === 'object' ? (
+        <Text as="p" variant="bodySmall" role="status">
+          {bulk.failed.length === 0
+            ? `Recorded the plan as the actual for ${String(bulk.done)} line${bulk.done === 1 ? '' : 's'}.`
+            : `Recorded ${String(bulk.done)} of ${String(bulk.done + bulk.failed.length)}; failed for ${bulk.failed.join(', ')}.`}
+        </Text>
+      ) : null}
       {switching ? (
         <Text variant="bodySmall" tone="muted" role="status">
           Loading {chosenAccountName ?? 'every account'}. The figures shown are still those for{' '}
@@ -278,7 +351,7 @@ export function FinanceBudget({
                     <th scope="row" className="py-2 pr-3 text-left font-normal">
                       <button
                         type="button"
-                        className="text-left underline-offset-2 hover:underline"
+                        className={editableTextButton}
                         onClick={() => {
                           setEditing(row.line);
                         }}

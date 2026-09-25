@@ -451,3 +451,30 @@ describe('honesty around the edges', () => {
     expect(screen.getAllByText(/fills down/).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('reaching editing and opening by pointer alone', () => {
+  it('turns a second tap on the already-active cell into an edit; the first only selects it', () => {
+    renderAt(sheetWith({ items: [ALPHA] }));
+
+    const statusCell = screen.getByRole('gridcell', { name: 'Status for Alpha, open' });
+
+    // The first tap brings the grid into focus and selects the cell - no editor yet, the same
+    // as a first click always did.
+    fireEvent.mouseDown(statusCell);
+    expect(screen.queryByRole('textbox', { name: 'Edit Status for Alpha' })).toBeNull();
+
+    // The second tap lands on the cell that is already active: with no double-click and no
+    // keyboard involved, that alone is enough to start editing it.
+    fireEvent.mouseDown(statusCell);
+    expect(screen.getByRole('textbox', { name: 'Edit Status for Alpha' })).toBeInTheDocument();
+  });
+
+  it('opens the active row from a visible control, with no double-click or keyboard needed', () => {
+    const onOpen = vi.fn();
+    renderAt(sheetWith({ items: [ALPHA, BETA], onOpen }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Alpha' }));
+
+    expect(onOpen).toHaveBeenCalledWith('item-a');
+  });
+});

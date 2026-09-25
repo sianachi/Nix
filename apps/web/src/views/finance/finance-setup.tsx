@@ -8,6 +8,7 @@ import type {
   FinanceAccountType,
 } from '@nix/api-client';
 import { useState, type SyntheticEvent, type ReactNode } from 'react';
+import { localTimeZone } from '../../lib/date-format';
 import { WriteError } from './finance-shared';
 import { parseAmount } from './money';
 import type { FinanceState } from './use-finance';
@@ -18,7 +19,7 @@ import type { FinanceState } from './use-finance';
 
 function readerTimezone(): string {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return localTimeZone();
   } catch {
     return 'UTC';
   }

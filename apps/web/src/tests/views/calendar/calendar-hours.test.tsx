@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CalendarDay } from '../../../views/core/calendar-dates';
-import { HourGrid } from '../../../views/calendar/calendar-hours';
+import { HourGrid, minutesToPx } from '../../../views/calendar/calendar-hours';
 import { CalendarView } from '../../../views/calendar/calendar-view';
 import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
+import { readerZone, writeTimestampValue } from '../../../views/core/timestamps';
 
 /**
  * The week grid's layout at a narrow width: a floor on every day column, one scroller for the
@@ -427,5 +428,153 @@ describe('the all-day create control by keyboard', () => {
     expect(
       screen.getByRole('textbox', { name: 'Add an all-day item on Monday 16 March 2026' }),
     ).toHaveFocus();
+  });
+});
+
+/**
+ * A timed item with an end used to be drawn exactly like one with none - a point, sized to its
+ * own content, with no shape on the grid saying how long it runs. `endDateProperty` threads that
+ * length through to `placeOn`, which is what these cover.
+ */
+describe('a timed item with an end', () => {
+  const MEETING = itemOf('item-meeting', 'Meeting', {
+    starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]',
+    ends: '2026-03-16T10:30:00-10:00[Pacific/Honolulu]',
+  });
+
+  // Starts late on the 16th and ends after midnight on the 17th - a day this one-day grid never
+  // draws a column for.
+  const OVERNIGHT = itemOf('item-overnight', 'Overnight', {
+    starts: '2026-03-16T23:00:00-10:00[Pacific/Honolulu]',
+    ends: '2026-03-17T01:00:00-10:00[Pacific/Honolulu]',
+  });
+
+  function renderDay(items: readonly Item[]): void {
+    const day: CalendarDay = { year: 2026, month: 2, day: 16 };
+    renderAt(
+      <HourGrid
+        days={[day]}
+        items={items}
+        dateProperty="starts"
+        endDateProperty="ends"
+        zone="Pacific/Honolulu"
+        today="2026-03-16"
+        onOpen={vi.fn()}
+        dragged={null}
+      />,
+      '/',
+    );
+  }
+
+  /** The one element carrying the entry's inline position and size - see calendar-hours.tsx. */
+  function cardOf(title: string): HTMLElement {
+    const card = screen.getByRole('button', { name: new RegExp(`^${title}`) }).closest('div');
+    if (card === null) {
+      throw new Error(`No positioned wrapper found for "${title}".`);
+    }
+    return card;
+  }
+
+  it('draws a span with an explicit height proportional to its duration', () => {
+    renderDay([MEETING]);
+
+    // 09:00 to 10:30 is ninety minutes - one and a half of the grid's rows.
+    expect(cardOf('Meeting')).toHaveStyle({ height: `${String(minutesToPx(90))}px` });
+  });
+
+  it('clamps an overnight span to the visible day rather than running past midnight', () => {
+    renderDay([OVERNIGHT]);
+
+    // 23:00 to midnight is sixty minutes, even though the stored end is two hours later on a day
+    // this grid does not draw a column for.
+    expect(cardOf('Overnight')).toHaveStyle({ height: `${String(minutesToPx(60))}px` });
+  });
+
+  it('gives a span under the minimum duration a floor height so its Reschedule button is not clipped', () => {
+    const BRIEF = itemOf('item-brief', 'Brief', {
+      starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]',
+      ends: '2026-03-16T09:15:00-10:00[Pacific/Honolulu]',
+    });
+    renderDay([BRIEF]);
+
+    // 15 minutes at this grid's scale is well under the floor - `minutesToPx(15)` is smaller than
+    // `--control-sm` - so the rendered height must be the floor, not the raw arithmetic.
+    const height = Number.parseFloat(cardOf('Brief').style.height);
+    expect(height).toBeGreaterThanOrEqual(28);
+    expect(height).toBeGreaterThan(minutesToPx(15));
+  });
+
+  it('draws a point with no explicit height, exactly as it always has', () => {
+    renderDay([
+      itemOf('item-standup', 'Standup', { starts: '2026-03-16T09:00:00-10:00[Pacific/Honolulu]' }),
+    ]);
+
+    expect(cardOf('Standup').style.height).toBe('');
+  });
+});
+
+/**
+ * A placed item used to answer only to a click that opened it - a drag was the sole way to move it
+ * once it had landed on the grid, which a keyboard and a touch screen alike cannot perform.
+ */
+describe('rescheduling a placed item without dragging', () => {
+  function person() {
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  function renderWeekWith(setProperties = vi.fn(() => Promise.resolve(null))): {
+    readonly setProperties: typeof setProperties;
+  } {
+    const view = weekView();
+    renderAt(
+      <CalendarView
+        container={aContainer({
+          schema: SCHEMA,
+          views: views([view]),
+          children: [STANDUP],
+          setProperties,
+        })}
+        view={view}
+        onOpen={vi.fn()}
+      />,
+      '/',
+    );
+    return { setProperties };
+  }
+
+  it('offers a reschedule control beside a placed item, distinct from the control that opens it', () => {
+    renderWeekWith();
+
+    expect(screen.getByRole('button', { name: 'Reschedule Standup' })).toBeInTheDocument();
+    // The card's own title is still an open control, not swallowed by the new one beside it.
+    expect(screen.getByRole('button', { name: /^Standup/ })).toBeInTheDocument();
+  });
+
+  it('reschedules a placed item from a tap, writing the moment typed into the dialog', async () => {
+    const { setProperties } = renderWeekWith();
+
+    await person().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    const field = screen.getByLabelText('New date and time for Standup');
+    await person().clear(field);
+    await person().type(field, '2026-03-16T10:30');
+    await person().click(screen.getByRole('button', { name: 'Move' }));
+
+    // The same write a drop onto an hour slot makes - derived through `writeTimestampValue`,
+    // never assembled by hand, so it agrees with whichever zone this environment reads as the
+    // reader's own, rather than pinning one this suite does not otherwise fix.
+    expect(setProperties).toHaveBeenCalledWith('item-standup', {
+      starts: writeTimestampValue('2026-03-16T10:30', readerZone()),
+    });
+  });
+
+  it('closes on cancel and writes nothing', async () => {
+    const { setProperties } = renderWeekWith();
+
+    await person().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+    await person().click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(setProperties).not.toHaveBeenCalled();
   });
 });

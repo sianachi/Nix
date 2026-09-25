@@ -1,10 +1,11 @@
 import type { CalendarEntry } from '@nix/api-client';
-import { Blueprint, Button, Segmented, Text, focusRing } from '@nix/ui';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Blueprint, Button, Icon, Segmented, Text, focusRing } from '@nix/ui';
+import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
 import { HourGrid } from '../views/calendar/calendar-hours';
-import { MonthGrid } from '../views/calendar/month-grid';
+import { MonthGrid, type DayCellSpec } from '../views/calendar/month-grid';
+import { RescheduleDialog } from '../views/calendar/reschedule-dialog';
 import {
   addDays,
   dayLabel,
@@ -15,6 +16,7 @@ import {
   weekOf,
   type CalendarDay,
 } from '../views/core/calendar-dates';
+import type { Item } from '../views/core/container-model';
 import { readerZone } from '../views/core/timestamps';
 import type { CalendarGrain } from './calendar-window';
 import {
@@ -22,10 +24,14 @@ import {
   containersById,
   noteOptions,
   COLLATED_DATE_KEY,
+  toGridItem,
   toGridItems,
 } from './collated-entries';
 import { CreateEntryButton } from './create-entry-button';
 import { valueForDay, valueForHour } from './reschedule';
+
+/** How many entries a month cell shows before it collapses the rest, matching `DayCell`'s own. */
+const MAXIMUM_COLLAPSED_DAY_ITEMS = 6;
 
 /**
  * Every calendar in the workspace, drawn as one.
@@ -136,6 +142,12 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
     }
   };
 
+  // Which entry's reschedule dialog is open, or null. Tap-and-keyboard's own counterpart to
+  // `dragged` above: the month cell used to answer only to a drag, which a keyboard and a touch
+  // screen alike cannot perform.
+  const [rescheduling, setRescheduling] = useState<string | null>(null);
+  const reschedulingEntry = entries.find((entry) => entry.itemId === rescheduling) ?? null;
+
   const step = (delta: number): void => {
     if (grain === 'month') {
       const moved = shiftMonth({ year: anchor.year, month: anchor.month }, delta);
@@ -219,60 +231,31 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
           todayText={todayText}
           prefix="collated-"
           renderDay={(cell, name, isToday) => (
-            <td
+            <CollatedDayCell
               key={cell.date}
-              aria-label={name}
-              aria-current={isToday ? 'date' : undefined}
-              onDragOver={(event) => {
-                // Without this the browser refuses the drop outright, so it runs whether or not this
-                // calendar started the drag; the highlight below is what is conditional.
-                event.preventDefault();
+              cell={cell}
+              name={name}
+              isToday={isToday}
+              items={byDay.get(cell.date) ?? []}
+              containers={containers}
+              over={over === cell.date && dragged !== null}
+              onDragOver={() => {
                 setOver(cell.date);
               }}
               onDragLeave={() => {
                 setOver((current) => (current === cell.date ? null : current));
               }}
-              onDrop={(event) => {
-                event.preventDefault();
+              onDrop={() => {
                 setOver(null);
                 dropOn(cell.date);
               }}
-              className={`h-24 border border-divider align-top ${
-                over === cell.date && dragged !== null
-                  ? 'outline-2 -outline-offset-2 outline-accent'
-                  : ''
-              }`}
-            >
-              <div className="flex h-full flex-col gap-0.5 p-1">
-                <Text variant="caption" as="span" tone={isToday ? 'accent' : 'muted'}>
-                  {String(cell.day)}
-                </Text>
-
-                {(byDay.get(cell.date) ?? []).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    draggable
-                    onDragStart={() => {
-                      setDragged(item.id);
-                    }}
-                    onDragEnd={() => {
-                      setDragged(null);
-                    }}
-                    onClick={() => {
-                      onOpen(item.id);
-                    }}
-                    // The container's name is in the accessible name rather than on screen: a day
-                    // cell is two centimetres wide, and a reader who needs to know where something
-                    // came from needs it said rather than truncated.
-                    aria-label={`${item.title}, in ${containers.get(item.id) ?? 'Untitled'}`}
-                    className={`${focusRing} truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
-                  >
-                    {item.title}
-                  </button>
-                ))}
-              </div>
-            </td>
+              onOpen={onOpen}
+              onDragStart={setDragged}
+              onDragEnd={() => {
+                setDragged(null);
+              }}
+              onReschedule={setRescheduling}
+            />
           )}
         />
       ) : (
@@ -292,7 +275,10 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
             // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
-            onMove={(itemId, value) => {
+            onMove={(itemId, values) => {
+              // This grid was never given an end property, so the bag it hands back always holds
+              // exactly the one key it was given: `COLLATED_DATE_KEY`.
+              const value = values[COLLATED_DATE_KEY] ?? null;
               const entry = entries.find((candidate) => candidate.itemId === itemId);
               setDragged(null);
               if (entry === undefined || value === null) {
@@ -315,6 +301,162 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
           />
         </Blueprint>
       )}
+
+      {/* Tap-and-keyboard's own road to the same write a drag onto a month cell makes. `canRemove`
+          is false: this calendar has no unscheduled list for "Remove date" to be the counterpart
+          of, and offering the button anyway would be a control that silently did nothing. */}
+      {reschedulingEntry === null ? null : (
+        <RescheduleDialog
+          key={reschedulingEntry.itemId}
+          item={toGridItem(reschedulingEntry)}
+          dateProperty={COLLATED_DATE_KEY}
+          placesByTime={reschedulingEntry.kind === 'timestamp'}
+          zone={zone}
+          canRemove={false}
+          onCancel={() => {
+            setRescheduling(null);
+          }}
+          onMove={(values) => {
+            // No `endDateProperty` is passed above, so the dialog draws no end field and this bag
+            // always holds exactly the one key it was given.
+            const value = values[COLLATED_DATE_KEY] ?? null;
+            setRescheduling(null);
+            if (value !== null && value !== reschedulingEntry.value) {
+              onReschedule(reschedulingEntry, value);
+            }
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+interface CollatedDayCellProps {
+  readonly cell: DayCellSpec;
+
+  /** The cell's accessible name: weekday, day, month and year, spelt out. */
+  readonly name: string;
+  readonly isToday: boolean;
+  readonly items: readonly Item[];
+
+  /** Which container each item came from, so its control can say so. */
+  readonly containers: ReadonlyMap<string, string>;
+
+  /** Whether a drop here right now would be taken. */
+  readonly over: boolean;
+  readonly onDragOver: () => void;
+  readonly onDragLeave: () => void;
+  readonly onDrop: () => void;
+  readonly onOpen: (itemId: string) => void;
+  readonly onDragStart: (itemId: string) => void;
+  readonly onDragEnd: () => void;
+  readonly onReschedule: (itemId: string) => void;
+}
+
+/**
+ * One month cell of the collated calendar.
+ *
+ * Its own component, rather than the inline function `MonthGrid.renderDay` used to be, for the same
+ * reason `calendar-view.tsx`'s own `DayCell` is one: the "show N more" disclosure is a fact about a
+ * single cell, and a flag held anywhere else would either re-render every cell in the month for one
+ * of them opening or have nowhere honest to live.
+ */
+function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
+  const {
+    cell,
+    name,
+    isToday,
+    items,
+    containers,
+    over,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onOpen,
+    onDragStart,
+    onDragEnd,
+    onReschedule,
+  } = props;
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
+  const hiddenItems = items.length - visibleItems.length;
+
+  return (
+    <td
+      aria-label={name}
+      aria-current={isToday ? 'date' : undefined}
+      onDragOver={(event) => {
+        // Without this the browser refuses the drop outright, so it runs whether or not this
+        // calendar started the drag; the highlight below is what is conditional.
+        event.preventDefault();
+        onDragOver();
+      }}
+      onDragLeave={onDragLeave}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      className={`h-24 border border-divider align-top ${
+        over ? 'outline-2 -outline-offset-2 outline-accent' : ''
+      }`}
+    >
+      <div className="flex h-full flex-col gap-0.5 p-1">
+        <Text variant="caption" as="span" tone={isToday ? 'accent' : 'muted'}>
+          {String(cell.day)}
+        </Text>
+
+        {visibleItems.length === 0 ? null : (
+          <ul className="flex flex-col gap-0.5">
+            {visibleItems.map((item) => (
+              <li key={item.id} className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={() => {
+                    onDragStart(item.id);
+                  }}
+                  onDragEnd={onDragEnd}
+                  onClick={() => {
+                    onOpen(item.id);
+                  }}
+                  // The container's name is in the accessible name rather than on screen: a day
+                  // cell is two centimetres wide, and a reader who needs to know where something
+                  // came from needs it said rather than truncated.
+                  aria-label={`${item.title}, in ${containers.get(item.id) ?? 'Untitled'}`}
+                  className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
+                >
+                  {item.title}
+                </button>
+
+                <Button
+                  variant="ghost"
+                  aria-label={`Reschedule ${item.title || 'Untitled'}`}
+                  aria-haspopup="dialog"
+                  className="shrink-0 px-0.5 py-0.5"
+                  onClick={() => {
+                    onReschedule(item.id);
+                  }}
+                >
+                  <Icon icon={CalendarClock} size="sm" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {items.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
+          <Button
+            variant="ghost"
+            className="self-start px-1 py-0.5 text-xs"
+            aria-expanded={expanded}
+            onClick={() => {
+              setExpanded((current) => !current);
+            }}
+          >
+            {expanded ? 'Show fewer' : `Show ${String(hiddenItems)} more`}
+          </Button>
+        )}
+      </div>
+    </td>
   );
 }

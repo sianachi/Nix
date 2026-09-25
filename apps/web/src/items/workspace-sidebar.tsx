@@ -1,4 +1,14 @@
-import { Button, Icon, Text, cn, disabledState, fieldLabel, focusRing } from '@nix/ui';
+import {
+  Button,
+  Icon,
+  Menu,
+  Text,
+  cn,
+  disabledState,
+  fieldLabel,
+  focusRing,
+  type MenuEntry,
+} from '@nix/ui';
 import { files as fileResources, isNixApiError } from '@nix/api-client';
 import {
   ChevronDown,
@@ -17,7 +27,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
-  useEffect,
   useRef,
   useState,
   type DragEvent,
@@ -34,6 +43,7 @@ import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-op
 import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
+import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
 /**
@@ -331,10 +341,24 @@ interface CreateMenuProps {
  * Three buttons in the header left the tree's title about a third of the row, and every kind
  * added would take another bite. A menu spends one control's width however many kinds exist.
  *
- * The open-close grammar is `ProfileMenu`'s: outside click and Escape close it, choosing closes
- * it, and the trigger reports state through `aria-expanded`. One checkbox changes the destination
- * for the one list of body kinds: unchecked means the workspace root; checked means inside the
- * open item. The destination changes, not the set of actions, so the menu never repeats itself.
+ * Built on `<Menu>` for its disclosure mechanics - open state, outside-click and Escape dismissal
+ * (with the same stop-propagation-at-the-innermost-layer rule `sidebar-drawer.tsx` and
+ * `ProfileMenu` rely on), viewport-clamped placement, the phone bottom sheet, 44px touch targets -
+ * rather than this component's own copy of all of it. `<Menu>` has no checkbox item kind, so the
+ * destination toggle travels in as a `content` entry, exactly the way the profile menu's appearance
+ * switcher does: it is a settings widget, not a command, so it sits outside the arrow-key roving
+ * order on purpose and is reached by Tab like any other control embedded in a menu. The static
+ * "Workspace root" label is a `content` entry for the same reason. Every real command (a body kind,
+ * upload, a structured recipe, a template, browse-all) stays a `MenuAction`, which is what keeps
+ * ArrowDown/Up/Home/End working across them. `MenuAction` carries one `label` used as both the
+ * visible text and the accessible name, so the destination-qualified phrasing that used to live in
+ * a separate `aria-label` ("New note inside Engineering") is now the item's own on-screen label. A
+ * per-item `title` tooltip (a recipe's detail, a template's description) has no `MenuAction`
+ * equivalent and is dropped rather than faked through a `content` entry, which would pull that item
+ * out of the roving order too. The panel's own literal `w-[180px]` is dropped along with it - the
+ * exact pixel width `<Menu>`'s own doc comment names as the thing it exists to stop every call site
+ * re-deriving, and that used to run this panel off a narrow phone screen before falling back to the
+ * bottom sheet fixed that.
  */
 function CreateMenu({
   childDestination,
@@ -347,110 +371,27 @@ function CreateMenu({
   onBrowseTemplates,
   onUpload,
 }: CreateMenuProps): ReactNode {
-  const [open, setOpen] = useState(false);
   const [insideSelected, setInsideSelected] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
+  const destination = insideSelected && childDestination !== null ? childDestination : null;
+  const destinationSuffix =
+    destination === null ? ' in the workspace' : ` inside ${destination.name}`;
 
-    function onPointerDown(event: MouseEvent): void {
-      if (containerRef.current?.contains(event.target as Node) === false) {
-        setOpen(false);
-      }
-    }
-
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        // The innermost layer's Escape wins. Both this and the drawer that can wrap this menu
-        // (`sidebar-drawer.tsx`) listen for Escape, and without this the drawer's own listener -
-        // which sits further out on every keydown's path, on `window` rather than `document` -
-        // would close the whole drawer instead of just this menu. Stopping here keeps the event
-        // from ever reaching it.
-        event.stopPropagation();
-        event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    menuItems(menuRef.current)[0]?.focus();
-  }, [open]);
-
-  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-    const items = menuItems(menuRef.current);
-    if (items.length === 0) return;
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    let next: number | null = null;
-    if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
-    if (event.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1;
-    if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = items.length - 1;
-    if (event.key === 'Tab') {
-      setOpen(false);
-      return;
-    }
-    if (next === null) return;
-    event.preventDefault();
-    items[next]?.focus();
-  }
-
-  return (
-    <div ref={containerRef} className="relative ml-auto">
-      <Button
-        ref={triggerRef}
-        variant="ghost"
-        className="px-1.5 py-1 text-xs"
-        aria-label="New item in the workspace"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          if (open) {
-            setOpen(false);
-            return;
-          }
-
-          // Root is the safe default every time the menu opens. A previous contextual creation
-          // must not quietly turn the next global New action into another child creation.
-          setInsideSelected(false);
-          setOpen(true);
-        }}
-        disabled={disabled}
-      >
-        <Icon icon={Plus} size="sm" />
-        New
-        <Icon icon={ChevronDown} size="sm" />
-      </Button>
-
-      {open ? (
-        <div
-          ref={menuRef}
-          role="menu"
-          tabIndex={-1}
-          aria-label="New item"
-          onKeyDown={handleMenuKeyDown}
-          className="absolute right-0 z-20 mt-1 max-h-[calc(100dvh-var(--spacing)*8)] w-[180px] overflow-y-auto border border-divider bg-background shadow-md"
-        >
-          {childDestination === null ? (
+  const items: MenuEntry[] = [
+    childDestination === null
+      ? {
+          kind: 'content',
+          key: 'destination',
+          content: (
             <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
               Workspace root
             </span>
-          ) : (
+          ),
+        }
+      : {
+          kind: 'content',
+          key: 'destination',
+          content: (
             <button
               type="button"
               role="menuitemcheckbox"
@@ -468,138 +409,140 @@ function CreateMenu({
               </span>
               <span className="min-w-0 truncate">Create inside {childDestination.name}</span>
             </button>
-          )}
+          ),
+        },
+    { kind: 'separator' },
+    {
+      kind: 'content',
+      key: 'create-label',
+      content: (
+        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+          Create
+        </span>
+      ),
+    },
+    ...CREATABLE_KINDS.map((kind): MenuEntry => ({
+      kind: 'action',
+      key: kind.type,
+      icon: kind.icon,
+      label: `New ${kind.type}${destinationSuffix}`,
+      onSelect: () => {
+        onCreate(destination?.id ?? null, kind.title, kind.type);
+      },
+    })),
+    {
+      kind: 'action',
+      key: 'upload',
+      icon: Upload,
+      label: 'Upload files',
+      onSelect: () => {
+        onUpload(destination?.id ?? null);
+      },
+    },
+    { kind: 'separator' },
+    {
+      kind: 'content',
+      key: 'structured-label',
+      content: (
+        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+          Structured
+        </span>
+      ),
+    },
+    ...STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured').map(
+      (recipe): MenuEntry => ({
+        kind: 'action',
+        key: recipe.id,
+        icon: LayoutTemplate,
+        label: `New ${recipe.label}${destinationSuffix}`,
+        onSelect: () => {
+          onStartStructured(destination?.id ?? null, recipe.id);
+        },
+      }),
+    ),
+    { kind: 'separator' },
+    {
+      kind: 'content',
+      key: 'templates-label',
+      content: (
+        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
+          Templates
+        </span>
+      ),
+    },
+    ...templates.slice(0, 3).map((template): MenuEntry => ({
+      kind: 'action',
+      key: template.id,
+      icon: LayoutTemplate,
+      label: `New ${template.title}${destinationSuffix}`,
+      onSelect: () => {
+        onStartTemplate(destination?.id ?? null, template.id);
+      },
+    })),
+    ...(templateStatus === 'loading' && templates.length === 0
+      ? [
+          {
+            kind: 'content' as const,
+            key: 'templates-loading',
+            content: (
+              <Text variant="caption" tone="muted" className="block px-3 py-2">
+                Loading templates…
+              </Text>
+            ),
+          },
+        ]
+      : []),
+    ...(templateStatus === 'error' && templates.length === 0
+      ? [
+          {
+            kind: 'content' as const,
+            key: 'templates-error',
+            content: (
+              <Text variant="caption" tone="muted" className="block px-3 py-2">
+                Templates are unavailable.
+              </Text>
+            ),
+          },
+        ]
+      : []),
+    {
+      kind: 'action',
+      key: 'browse-templates',
+      icon: LayoutTemplate,
+      label: 'Browse all templates',
+      onSelect: () => {
+        onBrowseTemplates(destination?.id ?? null);
+      },
+    },
+  ];
 
-          <div role="separator" className="border-t border-divider" />
-          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-            Create
-          </span>
-          {CREATABLE_KINDS.map((kind) => (
-            <button
-              key={kind.type}
-              type="button"
-              role="menuitem"
-              aria-label={
-                insideSelected && childDestination !== null
-                  ? `New ${kind.type} inside ${childDestination.name}`
-                  : `New ${kind.type} in the workspace`
-              }
-              onClick={() => {
-                setOpen(false);
-                onCreate(
-                  insideSelected && childDestination !== null ? childDestination.id : null,
-                  kind.title,
-                  kind.type,
-                );
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon icon={kind.icon} size="sm" />
-              {kind.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onUpload(insideSelected && childDestination !== null ? childDestination.id : null);
-            }}
-            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 ${focusRing}`}
-          >
-            <Icon icon={Upload} size="sm" />
-            Upload files
-          </button>
-
-          <div role="separator" className="border-t border-divider" />
-          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-            Structured
-          </span>
-          {STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured').map((recipe) => (
-            <button
-              key={recipe.id}
-              type="button"
-              role="menuitem"
-              aria-label={`New ${recipe.label}${insideSelected && childDestination !== null ? ` inside ${childDestination.name}` : ' in the workspace'}`}
-              title={recipe.detail}
-              onClick={() => {
-                setOpen(false);
-                onStartStructured(
-                  insideSelected && childDestination !== null ? childDestination.id : null,
-                  recipe.id,
-                );
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon icon={LayoutTemplate} size="sm" />
-              {recipe.label}
-            </button>
-          ))}
-
-          <div role="separator" className="border-t border-divider" />
-          <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-            Templates
-          </span>
-          {templates.slice(0, 3).map((template) => (
-            <button
-              key={template.id}
-              type="button"
-              role="menuitem"
-              aria-label={
-                insideSelected && childDestination !== null
-                  ? `New ${template.title} inside ${childDestination.name}`
-                  : `New ${template.title} in the workspace`
-              }
-              title={template.description ?? undefined}
-              onClick={() => {
-                setOpen(false);
-                onStartTemplate(
-                  insideSelected && childDestination !== null ? childDestination.id : null,
-                  template.id,
-                );
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <Icon icon={LayoutTemplate} size="sm" />
-              {template.title}
-            </button>
-          ))}
-          {templateStatus === 'loading' && templates.length === 0 ? (
-            <Text variant="caption" tone="muted" className="block px-3 py-2">
-              Loading templates…
-            </Text>
-          ) : null}
-          {templateStatus === 'error' && templates.length === 0 ? (
-            <Text variant="caption" tone="muted" className="block px-3 py-2">
-              Templates are unavailable.
-            </Text>
-          ) : null}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onBrowseTemplates(
-                insideSelected && childDestination !== null ? childDestination.id : null,
-              );
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-base text-foreground hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-          >
-            <Icon icon={LayoutTemplate} size="sm" />
-            Browse all templates
-          </button>
-        </div>
-      ) : null}
-    </div>
+  return (
+    <Menu label="New item" items={items}>
+      {(trigger) => (
+        <Button
+          {...trigger}
+          variant="ghost"
+          className="ml-auto px-1.5 py-1 text-xs"
+          aria-label="New item in the workspace"
+          onClick={() => {
+            // Root is the safe default every time the menu opens. A previous contextual creation
+            // must not quietly turn the next global New action into another child creation.
+            setInsideSelected(false);
+            trigger.onClick();
+          }}
+          onKeyDown={(event) => {
+            setInsideSelected(false);
+            trigger.onKeyDown(event);
+          }}
+          disabled={disabled}
+        >
+          <Icon icon={Plus} size="sm" />
+          New
+          <Icon icon={ChevronDown} size="sm" />
+        </Button>
+      )}
+    </Menu>
   );
-}
-
-function menuItems(root: HTMLElement | null): HTMLButtonElement[] {
-  return root === null
-    ? []
-    : Array.from(
-        root.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]'),
-      );
 }
 
 interface TreeBodyProps {
@@ -859,13 +802,13 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     if (event.key === 'ArrowUp' && previous !== undefined) {
       event.preventDefault();
       // Before the sibling above, which is after the one above that.
-      void tree.move(item.id, item.parentId, siblings[index - 2]?.id ?? null);
+      void tree.move(item.id, item.parentId, siblingMoveTarget(siblings, index, 'up'));
       return;
     }
 
     if (event.key === 'ArrowDown' && next !== undefined) {
       event.preventDefault();
-      void tree.move(item.id, item.parentId, next.id);
+      void tree.move(item.id, item.parentId, siblingMoveTarget(siblings, index, 'down'));
       return;
     }
 
@@ -1033,7 +976,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           compact
           itemId={item.id}
           title={item.title}
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-lg) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
         />
 
         {/* A direct escape from nesting. Dragging beside a root or pressing Alt+Left once per
@@ -1072,7 +1015,12 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
           // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
           // the `max-sm:` override without it.
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
+          //
+          // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
+          // landing between "move to root" and the bookmark star and this destructive action has
+          // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
+          // the same narrow spacing on every control in it.
+          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
         >
           <Icon icon={Trash2} size="sm" />
         </button>

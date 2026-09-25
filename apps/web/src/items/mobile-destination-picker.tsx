@@ -58,7 +58,7 @@ export function MobileDestinationPicker({
               key={item.id}
               variant="ghost"
               disabled={disabled}
-              className="min-h-11 w-full justify-between text-left"
+              className="w-full justify-between text-left"
               onClick={() => {
                 onChange(item.id);
                 void tree.expand(item.id);

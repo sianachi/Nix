@@ -79,9 +79,13 @@ export interface TabsProps {
   readonly className?: string;
 }
 
-const tablistVariants = cva('flex items-stretch', {
+const tablistVariants = cva('flex min-w-0 items-stretch', {
   variants: {
     orientation: {
+      // `min-w-0` on the base above is what lets `overflow-x-auto` here ever engage: a caller
+      // that sizes the strip with `flex-1` (`document-tab-strip.tsx`) makes it a flex item too,
+      // and a flex item's default `min-width: auto` refuses to shrink below its content's width -
+      // which is exactly the content this scrolls, so the scrollbar never had a reason to appear.
       horizontal: 'flex-row overflow-x-auto border-b border-divider',
       // A fixed width, unlike the horizontal strip's shrink-to-content: a rail's whole point is
       // that a title truncates rather than sets how wide the pane's content gets to be.
@@ -96,7 +100,11 @@ const tabVariants = cva(
   {
     variants: {
       orientation: {
-        horizontal: '-mb-px border-b-2 px-3 py-1.5',
+        // A cap, unlike the vertical rail's own `w-40`: a horizontal strip has no fixed width to
+        // divide, so without one a single long title claims however much space it wants and pushes
+        // every tab after it - and the strip's own scroll and close controls - off the visible
+        // strip. Narrower still under `sm`, where the whole strip is narrower than one uncapped tab.
+        horizontal: '-mb-px max-w-48 border-b-2 px-3 py-1.5 max-sm:max-w-32',
         vertical: '-mr-px border-r-2 px-3 py-1.5',
       },
       active: {
@@ -232,7 +240,11 @@ export function Tabs(props: TabsProps): ReactNode {
                 `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
                 a sighted keyboard user who has no screen reader to read that attribute out.
                 Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
-                rule the pane divider and sidebar rows use.
+                rule the pane divider and sidebar rows use. `pointer-coarse:` mirrors that: a touch
+                pointer never fires `:hover`, so without it the close mark would stay invisible and
+                under the 24px target floor on every tab but the active one - it forces the mark
+                visible and grows its box to `--control-sm`, the same pairing the sidebar's expand
+                control uses.
 
                 The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
                 from the accessibility tree for *every* consumer of that tree, which includes
@@ -254,6 +266,7 @@ export function Tabs(props: TabsProps): ReactNode {
                 }}
                 className={cn(
                   'shrink-0 cursor-pointer rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                  'pointer-coarse:flex pointer-coarse:size-(--control-sm) pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100',
                   active && 'opacity-100',
                   inkWashStates,
                 )}

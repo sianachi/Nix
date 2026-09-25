@@ -9,12 +9,15 @@ permissions:
   contents: read
 jobs:
   compose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
+          # v5 caches the root package.json's packageManager (pnpm) by default; this job never
+          # installs pnpm or dependencies, so there is nothing to cache and no pnpm to ask.
+          package-manager-cache: false
       - run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: bash deploy/compose/check.test.sh
       - run: bash deploy/k8s/deploy.test.sh

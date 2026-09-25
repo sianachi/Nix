@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
+import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
 import { decorateItems, keepComputed } from '../../properties/computed';
 import {
   ContainerViewsSchema,
@@ -52,6 +53,26 @@ export interface ContainerData {
 
   readonly status: ContainerStatus;
   readonly error: string | null;
+
+  /**
+   * Whether a reload is under way while the previous data is still on screen.
+   *
+   * `status` only ever becomes `'loading'` for the very first load of this container - after
+   * that, a reload keeps the last-known schema, views and children mounted and flips this instead,
+   * so a filter panel, an open dialog or a scroll position that a full-panel swap would have thrown
+   * away survives the refresh. A region can put this on its own `aria-busy`.
+   */
+  readonly refreshing: boolean;
+
+  /**
+   * Why the most recent background reload failed, or null when the last one that finished succeeded.
+   *
+   * Only ever set once there is data on screen to keep: a reload that fails before the first
+   * successful load still becomes `status: 'error'`, because there is nothing to protect. A reload
+   * that fails after the first one keeps the existing children, schema and views exactly as they
+   * were and reports the failure here instead of discarding them.
+   */
+  readonly refreshError: string | null;
 
   /**
    * Whether Core withheld the children because a lock covers this item and this session has not
@@ -238,8 +259,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
 
-  const [status, setStatus] = useState<ContainerStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
+  const { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed } =
+    useStaleWhileRevalidate<ContainerStatus>('loading');
   const [writeError, setWriteError] = useState<string | null>(null);
   const [schema, storeSchema] = useState<EffectiveSchema | null>(null);
   const [views, storeViews] = useState<ContainerViews | null>(null);
@@ -254,8 +275,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
-    setStatus('loading');
-    setError(null);
+
+    beginLoad();
 
     try {
       const loaded: Item[] = [];
@@ -339,21 +360,21 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       setTruncated(partial);
       storeSchema(nextSchema);
       storeViews(nextViews);
-      setError(boundaryWarnings[0] ?? null);
-      setStatus(boundaryWarnings.length === 0 ? 'ready' : 'partial');
+      reportLoaded(
+        boundaryWarnings.length === 0 ? 'ready' : 'partial',
+        boundaryWarnings[0] ?? null,
+      );
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
-      setError(
-        isNixApiError(reason)
-          ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
-          : 'Core could not be reached.',
-      );
-      setStatus('error');
+      const message = isNixApiError(reason)
+        ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
+        : 'Core could not be reached.';
+      reportFailed(message, 'error');
     } finally {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
-  }, [client, containerId, workspaceId]);
+  }, [client, containerId, workspaceId, beginLoad, reportLoaded, reportFailed]);
 
   useEffect(() => {
     let disposed = false;
@@ -809,6 +830,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     itemId: containerId,
     status,
     error,
+    refreshing,
+    refreshError,
     locked,
     create,
     schema,

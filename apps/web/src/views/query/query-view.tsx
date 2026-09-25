@@ -1,4 +1,5 @@
-import { Button, Text, cn, focusRing } from '@nix/ui';
+import { Button, Icon, Text, cn, focusRing } from '@nix/ui';
+import { TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import {
@@ -68,7 +69,16 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" aria-busy={run.refreshing}>
+      {run.refreshError === null ? null : (
+        <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+          <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
+          <Text variant="note" as="span" tone="accent">
+            {run.refreshError} These results are unaffected; try again.
+          </Text>
+        </div>
+      )}
+
       {results.truncated ? (
         <PartialNotice
           pending={`More items match than this list carries: the first ${String(results.results.length)} are shown.`}
@@ -87,7 +97,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                   onOpen(row.id);
                 }}
                 className={cn(
-                  'cursor-pointer text-left font-semibold hover:text-accent-text',
+                  'cursor-pointer text-left font-semibold hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
                   focusRing,
                 )}
               >

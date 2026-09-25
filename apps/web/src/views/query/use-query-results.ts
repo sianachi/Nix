@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
+import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
 import { readerZone } from '../core/timestamps';
 
 /**
@@ -75,6 +76,24 @@ export interface QueryResultsState {
   /** The payload, or null while loading and after a failure. Never a half-built stand-in. */
   readonly results: ItemQueryResults | null;
   readonly error: string | null;
+
+  /**
+   * Whether a re-run is under way while the previous results are still on screen.
+   *
+   * `status` only becomes `'loading'` for the very first run - a later re-run (a filter that
+   * changed, the periodic refresh, a deliberate reload) keeps the previous rows mounted instead of
+   * swapping in a full-panel loading state, which used to reset the list's scroll position on every
+   * refresh.
+   */
+  readonly refreshing: boolean;
+
+  /**
+   * Why the most recent background re-run failed, or null when the last one that finished
+   * succeeded. Only ever set once there are results on screen to protect - see the equivalent
+   * field on `ContainerData`.
+   */
+  readonly refreshError: string | null;
+
   readonly reload: () => Promise<void>;
 }
 
@@ -82,17 +101,17 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
 
-  const [status, setStatus] = useState<QueryResultsStatus>('loading');
+  const { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed } =
+    useStaleWhileRevalidate<QueryResultsStatus>('loading');
   const [results, setResults] = useState<ItemQueryResults | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const activeLoad = useRef<AbortController | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
-    setStatus('loading');
-    setError(null);
+
+    beginLoad();
 
     try {
       const today = readerToday();
@@ -102,14 +121,14 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
       });
       if (controller.signal.aborted || activeLoad.current !== controller) return;
       setResults(loaded);
-      setStatus('ready');
+      reportLoaded('ready');
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
-      setError(isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.');
-      setStatus('error');
+      const message = isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.';
+      reportFailed(message, 'error');
     }
-  }, [client, itemId, viewId]);
+  }, [client, itemId, viewId, beginLoad, reportLoaded, reportFailed]);
 
   useEffect(() => {
     let disposed = false;
@@ -130,5 +149,5 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
     [load, workspaceId],
   );
 
-  return { status, results, error, reload: load };
+  return { status, results, error, refreshing, refreshError, reload: load };
 }

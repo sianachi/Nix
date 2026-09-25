@@ -103,6 +103,32 @@ describe('interactive forms', () => {
     expect(create).toHaveBeenCalledWith('Low', { mood: 'Low', detail: 'A difficult morning' });
   });
 
+  it('does not send two responses when Send response is tapped twice before the first answer returns', async () => {
+    const resolvers: ((value: string | null) => void)[] = [];
+    const create = vi.fn(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const user = userEvent.setup();
+    renderForm(create);
+
+    await user.selectOptions(screen.getByLabelText('Mood'), 'Good');
+
+    const button = screen.getByRole('button', { name: 'Send response' });
+    // Both taps land before `container.create` has any chance to answer - exactly the double-tap
+    // this guards against. `aria-disabled` alone does not stop a second click from reaching the
+    // handler, so the guard inside `finish` is what has to hold.
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(create).toHaveBeenCalledTimes(1);
+
+    resolvers[0]?.(null);
+    expect(await screen.findByText('Recorded')).toBeInTheDocument();
+  });
+
   it('does not require or submit fields hidden by conditions', async () => {
     const create = vi.fn(() => Promise.resolve(null));
     const user = userEvent.setup();

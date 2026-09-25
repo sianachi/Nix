@@ -548,3 +548,114 @@ describe('handling a node with the pointer', () => {
     expect(screen.queryByRole('textbox', { name: /note title/i })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Touch, where the mouse tests above do not reach.
+ *
+ * A hover never happened on a coarse pointer, so the label a mouse reader sees before opening a
+ * node never showed up for a touch reader - the first tap here is deliberately not the click tests
+ * above exercise. `matchMedia` is overridden per test the same way `tabs-flows.test.tsx` fakes a
+ * coarse pointer for its own move-picker regression, rather than through `stubViewport`, whose own
+ * comment says it answers every query with one fixed value - not a distinction this suite needs to
+ * draw for width.
+ */
+describe('touching a node on a coarse pointer', () => {
+  function discFor(container: HTMLElement, index: number): SVGGElement {
+    const groups = [...container.querySelectorAll('svg > g.group')];
+    const group = groups[index];
+    if (group === undefined) {
+      throw new Error(`no node group at ${String(index)}`);
+    }
+    return group as SVGGElement;
+  }
+
+  function press(target: Element, x: number, y: number): void {
+    fireEvent.pointerDown(target, { button: 0, pointerId: 1, clientX: x, clientY: y });
+  }
+
+  function tap(target: Element, x: number, y: number): void {
+    press(target, x, y);
+    fireEvent.pointerUp(target, { pointerId: 1, clientX: x, clientY: y });
+  }
+
+  function stubCoarsePointer(): void {
+    // Coarse for the pointer query alone; every other query - the desktop-width one this suite's
+    // own default answers `true` - keeps answering `true`, so a touch graph is still a wide one.
+    globalThis.matchMedia = (query: string): MediaQueryList =>
+      ({
+        matches: query === '(pointer: coarse)' || !query.includes('pointer'),
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }) as MediaQueryList;
+  }
+
+  it('selects the node on the first tap, naming it, without opening it', async () => {
+    stubCoarsePointer();
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    tap(disc, 100, 100);
+
+    expect(screen.queryByRole('textbox', { name: /note title/i })).not.toBeInTheDocument();
+
+    const label = [...container.querySelectorAll('svg text')].find(
+      (text) => text.textContent === 'Specifications',
+    );
+    expect(label?.getAttribute('class')).not.toContain('opacity-0');
+    expect(screen.getByText('Open Specifications')).toBeVisible();
+  });
+
+  it('opens on the second tap of the already-selected node', async () => {
+    stubCoarsePointer();
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    tap(disc, 100, 100);
+    tap(disc, 100, 100);
+
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Specifications',
+    );
+  });
+
+  it('opens through its own "Open" button as well as a second tap', async () => {
+    stubCoarsePointer();
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    tap(disc, 100, 100);
+    fireEvent.click(screen.getByText('Open Specifications'));
+
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Specifications',
+    );
+  });
+
+  it('leaves a mouse opening on the first tap, exactly as before', async () => {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const disc = discFor(container, 0);
+    tap(disc, 100, 100);
+
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
+      'Specifications',
+    );
+  });
+});

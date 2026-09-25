@@ -102,18 +102,28 @@ export function TemplateStudioShell({
                     onStepChange(index);
                   }}
                   className={cn(
-                    `flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${focusRing}`,
+                    `flex w-full flex-col items-center gap-1 rounded-md px-2 py-2 text-center ${focusRing} lg:flex-row lg:items-center lg:gap-2 lg:text-left`,
                     index === step ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
                   )}
                 >
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background">
                     {index < step ? <Icon icon={Check} size="sm" /> : String(index + 1)}
                   </span>
-                  <span className="hidden min-w-0 lg:block">
-                    <Text variant="bodySmall" as="span" className="block">
+                  {/* The name under the number, at every width - a phone reader used to see only
+                      "1 2 3" here, which names nothing. Truncated rather than wrapped so a long
+                      step name never grows the rail; the detail line stays lg-only, since a step's
+                      one-line description is the part a phone's narrower column has least room
+                      for. */}
+                  <span className="min-w-0 max-w-full">
+                    <Text variant="caption" as="span" className="block max-w-full truncate">
                       {entry.label}
                     </Text>
-                    <Text variant="caption" as="span" tone="muted" className="block truncate">
+                    <Text
+                      variant="caption"
+                      as="span"
+                      tone="muted"
+                      className="hidden max-w-full truncate lg:block"
+                    >
                       {entry.detail}
                     </Text>
                   </span>

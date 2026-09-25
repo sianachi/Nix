@@ -89,6 +89,14 @@ describe('Segmented', () => {
     );
   });
 
+  it('grows each segment to the 44px touch step on a coarse pointer', () => {
+    render(<Segmented label="Calendar grain" options={GRAINS} value="week" onChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Week' }).className).toContain(
+      'pointer-coarse:min-h-(--control-lg)',
+    );
+  });
+
   it('reaches every member from the keyboard', async () => {
     const user = userEvent.setup();
     render(<Segmented label="Calendar grain" options={GRAINS} value="month" onChange={vi.fn()} />);

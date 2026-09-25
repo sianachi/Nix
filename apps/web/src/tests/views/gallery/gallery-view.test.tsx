@@ -1,10 +1,13 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import type * as apiClient from '@nix/api-client';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
 import { aContainer, views } from '../../container-fixture';
+import { fileImageReference } from '../../../properties/image-value';
 import type {
   EffectiveSchema,
   Item,
@@ -13,6 +16,44 @@ import type {
 } from '../../../views/core/container-model';
 import { GalleryView } from '../../../views/gallery/gallery-view';
 import type { ContainerData } from '../../../views/core/use-container';
+
+const WORKSPACE = 'a1000000-0000-4000-8000-000000000001';
+
+// The gallery reaches the workspace and the client for exactly one thing - uploading a cover -
+// which none of the read-only tests above exercise. They still render through these mocks rather
+// than the real hooks, because the real ones throw outside their providers, and this suite renders
+// `GalleryView` as a bare leaf the way `drive-view.test.tsx` does for the same reason.
+vi.mock('../../../workspaces/workspace-context', () => ({
+  useWorkspace: () => ({ workspaceId: WORKSPACE }),
+}));
+
+const { beginUploadMock, uploadAndCompleteFileMock } = vi.hoisted(() => ({
+  beginUploadMock: vi.fn((input: unknown) => ({ operation: 'files.upload.begin', body: input })),
+  uploadAndCompleteFileMock: vi.fn(() =>
+    Promise.resolve({ itemId: 'uploaded-file-item', workspaceId: WORKSPACE }),
+  ),
+}));
+
+vi.mock('../../../api/api-client-provider', () => ({
+  useApiClient: () => ({ execute: vi.fn(() => Promise.resolve({ id: 'upload-1' })) }),
+}));
+
+vi.mock('@nix/api-client', async () => {
+  const actual = await vi.importActual<typeof apiClient>('@nix/api-client');
+  return {
+    ...actual,
+    files: {
+      ...actual.files,
+      beginUpload: beginUploadMock,
+      uploadAndCompleteFile: uploadAndCompleteFileMock,
+    },
+  };
+});
+
+beforeEach(() => {
+  beginUploadMock.mockClear();
+  uploadAndCompleteFileMock.mockClear();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -103,12 +144,16 @@ function galleryOf(options: {
   readonly view?: View;
   readonly schema?: EffectiveSchema | null;
   readonly onOpen?: (itemId: string) => void;
+  /** Lets a test about writes hand in its own container, spies and all. */
+  readonly container?: ContainerData;
 }): ReactElement {
-  const container: ContainerData = aContainer({
-    schema: options.schema === undefined ? schemaOf(COVER, OWNER) : options.schema,
-    views: views([]),
-    children: [...options.items],
-  });
+  const container: ContainerData =
+    options.container ??
+    aContainer({
+      schema: options.schema === undefined ? schemaOf(COVER, OWNER) : options.schema,
+      views: views([]),
+      children: [...options.items],
+    });
 
   return (
     <GalleryView
@@ -523,5 +568,174 @@ describe('the gallery view', () => {
     renderAt(galleryOf({ items: [] }));
 
     expect(screen.getByText('Nothing in here yet')).toBeInTheDocument();
+  });
+});
+
+/**
+ * "I should be able to click on them and give them cover images" - the corner control every card
+ * carries, and the dialog it opens.
+ *
+ * The control's own visibility is asserted directly rather than through a hover simulation:
+ * Testing Library has no notion of `:hover`, so a control that only *appeared* to be always-on
+ * because nothing ever hid it would still pass a `getByRole` query. What actually proves it is
+ * always on screen is that `gallery-view.tsx` never applies an opacity or visibility class to it
+ * at all - there is nothing here to toggle.
+ */
+describe('setting a cover from a card', () => {
+  function containerFor(options: {
+    readonly schema: EffectiveSchema | null;
+    readonly view: View;
+    readonly items: readonly Item[];
+    readonly setProperties?: ContainerData['setProperties'];
+    readonly setSchema?: ContainerData['setSchema'];
+    readonly setViews?: ContainerData['setViews'];
+  }): ContainerData {
+    return aContainer({
+      schema: options.schema,
+      views: views([options.view]),
+      children: [...options.items],
+      setProperties: options.setProperties ?? (() => Promise.resolve(null)),
+      setSchema: options.setSchema ?? (() => Promise.resolve(null)),
+      setViews: options.setViews ?? (() => Promise.resolve(null)),
+    });
+  }
+
+  it('offers every card a visible control, worded by whether it already has a cover', () => {
+    renderAt(galleryOf({ items: [WITH_COVER, WITHOUT_COVER] }));
+
+    expect(
+      within(card('Harbour at dawn')).getByRole('button', {
+        name: 'Change cover for Harbour at dawn',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(card('Notes from the site visit')).getByRole('button', {
+        name: 'Set cover for Notes from the site visit',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens a dialog naming the card the control belongs to', async () => {
+    const user = userEvent.setup();
+    renderAt(galleryOf({ items: [WITHOUT_COVER] }));
+
+    await user.click(
+      screen.getByRole('button', { name: 'Set cover for Notes from the site visit' }),
+    );
+
+    expect(
+      screen.getByRole('dialog', { name: 'Cover for "Notes from the site visit"' }),
+    ).toBeInTheDocument();
+  });
+
+  it('writes a pasted address into the existing cover property', async () => {
+    const user = userEvent.setup();
+    const setProperties = vi.fn(() => Promise.resolve(null));
+    const container = containerFor({
+      schema: schemaOf(COVER, OWNER),
+      view: viewOf(),
+      items: [WITHOUT_COVER],
+      setProperties,
+    });
+
+    renderAt(galleryOf({ items: [WITHOUT_COVER], container }));
+
+    await user.click(
+      screen.getByRole('button', { name: 'Set cover for Notes from the site visit' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Image URL' }));
+    await user.type(screen.getByRole('textbox', { name: 'Image address' }), SHOT);
+    await user.click(screen.getByRole('button', { name: 'Set cover' }));
+
+    await waitFor(() => {
+      expect(setProperties).toHaveBeenCalledWith('i2', { cover: SHOT });
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('makes a cover property and points the view at it, the first time a card sets one', async () => {
+    const user = userEvent.setup();
+    const setSchema = vi.fn(() => Promise.resolve(null));
+    const setViews = vi.fn(() => Promise.resolve(null));
+    const setProperties = vi.fn(() => Promise.resolve(null));
+    const bareView = viewOf({ coverProperty: null });
+    const container = containerFor({
+      schema: schemaOf(OWNER),
+      view: bareView,
+      items: [WITHOUT_COVER],
+      setSchema,
+      setViews,
+      setProperties,
+    });
+
+    renderAt(galleryOf({ items: [WITHOUT_COVER], view: bareView, container }));
+
+    await user.click(
+      screen.getByRole('button', { name: 'Set cover for Notes from the site visit' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Image URL' }));
+    await user.type(screen.getByRole('textbox', { name: 'Image address' }), SHOT);
+    await user.click(screen.getByRole('button', { name: 'Set cover' }));
+
+    await waitFor(() => {
+      expect(setProperties).toHaveBeenCalledWith('i2', { cover: SHOT });
+    });
+
+    // The schema keeps every property already declared - this is one more property, not a
+    // replacement of the whole set - and the view is updated only after the property exists.
+    expect(setSchema).toHaveBeenCalledWith({
+      properties: [
+        OWNER,
+        { key: 'cover', label: 'Cover', type: 'image', options: [], required: false },
+      ],
+      inherit: true,
+    });
+    expect(setViews).toHaveBeenCalledWith([{ ...bareView, coverProperty: 'cover' }]);
+  });
+
+  it('uploads a chosen file through the same path the editor uses, and stores its reference', async () => {
+    const user = userEvent.setup();
+    const setProperties = vi.fn(() => Promise.resolve(null));
+    const container = containerFor({
+      schema: schemaOf(COVER, OWNER),
+      view: viewOf(),
+      items: [WITHOUT_COVER],
+      setProperties,
+    });
+
+    renderAt(galleryOf({ items: [WITHOUT_COVER], container }));
+
+    await user.click(
+      screen.getByRole('button', { name: 'Set cover for Notes from the site visit' }),
+    );
+    const file = new File(['image'], 'cover.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Image file'), file);
+
+    await waitFor(() => {
+      expect(uploadAndCompleteFileMock).toHaveBeenCalled();
+    });
+    expect(setProperties).toHaveBeenCalledWith('i2', {
+      cover: fileImageReference('uploaded-file-item'),
+    });
+  });
+
+  it('takes an existing cover off by writing null', async () => {
+    const user = userEvent.setup();
+    const setProperties = vi.fn(() => Promise.resolve(null));
+    const container = containerFor({
+      schema: schemaOf(COVER, OWNER),
+      view: viewOf(),
+      items: [WITH_COVER],
+      setProperties,
+    });
+
+    renderAt(galleryOf({ items: [WITH_COVER], container }));
+
+    await user.click(screen.getByRole('button', { name: 'Change cover for Harbour at dawn' }));
+    await user.click(screen.getByRole('button', { name: 'Remove cover' }));
+
+    await waitFor(() => {
+      expect(setProperties).toHaveBeenCalledWith('i1', { cover: null });
+    });
   });
 });

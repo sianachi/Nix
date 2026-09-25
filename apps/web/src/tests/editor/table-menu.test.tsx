@@ -6,6 +6,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ColumnWidthControls } from '../../editor/column-width';
 import { TableControls } from '../../editor/table-controls';
 import { TableMenu } from '../../editor/table-menu';
 
@@ -48,7 +49,7 @@ function makeEditor(content: readonly unknown[]): Editor {
   document.body.append(element);
   const editor = new Editor({
     element,
-    extensions: [...nixEditingExtensions, TableControls],
+    extensions: [...nixEditingExtensions, TableControls, ColumnWidthControls],
     content: docOf(content).toJSON() as Record<string, unknown>,
   });
   editors.push(editor);

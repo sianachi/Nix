@@ -17,6 +17,15 @@ export default mergeConfig(
       setupFiles: ['./vitest.setup.ts'],
       css: false,
       restoreMocks: true,
+
+      // Not the 5000 default, for the same reason as apps/web's own (see its vite.config.ts).
+      // Measured with `vitest run --reporter=json` on an otherwise idle 10-core machine: the
+      // slowest tests are each file's first, paying module load and first jsdom render - 2133ms
+      // for Card's heading, 2067ms for Listbox, 1930ms for Text - about 43% of the default
+      // before any contention. A full workspace check running this suite beside the web suite
+      // and a .NET build pushed seven of them past 5000ms; each passed on its own rerun. 15s
+      // keeps headroom for a busy runner without letting a genuinely hung test sit for a minute.
+      testTimeout: 15_000,
     },
   }),
 );

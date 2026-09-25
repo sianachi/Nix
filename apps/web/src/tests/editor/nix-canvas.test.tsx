@@ -112,9 +112,11 @@ const fileHarness = vi.hoisted(() => ({
   uploadAndCompleteFile: vi.fn(),
   fetchFileContent: vi.fn(),
   listItems: vi.fn(),
+  searchItems: vi.fn(),
   client: {
     execute: vi.fn<(endpoint: unknown) => Promise<unknown>>(),
     paginate: vi.fn(),
+    query: vi.fn<(endpoint: unknown) => Promise<unknown>>(),
   },
 }));
 
@@ -160,6 +162,7 @@ vi.mock('@nix/api-client', () => ({
     fetchFileContent: fileHarness.fetchFileContent,
   },
   items: { deleteItem: fileHarness.deleteItem, listItems: fileHarness.listItems },
+  search: { searchItems: fileHarness.searchItems },
 }));
 
 vi.mock('../../api/api-client-provider', () => ({
@@ -296,6 +299,50 @@ describe('the Excalidraw canvas integration', () => {
     expect(
       mobile.container.querySelector('[aria-label="Add a Nix item to the canvas"]'),
     ).not.toBeNull();
+  });
+
+  it('flags the "Add a Nix item" list as cut off, and narrows it by search once three letters are typed', async () => {
+    fileHarness.client.paginate.mockImplementation(function* () {
+      for (let index = 0; index < 100; index += 1) {
+        yield { id: `item-${String(index)}`, title: `Item ${String(index)}` };
+      }
+    });
+    fileHarness.client.query.mockResolvedValue({
+      query: 'roadmap',
+      results: [
+        {
+          id: 'match-1',
+          workspaceId: '10000000-0000-4000-8000-000000000001',
+          type: 'note',
+          title: 'Quarterly roadmap',
+        },
+      ],
+      limit: 100,
+      truncated: false,
+    });
+
+    await renderCanvas();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a Nix item to the canvas' }));
+
+    // The first page is exactly the request's own cap - a hundred items is what "cut off"
+    // looks like here, not a round number the workspace happens to have.
+    expect(
+      await screen.findByText(
+        'Showing the first 100 items. Type to search the rest of the workspace.',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter items' }), {
+      target: { value: 'roadmap' },
+    });
+
+    await waitFor(() => {
+      expect(fileHarness.client.query).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole('option', { name: 'Quarterly roadmap' })).toBeInTheDocument();
+    // The unfiltered notice is about the unfiltered list, and a search that came back complete
+    // has nothing left to warn about.
+    expect(screen.queryByText(/Showing the first 100 items/)).not.toBeInTheDocument();
   });
 
   it('applies Nix UI policy and makes read-only mode genuinely non-editable', async () => {

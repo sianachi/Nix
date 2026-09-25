@@ -466,9 +466,11 @@ public static class PropertyValidator
     /// work.
     /// </para>
     /// <para>
-    /// <b>An address today; a file reference at MVP-6.</b> There is no media model to reference
-    /// yet. When there is one, this is where a reference is recognised alongside an address, and
-    /// the stored values migrate - the type itself does not move.
+    /// <b>Or a file reference: <c>nix-file:</c> followed by a file item's id.</b> The same scheme
+    /// note bodies use for uploaded images. It is never put into an <c>img src</c>; the renderer
+    /// resolves it by fetching the file item's content through Core, which checks the reader's
+    /// access to that item, so a reference to an item the reader cannot see draws nothing rather
+    /// than disclosing it. Only a well-formed id is accepted, so the scheme cannot smuggle text.
     /// </para>
     /// </remarks>
     private static string? CheckImage(PropertyDefinition definition, JsonNode? value)
@@ -476,13 +478,21 @@ public static class PropertyValidator
         var text = ReadString(value);
 
         return text is not null
-            && Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && (IsFileImageReference(text)
+                || (Uri.TryCreate(text, UriKind.Absolute, out var uri)
+                    && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)))
             ? null
             // Its own sentence rather than the link one: somebody who has been told to enter "an
             // http or https address" has no reason to think a picture was wanted.
             : $"{definition.Label} must be a link to an image, over http or https.";
     }
+
+    // Written by apps/web/src/properties/image-value.tsx (FILE_IMAGE_PREFIX); keep the two in step.
+    private const string FileImageReferencePrefix = "nix-file:";
+
+    private static bool IsFileImageReference(string text) =>
+        text.StartsWith(FileImageReferencePrefix, StringComparison.Ordinal)
+        && Guid.TryParseExact(text[FileImageReferencePrefix.Length..], "D", out _);
 
     private static string? CheckSelect(PropertyDefinition definition, JsonNode? value)
     {

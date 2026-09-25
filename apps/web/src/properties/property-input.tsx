@@ -1,6 +1,7 @@
 import {
   Field,
   Input,
+  Select,
   Text,
   blueprintFrame,
   cn,
@@ -108,28 +109,19 @@ export function isKnownPropertyType(type: string): boolean {
   return (KNOWN_TYPES as readonly string[]).includes(type);
 }
 
-/** The select's own box, drawn as the rest of the system draws a control. */
-const selectClasses = cn(
-  blueprintFrame,
-  'w-full bg-background px-3 py-2 font-body text-base text-foreground',
-  focusRing,
-  disabledState,
-);
-
 /**
- * The same select inside a table cell: no frame, because the cell has a rule under it already and
- * a box inside a box reads as a double rule rather than as a control.
+ * The select inside a table cell: no frame, because the cell has a rule under it already and a
+ * box inside a box reads as a double rule rather than as a control. Kept as a local, hand-inlined
+ * class string rather than the `<Select>` primitive because a table row is denser than a form and
+ * the primitive has no compact variant; `pointer-coarse:h-(--control-lg)` still gives phone rows
+ * an even height and a 44px touch target, matching what the primitive gives the panel density.
  */
 const cellSelectClasses = cn(
   'w-full border border-transparent bg-transparent px-2 py-1 font-body text-base text-foreground',
+  'pointer-coarse:h-(--control-lg)',
   focusRing,
   disabledState,
 );
-
-/** What a select's box is, at the density it is being drawn at. */
-function selectBox(density: PropertyInputDensity): string {
-  return density === 'cell' ? cellSelectClasses : selectClasses;
-}
 
 export function PropertyInput(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
@@ -332,6 +324,59 @@ function useDraft(stored: string, onCommit: (value: PropertyValue) => void): Dra
   };
 }
 
+interface MultiSelectDraft {
+  /** What is checked on screen, which is every choice made so far, sent or not. */
+  readonly selection: readonly string[];
+
+  /** Applies one checkbox's change to the selection and sends the whole thing. */
+  readonly toggle: (option: string, checked: boolean) => void;
+}
+
+/** Whether two option lists hold the same entries, order aside. */
+function sameOptions(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value) => b.includes(value));
+}
+
+/**
+ * A multi-select's draft: every box checked so far, kept apart from what the item last reported.
+ *
+ * **The bug this replaces.** Each checkbox used to build its next list from the item's own value -
+ * "as last saved" - rather than from what was on screen. Two taps close together both read that
+ * same stale value before either write returned, so the second tap's request carried only its own
+ * box and silently dropped the first. Keeping the selection here, updated the instant a box is
+ * tapped, means the second tap builds on the first's choice rather than on the server's last
+ * answer - the same fix `useDraft` above makes for typed fields, for the same shape of race.
+ *
+ * **Sends one write per tap rather than debouncing**, each carrying the whole selection as it
+ * stands at that moment. However the two responses land, the last request sent is the one with
+ * every choice, so the item ends up holding what is on screen rather than whichever tap's request
+ * happened to answer last.
+ */
+function useMultiSelectDraft(
+  stored: readonly string[],
+  onCommit: (value: PropertyValue) => void,
+): MultiSelectDraft {
+  const [selection, setSelection] = useState<readonly string[]>(stored);
+  const [seen, setSeen] = useState<readonly string[]>(stored);
+
+  if (!sameOptions(stored, seen)) {
+    setSeen(stored);
+    setSelection(stored);
+  }
+
+  return {
+    selection,
+    toggle: (option, checked) => {
+      const next = checked ? [...selection, option] : selection.filter((value) => value !== option);
+      setSelection(next);
+
+      // An empty list clears the property rather than storing an empty array: "nothing selected"
+      // and "no value" are the same fact, and the contract already has a way to say it.
+      onCommit(next.length === 0 ? null : next);
+    },
+  };
+}
+
 type TypedKind = 'text' | 'url' | 'number';
 
 function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): ReactNode {
@@ -413,30 +458,54 @@ function SelectValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current ?? UNSET_VALUE}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : next);
-          }}
-          className={selectBox(density)}
-        >
-          {/* Clearing has to be reachable from the control that set it: a property somebody
-              filled in by mistake is otherwise permanent. */}
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+            className={cellSelectClasses}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      )}
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -496,30 +565,54 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props} {...(hint === undefined ? {} : { hint })}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current ?? UNSET_VALUE}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : next);
-          }}
-          className={selectBox(density)}
-        >
-          {/* Clearing has to be reachable from the control that set it: a property somebody
-              filled in by mistake is otherwise permanent. */}
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+            className={cellSelectClasses}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      )}
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current ?? UNSET_VALUE}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : next);
+            }}
+          >
+            {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -546,28 +639,50 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) => (
-        <select
-          {...control}
-          tabIndex={props.tabIndex}
-          value={current === null ? UNSET_VALUE : String(current)}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            onCommit(next === UNSET_VALUE ? null : Number(next));
-          }}
-          className={selectBox(density)}
-        >
-          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) =>
+        density === 'cell' ? (
+          <select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current === null ? UNSET_VALUE : String(current)}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : Number(next));
+            }}
+            className={cellSelectClasses}
+          >
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-          {PRIORITY_LEVELS.map((level) => (
-            <option key={level.value} value={String(level.value)}>
-              {level.label}
-            </option>
-          ))}
-        </select>
-      )}
+            {PRIORITY_LEVELS.map((level) => (
+              <option key={level.value} value={String(level.value)}>
+                {level.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Select
+            {...control}
+            tabIndex={props.tabIndex}
+            value={current === null ? UNSET_VALUE : String(current)}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              onCommit(next === UNSET_VALUE ? null : Number(next));
+            }}
+          >
+            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+
+            {PRIORITY_LEVELS.map((level) => (
+              <option key={level.value} value={String(level.value)}>
+                {level.label}
+              </option>
+            ))}
+          </Select>
+        )
+      }
     </ValueShell>
   );
 }
@@ -576,15 +691,17 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
 
   const raw: unknown = item.properties[property.key];
-  const current = Array.isArray(raw)
+  const stored = Array.isArray(raw)
     ? raw.filter((entry): entry is string => typeof entry === 'string')
     : [];
+
+  const { selection, toggle } = useMultiSelectDraft(stored, onCommit);
 
   const options = [
     ...property.options,
     // Same reason as the select: a value the schema no longer declares is still on the item, and a
     // control that hid it would report the item as holding less than it does.
-    ...current.filter((value) => !property.options.includes(value)),
+    ...selection.filter((value) => !property.options.includes(value)),
   ];
 
   // A fieldset rather than <Field>, which wires a label to one control by id. A group of checkboxes
@@ -607,7 +724,7 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
           <input
             type="checkbox"
             tabIndex={props.tabIndex}
-            checked={current.includes(option)}
+            checked={selection.includes(option)}
             className={cn(focusRing, disabledState)}
             onKeyDown={(event) => {
               // Native checkboxes reserve Space for activation, but property fields are also used
@@ -619,14 +736,7 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
               }
             }}
             onChange={(event) => {
-              const next = event.target.checked
-                ? [...current, option]
-                : current.filter((value) => value !== option);
-
-              // An empty list clears the property rather than storing an empty array: "nothing
-              // selected" and "no value" are the same fact, and the contract already has a way to
-              // say it.
-              onCommit(next.length === 0 ? null : next);
+              toggle(option, event.target.checked);
             }}
           />
           {option}
@@ -717,22 +827,40 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
         }}
       />
 
-      <select
-        aria-label={`Time zone for ${controlLabel}`}
-        value={draftZone}
-        disabled={disabled}
-        onChange={(event) => {
-          setDraftZone(event.target.value);
-          commit(draft, event.target.value);
-        }}
-        className={selectBox(density)}
-      >
-        {zoneOptions(draftZone).map((zoneName) => (
-          <option key={zoneName} value={zoneName}>
-            {zoneName}
-          </option>
-        ))}
-      </select>
+      {density === 'cell' ? (
+        <select
+          aria-label={`Time zone for ${controlLabel}`}
+          value={draftZone}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraftZone(event.target.value);
+            commit(draft, event.target.value);
+          }}
+          className={cellSelectClasses}
+        >
+          {zoneOptions(draftZone).map((zoneName) => (
+            <option key={zoneName} value={zoneName}>
+              {zoneName}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <Select
+          aria-label={`Time zone for ${controlLabel}`}
+          value={draftZone}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraftZone(event.target.value);
+            commit(draft, event.target.value);
+          }}
+        >
+          {zoneOptions(draftZone).map((zoneName) => (
+            <option key={zoneName} value={zoneName}>
+              {zoneName}
+            </option>
+          ))}
+        </Select>
+      )}
 
       {/* Said out loud rather than only drawn as an invalid frame. A pair of controls with no
           <Field> around them had no place to put the refusal, and a refusal with nowhere to go is

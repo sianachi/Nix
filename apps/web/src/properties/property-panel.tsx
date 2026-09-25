@@ -1,5 +1,5 @@
 import { Text } from '@nix/ui';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { EmptyPanel, LoadingPanel } from '../components/states/status-panels';
 import type { Item, PropertyDefinition, PropertyValue } from '../views/core/container-model';
@@ -66,6 +66,19 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
+  // The key that just finished saving, cleared a moment later. "Saved" is a fact about the last
+  // write, not the field's ongoing state, so it does not linger the way "Saving…" is allowed to.
+  const [saved, setSaved] = useState<string | null>(null);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimer.current !== null) {
+        clearTimeout(savedTimer.current);
+      }
+    };
+  }, []);
+
   if (loading) {
     return <LoadingPanel label="this item's properties" />;
   }
@@ -84,6 +97,11 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
   async function commit(key: string, value: PropertyValue): Promise<void> {
     setSaving(key);
     setRefusal(null);
+    setSaved(null);
+    if (savedTimer.current !== null) {
+      clearTimeout(savedTimer.current);
+      savedTimer.current = null;
+    }
 
     const reason = await onChange({ [key]: value });
 
@@ -94,7 +112,16 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
       // rewording it here would be a second validator that can disagree with the first, and a
       // panel-wide banner would leave somebody hunting for which field it meant.
       setRefusal({ key, reason });
+      return;
     }
+
+    // Briefly, and only for this field. `aria-busy` on the section already tells an assistive
+    // reader something is happening; this is the sighted half of the same fact, so a save on a slow
+    // link is not indistinguishable from a click that did nothing.
+    setSaved(key);
+    savedTimer.current = setTimeout(() => {
+      setSaved(null);
+    }, 2000);
   }
 
   return (
@@ -108,16 +135,32 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
       </Text>
 
       {editable.map((property) => (
-        <PropertyInput
-          key={property.key}
-          item={item}
-          property={property}
-          disabled={disabled}
-          error={refusal?.key === property.key ? refusal.reason : null}
-          onCommit={(value) => {
-            void commit(property.key, value);
-          }}
-        />
+        <div key={property.key} className="flex flex-col gap-1">
+          <PropertyInput
+            item={item}
+            property={property}
+            disabled={disabled}
+            error={refusal?.key === property.key ? refusal.reason : null}
+            onCommit={(value) => {
+              void commit(property.key, value);
+            }}
+          />
+
+          {/* Quiet and polite: a save is not an interruption, so it is announced without moving
+              focus or grabbing an `alert`'s attention, the same distinction `ErrorPanel` and
+              `LoadingPanel` draw between `alert` and `status`. */}
+          <span aria-live="polite">
+            {saving === property.key ? (
+              <Text variant="note" tone="muted">
+                Saving…
+              </Text>
+            ) : saved === property.key ? (
+              <Text variant="note" tone="muted">
+                Saved
+              </Text>
+            ) : null}
+          </span>
+        </div>
       ))}
     </section>
   );

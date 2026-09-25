@@ -1,5 +1,11 @@
 import { isCanceledError, search, type SearchResults } from '@nix/api-client';
-import { Listbox, useListbox, type ListboxOption } from '@nix/ui';
+import {
+  Listbox,
+  placeFloatingMenu,
+  readViewportBounds,
+  useListbox,
+  type ListboxOption,
+} from '@nix/ui';
 import { FileText } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/react';
@@ -113,9 +119,10 @@ interface OpenTrigger extends FoundTrigger {
   /** Document positions of the trigger's text, so it can be replaced exactly. */
   readonly from: number;
   readonly to: number;
-  /** Viewport coordinates of the caret. */
+  /** Viewport coordinates of the caret, for `placeFloatingMenu` to clamp against. */
   readonly left: number;
   readonly top: number;
+  readonly bottom: number;
 }
 
 export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNode {
@@ -157,7 +164,8 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
         from: start,
         to: from,
         left: coords.left,
-        top: coords.bottom,
+        top: coords.top,
+        bottom: coords.bottom,
       });
     }
 
@@ -318,12 +326,29 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
     return null;
   }
 
+  // Below the caret at up to 320px wide, unless the viewport has no room for that - the same
+  // clamp `SlashMenu` uses, because both pickers share the fixed-width-below-the-caret problem.
+  const placement = placeFloatingMenu(
+    { left: trigger.left, top: trigger.top, bottom: trigger.bottom },
+    320,
+    readViewportBounds(),
+  );
+
+  const menuPosition = {
+    left: placement.left,
+    top: placement.top,
+    width: placement.maxWidth,
+    maxHeight: placement.maxHeight,
+  };
   return (
     <div
       // Positioned against the caret in viewport coordinates, so it follows the text rather than
       // the scroller - which the editor does under it.
-      style={{ left: trigger.left, top: trigger.top }} // design-token-exempt: a caret's position is a runtime measurement, not a scale step.
-      className="fixed z-20 mt-1 flex max-h-[280px] w-[320px] flex-col overflow-y-auto border border-divider bg-background shadow-md"
+      style={menuPosition} // design-token-exempt: a caret's position is a runtime measurement, not a scale step.
+      className={[
+        'fixed z-20 flex flex-col overflow-y-auto border border-divider bg-background shadow-md',
+        placement.above ? '-mb-1 -translate-y-full' : 'mt-1',
+      ].join(' ')}
     >
       <Listbox
         label={trigger.kind === 'principal' ? 'Items and people to link to' : 'Items to link to'}

@@ -150,6 +150,12 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   }
 
   async function finish(): Promise<void> {
+    // `aria-disabled` on the submit button below is a hint, not a lock - it does not stop a second
+    // Enter or a second tap from reaching this handler, and without this guard both would race to
+    // `container.create` and leave two responses where the reader asked for one. `form-view.tsx`
+    // guards the same way for the same reason.
+    if (sending) return;
+
     const currentAnswers = answersRef.current;
     const flow = resolveFlow(definition.pages, currentAnswers);
     const shownBlocks = flow.pages.flatMap((entry) => entry.blocks);

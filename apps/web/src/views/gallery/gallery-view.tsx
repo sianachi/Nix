@@ -1,8 +1,13 @@
-import { Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { files as fileResources } from '@nix/api-client';
+import { Button, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { ImagePlus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { useApiClient } from '../../api/api-client-provider';
 import { PartialNotice } from '../../components/states/status-panels';
-import { isFetchableImageAddress } from '../../lib/image-address';
+import { mediaTypeForFile } from '../../lib/file-kind';
+import { fileImageReference, isDisplayableImageValue } from '../../properties/image-value';
+import { useWorkspace } from '../../workspaces/workspace-context';
 import {
   readPropertyText,
   type Item,
@@ -11,6 +16,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CoverImage } from './cover-image';
+import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
 import { propertyTypeLabel } from '../core/property-types';
 import type { ContainerData } from '../core/use-container';
@@ -133,9 +139,94 @@ function resolveCardSize(stored: string | null): CardSize {
 export function GalleryView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
   const viewState = useViewState();
+  const client = useApiClient();
+  const { workspaceId } = useWorkspace();
 
   const cover = resolveCover(container, view);
   const size = resolveCardSize(view.cardSize);
+
+  // Which card's "Set cover" dialog is open, if any - one dialog shared by every card rather than
+  // one per card, since a gallery can hold hundreds of them and only one is ever in front of
+  // somebody at a time.
+  const [coverItemId, setCoverItemId] = useState<string | null>(null);
+
+  /**
+   * The property this gallery's covers write to, making one if none exists yet.
+   *
+   * **The whole point of the corner button on an unconfigured gallery.** Before this, a cover
+   * property had to be declared through the schema editor and then chosen in the view's own
+   * settings before a single picture could go anywhere - two dialogs before the one that matters.
+   * The first card somebody sets a cover from does both in one step, the same way choosing a date
+   * property on an empty board makes the board's grouping property if none is declared.
+   *
+   * Returns the property's key, or the reason either write was refused - honestly: a property
+   * that was declared but never made it into `coverProperty` is not a silent partial success, it
+   * is a refusal that still names what broke.
+   */
+  async function ensureCoverProperty(): Promise<
+    { readonly key: string } | { readonly error: string }
+  > {
+    if (cover.kind === 'ready') return { key: cover.property.key };
+
+    const declared = container.schema?.declared ?? [];
+    const used = new Set(declared.map((property) => property.key));
+    let key = 'cover';
+    for (let suffix = 2; used.has(key); suffix += 1) key = `cover_${String(suffix)}`;
+
+    const schemaRefusal = await container.setSchema({
+      properties: [
+        ...declared,
+        { key, label: 'Cover', type: 'image', options: [], required: false },
+      ],
+      inherit: container.schema?.inherit ?? true,
+    });
+    if (schemaRefusal !== null) return { error: schemaRefusal };
+
+    const nextViews = (container.views?.views ?? []).map((candidate) =>
+      candidate.id === view.id ? { ...candidate, coverProperty: key } : candidate,
+    );
+    const viewsRefusal = await container.setViews(nextViews);
+    if (viewsRefusal !== null) return { error: viewsRefusal };
+
+    return { key };
+  }
+
+  async function uploadCoverFile(itemId: string, file: File): Promise<void> {
+    const ensured = await ensureCoverProperty();
+    if ('error' in ensured) throw new Error(ensured.error);
+
+    const upload = await client.execute(
+      fileResources.beginUpload({
+        workspaceId,
+        parentId: itemId,
+        fileName: file.name,
+        mediaType: mediaTypeForFile(file),
+        byteLength: file.size,
+        idempotencyKey: `web-gallery-cover:${crypto.randomUUID()}`,
+      }),
+    );
+    const uploaded = await fileResources.uploadAndCompleteFile(client, upload, file);
+    const refusal = await container.setProperties(itemId, {
+      [ensured.key]: fileImageReference(uploaded.itemId),
+    });
+    if (refusal !== null) throw new Error(refusal);
+  }
+
+  async function setCoverAddress(itemId: string, address: string): Promise<void> {
+    const ensured = await ensureCoverProperty();
+    if ('error' in ensured) throw new Error(ensured.error);
+
+    const refusal = await container.setProperties(itemId, { [ensured.key]: address });
+    if (refusal !== null) throw new Error(refusal);
+  }
+
+  async function removeCover(itemId: string): Promise<void> {
+    // Nothing to clear when there was never a cover property to clear it from.
+    if (cover.kind !== 'ready') return;
+
+    const refusal = await container.setProperties(itemId, { [cover.property.key]: null });
+    if (refusal !== null) throw new Error(refusal);
+  }
 
   const chrome = useViewChrome({
     container,
@@ -175,6 +266,8 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
   // column, and undoing that choice for them is not this view's decision to make.
   const secondary = view.columns.filter((key) => key !== view.coverProperty && key !== 'title');
   const schema = container.schema?.properties ?? [];
+  const coverItem =
+    coverItemId === null ? null : (chrome.items.find((item) => item.id === coverItemId) ?? null);
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -205,6 +298,9 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
         onWrite={(itemId, propertyKey, value) =>
           container.setProperties(itemId, { [propertyKey]: value })
         }
+        onRequestCover={(itemId) => {
+          setCoverItemId(itemId);
+        }}
       />
 
       <CreateItemControl
@@ -212,6 +308,22 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
         onCreate={container.create}
         className="mt-1 self-start"
       />
+
+      {coverItem === null ? null : (
+        <CoverPickerDialog
+          itemTitle={coverItem.title}
+          hasCover={
+            cover.kind === 'ready' && readPropertyText(coverItem, cover.property.key).length > 0
+          }
+          canUpload
+          onClose={() => {
+            setCoverItemId(null);
+          }}
+          onUpload={(file) => uploadCoverFile(coverItem.id, file)}
+          onSetAddress={(address) => setCoverAddress(coverItem.id, address)}
+          onRemove={() => removeCover(coverItem.id)}
+        />
+      )}
     </div>
   );
 }
@@ -229,10 +341,11 @@ interface GalleryGridProps {
     propertyKey: string,
     value: PropertyValue,
   ) => Promise<string | null>;
+  readonly onRequestCover: (itemId: string) => void;
 }
 
 function GalleryGrid(props: GalleryGridProps): ReactNode {
-  const { items, label, cover, size, secondary, schema, onOpen, onWrite } = props;
+  const { items, label, cover, size, secondary, schema, onOpen, onWrite, onRequestCover } = props;
   const [failedCovers, setFailedCovers] = useState<ReadonlySet<string>>(() => new Set());
 
   const card = (item: Item, index: number, virtualIndex?: number): ReactNode => {
@@ -251,6 +364,9 @@ function GalleryGrid(props: GalleryGridProps): ReactNode {
         coverFailed={failedCovers.has(failureKey)}
         onCoverFailure={() => {
           setFailedCovers((current) => new Set(current).add(failureKey));
+        }}
+        onRequestCover={() => {
+          onRequestCover(item.id);
         }}
         position={index + 1}
         setSize={items.length}
@@ -436,6 +552,7 @@ interface GalleryCardProps {
   ) => Promise<string | null>;
   readonly coverFailed: boolean;
   readonly onCoverFailure: () => void;
+  readonly onRequestCover: () => void;
   readonly position: number;
   readonly setSize: number;
   readonly virtualIndex?: number;
@@ -452,6 +569,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     onWrite,
     coverFailed,
     onCoverFailure,
+    onRequestCover,
     position,
     setSize,
     virtualIndex,
@@ -477,7 +595,10 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
       aria-posinset={position}
       aria-setsize={setSize}
       data-virtual-index={virtualIndex}
-      className={cn(blueprintFrame, 'relative flex flex-col gap-2 bg-surface p-3 shadow-sm')}
+      className={cn(
+        blueprintFrame,
+        'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+      )}
     >
       {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
@@ -503,11 +624,31 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
             focusRing,
           )}
         >
-          <Text variant="h5" as="span">
+          <Text variant="h5" as="span" lines={2}>
             {item.title || 'Untitled'}
           </Text>
         </button>
       </h3>
+
+      {/* **Always on screen, never only on hover.** A hover-revealed control is invisible to a
+          tap - there is no hover state on a touch screen - which was the whole of the complaint
+          this answers: "no easy way to put images on grids". `z-20` clears the title button's
+          stretched hit area above it (see the `z-10` note on the fields below, which faces the
+          same problem one layer down) and the `bg-surface` wrapper is what keeps a transparent
+          icon button legible sitting on top of an arbitrary photograph. */}
+      <div className="absolute right-2 top-2 z-20 rounded-md bg-surface">
+        <Button
+          variant="icon"
+          aria-label={
+            cover.kind === 'ready' && readPropertyText(item, cover.property.key).length > 0
+              ? `Change cover for ${item.title || 'Untitled'}`
+              : `Set cover for ${item.title || 'Untitled'}`
+          }
+          onClick={onRequestCover}
+        >
+          <Icon icon={ImagePlus} size="sm" />
+        </Button>
+      </div>
 
       {/* Nothing at all when no cover was asked for. A grey rectangle here would be a placeholder
           for a picture that was never coming, which reads as a load that never finished. */}
@@ -524,7 +665,11 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
       ) : null}
 
       {fields.length === 0 ? null : (
-        <div className="flex flex-col gap-1">
+        // `relative z-10`: the title button's `after:absolute after:inset-0` stretched hit area
+        // sits on top of the card in DOM order, and without a stacking context of its own this
+        // layer would swallow every click a field control below it is meant to receive - a tap
+        // meant for a select or a checkbox opening the item instead.
+        <div className="relative z-10 flex flex-col gap-1">
           {fields.map((field) => (
             <div key={field.key}>
               <Text variant="kicker" tone="muted" as="span">
@@ -572,7 +717,7 @@ function CoverPane({
     );
   }
 
-  if (!isFetchableImageAddress(src)) {
+  if (!isDisplayableImageValue(src)) {
     // **Its own state, and never handed to an `img`.** A schema retype does not revalidate values
     // already stored, so a property that was text yesterday can hold "draft notes" and be a picture
     // property today - the server's write-time scheme check never saw it. Given to an `img` that
@@ -580,7 +725,9 @@ function CoverPane({
     // a broken cover: a request fired at our own server, per card, for something nobody ever
     // attempted to load, and the no-referrer reasoning quietly voided because it is same-origin.
     //
-    // It is not "No cover" either - there is a value - so it says what is actually wrong.
+    // It is not "No cover" either - there is a value - so it says what is actually wrong. A value
+    // an upload wrote is always displayable (see `isDisplayableImageValue`), so this is reachable
+    // only for a stored web address that never validated, exactly as before uploading existed.
     return (
       <CoverFrame size={size}>
         <Text variant="caption" tone="muted" as="span">

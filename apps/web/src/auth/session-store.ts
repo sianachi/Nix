@@ -45,8 +45,12 @@ export interface SessionState {
   readonly signInSucceeded: (profile: SessionProfile) => void;
   /** Sign-in failed, or a renew failed and the session is gone. */
   readonly signInFailed: (message: string) => void;
-  /** The session ended, deliberately or otherwise. */
-  readonly signedOut: () => void;
+  /**
+   * The session ended, deliberately or otherwise. `reason` is set only when the ending itself
+   * needs explaining - a session that expired underneath the person - and left unset for a
+   * deliberate sign-out, which needs no excuse.
+   */
+  readonly signedOut: (reason?: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -74,8 +78,8 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ status: 'failed', profile: null, error: message });
   },
 
-  signedOut: () => {
-    set({ status: 'anonymous', profile: null, error: null });
+  signedOut: (reason) => {
+    set({ status: 'anonymous', profile: null, error: reason ?? null });
   },
 }));
 

@@ -1,5 +1,5 @@
 import { pets, type PetConnection, type PetMessage, type NixClient } from '@nix/api-client';
-import { Button, Text, focusRing } from '@nix/ui';
+import { Button, Select, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 
 export function exportPetMessages(messages: readonly PetMessage[], name: string): void {
@@ -83,11 +83,10 @@ export function PetHistory({
             Previous conversations are saved when you start a new one. Up to 32 are kept for this
             pet in this workspace.
           </Text>
-          <select
+          <Select
             aria-label="Saved conversation"
             value={selected}
             disabled={busy}
-            className={`rounded border border-divider bg-background p-2 text-foreground ${focusRing}`}
             onChange={(event) => {
               const id = event.currentTarget.value;
               setSelected(id);
@@ -104,7 +103,7 @@ export function PetHistory({
                 {new Date(entry.createdAt).toLocaleDateString()} — {entry.title}
               </option>
             ))}
-          </select>
+          </Select>
           {messages.length ? (
             <>
               <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">

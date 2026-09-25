@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -242,6 +242,38 @@ describe('a property input', () => {
 
     // Nothing selected and no value are the same fact, and the contract already has a way to say it.
     expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
+  it('carries both choices when two multi-select boxes are tapped before either write returns', () => {
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ tags: ['Draft'] })}
+        property={propertyOf({
+          key: 'tags',
+          label: 'Tags',
+          type: 'multi_select',
+          options: ['Draft', 'Review', 'Archived'],
+        })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const group = screen.getByRole('group', { name: 'Tags' });
+
+    // Two taps close together, before the item prop has any chance to reflect the first one -
+    // exactly the shape of the bug this guards. Firing both `click` events without awaiting a
+    // render between them means each box's `onChange` reads whatever the previous one just set,
+    // not the item's original value, if the fix is in place.
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Review' }));
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Archived' }));
+
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit).toHaveBeenNthCalledWith(1, ['Draft', 'Review']);
+    // The second tap's write is the one that lands last, so it is the one that has to carry every
+    // choice made so far - dropping the first tap here is exactly what shipped broken.
+    expect(onCommit).toHaveBeenNthCalledWith(2, ['Draft', 'Review', 'Archived']);
   });
 
   it('selects a focused multi-select option with Enter', async () => {

@@ -1,4 +1,10 @@
-import { files as fileResources, items as coreItems, type NixClient } from '@nix/api-client';
+import {
+  files as fileResources,
+  items as coreItems,
+  search,
+  type NixClient,
+  type SearchResults,
+} from '@nix/api-client';
 import {
   CaptureUpdateAction,
   Excalidraw,
@@ -21,7 +27,7 @@ import type {
   LibraryItems,
   SocketId,
 } from '@excalidraw/excalidraw/types';
-import { Button, Dialog, Field, Icon, Select, Text } from '@nix/ui';
+import { Button, Dialog, Field, Icon, Input, Select, Text } from '@nix/ui';
 import { Plus, Upload } from 'lucide-react';
 import {
   useCallback,
@@ -113,6 +119,14 @@ export function NixCanvas({
   const [itemOptionsStatus, setItemOptionsStatus] = useState<
     'idle' | 'loading' | 'ready' | 'error'
   >('idle');
+  // What is typed into the picker's filter field, and the last search that came back for it.
+  // The result carries its own query (`SearchResults.query`), the same idiom `ReferenceMenu`
+  // uses, so a result that no longer matches what is typed - the field changed while the
+  // request was in flight - reads as stale and is ignored, rather than kept in a second piece
+  // of state that has to be reset in step with the first.
+  const [itemFilter, setItemFilter] = useState('');
+  const [filteredItems, setFilteredItems] = useState<SearchResults | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -370,6 +384,37 @@ export function NixCanvas({
     };
   }, [client, itemDialogOpen, workspaceId]);
 
+  useEffect(() => {
+    if (!itemDialogOpen || workspaceId === undefined) return;
+    const trimmed = itemFilter.trim();
+    // Fewer than three letters is too little for the server's full-text search to narrow
+    // usefully - `ReferenceMenu` draws the same line - so a short filter asks nothing, and the
+    // picker falls back to the unfiltered first page below.
+    if (trimmed.length < 3) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setFilterStatus('loading');
+      void client
+        .query(search.searchItems(trimmed, 100), { signal: controller.signal })
+        .then((results) => {
+          if (controller.signal.aborted) return;
+          setFilteredItems(results);
+          setFilterStatus('ready');
+        })
+        .catch((cause: unknown) => {
+          if (controller.signal.aborted) return;
+          console.warn('The canvas item search could not run.', cause);
+          setFilterStatus('error');
+        });
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [client, itemDialogOpen, itemFilter, workspaceId]);
+
   const uploadCanvasFile = useCallback(
     async (file: File, operationSignal?: AbortSignal): Promise<FileId> => {
       if (!isImageFile(file)) {
@@ -526,9 +571,45 @@ export function NixCanvas({
     [api],
   );
 
+  // What the "Add a Nix item" picker actually shows: a search's own matches once three letters
+  // are typed - the same floor `ReferenceMenu` uses - the unfiltered first page otherwise. Both
+  // are capped at 100 by the request that fetched them, so both can be a cut, not a complete,
+  // list - the notice in the dialog below says so rather than presenting either as everything
+  // the workspace holds. `currentSearch` drops a result that no longer matches what is typed,
+  // the way `ReferenceMenu` does, so a stale response arriving after the field changed is never
+  // shown as if it answered the query on screen now.
+  const searching = itemFilter.trim().length >= 3;
+  const currentSearch =
+    filteredItems !== null && filteredItems.query === itemFilter.trim() ? filteredItems : null;
+  // Memoised so `insertNixItem` below - and its own memoisation - sees a stable list rather than
+  // a fresh array on every render this component makes for reasons that have nothing to do with
+  // the picker, such as a collaborator's cursor moving.
+  const shownItemOptions: readonly ItemOption[] = useMemo(
+    () =>
+      searching
+        ? (currentSearch?.results
+            .filter((hit) => hit.workspaceId === workspaceId)
+            .map((hit) => ({ id: hit.id, title: hit.title ?? '' })) ?? [])
+        : itemOptions,
+    [currentSearch, itemOptions, searching, workspaceId],
+  );
+  const shownItemStatus = searching ? filterStatus : itemOptionsStatus;
+  const itemsTruncated = searching
+    ? (currentSearch?.truncated ?? false)
+    : itemOptions.length >= 100;
+  // Corrected here rather than written back into `selectedItemId` by an effect: the raw state
+  // stays exactly what the person last chose, and this is only what the dialog acts on when
+  // that choice has since scrolled out of the shown list - a narrower search, most often.
+  const effectiveSelectedItemId =
+    shownItemOptions.length === 0
+      ? ''
+      : shownItemOptions.some((option) => option.id === selectedItemId)
+        ? selectedItemId
+        : (shownItemOptions[0]?.id ?? '');
+
   const insertNixItem = useCallback((): void => {
-    if (api === null || selectedItemId === '' || readOnly) return;
-    const option = itemOptions.find((candidate) => candidate.id === selectedItemId);
+    if (api === null || effectiveSelectedItemId === '' || readOnly) return;
+    const option = shownItemOptions.find((candidate) => candidate.id === effectiveSelectedItemId);
     if (option === undefined) return;
     const appState = api.getAppState();
     const zoom = appState.zoom.value;
@@ -563,7 +644,7 @@ export function NixCanvas({
     publish(next);
     api.scrollToContent(inserted, { fitToContent: true, animate: true });
     setItemDialogOpen(false);
-  }, [api, itemOptions, publish, readOnly, selectedItemId]);
+  }, [api, effectiveSelectedItemId, publish, readOnly, shownItemOptions]);
 
   const insertDroppedImage = useCallback(
     async (file: File, clientPoint: { readonly clientX: number; readonly clientY: number }) => {
@@ -913,6 +994,9 @@ export function NixCanvas({
                     aria-label="Add a Nix item to the canvas"
                     onClick={() => {
                       setItemOptionsStatus('loading');
+                      // A fresh open starts from the unfiltered first page, not wherever a
+                      // previous open's search left the field.
+                      setItemFilter('');
                       setItemDialogOpen(true);
                     }}
                   >
@@ -1073,7 +1157,7 @@ export function NixCanvas({
               Cancel
             </Button>
             <Button
-              disabled={selectedItemId === '' || itemOptionsStatus !== 'ready'}
+              disabled={effectiveSelectedItemId === '' || shownItemStatus !== 'ready'}
               onClick={insertNixItem}
             >
               Add item
@@ -1081,34 +1165,61 @@ export function NixCanvas({
           </>
         }
       >
-        {itemOptionsStatus === 'error' ? (
-          <Text role="alert">The workspace items could not be loaded.</Text>
-        ) : (
-          <Field label="Item">
+        <div className="flex flex-col gap-4">
+          <Field label="Filter items" hint="Type to search the workspace.">
             {(control) => (
-              <Select
+              <Input
                 {...control}
-                disabled={itemOptionsStatus !== 'ready' || itemOptions.length === 0}
-                value={selectedItemId}
+                value={itemFilter}
+                disabled={itemOptionsStatus === 'error'}
                 onChange={(event) => {
-                  setSelectedItemId(event.target.value);
+                  setItemFilter(event.target.value);
                 }}
-              >
-                {itemOptions.length === 0 ? (
-                  <option value="">
-                    {itemOptionsStatus === 'loading' ? 'Loading items…' : 'No items available'}
-                  </option>
-                ) : (
-                  itemOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.title || 'Untitled item'}
-                    </option>
-                  ))
-                )}
-              </Select>
+              />
             )}
           </Field>
-        )}
+          {itemOptionsStatus === 'error' && !searching ? (
+            <Text role="alert">The workspace items could not be loaded.</Text>
+          ) : shownItemStatus === 'error' ? (
+            <Text role="alert">The search could not run. Check your connection and try again.</Text>
+          ) : (
+            <Field label="Item">
+              {(control) => (
+                <Select
+                  {...control}
+                  disabled={shownItemStatus !== 'ready' || shownItemOptions.length === 0}
+                  value={effectiveSelectedItemId}
+                  onChange={(event) => {
+                    setSelectedItemId(event.target.value);
+                  }}
+                >
+                  {shownItemOptions.length === 0 ? (
+                    <option value="">
+                      {shownItemStatus === 'loading'
+                        ? 'Loading items…'
+                        : searching
+                          ? 'No items match your search'
+                          : 'No items available'}
+                    </option>
+                  ) : (
+                    shownItemOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.title || 'Untitled item'}
+                      </option>
+                    ))
+                  )}
+                </Select>
+              )}
+            </Field>
+          )}
+          {itemsTruncated && shownItemStatus === 'ready' ? (
+            <Text variant="caption">
+              {searching
+                ? 'Showing the first 100 matches. Narrow your search to see more.'
+                : 'Showing the first 100 items. Type to search the rest of the workspace.'}
+            </Text>
+          ) : null}
+        </div>
       </Dialog>
     </div>
   );

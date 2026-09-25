@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { CellEditor } from './cell-editor';
 import { parseTsv, rangeToTsv } from './clipboard';
 import {
   COLUMN_RESIZE_STEP,
@@ -686,10 +687,29 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                       onMouseDown={(event) => {
                         // Mouse down rather than click, so a drag begins a
                         // range from the right corner; shift-click extends.
+                        //
+                        // Checked before we take focus below: a tap that
+                        // lands on a cell the grid already had focused and
+                        // active is a request to edit it, the same door the
+                        // double-click and Enter already open - without it,
+                        // a touch user could select a cell but never edit
+                        // one without a keyboard or a double-tap.
+                        const alreadyFocused =
+                          scrollerRef.current !== null &&
+                          document.activeElement === scrollerRef.current;
                         event.preventDefault();
                         scrollerRef.current?.focus();
                         if (selection.mode === 'edit') {
                           commitDraft('stay');
+                        }
+                        if (
+                          alreadyFocused &&
+                          !event.shiftKey &&
+                          row === selection.active.row &&
+                          col === selection.active.col
+                        ) {
+                          beginEdit('open', raw ?? '');
+                          return;
                         }
                         dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
                       }}
@@ -713,9 +733,9 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
             ))}
 
             {selection.mode === 'edit' && selection.editSource !== 'bar' ? (
-              <input
+              <CellEditor
                 ref={editorRef}
-                aria-label={`Edit cell ${activeKey}`}
+                ariaLabel={`Edit cell ${activeKey}`}
                 value={selection.draft}
                 maxLength={SHEET_LIMITS.maxRawLength}
                 onChange={(event) => {
@@ -741,8 +761,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                     commitDraft('stay');
                   }
                 }}
-                className="absolute z-10 bg-background px-2 py-1.5 text-sm outline-2 -outline-offset-2 outline-accent"
-                style={editorStyle}
+                position={editorStyle}
               />
             ) : null}
           </div>

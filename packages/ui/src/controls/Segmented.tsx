@@ -18,6 +18,9 @@ import { focusRing } from '../primitives/interaction';
  *
  * The current option is marked by more than colour. A person who cannot see the fill still gets
  * `aria-current`, which is the half that reaches them.
+ *
+ * Each segment holds a 44px minimum height on a coarse pointer, the same `--control-lg` touch step
+ * `<Button>` grows to, rather than the roughly 27px the compact padding leaves it under a fine one.
  */
 
 export interface SegmentedOption<TValue extends string> {
@@ -74,6 +77,7 @@ export function Segmented<TValue extends string>(props: SegmentedProps<TValue>):
             }}
             className={cn(
               'flex-1 rounded-sm px-2 py-1 text-sm transition-colors',
+              'pointer-coarse:min-h-(--control-lg)',
               focusRing,
               current
                 ? 'bg-background text-foreground shadow-sm'

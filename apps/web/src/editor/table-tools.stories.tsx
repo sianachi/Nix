@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { useEffect, type ReactElement } from 'react';
 
 import { proseClasses, proseRoot } from './prose';
+import { ColumnWidthControls } from './column-width';
 import { TableControls } from './table-controls';
 import { TableMenu } from './table-menu';
 import { TableSizePicker } from './table-size-picker';
@@ -29,7 +30,7 @@ const TABLE_NOTE = [
 
 function InTable(): ReactElement {
   const editor = useEditor({
-    extensions: [...storyExtensions, TableControls],
+    extensions: [...storyExtensions, TableControls, ColumnWidthControls],
     content: TABLE_NOTE,
     editorProps: { attributes: { class: `${proseRoot} outline-none` } },
   });

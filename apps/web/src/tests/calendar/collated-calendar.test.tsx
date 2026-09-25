@@ -195,8 +195,136 @@ describe('creating an entry', () => {
     ).toBeInTheDocument();
 
     // No phantom entry: the grid still shows only the two items the props actually carry.
-    expect(screen.getByRole('button', { name: /Filing deadline/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Standup/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Refused item/i })).not.toBeInTheDocument();
+    // Anchored at the start: each item now also carries a "Reschedule <title>" control beside it,
+    // which would match a bare substring just as well.
+    expect(screen.getByRole('button', { name: /^Filing deadline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Standup/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Refused item/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A month cell used to answer only to a drag - the collated calendar's own counterpart to the
+ * container calendar's `DayCell`, which has always carried a keyboard-reachable reschedule control
+ * beside the drag. Goal 3.11 gives this one the same `RescheduleDialog` the container calendar and
+ * the hour grid both already reuse.
+ */
+describe('rescheduling a month cell by tap rather than by drag', () => {
+  function renderWithReschedule(onReschedule = vi.fn()): {
+    readonly onReschedule: typeof onReschedule;
+  } {
+    render(
+      <CollatedCalendar
+        entries={MARCH_ENTRIES}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={onReschedule}
+      />,
+    );
+    return { onReschedule };
+  }
+
+  it('opens a dialog seeded with the entry own date, from a tap rather than a drag', async () => {
+    renderWithReschedule();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reschedule Filing deadline' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Reschedule Filing deadline' });
+    expect(within(dialog).getByLabelText('New date for Filing deadline')).toHaveValue('2026-03-12');
+
+    // No "Remove date": this calendar has no unscheduled list for that write to be the
+    // counterpart of, and offering it anyway would be a control that silently did nothing.
+    expect(within(dialog).queryByRole('button', { name: 'Remove date' })).not.toBeInTheDocument();
+  });
+
+  it('writes the date typed into the dialog, the same write a drop onto the cell makes', async () => {
+    const { onReschedule } = renderWithReschedule();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reschedule Filing deadline' }));
+
+    const field = screen.getByLabelText('New date for Filing deadline');
+    await userEvent.clear(field);
+    await userEvent.type(field, '2026-03-20');
+    await userEvent.click(screen.getByRole('button', { name: 'Move' }));
+
+    expect(onReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'a1' }),
+      '2026-03-20',
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('offers a time as well as a date for an entry placed by a timestamp property', async () => {
+    renderWithReschedule();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    expect(screen.getByLabelText('New date and time for Standup')).toHaveAttribute(
+      'type',
+      'datetime-local',
+    );
+  });
+
+  it('closes on cancel and reschedules nothing', async () => {
+    const { onReschedule } = renderWithReschedule();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reschedule Filing deadline' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onReschedule).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The same "Show N more" behaviour `DayCell` gives the container calendar's own month grid,
+ * extended to the collated one so a busy day does not grow the whole cell without bound.
+ */
+describe('a busy month cell', () => {
+  function entryOn(id: string, day: string): CalendarEntry {
+    return {
+      itemId: id,
+      title: `Item ${id}`,
+      containerId: CONTAINER_ONE,
+      containerTitle: 'Deadlines',
+      dateProperty: 'due',
+      value: day,
+      kind: 'date',
+      generated: false,
+      completed: null,
+    };
+  }
+
+  const BUSY_DAY: readonly CalendarEntry[] = Array.from({ length: 8 }, (_unused, index) =>
+    entryOn(`busy-${String(index)}`, '2026-03-12'),
+  );
+
+  it('collapses a busy day until its accessible overflow control is opened', async () => {
+    render(
+      <CollatedCalendar
+        entries={BUSY_DAY}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={noop}
+      />,
+    );
+
+    const day = screen.getByRole('cell', { name: 'Thursday 12 March 2026' });
+    expect(within(day).getAllByRole('listitem')).toHaveLength(6);
+
+    await userEvent.click(within(day).getByRole('button', { name: 'Show 2 more' }));
+    expect(within(day).getAllByRole('listitem')).toHaveLength(8);
+    expect(within(day).getByRole('button', { name: 'Show fewer' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });

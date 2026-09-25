@@ -127,10 +127,19 @@ it('moves an item through a destination sheet without dragging', async () => {
       name: 'Move item',
     }),
   );
-  const move = screen.getByRole('dialog', { name: 'Move item' });
-  await userEvent.click(within(move).getByRole('button', { name: 'Move here' }));
+  const move = screen.getByRole('dialog', { name: 'Move item: choose a place' });
+  await userEvent.click(within(move).getByRole('button', { name: 'Up one level' }));
+  await userEvent.click(within(move).getByRole('button', { name: 'Choose position' }));
+  await userEvent.click(
+    within(screen.getByRole('dialog', { name: 'Move item: choose a position' })).getByRole(
+      'button',
+      { name: 'Move here' },
+    ),
+  );
   await waitFor(() => {
-    expect(screen.queryByRole('dialog', { name: 'Move item' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Move item: choose a position' }),
+    ).not.toBeInTheDocument();
   });
   await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
   expect(await screen.findByRole('button', { name: 'Plan' })).toBeInTheDocument();
