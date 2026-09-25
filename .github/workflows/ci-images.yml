@@ -48,7 +48,11 @@ jobs:
           - { name: collab, dockerfile: deploy/docker/node.Dockerfile, target: collab }
           - { name: worker, dockerfile: deploy/docker/go-workers.Dockerfile, target: '' }
           - { name: web, dockerfile: deploy/docker/web.Dockerfile, target: web }
-          - { name: release-tools, dockerfile: deploy/docker/release-tools.Dockerfile, target: release-tools }
+          - {
+              name: release-tools,
+              dockerfile: deploy/docker/release-tools.Dockerfile,
+              target: release-tools,
+            }
         arch: [amd64, arm64]
         include:
           - arch: amd64
