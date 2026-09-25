@@ -16,6 +16,7 @@ import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { useNarrowViewport } from '../../layout/viewport';
 import { browserStorage } from '../../lib/browser-storage';
+import { formatShortDate, localTimeZone } from '../../lib/date-format';
 import { HabitChartWidgets, type HabitWidgetConfig } from './habit-chart-widgets';
 
 export interface HabitTrackerViewProps {
@@ -30,12 +31,7 @@ function dateText(day: Date): string {
 }
 
 export function todayInTimezone(timezone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+  return formatShortDate(new Date(), timezone);
 }
 
 function shiftedDay(day: string, offset: number): string {
@@ -889,9 +885,7 @@ function HabitSetup({
   const [weekdays, setWeekdays] = useState<ReadonlySet<number>>(
     new Set(initial?.weekdays ?? [1, 2, 3, 4, 5]),
   );
-  const [timezone, setTimezone] = useState(
-    initial?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+  const [timezone, setTimezone] = useState(initial?.timezone ?? localTimeZone());
   return (
     <form
       className="flex flex-wrap items-end gap-3 border border-divider p-4"

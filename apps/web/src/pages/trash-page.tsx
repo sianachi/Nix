@@ -1,7 +1,7 @@
-import { Button, Icon, Text } from '@nix/ui';
+import { Button, Dialog, Icon, Text } from '@nix/ui';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { isNixApiError, items as coreItems, type Item } from '@nix/api-client';
-import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
@@ -29,6 +29,10 @@ export function TrashPage(): ReactElement {
   }>({ items: [], error: null, loading: true });
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /** The item awaiting the permanent-delete confirmation. Null when the dialog is closed. */
+  const [purgeTarget, setPurgeTarget] = useState<Item | null>(null);
+  const purgeCancelRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setState((current) => ({ ...current, loading: true, error: null }));
@@ -72,8 +76,7 @@ export function TrashPage(): ReactElement {
     }
   };
   const purge = async (item: Item): Promise<void> => {
-    if (!window.confirm(`Permanently delete “${item.title || 'Untitled'}”? This cannot be undone.`))
-      return;
+    setPurgeTarget(null);
     setRestoring(item.id);
     try {
       await client.execute(coreItems.purgeItem(workspaceId, item.id));
@@ -153,7 +156,7 @@ export function TrashPage(): ReactElement {
               variant="primary"
               disabled={restoring === item.id}
               onClick={() => {
-                void purge(item);
+                setPurgeTarget(item);
               }}
             >
               Delete permanently
@@ -161,6 +164,37 @@ export function TrashPage(): ReactElement {
           </li>
         ))}
       </ul>
+      <Dialog
+        open={purgeTarget !== null}
+        title={`Delete “${purgeTarget === null ? '' : purgeTarget.title || 'Untitled'}” permanently?`}
+        onClose={() => {
+          setPurgeTarget(null);
+        }}
+        initialFocus={purgeCancelRef}
+        actions={
+          <>
+            <Button
+              ref={purgeCancelRef}
+              variant="secondary"
+              onClick={() => {
+                setPurgeTarget(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (purgeTarget !== null) void purge(purgeTarget);
+              }}
+            >
+              Delete permanently
+            </Button>
+          </>
+        }
+      >
+        <Text variant="bodySmall">This can’t be undone.</Text>
+      </Dialog>
     </Frame>
   );
 }

@@ -130,16 +130,15 @@ describe('the new-item menu', () => {
     const trigger = screen.getByRole('button', { name: /new item in the workspace/i });
     await user.click(trigger);
 
-    const destination = screen.getByRole('menuitemcheckbox', {
-      name: /create inside engineering/i,
-    });
-    expect(destination).toHaveFocus();
-    await user.keyboard('{ArrowDown}');
+    // The destination toggle is a `content` entry in `<Menu>` - a settings widget, not a command -
+    // so it sits outside the arrow-key roving order the same way the profile menu's appearance
+    // switcher does. Opening the menu focuses the first real command instead, and Home/End cycle
+    // only across those commands.
     expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toHaveFocus();
     await user.keyboard('{End}');
     expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toHaveFocus();
     await user.keyboard('{Home}');
-    expect(destination).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

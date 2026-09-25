@@ -72,6 +72,7 @@ import { useItemLock } from '../locks/use-item-lock';
 import { historyPanelWidth } from '../layout/regions';
 import { ItemPanel } from '../panel/item-panel';
 import { browserStorage } from '../lib/browser-storage';
+import { formatTime } from '../lib/date-format';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
 import { ViewSwitcher } from '../views/core/view-switcher';
@@ -1225,5 +1226,5 @@ function bodyNoun(bodyKind: string): string {
 
 /** A clock time in the reader's own format, for when an unlock ends. */
 function clockTime(at: Date): string {
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(at);
+  return formatTime(at);
 }

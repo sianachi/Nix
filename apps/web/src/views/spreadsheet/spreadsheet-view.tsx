@@ -16,6 +16,7 @@ import { CreateItemControl } from '../core/create-item-control';
 import type { ContainerData, PlanOutcome, PlanWrite } from '../core/use-container';
 import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState, type SortDirection } from '../core/view-state';
+import { CellEditor } from '../sheet/cell-editor';
 import { parseTsv, rangeToTsv } from '../sheet/clipboard';
 import { gridKeyAction } from '../sheet/grid-keys';
 import {
@@ -804,9 +805,9 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           })}
 
           {selection.mode === 'edit' && activeColumn !== undefined && activeItem !== undefined ? (
-            <input
+            <CellEditor
               ref={editorRef}
-              aria-label={`Edit ${activeColumn.label} for ${activeItem.title || 'Untitled'}`}
+              ariaLabel={`Edit ${activeColumn.label} for ${activeItem.title || 'Untitled'}`}
               value={selection.draft}
               onChange={(event) => {
                 dispatch({ type: 'setDraft', draft: event.target.value });
@@ -832,8 +833,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                   commitDraft('stay');
                 }
               }}
-              className="absolute z-10 bg-background px-2 py-1.5 text-sm outline-2 -outline-offset-2 outline-accent"
-              style={editorStyle}
+              position={editorStyle}
             />
           ) : null}
         </div>

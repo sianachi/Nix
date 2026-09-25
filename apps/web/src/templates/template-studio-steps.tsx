@@ -2,6 +2,7 @@ import { Blueprint, Button, Field, Input, Select, Text, focusRing } from '@nix/u
 import type { ReactNode } from 'react';
 
 import type { CollabSync } from '../editor/collab-sync';
+import { formatDateTime } from '../lib/date-format';
 import type { PropertyDefinition } from '../views/core/container-model';
 import type { TemplateDetail, TemplateEditDraft, TemplateInitialization } from './template-api';
 import { TemplateDraftEditor, type TemplateItemEdit } from './template-draft-editor';
@@ -260,12 +261,8 @@ export function Contents({
     return (
       <section className="flex flex-col gap-4">
         <Text variant="caption" tone="muted">
-          Draft available until{' '}
-          {new Intl.DateTimeFormat(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-          }).format(new Date(editOperation.expiresAt))}
-          . Save before then to keep body edits.
+          Draft available until {formatDateTime(new Date(editOperation.expiresAt))}. Save before
+          then to keep body edits.
         </Text>
         <TemplateDraftEditor
           root={editOperation.root}

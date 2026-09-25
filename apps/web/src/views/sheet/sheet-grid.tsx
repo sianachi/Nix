@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { CellEditor } from './cell-editor';
 import { parseTsv, rangeToTsv } from './clipboard';
 import {
   COLUMN_RESIZE_STEP,
@@ -732,9 +733,9 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
             ))}
 
             {selection.mode === 'edit' && selection.editSource !== 'bar' ? (
-              <input
+              <CellEditor
                 ref={editorRef}
-                aria-label={`Edit cell ${activeKey}`}
+                ariaLabel={`Edit cell ${activeKey}`}
                 value={selection.draft}
                 maxLength={SHEET_LIMITS.maxRawLength}
                 onChange={(event) => {
@@ -760,8 +761,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                     commitDraft('stay');
                   }
                 }}
-                className="absolute z-10 bg-background px-2 py-1.5 text-sm outline-2 -outline-offset-2 outline-accent"
-                style={editorStyle}
+                position={editorStyle}
               />
             ) : null}
           </div>
