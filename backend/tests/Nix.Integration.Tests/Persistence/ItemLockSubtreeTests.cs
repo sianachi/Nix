@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Features.Internal;
 using Nix.Features.Items;
@@ -10,6 +11,7 @@ using Nix.Features.Locks;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
 using Nix.Persistence;
+using Nix.Persistence.Templates;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -30,6 +32,8 @@ public sealed class ItemLockSubtreeTests(NixPostgresFixture fixture) : IAsyncLif
 
     /// <summary>Another browser, which has not unlocked anything.</summary>
     private static readonly Guid OtherBrowser = new("5b7e0c00-2222-4222-8222-5b7e0c000002");
+
+    private static readonly Guid OtherWorkspace = new("5b7e0c00-2222-4222-8222-5b7e0c000003");
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -210,6 +214,97 @@ public sealed class ItemLockSubtreeTests(NixPostgresFixture fixture) : IAsyncLif
 
             // The own-lock reads that back setting and removing a password are unchanged.
             Assert.False(await locks.IsLockedAsync(child, Cancellation));
+        }
+    }
+
+    [Theory]
+    [InlineData("root", true)]
+    [InlineData("root", false)]
+    [InlineData("descendant", true)]
+    [InlineData("ancestor", true)]
+    [InlineData("ancestor", false)]
+    public async Task Capture_preview_refuses_a_locked_source_before_describing_its_tree(
+        string lockPosition, bool includeChildren)
+    {
+        var child = await CreateAsync("Child", Folder);
+        var grandchild = await CreateAsync("Grandchild", child);
+        var source = lockPosition == "ancestor" ? child : Folder;
+        var lockedItem = lockPosition switch
+        {
+            "root" => source,
+            "descendant" => grandchild,
+            "ancestor" => Folder,
+            _ => throw new ArgumentOutOfRangeException(nameof(lockPosition)),
+        };
+        await LockAsync(Locker, lockedItem, "hunter22");
+
+        var work = await BeginAsync(Locker);
+        await using (work.ConfigureAwait(false))
+        {
+            var preview = await work.Resolve<TemplateStore>().PreviewCaptureAsync(
+                Workspace, source, includeChildren, Cancellation);
+            Assert.True(preview.IsFailure);
+            Assert.Equal(TemplateErrors.SourceLockedCode, preview.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_preview_and_begin_hide_a_locked_item_from_another_accessible_workspace()
+    {
+        await LockAsync(Locker, Folder, "hunter22");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO workspace
+                (workspace_id, tenant_id, name, version_retention_days, coalesce_window_min,
+                 storage_quota_bytes, created_at)
+            VALUES ({Literal(OtherWorkspace)}, {Literal(M0SchemaSeed.Alpha.TenantId)},
+                    'Other workspace', 30, 10, 1073741824, now());
+
+            INSERT INTO workspace_member
+                (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
+            VALUES ({Literal(OtherWorkspace)}, 'principal', {Literal(M0SchemaSeed.Alpha.PrincipalId)},
+                    {Literal(M0SchemaSeed.Alpha.TenantId)}, 'owner',
+                    {Literal(M0SchemaSeed.Alpha.PrincipalId)}, now());
+            """);
+
+        var work = await BeginAsync(Locker);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var workspace = WorkspaceId.From(OtherWorkspace);
+            var preview = await store.PreviewCaptureAsync(workspace, Folder, true, Cancellation);
+            Assert.True(preview.IsFailure);
+            Assert.Equal("templates.not_found", preview.Error.Code);
+
+            var capture = await store.BeginCaptureAsync(
+                workspace, Folder, "Other template", null, true, true,
+                "capture-wrong-workspace", Cancellation);
+            Assert.True(capture.IsFailure);
+            Assert.Equal("templates.invalid", capture.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_preview_and_begin_hide_a_deleted_locked_source()
+    {
+        await LockAsync(Locker, Folder, "hunter22");
+        await ExecuteAsMigratorAsync($"""
+            UPDATE item SET lifecycle_state = 'deleted'
+            WHERE id = {Literal(Folder.Value)}
+            """);
+
+        var work = await BeginAsync(Locker);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var preview = await store.PreviewCaptureAsync(Workspace, Folder, true, Cancellation);
+            Assert.True(preview.IsFailure);
+            Assert.Equal("templates.not_found", preview.Error.Code);
+
+            var capture = await store.BeginCaptureAsync(
+                Workspace, Folder, "Trashed template", null, true, true,
+                "capture-trashed-locked", Cancellation);
+            Assert.True(capture.IsFailure);
+            Assert.Equal("templates.invalid", capture.Error.Code);
         }
     }
 

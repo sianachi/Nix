@@ -26,6 +26,23 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCaptureSnapshot>(TemplateErrors.NotFound("No such workspace is visible."));
         }
 
+        var root = await RegularItemAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (root is null || root.WorkspaceId != workspaceId)
+        {
+            return Result.Failure<TemplateCaptureSnapshot>(TemplateErrors.NotFound("No such capture source is visible."));
+        }
+
+        // A capture preview is an approval for a copy that outlives the source. Refuse
+        // locked sources before reading the tree, including locks on an ancestor or
+        // a descendant that would be copied. The same gate runs in BeginCaptureAsync.
+        var locked = includeChildren
+            ? await _locks.AnyInSubtreeAsync(sourceItemId, cancellationToken).ConfigureAwait(false)
+            : (await _locks.GetStateAsync(sourceItemId, cancellationToken).ConfigureAwait(false)).Locked;
+        if (locked)
+        {
+            return Result.Failure<TemplateCaptureSnapshot>(TemplateErrors.SourceLocked());
+        }
+
         var source = await SourceTreeAsync(workspaceId, sourceItemId, includeChildren, cancellationToken)
             .ConfigureAwait(false);
         if (source.Count == 0 || source.Count > MaximumTemplateItems)

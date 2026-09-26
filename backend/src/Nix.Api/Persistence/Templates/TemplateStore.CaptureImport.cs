@@ -82,6 +82,13 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCapturePlan>(capacity.Error);
         }
 
+        var root = await RegularItemAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (root is null || root.WorkspaceId != workspaceId)
+        {
+            return Result.Failure<TemplateCapturePlan>(
+                TemplateErrors.Invalid($"A template may contain at most {MaximumTemplateItems:N0} items."));
+        }
+
         // A template is a copy that outlives its source and is applied by whoever may use the
         // template, so a locked body - a note's text or a file's bytes - would come out the other
         // side unlocked. Refused before anything is staged, for the whole capture, rather than
