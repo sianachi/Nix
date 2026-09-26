@@ -36,6 +36,7 @@ import {
   executeTemplateOperationResume,
   executeTemplateInitializationUpdate,
 } from './commands/templates.ts';
+import { executePetRuntime, executePetToolRun, petSessionFor } from './commands/pets.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
 import type { Session } from './session.ts';
 
@@ -1224,6 +1225,81 @@ export async function createWorkspaceMcpServer(
       ),
   );
 
+  server.registerTool(
+    'pet_runtime',
+    {
+      description:
+        'Drive a pet companion runtime: status, connect, send, tool_claim/tool_result, and settings. Uses a short-lived interactive session, never expanded PAT scopes.',
+      inputSchema: {
+        operation: z.enum([
+          'status',
+          'connect',
+          'disconnect',
+          'models',
+          'read',
+          'send',
+          'interrupt',
+          'reset',
+          'settings',
+          'tool_claim',
+          'tool_result',
+        ]),
+        workspaceId: identifier.optional(),
+        petId: identifier.optional(),
+        message: z.string().max(20_000).optional(),
+        model: z.string().max(160).optional(),
+        workspaceTools: z.boolean().optional(),
+        toolId: z.string().max(200).optional(),
+        requestId: z.string().max(80).optional(),
+        toolResult: z.string().max(32_000).optional(),
+        toolSuccess: z.boolean().optional(),
+        mode: z.enum(['chat', 'consult']).optional(),
+        apiUrl: z.string().trim().min(1).optional(),
+      },
+    },
+    (input) =>
+      toolResult(async () => {
+        const session = await petSessionForMcp(input.apiUrl, options);
+        return executePetRuntime(session.client, input.operation, {
+          ...(input.workspaceId ? { workspace: input.workspaceId } : {}),
+          ...(input.petId ? { pet: input.petId } : {}),
+          ...(input.message !== undefined ? { message: input.message } : {}),
+          ...(input.model !== undefined ? { model: input.model } : {}),
+          ...(input.workspaceTools !== undefined ? { workspaceTools: input.workspaceTools } : {}),
+          ...(input.toolId !== undefined ? { toolId: input.toolId } : {}),
+          ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+          ...(input.toolResult !== undefined ? { toolResult: input.toolResult } : {}),
+          ...(input.toolSuccess !== undefined ? { toolSuccess: input.toolSuccess } : {}),
+          ...(input.mode !== undefined ? { mode: input.mode } : {}),
+        });
+      }),
+  );
+
+  server.registerTool(
+    'pet_tool_run',
+    {
+      description:
+        'Preview, approve, or decline one pending companion workspace tool call, claiming before any write exactly as the web companion panel does. Uses a short-lived interactive session, never expanded PAT scopes.',
+      inputSchema: {
+        workspaceId: identifier,
+        petId: identifier,
+        toolId: z.string().max(200),
+        decision: z.enum(['approve', 'decline', 'preview']),
+        apiUrl: z.string().trim().min(1).optional(),
+      },
+    },
+    ({ workspaceId, petId, toolId, decision, apiUrl }) =>
+      toolResult(async () =>
+        executePetToolRun(
+          await petSessionForMcp(apiUrl, options),
+          workspaceId,
+          petId,
+          toolId,
+          decision,
+        ),
+      ),
+  );
+
   return server;
 }
 
@@ -1240,6 +1316,23 @@ function lazy<T>(factory: () => Promise<T>): () => Promise<T> {
     value ??= factory();
     return value;
   };
+}
+
+/** Adapts {@link petSessionFor} (shared with the CLI's `petCommand`/`petToolRun`) to this
+ * server's per-call `apiUrl` and its own `resolve` test seam, so `pet_runtime` and
+ * `pet_tool_run` reach Core (and Collab) with the same interactive-session-first rule the CLI
+ * uses: an `NIX_SESSION_TOKEN` paired with `apiUrl` opens a short-lived session with no stored
+ * profile, never expanding PAT scopes; otherwise this resolves the server's configured profile. */
+async function petSessionForMcp(
+  apiUrl: string | undefined,
+  options: WorkspaceMcpOptions,
+): Promise<Session> {
+  return petSessionFor(
+    apiUrl,
+    options.profileName,
+    options.sessionDeps ?? {},
+    options.resolve ?? resolveSession,
+  );
 }
 
 async function toolResult(action: () => Promise<unknown>) {

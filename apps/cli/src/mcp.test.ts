@@ -84,6 +84,8 @@ describe('nixctl mcp workspace tools', () => {
         'commit_template_archive_import',
         'export_template_archive',
         'resume_template_file_copy',
+        'pet_runtime',
+        'pet_tool_run',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
@@ -814,6 +816,167 @@ describe('nixctl mcp workspace tools', () => {
         `DELETE /api/v1/imports/${importId}`,
       ]);
       expect(JSON.stringify({ state, receipt, cancelled })).not.toContain('uploadUrl');
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('previews a pending pet tool call through pet_tool_run without claiming or executing it', async () => {
+    const workspaceId = '22222222-2222-4222-8222-222222222222';
+    const petId = '33333333-3333-4333-8333-333333333333';
+    const toolId = 'tool-1';
+    const requests: { method: string; url: string; body: unknown }[] = [];
+    const toolArguments = JSON.stringify({
+      operation: 'list_items',
+      itemId: '',
+      parentId: '',
+      title: '',
+      markdown: '',
+      query: '',
+      propertiesJson: '',
+    });
+    const fetchImpl: FetchImpl = (url, init) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      requests.push({
+        method: init?.method ?? 'GET',
+        url,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      });
+      return Promise.resolve(
+        Response.json({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: 'Connected',
+          canConnect: false,
+          tools: [{ id: toolId, arguments: toolArguments, status: 'pending', result: '', claimId: '' }],
+        }),
+      );
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const result = await connected.client.callTool({
+        name: 'pet_tool_run',
+        arguments: { workspaceId, petId, toolId, decision: 'preview' },
+      });
+      const runtimeCalls = requests.filter((request) => request.url.endsWith('/pets/runtime'));
+      expect(runtimeCalls).toHaveLength(1);
+      expect(runtimeCalls[0]?.body).toMatchObject({ operation: 'read' });
+      expect(result.isError).not.toBe(true);
+      const content = result.content as { type: string; text: string }[];
+      expect(JSON.parse(content[0]?.text ?? '')).toMatchObject({
+        toolId,
+        status: 'pending',
+        preview: 'I will list the top-level items in this workspace to find what to work on.',
+      });
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('forwards pet_runtime tool_claim/tool_result through the same request shape as the CLI', async () => {
+    const workspaceId = '22222222-2222-4222-8222-222222222222';
+    const petId = '33333333-3333-4333-8333-333333333333';
+    const toolId = 'tool-1';
+    const requests: { method: string; url: string; body: Record<string, unknown> }[] = [];
+    const fetchImpl: FetchImpl = (url, init) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      const body = (typeof init?.body === 'string' ? JSON.parse(init.body) : {}) as Record<
+        string,
+        unknown
+      >;
+      requests.push({ method: init?.method ?? 'GET', url, body });
+      return Promise.resolve(
+        Response.json({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: 'Connected',
+          canConnect: false,
+          mode: body.mode,
+        }),
+      );
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const claim = await connected.client.callTool({
+        name: 'pet_runtime',
+        arguments: {
+          operation: 'tool_claim',
+          workspaceId,
+          petId,
+          toolId,
+          requestId: 'req-1',
+        },
+      });
+      const result = await connected.client.callTool({
+        name: 'pet_runtime',
+        arguments: {
+          operation: 'tool_result',
+          workspaceId,
+          petId,
+          toolId,
+          requestId: 'req-1',
+          toolResult: 'done',
+          toolSuccess: true,
+          mode: 'consult',
+        },
+      });
+      expect(claim.isError).not.toBe(true);
+      expect(result.isError).not.toBe(true);
+      const runtimeCalls = requests.filter((request) => request.url.endsWith('/pets/runtime'));
+      expect(runtimeCalls.map((call) => call.body.operation)).toEqual(['tool_claim', 'tool_result']);
+      expect(runtimeCalls[0]?.body).toMatchObject({
+        workspaceId,
+        petId,
+        toolId,
+        requestId: 'req-1',
+      });
+      expect(runtimeCalls[1]?.body).toMatchObject({
+        toolId,
+        requestId: 'req-1',
+        toolResult: 'done',
+        toolSuccess: true,
+        mode: 'consult',
+      });
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('rejects pet_runtime tool_claim without a toolId before contacting the service', async () => {
+    const requests: string[] = [];
+    const fetchImpl: FetchImpl = (url) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      requests.push(url);
+      return unexpectedRequest();
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const result = await connected.client.callTool({
+        name: 'pet_runtime',
+        arguments: {
+          operation: 'tool_claim',
+          workspaceId: '22222222-2222-4222-8222-222222222222',
+          petId: '33333333-3333-4333-8333-333333333333',
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain('Provide --tool-id.');
+      expect(requests.filter((url) => url.endsWith('/pets/runtime'))).toHaveLength(0);
     } finally {
       await connected.close();
     }
