@@ -157,9 +157,10 @@ internal sealed class FakeTemplateStagingStore : TemplateWorkflowFake, ITemplate
         WorkspaceId workspaceId,
         ItemId sourceItemId,
         bool includeChildren,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        bool excludeSampleDescendants = false) =>
         Refuse<TemplateCaptureSnapshot>(
-            new PreviewTemplateCapture(workspaceId, sourceItemId, includeChildren),
+            new PreviewTemplateCapture(workspaceId, sourceItemId, includeChildren, excludeSampleDescendants),
             cancellationToken);
 
     public ValueTask<Result<TemplateCapturePlan>> BeginCaptureAsync(

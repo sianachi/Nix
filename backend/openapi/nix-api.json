@@ -7388,6 +7388,13 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "excludeSampleDescendants",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -13910,12 +13917,16 @@
       "TemplateCapturePreviewResponse": {
         "required": [
           "fingerprint",
+          "captureFingerprint",
           "sourceTitle",
           "itemCount"
         ],
         "type": "object",
         "properties": {
           "fingerprint": {
+            "type": "string"
+          },
+          "captureFingerprint": {
             "type": "string"
           },
           "sourceTitle": {

@@ -18,7 +18,8 @@ public sealed partial class TemplateStore
         WorkspaceId workspaceId,
         ItemId sourceItemId,
         bool includeChildren,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool excludeSampleDescendants = false)
     {
         if (!await _permissions.CanReadWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
         {
@@ -32,7 +33,35 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCaptureSnapshot>(TemplateErrors.NotFound("No such capture source is visible."));
         }
 
-        return Result.Success(await CaptureSnapshotAsync(source, cancellationToken).ConfigureAwait(false));
+        var full = await CaptureSnapshotAsync(source, cancellationToken).ConfigureAwait(false);
+        if (!excludeSampleDescendants || !includeChildren)
+        {
+            return Result.Success(full);
+        }
+
+        // SourceTreeAsync orders parents before children. Keep the root even if its title
+        // begins with Sample:, matching the pet's descendant-only exclusion rule.
+        var excluded = new HashSet<ItemId>();
+        foreach (var item in source.Skip(1))
+        {
+            if (ItemProperties.ReadTitle(item.Properties).StartsWith("Sample: ", StringComparison.Ordinal)
+                || (item.ParentId is { } parentId && excluded.Contains(parentId)))
+            {
+                excluded.Add(item.Id);
+            }
+        }
+        if (excluded.Count == 0)
+        {
+            return Result.Success(full);
+        }
+
+        var projected = source.Where(item => !excluded.Contains(item.Id)).ToList();
+        var capture = await CaptureSnapshotAsync(projected, cancellationToken).ConfigureAwait(false);
+        return Result.Success(full with
+        {
+            ItemCount = projected.Count,
+            CaptureFingerprint = capture.Fingerprint,
+        });
     }
 
     private async ValueTask<TemplateCaptureSnapshot> CaptureSnapshotAsync(
@@ -84,6 +113,7 @@ public sealed partial class TemplateStore
             ItemProperties.ReadTitle(source[0].Properties),
             source.Count,
             bodyHeads,
-            bodyDocIds);
+            bodyDocIds,
+            Convert.ToHexStringLower(digest));
     }
 }

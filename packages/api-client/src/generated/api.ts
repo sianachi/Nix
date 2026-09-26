@@ -3401,6 +3401,7 @@ export interface components {
     };
     TemplateCapturePreviewResponse: {
       fingerprint: string;
+      captureFingerprint: string;
       sourceTitle: string;
       /** Format: int32 */
       itemCount: number | string;
@@ -9271,6 +9272,7 @@ export interface operations {
     parameters: {
       query: {
         includeChildren: boolean;
+        excludeSampleDescendants?: boolean;
       };
       header?: never;
       path: {

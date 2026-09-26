@@ -207,6 +207,7 @@ export const templateCaptureRequestSchema = z.object({
 
 export const templateCapturePreviewSchema = z.object({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  captureFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   sourceTitle: z.string(),
   itemCount: z.int().nonnegative(),
 });

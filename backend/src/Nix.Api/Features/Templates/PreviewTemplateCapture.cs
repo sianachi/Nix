@@ -10,7 +10,8 @@ namespace Nix.Features.Templates;
 public readonly record struct PreviewTemplateCapture(
     WorkspaceId WorkspaceId,
     ItemId SourceItemId,
-    bool IncludeChildren) : IQuery<Result<TemplateCaptureSnapshot>>;
+    bool IncludeChildren,
+    bool ExcludeSampleDescendants = false) : IQuery<Result<TemplateCaptureSnapshot>>;
 
 /// <summary>Describes the exact current source without returning its body content.</summary>
 public sealed class PreviewTemplateCaptureHandler(ITemplateStagingStore stages)
@@ -24,5 +25,6 @@ public sealed class PreviewTemplateCaptureHandler(ITemplateStagingStore stages)
             query.WorkspaceId,
             query.SourceItemId,
             query.IncludeChildren,
-            cancellationToken);
+            cancellationToken,
+            query.ExcludeSampleDescendants);
 }

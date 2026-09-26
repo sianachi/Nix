@@ -12,7 +12,8 @@ public interface ITemplateStagingStore
         WorkspaceId workspaceId,
         ItemId sourceItemId,
         bool includeChildren,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool excludeSampleDescendants = false);
 
     public ValueTask<Result<TemplateCapturePlan>> BeginCaptureAsync(
         WorkspaceId workspaceId,

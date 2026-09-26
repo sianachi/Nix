@@ -8,4 +8,5 @@ public sealed record TemplateCaptureSnapshot(
     string SourceTitle,
     int ItemCount,
     IReadOnlyDictionary<ItemId, long?> BodyHeads,
-    IReadOnlyDictionary<ItemId, Guid?> BodyDocIds);
+    IReadOnlyDictionary<ItemId, Guid?> BodyDocIds,
+    string CaptureFingerprint);

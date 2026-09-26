@@ -200,7 +200,11 @@ internal sealed record BeginTemplateCaptureRequest(
     string IdempotencyKey,
     string? ExpectedFingerprint = null);
 
-internal sealed record TemplateCapturePreviewResponse(string Fingerprint, string SourceTitle, int ItemCount);
+internal sealed record TemplateCapturePreviewResponse(
+    string Fingerprint,
+    string CaptureFingerprint,
+    string SourceTitle,
+    int ItemCount);
 
 internal sealed record ImportTemplateDescriptorRequest(
     string StableKey,

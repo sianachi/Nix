@@ -114,12 +114,13 @@ export const previewTemplateCapture = (
   workspaceId: string,
   sourceItemId: string,
   includeChildren = true,
+  excludeSampleDescendants = false,
 ): QueryEndpoint<TemplateCapturePreview> =>
   defineQuery({
     operation: 'templates.capture.preview',
-    path: `/api/v1/workspaces/${workspaceId}/templates/capture-preview/${sourceItemId}?includeChildren=${String(includeChildren)}`,
+    path: `/api/v1/workspaces/${workspaceId}/templates/capture-preview/${sourceItemId}?includeChildren=${String(includeChildren)}&excludeSampleDescendants=${String(excludeSampleDescendants)}`,
     schema: templateCapturePreviewSchema,
-    cacheKey: [...templateLibraryKey(workspaceId), 'capture-preview', sourceItemId, String(includeChildren)],
+    cacheKey: [...templateLibraryKey(workspaceId), 'capture-preview', sourceItemId, String(includeChildren), String(excludeSampleDescendants)],
     staleAfterMs: 0,
   });
 

@@ -194,15 +194,17 @@ internal static class TemplateEndpoints
         Guid workspaceId,
         Guid sourceItemId,
         bool includeChildren,
+        bool? excludeSampleDescendants,
         HttpContext context,
         [FromServices] NixDispatcher dispatcher)
     {
         var result = await dispatcher.QueryAsync<PreviewTemplateCapture, Result<TemplateCaptureSnapshot>>(
-            new PreviewTemplateCapture(WorkspaceId.From(workspaceId), ItemId.From(sourceItemId), includeChildren),
+            new PreviewTemplateCapture(WorkspaceId.From(workspaceId), ItemId.From(sourceItemId),
+                includeChildren, excludeSampleDescendants ?? false),
             context.RequestAborted).ConfigureAwait(false);
         return result.Match<IResult>(
             snapshot => TypedResults.Ok(new TemplateCapturePreviewResponse(
-                snapshot.Fingerprint, snapshot.SourceTitle, snapshot.ItemCount)),
+                snapshot.Fingerprint, snapshot.CaptureFingerprint, snapshot.SourceTitle, snapshot.ItemCount)),
             error => Problem(context, error));
     }
 

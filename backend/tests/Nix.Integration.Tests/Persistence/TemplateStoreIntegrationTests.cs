@@ -256,6 +256,89 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Capture_preview_projects_sample_subtrees_without_approving_sample_changes()
+    {
+        var rootId = await AddOrdinaryItemAsync("Job hunt");
+        var setup = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        ItemId sampleId;
+        ItemId sampleChildId;
+        await using (setup.ConfigureAwait(false))
+        {
+            var now = DateTimeOffset.UtcNow;
+            var sample = NewItem("Sample: application", null, rootId, 1, now);
+            var sampleChild = NewItem("Note", null, sample.Id, 1, now);
+            var ordinary = NewItem("Applications", null, rootId, 2, now);
+            setup.DbContext.Items.AddRange(sample, sampleChild, ordinary);
+            await setup.DbContext.SaveChangesAsync(Cancellation);
+            await setup.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({sample.TenantId.Value}, {sample.WorkspaceId.Value}, {sample.Id.Value}, {sample.Id.Value}, 0), ({sample.TenantId.Value}, {sample.WorkspaceId.Value}, {rootId.Value}, {sample.Id.Value}, 1), ({sampleChild.TenantId.Value}, {sampleChild.WorkspaceId.Value}, {sampleChild.Id.Value}, {sampleChild.Id.Value}, 0), ({sampleChild.TenantId.Value}, {sampleChild.WorkspaceId.Value}, {sample.Id.Value}, {sampleChild.Id.Value}, 1), ({sampleChild.TenantId.Value}, {sampleChild.WorkspaceId.Value}, {rootId.Value}, {sampleChild.Id.Value}, 2), ({ordinary.TenantId.Value}, {ordinary.WorkspaceId.Value}, {ordinary.Id.Value}, {ordinary.Id.Value}, 0), ({ordinary.TenantId.Value}, {ordinary.WorkspaceId.Value}, {rootId.Value}, {ordinary.Id.Value}, 1)",
+                Cancellation);
+            await setup.CommitAsync(Cancellation);
+            sampleId = sample.Id;
+            sampleChildId = sampleChild.Id;
+        }
+
+        string approvedFull;
+        string approvedCapture;
+        var preview = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (preview.ConfigureAwait(false))
+        {
+            var store = preview.Resolve<TemplateStore>();
+            var projected = await store.PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), rootId, true, Cancellation, true);
+            var included = await store.PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), rootId, true, Cancellation);
+            Assert.True(projected.IsSuccess);
+            Assert.True(included.IsSuccess);
+            Assert.Equal(2, projected.Value.ItemCount);
+            Assert.Equal(4, included.Value.ItemCount);
+            Assert.Equal(included.Value.Fingerprint, projected.Value.Fingerprint);
+            Assert.Equal(included.Value.Fingerprint, included.Value.CaptureFingerprint);
+            Assert.NotEqual(projected.Value.Fingerprint, projected.Value.CaptureFingerprint);
+            approvedFull = projected.Value.Fingerprint;
+            approvedCapture = projected.Value.CaptureFingerprint;
+        }
+
+        var editSample = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (editSample.ConfigureAwait(false))
+        {
+            await editSample.DbContext.Items.Where(item => item.Id == sampleChildId)
+                .ExecuteUpdateAsync(update => update.SetProperty(
+                    item => item.Properties, ItemProperties.WithTitle(null, "Changed sample note")), Cancellation);
+            await editSample.CommitAsync(Cancellation);
+        }
+        var stale = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (stale.ConfigureAwait(false))
+        {
+            var changed = await stale.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), rootId, true, Cancellation, true);
+            Assert.True(changed.IsSuccess);
+            Assert.NotEqual(approvedFull, changed.Value.Fingerprint);
+            Assert.Equal(approvedCapture, changed.Value.CaptureFingerprint);
+        }
+
+        await SetLifecycleAsync(sampleId, ItemLifecycleState.Deleted);
+        await SetLifecycleAsync(sampleChildId, ItemLifecycleState.Deleted);
+        var capture = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (capture.ConfigureAwait(false))
+        {
+            var store = capture.Resolve<TemplateStore>();
+            var current = await store.PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), rootId, true, Cancellation);
+            Assert.True(current.IsSuccess);
+            Assert.Equal(approvedCapture, current.Value.Fingerprint);
+            Assert.NotEqual(approvedFull, current.Value.Fingerprint);
+            var begun = await store.BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), rootId, "Job hunt template", null,
+                true, true, "sample-exclusion", Cancellation, approvedCapture);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+        }
+    }
+
     public async ValueTask InitializeAsync()
     {
         await _fixture.ResetAsync();
