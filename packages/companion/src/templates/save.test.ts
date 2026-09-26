@@ -3,6 +3,8 @@ import { NixApiError, type TemplateDetail } from '@nix/api-client';
 import { saveSpecSchema } from '@nix/structure-spec';
 import { createFakePorts } from '../testing/fake-ports.js';
 import { saveAsTemplate } from './save.js';
+import { loadPreviewContext } from '../context.js';
+import { workspaceToolSchema } from '../tool-args.js';
 
 const workspace = '11111111-1111-4111-8111-111111111111';
 const rootId = '22222222-2222-4222-8222-222222222222';
@@ -118,6 +120,29 @@ function setup() {
 }
 
 describe('save_as_template', () => {
+  it.each([
+    [{}, 2],
+    [{ includeSamples: true }, 4],
+  ])('previews the actual item count for sample setting %j', async (spec, expected) => {
+    const fake = setup();
+    const preview = await loadPreviewContext(
+      fake.ports,
+      workspace,
+      workspaceToolSchema.parse({
+        operation: 'save_as_template',
+        itemId: rootId,
+        parentId: '',
+        title: 'Captured plan',
+        markdown: '',
+        query: '',
+        propertiesJson: '',
+        specJson: JSON.stringify(spec),
+      }),
+      fake.signal,
+    );
+    expect(preview.sourceItemCount).toBe(expected);
+    expect(preview.sampleCount).toBe(2);
+  });
   it('trashes sample descendants before capture, restores parent first, and uses the pet key', async () => {
     const fake = setup();
     const result = await saveAsTemplate(

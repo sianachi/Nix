@@ -1,5 +1,5 @@
 import { items, structure, templates, views, type TemplatePreflight } from '@nix/api-client';
-import { applySpecSchema } from '@nix/structure-spec';
+import { applySpecSchema, saveSpecSchema } from '@nix/structure-spec';
 import type {
   Problem,
   StructureProperty,
@@ -182,6 +182,7 @@ export async function loadPreviewContext(
   const requestOptions = { signal, forceRefresh: true };
 
   if (args.operation === 'save_as_template') {
+    const spec = saveSpecSchema.parse(JSON.parse(args.specJson));
     const source = await readSourceTree(ports, workspaceId, args.itemId, signal);
     const nodes: (typeof source)[] = [source];
     for (const node of nodes) nodes.push(...node.children);
@@ -200,7 +201,7 @@ export async function loadPreviewContext(
       fingerprint: structureFingerprint({ declared: [] }, []),
       problems: [],
       sourceTitle: source.item.title,
-      sourceItemCount: nodes.length - excluded.size,
+      sourceItemCount: spec.includeSamples ? nodes.length : nodes.length - excluded.size,
       sampleCount: excluded.size,
     };
   }
