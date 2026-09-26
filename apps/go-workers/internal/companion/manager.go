@@ -486,7 +486,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	a.mu.Unlock()
 	base := baseSharedRules + modeRules(r.Mode) + " Nix capabilities: " + catalogFor(r.Mode)
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": base, "developerInstructions": r.Instructions}
-	if r.Mode == "consult" && r.Model == "" {
+	if r.Mode == "consult" && r.Model == "" && len(a.consultModels) > 0 {
 		// No explicit model: try the owner's ordered consult preference against what the
 		// provider actually offers; an empty result leaves "model" unset, so the provider
 		// default is used (decision 4, pet-structure-consult-plan.md section 1.4).

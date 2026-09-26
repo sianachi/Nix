@@ -450,6 +450,23 @@ func TestConsultUsesItsOwnConversationKeyAndToolSet(t *testing.T) {
 // first NIX_COMPANION_CONSULT_MODELS entry the provider actually offers, and leaves the
 // model unset (provider default) when none of them are offered.
 func TestConsultModelPreferenceFallsBackToProviderDefault(t *testing.T) {
+	defaultProvider := &fakeTransport{}
+	defaultAccount := &account{transport: defaultProvider, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	defaultRequest := request()
+	defaultRequest.Mode = "consult"
+	if _, err := defaultAccount.handle(context.Background(), defaultRequest); err != nil {
+		t.Fatal(err)
+	}
+	defaultStart := startParams(t, defaultProvider)
+	if _, ok := defaultStart["model"]; ok {
+		t.Fatalf("empty preference must use the provider default: %+v", defaultStart)
+	}
+	for _, call := range defaultProvider.calls {
+		if call == "model/list" {
+			t.Fatal("provider default must not require a model list request")
+		}
+	}
+
 	preferred := &modelListTransport{models: []string{"gpt-5"}}
 	a := &account{transport: preferred, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", consultModels: []string{"gpt-5-mini", "gpt-5"}}
 	r := request()
