@@ -16,6 +16,11 @@ export const workspaceToolSchema = z
       'set_properties',
       'trash_item',
       'restore_item',
+      // The `tool-args.ts` enum entries otherwise come from A.4 (specJson + mode
+      // gating); these three are added early so A.5 can wire them, per the task card.
+      'list_templates',
+      'read_template',
+      'apply_template',
     ]),
     itemId: optionalId,
     parentId: optionalId,
@@ -34,8 +39,10 @@ export const workspaceToolSchema = z
           message: `${field} is required for ${args.operation}.`,
         });
     };
-    if (!['create_note', 'list_items', 'search'].includes(args.operation)) required('itemId');
-    if (['create_note', 'rename_item'].includes(args.operation)) required('title');
+    if (!['create_note', 'list_items', 'search', 'list_templates'].includes(args.operation))
+      required('itemId');
+    if (['create_note', 'rename_item', 'apply_template'].includes(args.operation))
+      required('title');
     if (args.operation === 'append_note') required('markdown');
     if (args.operation === 'search') required('query');
     if (args.operation === 'set_properties') {
@@ -64,4 +71,6 @@ export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> =
   'read_item',
   'read_note',
   'read_schema',
+  'list_templates',
+  'read_template',
 ]);

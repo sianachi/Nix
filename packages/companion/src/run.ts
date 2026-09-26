@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { items, search, structure } from '@nix/api-client';
 import type { CompanionPorts } from './ports.js';
+import { applyTemplate } from './templates/apply.js';
+import { listTemplates } from './templates/list.js';
+import { readTemplate } from './templates/read.js';
 import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
@@ -25,9 +28,9 @@ export async function runWorkspaceTool(
   signal: AbortSignal,
   options: RunOptions = {},
 ): Promise<WorkspaceToolOutcome> {
-  // Reserved for a later phase (blueprint building and consult mode read this
-  // executor's mode/toolId/claimId); this pure move does not yet consume it.
-  void options;
+  // `mode` is reserved for a later phase (consult-only operations read it); this
+  // executor only consumes `toolId`/`claimId` so far, for the claimed template apply.
+  void options.mode;
   const client = ports.core;
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
@@ -133,6 +136,24 @@ export async function runWorkspaceTool(
       result = { id: item.id, title: item.title, created: true, contentConfirmed: true };
       break;
     }
+    case 'list_templates': {
+      result = await listTemplates(ports, workspaceId, args.query, signal);
+      break;
+    }
+    case 'read_template': {
+      result = await readTemplate(ports, workspaceId, args.itemId, signal);
+      break;
+    }
+    case 'apply_template': {
+      result = await applyTemplate(
+        ports,
+        workspaceId,
+        { templateId: args.itemId, parentId: args.parentId || null, title: args.title },
+        { toolId: options.toolId, claimId: options.claimId },
+        signal,
+      );
+      break;
+    }
     default: {
       const item = await check(args.itemId);
       switch (args.operation) {
@@ -187,9 +208,8 @@ export async function runWorkspaceTool(
         ? text
         : JSON.stringify({ truncated: true, preview: text.slice(0, 15000) }),
     readOnly: READ_ONLY_OPERATIONS.has(args.operation),
-    touchedParents:
-      args.operation === 'create_note' || args.operation === 'move_item'
-        ? [args.parentId || null]
-        : [],
+    touchedParents: ['create_note', 'move_item', 'apply_template'].includes(args.operation)
+      ? [args.parentId || null]
+      : [],
   };
 }

@@ -79,6 +79,49 @@ describe('companion work approvals', () => {
     expect(client.execute).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ operation: 'list_templates', query: 'reading' }, /I will look through your templates for “reading”/],
+    [{ operation: 'list_templates', query: '' }, /I will look through your templates to see what fits/],
+    [
+      { operation: 'read_template', itemId: '33333333-3333-4333-8333-333333333333' },
+      /I will read the linked template’s outline/,
+    ],
+    [
+      {
+        operation: 'apply_template',
+        itemId: '33333333-3333-4333-8333-333333333333',
+        title: 'Reading log',
+      },
+      /I will create “Reading log” from the linked template at the top level/,
+    ],
+  ])('describes a template operation in plain language: %o', (overrides, pattern) => {
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={{
+          ...runtime,
+          tools: (runtime.tools ?? []).map((tool) => ({
+            ...tool,
+            arguments: JSON.stringify({
+              title: '',
+              markdown: '',
+              itemId: '',
+              parentId: '',
+              query: '',
+              propertiesJson: '',
+              ...overrides,
+            }),
+          })),
+        }}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    expect(screen.getByText(pattern)).toBeInTheDocument();
+  });
+
   it('labels a user refusal as declined rather than a failed operation', () => {
     render(
       <PetWorkTools

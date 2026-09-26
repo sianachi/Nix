@@ -249,5 +249,13 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will move the linked item to Trash. It can be restored later.';
     case 'restore_item':
       return 'I will restore the linked item from Trash.';
+    case 'list_templates':
+      return action.query
+        ? `I will look through your templates for “${action.query}” to see what fits.`
+        : 'I will look through your templates to see what fits.';
+    case 'read_template':
+      return 'I will read the linked template’s outline to see if it fits.';
+    case 'apply_template':
+      return `I will create “${action.title}” from the linked template${action.parentId ? ' inside the linked destination' : ' at the top level of this workspace'}.`;
   }
 }
