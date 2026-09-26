@@ -112,11 +112,20 @@ describe('planBuild', () => {
       title: 'Root',
       children: [
         { id: 'plain', title: 'Sample: Example book', sample: true },
-        { id: 'structured', title: 'Sample: Example board', sample: true, views: [{ kind: 'list' }] },
+        {
+          id: 'structured',
+          title: 'Sample: Example board',
+          sample: true,
+          views: [{ kind: 'list' }],
+        },
       ],
     });
     expect(result.steps).toContainEqual(
-      expect.objectContaining({ kind: 'createItem', nodeId: 'plain', title: 'Sample: Example book' }),
+      expect.objectContaining({
+        kind: 'createItem',
+        nodeId: 'plain',
+        title: 'Sample: Example book',
+      }),
     );
     expect(result.steps).toContainEqual(
       expect.objectContaining({
