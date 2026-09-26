@@ -130,7 +130,7 @@ node -e '
   const fs = require("node:fs");
   const rows = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).items ?? [];
   const names = new Set(rows.map((item) => item.title));
-  for (const title of ["The Hobbit", "Dune", "Reading notes", "Goals", "Reading habits"]) {
+  for (const title of ["Sample: The Hobbit", "Sample: Dune", "Reading notes", "Goals", "Reading habits"]) {
     if (!names.has(title)) throw new Error(`Reading Log child ${title} is missing.`);
   }
   const goals = rows.find((item) => item.title === "Goals");
