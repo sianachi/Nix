@@ -63,6 +63,13 @@ import { runQuery } from './commands/query.ts';
 import { getViews, inspectViews, setViews } from './commands/views.ts';
 import { getSchema, readStructureOutline, setProps, setSchema } from './commands/structure.ts';
 import {
+  blueprintBuild,
+  blueprintCatalog,
+  blueprintDescribe,
+  blueprintSave,
+  blueprintValidate,
+} from './commands/blueprint.ts';
+import {
   clearRecurrence,
   completeRecurrence,
   runCalendar,
@@ -1069,6 +1076,75 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       await run(() => readStructureOutline(flags.profile, itemId, outputOptions(flags.json)));
     });
+
+  const blueprint = program
+    .command('blueprint')
+    .description('Inspect and build a Design mode blueprint.');
+  blueprint
+    .command('catalog')
+    .description('Print the generated structure catalog.')
+    .option('--text <mode>', 'rendered chat or consult catalog')
+    .action(async (options: { text?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        if (options.text && options.text !== 'chat' && options.text !== 'consult')
+          throw new Error('--text must be chat or consult.');
+        await blueprintCatalog(
+          options.text as 'chat' | 'consult' | undefined,
+          outputOptions(flags.json),
+        );
+      });
+    });
+  blueprint
+    .command('validate <file>')
+    .description('Validate a blueprint without writing it.')
+    .option('--parent <id>', 'destination item whose fields are inherited')
+    .action(async (file: string, options: { parent?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => blueprintValidate(flags.profile, file, options, outputOptions(flags.json)));
+    });
+  blueprint
+    .command('describe <file>')
+    .description('Preview a blueprint without writing it.')
+    .option('--parent <id>', 'destination item whose fields are inherited')
+    .action(async (file: string, options: { parent?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => blueprintDescribe(flags.profile, file, options, outputOptions(flags.json)));
+    });
+  blueprint
+    .command('build <file>')
+    .description('Build a blueprint as a draft and print its write ledger.')
+    .option('--parent <id>', 'destination item')
+    .option('--workspace <id>', 'workspace for the Pet drafts sandbox')
+    .option('--yes', 'confirm the blueprint build', false)
+    .action(
+      async (
+        file: string,
+        options: { parent?: string; workspace?: string; yes?: boolean },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => blueprintBuild(flags.profile, file, options, outputOptions(flags.json)));
+      },
+    );
+  blueprint
+    .command('save <rootId> <spec-file>')
+    .description('Save a built item tree as a reusable template.')
+    .option('--yes', 'confirm template capture', false)
+    .requiredOption('--idempotency-key <key>', 'stable key for safe retries')
+    .action(
+      async (
+        rootId: string,
+        specFile: string,
+        options: { yes?: boolean; idempotencyKey: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          blueprintSave(flags.profile, rootId, specFile, options, outputOptions(flags.json)),
+        );
+      },
+    );
 
   schema
     .command('get <itemId>')

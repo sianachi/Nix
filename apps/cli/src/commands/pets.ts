@@ -243,7 +243,12 @@ export async function executePetToolRun(
         workspaceId,
         tool.arguments,
         AbortSignal.timeout(90000),
-        { mode, toolId, claimId: requestId, ...(previewContext ? { fence: previewContext.fingerprint } : {}) },
+        {
+          mode,
+          toolId,
+          claimId: requestId,
+          ...(previewContext ? { fence: previewContext.fingerprint } : {}),
+        },
       );
       toolResult = outcome.text;
       toolSuccess = true;
@@ -321,7 +326,12 @@ export async function petToolRun(
   if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
     throw new Error('--mode must be chat or consult.');
   const result = await executePetToolRun(
-    session, options.workspace, options.pet, toolId, decision, options.mode,
+    session,
+    options.workspace,
+    options.pet,
+    toolId,
+    decision,
+    options.mode,
   );
   if (decision === 'preview' && hasPreviewModel(result)) {
     if (output.json) printResult(result.preview, output);
@@ -330,65 +340,6 @@ export async function petToolRun(
     return;
   }
   printResult(result, output);
-}
-
-/** Matches `pet-work-tools.tsx:225-260`: the same first-person sentence the web approval card
- * shows, so a pending tool call reads identically whether approved from the browser or nixctl. */
-function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.parse>): string {
-  switch (action.operation) {
-    case 'list_items':
-      return action.parentId
-        ? 'I will list the items inside the linked destination to find what to work on.'
-        : 'I will list the top-level items in this workspace to find what to work on.';
-    case 'search':
-      return `I will search this workspace for “${action.query}” to find matching items.`;
-    case 'read_item':
-      return 'I will read the linked item’s details and properties.';
-    case 'read_note':
-      return 'I will read the linked note’s content for context.';
-    case 'read_structure':
-      return "I will read the linked item's fields, views and how many children it has.";
-    case 'create_note':
-      return `I will create a note named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}${action.markdown ? ', with the content shown below' : ', with an empty body'}.`;
-    case 'append_note':
-      return 'I will add the content below to the end of the linked note, preserving its existing content.';
-    case 'rename_item':
-      return `I will rename the linked item to “${action.title}”.`;
-    case 'move_item':
-      return `I will move the linked item ${action.parentId ? 'inside the linked destination' : 'to the top level of this workspace'}.`;
-    case 'set_properties':
-      return 'I will update the linked item with the property values shown below, leaving other properties unchanged.';
-    case 'trash_item':
-      return 'I will move the linked item to Trash. It can be restored later.';
-    case 'restore_item':
-      return 'I will restore the linked item from Trash.';
-    case 'list_templates':
-      return action.query
-        ? `I will look through your templates for “${action.query}” to see what fits.`
-        : 'I will look through your templates to see what fits.';
-    case 'read_template':
-      return 'I will read the linked template’s outline to see if it fits.';
-    case 'apply_template':
-      return `I will create “${action.title}” from the linked template${action.parentId ? ' inside the linked destination' : ' at the top level of this workspace'}.`;
-    case 'create_structured':
-      return `I will create a structured item named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}.`;
-    case 'add_view':
-      return 'I will add the view described below to the linked item.';
-    case 'create_entries':
-      return 'I will add the entries described below to the linked destination.';
-    case 'add_fields':
-      return 'I will add the fields described below to the linked item, leaving existing fields unchanged.';
-    case 'edit_form':
-      return 'I will update the linked form as described below, preserving its companion view.';
-    case 'set_recurrence':
-      return 'I will make the linked item repeat according to the schedule described below.';
-    case 'validate_blueprint':
-      return 'I will validate this design without changing anything.';
-    case 'build_blueprint':
-      return `I will build the approved design${action.parentId ? ' inside the linked destination' : ' in Pet drafts'}.`;
-    case 'save_as_template':
-      return `I will save the linked item as the template “${action.title}”.`;
-  }
 }
 
 function hasPreviewModel(value: unknown): value is { preview: PreviewModel } {
@@ -406,7 +357,7 @@ function hasPreviewModel(value: unknown): value is { preview: PreviewModel } {
   );
 }
 
-function formatPreview(model: PreviewModel): string {
+export function formatPreview(model: PreviewModel): string {
   const destination = [...model.destination.path, model.destination.title]
     .filter((part, index, all) => index === 0 || part !== all[index - 1])
     .join(' / ');

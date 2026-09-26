@@ -45,3 +45,5 @@ export { describeToolCall, type PreviewToolArgs } from './preview.js';
 export type { PreviewModel, PreviewNode } from '@nix/structure-spec';
 export { planBuild, type BuildPlan, type PlanBuildOptions } from './blueprint/plan.js';
 export { createSandbox, findSandbox, SANDBOX_TITLE } from './blueprint/sandbox.js';
+
+export { executeBuild, type BuildResult } from './blueprint/build.js';
