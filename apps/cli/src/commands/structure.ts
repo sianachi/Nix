@@ -32,6 +32,7 @@ import { parseScalar } from '@nix/markdown/front-matter';
 import type { Session } from '../session.ts';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
+import { collabClientFor } from './templates.ts';
 
 /** Reads an item's effective property schema and prints what it declares, inherits and resolves to. */
 export async function getSchema(
@@ -80,11 +81,12 @@ export async function readStructureForSession(
   itemId: string,
 ): Promise<ReadStructureResult> {
   const item = await session.client.query(items.itemById(itemId), { forceRefresh: true });
+  const collab = collabClientFor(session);
   return readStructure(
     {
       core: session.client,
-      collab: session.client,
-      bodies: createCompanionBodies(session.client),
+      collab,
+      bodies: createCompanionBodies(collab),
       clock: defaultClock(),
       ids: defaultIds(),
     },

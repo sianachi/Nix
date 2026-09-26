@@ -191,10 +191,11 @@ export async function executePetToolRun(
     parsed = workspaceToolSchema.safeParse(null);
   }
   const signal = AbortSignal.timeout(90_000);
+  const collab = collabClientFor(session);
   const ports = {
     core: session.client,
-    collab: collabClientFor(session),
-    bodies: createCompanionBodies(session.client),
+    collab,
+    bodies: createCompanionBodies(collab),
     clock: defaultClock(),
     ids: defaultIds(),
   };
@@ -235,8 +236,8 @@ export async function executePetToolRun(
       const outcome = await runWorkspaceTool(
         {
           core: session.client,
-          collab: collabClientFor(session),
-          bodies: createCompanionBodies(session.client),
+          collab,
+          bodies: createCompanionBodies(collab),
           clock: defaultClock(),
           ids: defaultIds(),
         },

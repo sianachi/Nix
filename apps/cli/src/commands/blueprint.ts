@@ -41,10 +41,11 @@ export interface BlueprintSaveOptions {
 }
 
 function portsFor(session: Session): CompanionPorts {
+  const collab = collabClientFor(session);
   return {
     core: session.client,
-    collab: collabClientFor(session),
-    bodies: createCompanionBodies(session.client),
+    collab,
+    bodies: createCompanionBodies(collab),
     clock: defaultClock(),
     ids: defaultIds(),
   };

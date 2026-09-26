@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { setupServer } from 'msw/node';
 import { outputOptions } from '../output.ts';
 import { saveSpecSchema } from '@nix/structure-spec';
 import type { Session } from '../session.ts';
@@ -178,5 +180,61 @@ describe('blueprint commands', () => {
     expect(writes[0]?.body).toMatchObject({
       views: { views: [{ kind: 'list' }, { kind: 'board', groupBy: 'status' }] },
     });
+  });
+
+  it('writes blueprint note bodies through the authenticated Collaboration origin', async () => {
+    const blueprint = JSON.parse(readFileSync(fixture, 'utf8')) as {
+      root: { children: { id: string }[] };
+      inputs: unknown[];
+      rules: unknown[];
+    };
+    blueprint.root.children = blueprint.root.children.filter((child) => child.id === 'notes');
+    blueprint.inputs = [];
+    blueprint.rules = [];
+    const parent = '11111111-1111-4111-8111-111111111111';
+    const workspace = '22222222-2222-4222-8222-222222222222';
+    const root = '33333333-3333-4333-8333-333333333333';
+    const note = '44444444-4444-4444-8444-444444444444';
+    const requests: string[] = [];
+    const server = setupServer(
+      http.get(`http://collab.nix.test/documents/${note}/updates`, () => {
+        requests.push('read');
+        return HttpResponse.json({ headSeq: '0', schemaVersion: 1, hasMore: false, updates: [] });
+      }),
+      http.post(`http://collab.nix.test/documents/${note}/updates`, () => {
+        requests.push('append');
+        return HttpResponse.json({ seq: '1' });
+      }),
+    );
+    server.listen({ onUnhandledRequest: 'error' });
+    try {
+      const client = {
+        async query(endpoint: { operation: string }) {
+          await Promise.resolve();
+          if (endpoint.operation === 'items.get')
+            return { id: parent, workspaceId: workspace, parentId: null, title: 'Parent' };
+          if (endpoint.operation === 'schema.get')
+            return { properties: [], declared: [], inherit: true };
+          throw new Error(`Unexpected Core query ${endpoint.operation}`);
+        },
+        async execute(endpoint: { operation: string }) {
+          await Promise.resolve();
+          if (endpoint.operation === 'items.createStructured') return { item: { id: root } };
+          if (endpoint.operation === 'items.create') return { id: note };
+          throw new Error(`Unexpected Core command ${endpoint.operation}`);
+        },
+      };
+      const session = {
+        client,
+        endpoints: { apiUrl: 'http://nix.test', collabUrl: 'http://collab.nix.test' },
+        tokens: { getAccessToken: () => 'jwt-1' },
+      } as unknown as Session;
+
+      const result = await executeBlueprintBuild(blueprint, { parent, yes: true }, session);
+      expect(result.complete).toBe(true);
+      expect(requests).toEqual(['read', 'append']);
+    } finally {
+      server.close();
+    }
   });
 });
