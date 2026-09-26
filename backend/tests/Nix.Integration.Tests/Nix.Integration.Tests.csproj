@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Nix.Api\Nix.Api.csproj" />
+    <None Include="..\..\..\packages\structure-spec\fixtures\rule-parity.json" Link="Fixtures\rule-parity.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real Postgres, always. Nothing in this project runs against an in-memory provider:
