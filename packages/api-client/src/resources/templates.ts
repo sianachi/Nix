@@ -120,7 +120,13 @@ export const previewTemplateCapture = (
     operation: 'templates.capture.preview',
     path: `/api/v1/workspaces/${workspaceId}/templates/capture-preview/${sourceItemId}?includeChildren=${String(includeChildren)}&excludeSampleDescendants=${String(excludeSampleDescendants)}`,
     schema: templateCapturePreviewSchema,
-    cacheKey: [...templateLibraryKey(workspaceId), 'capture-preview', sourceItemId, String(includeChildren), String(excludeSampleDescendants)],
+    cacheKey: [
+      ...templateLibraryKey(workspaceId),
+      'capture-preview',
+      sourceItemId,
+      String(includeChildren),
+      String(excludeSampleDescendants),
+    ],
     staleAfterMs: 0,
   });
 
