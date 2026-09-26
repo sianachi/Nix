@@ -203,6 +203,17 @@ export const templateCaptureRequestSchema = z.object({
   includeBody: z.boolean(),
   includeChildren: z.boolean(),
   idempotencyKey: z.string().min(1).max(200),
+  expectedFingerprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
+export const templateCapturePreviewSchema = z.object({
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  captureFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceTitle: z.string(),
+  itemCount: z.int().nonnegative(),
 });
 
 export const templateCaptureResultSchema = z.object({
@@ -278,6 +289,7 @@ export const templateDraftItemPatchSchema = z
   .strict();
 
 export type TemplateCaptureRequest = z.infer<typeof templateCaptureRequestSchema>;
+export type TemplateCapturePreview = z.infer<typeof templateCapturePreviewSchema>;
 export type TemplateCaptureResult = z.infer<typeof templateCaptureResultSchema>;
 export type TemplateApplicationRequest = z.infer<typeof templateApplicationRequestSchema>;
 export type TemplateApplicationResult = z.infer<typeof templateApplicationResultSchema>;

@@ -260,9 +260,8 @@ describe('pet tools run', () => {
       );
       expect(calls).toEqual(['read']);
       expect(result).toMatchObject({
-        toolId: TOOL,
-        status: 'pending',
-        preview: 'I will list the top-level items in this workspace to find what to work on.',
+        headline: 'I will list the top-level items in this workspace to find what to work on.',
+        counts: { writes: 0 },
       });
     } finally {
       await profile.done();
@@ -270,37 +269,25 @@ describe('pet tools run', () => {
   });
 
   it.each([
-    [
-      { operation: 'list_templates', query: 'reading log' },
-      'I will look through your templates for “reading log” to see what fits.',
-    ],
-    [
-      { operation: 'list_templates', query: '' },
-      'I will look through your templates to see what fits.',
-    ],
-    [
-      { operation: 'read_template', itemId: '11111111-1111-4111-8111-111111111111' },
-      'I will read the linked template’s outline to see if it fits.',
-    ],
+    [{ operation: 'list_templates', query: 'reading log' }, 0],
+    [{ operation: 'list_templates', query: '' }, 0],
+    [{ operation: 'read_template', itemId: '11111111-1111-4111-8111-111111111111' }, 0],
     [
       {
         operation: 'apply_template',
         itemId: '11111111-1111-4111-8111-111111111111',
         title: 'Reading log',
       },
-      'I will create “Reading log” from the linked template at the top level of this workspace.',
+      1,
     ],
-    [
-      { operation: 'read_structure', itemId: '11111111-1111-4111-8111-111111111111' },
-      "I will read the linked item's fields, views and how many children it has.",
-    ],
+    [{ operation: 'read_structure', itemId: '11111111-1111-4111-8111-111111111111' }, 0],
     [
       {
         operation: 'create_structured',
         title: 'Reading log',
         specJson: '{"recipe":"board","fields":[]}',
       },
-      'I will create a structured item named “Reading log” at the top level of this workspace.',
+      1,
     ],
     [
       {
@@ -308,7 +295,7 @@ describe('pet tools run', () => {
         itemId: '11111111-1111-4111-8111-111111111111',
         specJson: '{"views":[{"kind":"list"}]}',
       },
-      'I will add the view described below to the linked item.',
+      1,
     ],
     [
       {
@@ -316,7 +303,7 @@ describe('pet tools run', () => {
         parentId: '11111111-1111-4111-8111-111111111111',
         specJson: '{"entries":[{"title":"First"}]}',
       },
-      'I will add the entries described below to the linked destination.',
+      1,
     ],
     [
       {
@@ -324,7 +311,7 @@ describe('pet tools run', () => {
         itemId: '11111111-1111-4111-8111-111111111111',
         specJson: '{"fields":[]}',
       },
-      'I will add the fields described below to the linked item, leaving existing fields unchanged.',
+      0,
     ],
     [
       {
@@ -332,7 +319,7 @@ describe('pet tools run', () => {
         itemId: '11111111-1111-4111-8111-111111111111',
         specJson: '{"viewId":"form","form":{"pages":[]}}',
       },
-      'I will update the linked form as described below, preserving its companion view.',
+      0,
     ],
     [
       {
@@ -340,12 +327,57 @@ describe('pet tools run', () => {
         itemId: '11111111-1111-4111-8111-111111111111',
         specJson: '{"frequency":"weekly","interval":2}',
       },
-      'I will make the linked item repeat according to the schedule described below.',
+      0,
     ],
-  ])('previews %o the same way the web approval card does', async (overrides, preview) => {
+  ])('prints the shared preview model for %o', async (overrides, writes) => {
     const profile = await withProfile();
     try {
       server.use(
+        http.get(`${CORE}/api/v1/items/:itemId`, ({ params }) =>
+          HttpResponse.json(item({ id: String(params.itemId) })),
+        ),
+        http.get(`${CORE}/api/v1/items/:itemId/schema`, () =>
+          HttpResponse.json({ properties: [], declared: [], inherit: true }),
+        ),
+        http.get(`${CORE}/api/v1/items/:itemId/views`, () =>
+          HttpResponse.json({ views: [], unrenderable: [], default: 'document' }),
+        ),
+        http.get(`${CORE}/api/v1/workspaces/:workspaceId/items`, () =>
+          HttpResponse.json({ items: [], nextCursor: null }),
+        ),
+        http.get(`${CORE}/api/v1/workspaces/:workspaceId/templates`, () =>
+          HttpResponse.json({
+            templates: [
+              {
+                id: '11111111-1111-4111-8111-111111111111',
+                workspaceId: WORKSPACE,
+                title: 'Reading log',
+                description: null,
+                origin: 'user',
+                revision: 1,
+                includeBody: false,
+                includeChildren: false,
+                fieldCount: 0,
+                viewCount: 0,
+                childCount: 0,
+                viewKinds: [],
+                capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+                updatedAt: '2026-08-19T09:00:00Z',
+              },
+            ],
+            capabilities: { canManage: true },
+          }),
+        ),
+        http.post(`${CORE}/api/v1/templates/:templateId/preflight`, () =>
+          HttpResponse.json({
+            templateId: '11111111-1111-4111-8111-111111111111',
+            templateRevision: 1,
+            mode: 'create',
+            additions: { fields: 0, views: 0, items: 0 },
+            conflicts: [],
+            canApply: true,
+          }),
+        ),
         http.post(`${CORE}/api/v1/me/pets/runtime`, () =>
           HttpResponse.json(
             runtimeResponse([
@@ -373,7 +405,9 @@ describe('pet tools run', () => {
           { env: profile.env },
         ),
       );
-      expect(result).toMatchObject({ toolId: TOOL, preview });
+      expect(result).toHaveProperty('headline');
+      expect(result).toHaveProperty('destination');
+      expect(result).toMatchObject({ counts: { writes } });
     } finally {
       await profile.done();
     }
@@ -399,7 +433,9 @@ describe('pet tools run', () => {
       ),
     );
     expect(calls).toEqual(['read']);
-    expect(result).toMatchObject({ toolId: TOOL, status: 'pending' });
+    expect(result).toMatchObject({
+      headline: 'I will list the top-level items in this workspace to find what to work on.',
+    });
   });
 
   it('claims before executing and never runs when the claim receipt does not match', async () => {

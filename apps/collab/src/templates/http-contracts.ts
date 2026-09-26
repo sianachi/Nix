@@ -21,6 +21,7 @@ export interface CaptureRequest {
   readonly includeBody: boolean;
   readonly includeChildren: boolean;
   readonly idempotencyKey: string;
+  readonly expectedFingerprint?: string | undefined;
 }
 
 export type ApplicationRequest = TemplateApplicationRequest;
@@ -92,7 +93,8 @@ export function parseCaptureRequest(value: unknown): CaptureRequest {
     idempotencyKey === null ||
     typeof body.includeBody !== 'boolean' ||
     typeof body.includeChildren !== 'boolean' ||
-    !optionalNullableText(body.description)
+    !optionalNullableText(body.description) ||
+    (body.expectedFingerprint !== undefined && requiredText(body.expectedFingerprint) === null)
   ) {
     throw invalid(
       'template.capture_invalid',
@@ -107,6 +109,9 @@ export function parseCaptureRequest(value: unknown): CaptureRequest {
     includeBody: body.includeBody,
     includeChildren: body.includeChildren,
     idempotencyKey,
+    ...(body.expectedFingerprint === undefined
+      ? {}
+      : { expectedFingerprint: body.expectedFingerprint as string }),
   };
 }
 

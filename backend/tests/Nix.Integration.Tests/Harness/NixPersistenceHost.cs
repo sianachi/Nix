@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -62,7 +63,13 @@ internal sealed class NixPersistenceHost : IAsyncDisposable
     public Task<NixUnitOfWork> BeginUnitOfWorkAsync(
         NixSessionContext context,
         CancellationToken cancellationToken = default) =>
-        NixUnitOfWork.StartAsync(_services.CreateAsyncScope(), context, cancellationToken);
+        NixUnitOfWork.StartAsync(_services.CreateAsyncScope(), context, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public Task<NixUnitOfWork> BeginUnitOfWorkAsync(
+        NixSessionContext context,
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken) =>
+        NixUnitOfWork.StartAsync(_services.CreateAsyncScope(), context, isolationLevel, cancellationToken);
 
     /// <summary>
     /// Opens a scope without establishing a tenant, for the tests that assert what happens when

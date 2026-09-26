@@ -11,6 +11,7 @@ namespace Nix.Features.Templates;
 [JsonSerializable(typeof(TemplatePreflightRequest))]
 [JsonSerializable(typeof(TemplatePreflightResponse))]
 [JsonSerializable(typeof(BeginTemplateCaptureRequest))]
+[JsonSerializable(typeof(TemplateCapturePreviewResponse))]
 [JsonSerializable(typeof(BeginTemplateCaptureResponse))]
 [JsonSerializable(typeof(BeginTemplateImportRequest))]
 [JsonSerializable(typeof(BeginTemplateImportResponse))]

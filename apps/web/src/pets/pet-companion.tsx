@@ -22,6 +22,7 @@ import {
   readPetPosition,
   writePetPosition,
   writeConversationModel,
+  type PetConversationMode,
 } from './device-preferences';
 import { PetWorkTools } from './pet-work-tools';
 import { PetConnectionPanel } from './pet-connection-panel';
@@ -66,6 +67,9 @@ function Companion({
   readonly pet: PetProfile;
   readonly settings: PetSettings;
 }) {
+  const [search] = useSearchParams();
+  const designEntry = search.get('pet') === 'design';
+  const [mode, setMode] = useState<PetConversationMode>(designEntry ? 'consult' : 'chat');
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
   const [openAnchor, setOpenAnchor] = useState<CSSProperties | null>(null);
@@ -83,8 +87,25 @@ function Companion({
   const suppressClick = useRef(false);
   const returnFocus = useRef(false);
   const narrow = useNarrowViewport();
+  useBackDismiss(open && narrow, () => {
+    setOpen(false);
+    setOpenAnchor(null);
+    returnFocus.current = true;
+  });
   const keyboardVisible = useMobileKeyboard(narrow);
   const launcherHidden = open || (narrow && keyboardVisible);
+  useEffect(() => {
+    if (!designEntry) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setMode('consult');
+      setOpen(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [designEntry]);
   // Close (or the back gesture) may fire while the keyboard still occludes the page, which
   // keeps the launcher `hidden`; a hidden button cannot take focus, so waiting for
   // `launcherHidden` to clear - rather than focusing right on close - is what makes focus land
@@ -178,9 +199,12 @@ function Companion({
     >
       {open ? (
         <Conversation
+          key={`${workspaceId}:${pet.id}:${mode}`}
           workspaceId={workspaceId}
           pet={pet}
           settings={settings}
+          mode={mode}
+          onModeChange={setMode}
           narrow={narrow}
           onClose={() => {
             setOpen(false);
@@ -292,12 +316,16 @@ function Conversation({
   workspaceId,
   pet,
   settings,
+  mode,
+  onModeChange,
   narrow,
   onClose,
 }: {
   readonly workspaceId: string;
   readonly pet: PetProfile;
   readonly settings: PetSettings;
+  readonly mode: PetConversationMode;
+  readonly onModeChange: (mode: PetConversationMode) => void;
   readonly narrow: boolean;
   readonly onClose: () => void;
 }) {
@@ -310,7 +338,7 @@ function Conversation({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
-  const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id));
+  const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id, mode));
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
   const [workspaceAccess, setWorkspaceAccess] = useState(false);
   const lifetime = useRef<AbortController | null>(null);
@@ -349,10 +377,6 @@ function Conversation({
       document.removeEventListener('keydown', escape);
     };
   }, [onClose]);
-
-  // Mounted only while the conversation is open (the caller renders it conditionally), so the
-  // browser Back gesture dismisses the full-screen phone dialog for as long as it is showing.
-  useBackDismiss(narrow, onClose);
 
   useEffect(() => {
     if (!narrow) return;
@@ -430,7 +454,7 @@ function Conversation({
     if (narrow) dialog.current?.focus();
     else input.current?.focus();
     void client
-      .execute(pets.runtime({ operation: 'models' }), { signal: controller.signal })
+      .execute(pets.runtime({ operation: 'models', mode }), { signal: controller.signal })
       .then((value) => {
         if (!controller.signal.aborted) setModels(value.models ?? []);
       })
@@ -440,7 +464,7 @@ function Conversation({
     const poll = async () => {
       try {
         const result = await client.execute(
-          pets.runtime({ operation: 'read', workspaceId, petId: pet.id }),
+          pets.runtime({ operation: 'read', workspaceId, petId: pet.id, mode }),
           { signal: controller.signal },
         );
         if (!isAborted(controller.signal)) setRuntime(result);
@@ -458,7 +482,7 @@ function Conversation({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, workspaceId, pet.id, narrow]);
+  }, [client, workspaceId, pet.id, narrow, mode]);
 
   useEffect(() => {
     if (!narrationPending.current || runtime?.state !== 'success') return;
@@ -478,6 +502,7 @@ function Conversation({
           operation,
           workspaceId,
           petId: pet.id,
+          mode,
           ...(operation === 'send'
             ? {
                 requestId,
@@ -560,6 +585,30 @@ function Conversation({
           Close
         </Button>
       </div>
+      <div
+        role="group"
+        aria-label="Conversation mode"
+        className="flex gap-2 border-b border-divider px-4 py-2"
+      >
+        <Button
+          variant={mode === 'chat' ? 'secondary' : 'ghost'}
+          aria-pressed={mode === 'chat'}
+          onClick={() => {
+            onModeChange('chat');
+          }}
+        >
+          Chat
+        </Button>
+        <Button
+          variant={mode === 'consult' ? 'secondary' : 'ghost'}
+          aria-pressed={mode === 'consult'}
+          onClick={() => {
+            onModeChange('consult');
+          }}
+        >
+          Design
+        </Button>
+      </div>
       <details className="max-h-40 shrink-0 overflow-y-auto border-b border-divider px-4 py-2">
         <summary className={`cursor-pointer ${focusRing}`}>
           <Text as="span" variant="note">
@@ -569,7 +618,7 @@ function Conversation({
         <div className="flex flex-col gap-3 py-2">
           <Text variant="note" tone="muted">
             Workspace tools run only when enabled and approved. Approved reads share their results
-            with ChatGPT.{' '}
+            with ChatGPT. Design conversations are separate from Chat.{' '}
             <Link to={`/w/${workspaceId}/settings`} className="underline">
               Connection and pet settings
             </Link>
@@ -588,7 +637,7 @@ function Conversation({
               disabled={running || busy}
               onChange={(event) => {
                 setModel(event.currentTarget.value);
-                writeConversationModel(workspaceId, pet.id, event.currentTarget.value);
+                writeConversationModel(workspaceId, pet.id, mode, event.currentTarget.value);
               }}
             >
               <option value="">Account default</option>
@@ -614,8 +663,9 @@ function Conversation({
         ) : null}
         {messages.length === 0 ? (
           <Text variant="note">
-            Ask a question, or enable workspace tools to find notes, write content, and organise
-            your work.
+            {mode === 'consult'
+              ? 'Describe what you want to keep track of. Your pet asks a few questions, proposes a design, and builds a draft under Pet drafts for you to try. Nothing is published.'
+              : 'Ask a question, or enable workspace tools to find notes, write content, and organise your work.'}
           </Text>
         ) : (
           messages.map((message, index) => (
@@ -655,6 +705,7 @@ function Conversation({
             runtime={runtime}
             workspaceId={workspaceId}
             petId={pet.id}
+            mode={mode}
             onChange={setRuntime}
           />
         ) : null}
@@ -800,7 +851,13 @@ function Conversation({
               Export conversation
             </Button>
           </div>
-          <PetHistory client={client} workspaceId={workspaceId} petId={pet.id} name={pet.name} />
+          <PetHistory
+            client={client}
+            workspaceId={workspaceId}
+            petId={pet.id}
+            name={pet.name}
+            mode={mode}
+          />
         </details>
       </div>
     </div>

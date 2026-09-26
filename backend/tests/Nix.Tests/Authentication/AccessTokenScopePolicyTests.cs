@@ -98,6 +98,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetAccessTokenSigningKeys"] = Requirement.Read,
         ["GetPublicForm"] = Requirement.Read,
         ["ListTemplates"] = Requirement.Read,
+        ["PreviewTemplateCapture"] = Requirement.Read,
         ["GetTemplate"] = Requirement.Read,
         ["GetTemplateItem"] = Requirement.Read,
         ["ListWorkspacePlugins"] = Requirement.Read,

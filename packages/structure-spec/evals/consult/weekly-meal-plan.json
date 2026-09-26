@@ -1,0 +1,30 @@
+{
+  "id": "weekly-meal-plan",
+  "problem": "Help me plan meals for the week and collect recipes.",
+  "answers": [
+    {
+      "pattern": "day|week",
+      "reply": "Seven days; lunch and dinner."
+    },
+    {
+      "pattern": "shopping|ingredients",
+      "reply": "I want a shopping list."
+    },
+    {
+      "pattern": "repeat|recurr",
+      "reply": "The plan repeats each week."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "view",
+        "viewKind": "calendar"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 18,
+    "preferComputed": []
+  }
+}

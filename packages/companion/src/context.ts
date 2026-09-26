@@ -1,11 +1,18 @@
 import { items, structure, templates, views, type TemplatePreflight } from '@nix/api-client';
-import { applySpecSchema } from '@nix/structure-spec';
-import type { Problem, StructureProperty, StructureView } from '@nix/structure-spec';
+import { applySpecSchema, saveSpecSchema } from '@nix/structure-spec';
+import type {
+  Problem,
+  StructureProperty,
+  StructureView,
+  ValidationReport,
+} from '@nix/structure-spec';
 import { z } from 'zod';
 import type { CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
+import { validateBlueprint } from '@nix/structure-spec';
+import { findSandbox } from './blueprint/sandbox.js';
 
 /** How far up the tree the destination path is walked before it is simply truncated: enough for
  * a preview to read as a breadcrumb, never a full-workspace crawl. */
@@ -36,6 +43,12 @@ export interface PreviewContext {
   preflight?: TemplatePreflight;
   problems: Problem[];
   warnings?: Problem[];
+  blueprintReport?: ValidationReport;
+  sandboxExists?: boolean;
+  sourceItemCount?: number;
+  sampleCount?: number;
+  sourceTitle?: string;
+  captureFingerprint?: string;
 }
 
 const formConditionSchema = z.object({
@@ -167,6 +180,75 @@ export async function loadPreviewContext(
   signal: AbortSignal,
 ): Promise<PreviewContext> {
   const requestOptions = { signal, forceRefresh: true };
+
+  if (args.operation === 'save_as_template') {
+    const spec = saveSpecSchema.parse(args.specJson.trim() ? JSON.parse(args.specJson) : {});
+    // Core hashes the complete source for the approval fence and the projected tree for
+    // capture after Sample: descendants are temporarily trashed. Read both projections so
+    // the card's count and sample note come from the same authoritative source snapshot.
+    const projected = await ports.core.query(
+      templates.previewTemplateCapture(workspaceId, args.itemId, true, true),
+      requestOptions,
+    );
+    const full = await ports.core.query(
+      templates.previewTemplateCapture(workspaceId, args.itemId, true, false),
+      requestOptions,
+    );
+    if (projected.fingerprint !== full.fingerprint)
+      throw new WorkspaceToolRefusal(
+        'The source changed while preparing the preview. Refresh and try again.',
+      );
+    return {
+      destination: { title: full.sourceTitle, path: [full.sourceTitle] },
+      inheritedFields: [],
+      fingerprint: full.fingerprint,
+      captureFingerprint: spec.includeSamples
+        ? full.captureFingerprint
+        : projected.captureFingerprint,
+      problems: [],
+      sourceTitle: full.sourceTitle,
+      sourceItemCount: spec.includeSamples ? full.itemCount : projected.itemCount,
+      sampleCount: full.itemCount - projected.itemCount,
+    };
+  }
+
+  if (args.operation === 'build_blueprint') {
+    const parent = args.parentId
+      ? await checkItem(ports, workspaceId, args.parentId, signal)
+      : null;
+    const sandbox = parent === null ? await findSandbox(ports, workspaceId, signal) : null;
+    const destination = parent
+      ? await destinationPath(ports, workspaceId, parent.id, signal)
+      : sandbox
+        ? await destinationPath(ports, workspaceId, sandbox.id, signal)
+        : { title: 'Pet drafts', path: ['Pet drafts'] };
+    const schema = parent
+      ? await ports.core.query(structure.effectiveSchema(parent.id), requestOptions)
+      : {
+          properties: [] as StructureProperty[],
+          declared: [] as StructureProperty[],
+          inherit: true,
+        };
+    const spec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+    const report = validateBlueprint(spec, {
+      inheritedFields: schema.properties,
+      today: ports.clock.today(),
+    });
+    return {
+      destination,
+      inheritedFields: schema.properties,
+      // A same-title sandbox can be deleted and replaced between preview and approval.
+      // Bind the fence to its item identity as well as the destination's schema.
+      fingerprint: JSON.stringify([
+        parent?.id ?? sandbox?.id ?? null,
+        structureFingerprint({ declared: schema.properties }, []),
+      ]),
+      problems: report.problems,
+      warnings: report.warnings,
+      blueprintReport: report,
+      sandboxExists: sandbox !== null,
+    };
+  }
 
   if (args.operation === 'apply_template') {
     // Validate both externally supplied identities before any dependent reads. Template

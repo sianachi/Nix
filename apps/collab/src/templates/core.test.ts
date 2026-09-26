@@ -9,6 +9,65 @@ const SOURCE = '44444444-4444-4444-8444-444444444444';
 const ITEM = '55555555-5555-4555-8555-555555555555';
 
 describe('the Core template client', () => {
+  it('preserves capture body head pins on first begin and replay', async () => {
+    const bodyCopy = {
+      sourceItemId: SOURCE,
+      targetItemId: ITEM,
+      itemType: 'note',
+      checkHead: true,
+      expectedDocId: '66666666-6666-4666-8666-666666666666',
+      expectedHeadSeq: 7,
+    };
+    const client = createCoreTemplateClient({
+      coreBaseUrl: 'https://core.test',
+      internalSecret: 'secret',
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              operationId: OPERATION,
+              templateId: TEMPLATE,
+              fileTransferJobId: null,
+              fileTransferPending: false,
+              bodyCopies: [bodyCopy],
+              itemMappings: [],
+            }),
+          ),
+        ),
+    });
+    expect((await client.beginCapture('token', {})).bodyCopies).toEqual([bodyCopy]);
+    expect((await client.beginCapture('token', {})).bodyCopies).toEqual([bodyCopy]);
+  });
+
+  it('refuses a capture plan that omits the pinned document identity', async () => {
+    const client = createCoreTemplateClient({
+      coreBaseUrl: 'https://core.test',
+      internalSecret: 'secret',
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              operationId: OPERATION,
+              templateId: TEMPLATE,
+              fileTransferJobId: null,
+              fileTransferPending: false,
+              bodyCopies: [
+                {
+                  sourceItemId: SOURCE,
+                  targetItemId: ITEM,
+                  itemType: 'note',
+                  checkHead: true,
+                  expectedHeadSeq: 1,
+                },
+              ],
+              itemMappings: [],
+            }),
+          ),
+        ),
+    });
+    await expect(client.beginCapture('token', {})).rejects.toThrow();
+  });
+
   it('saves a draft with an empty POST rather than a browser-supplied write set', async () => {
     let requestedUrl = '';
     let requested: RequestInit | undefined;

@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +62,7 @@ internal sealed class NixUnitOfWork : IAsyncDisposable
     internal static async Task<NixUnitOfWork> StartAsync(
         AsyncServiceScope scope,
         NixSessionContext context,
+        IsolationLevel isolationLevel,
         CancellationToken cancellationToken)
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<NixDbContext>();
@@ -78,7 +80,7 @@ internal sealed class NixUnitOfWork : IAsyncDisposable
             inherited = await RawSql.TextAsync(connection, transaction: null, SessionSql.CurrentTenantSetting);
 
             scope.ServiceProvider.GetRequiredService<ScopedNixSessionContextAccessor>().Set(context);
-            var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            var transaction = await dbContext.Database.BeginTransactionAsync(isolationLevel, cancellationToken);
 
             return new NixUnitOfWork(scope, dbContext, sql, transaction, inherited);
         }

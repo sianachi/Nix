@@ -27,6 +27,9 @@ export interface BodyCopy {
   readonly sourceItemId: string;
   readonly targetItemId: string;
   readonly itemType: string;
+  readonly checkHead?: boolean;
+  readonly expectedDocId?: string | null;
+  readonly expectedHeadSeq?: number | null;
 }
 
 export interface WorkerExecutionFence {
@@ -108,6 +111,7 @@ export async function copyBodies(
       sql,
       authorization.tenantId,
       copies.flatMap((copy) => [copy.sourceItemId, copy.targetItemId]),
+      copies,
     );
     const fresh: FreshState[] = [];
     try {
@@ -295,8 +299,11 @@ async function loadSourceStates(
   sql: ScopedQuery,
   tenantId: string,
   itemIds: readonly string[],
+  copies: readonly BodyCopy[],
 ): Promise<ReadonlyMap<string, Y.Doc>> {
   if (itemIds.length === 0) return new Map();
+  // Hold each visible document row through materialization so an update cannot advance its
+  // head after the pin check but before its bounded update history is read.
   const documents = await sql.query<SourceDocumentRow>(
     `SELECT d.doc_id, d.item_id, d.workspace_id, d.schema_version, d.head_seq,
             snapshot.seq AS snapshot_seq, snapshot.yjs_state
@@ -310,9 +317,33 @@ async function loadSourceStates(
           ORDER BY s.seq DESC
           LIMIT 1
        ) snapshot ON TRUE
-      WHERE d.tenant_id = $1 AND d.item_id = ANY($2::uuid[])`,
+      WHERE d.tenant_id = $1 AND d.item_id = ANY($2::uuid[])
+      FOR SHARE OF d`,
     [tenantId, [...new Set(itemIds)]],
   );
+  const heads = new Map(
+    documents.rows.map((row) => [row.item_id, { docId: row.doc_id, headSeq: row.head_seq }]),
+  );
+  for (const copy of copies) {
+    if (copy.checkHead !== true) continue;
+    if (copy.expectedDocId === undefined || copy.expectedHeadSeq === undefined)
+      throw new TemplateBodyError(
+        'template.capture_pin_missing',
+        'Core did not pin a source body.',
+      );
+    const actual = heads.get(copy.sourceItemId) ?? null;
+    const matches =
+      actual === null
+        ? copy.expectedDocId === null && copy.expectedHeadSeq === null
+        : copy.expectedDocId?.toLowerCase() === actual.docId.toLowerCase() &&
+          copy.expectedHeadSeq !== null &&
+          BigInt(actual.headSeq) === BigInt(copy.expectedHeadSeq);
+    if (!matches)
+      throw new TemplateBodyError(
+        'templates.conflict',
+        `The source body for ${copy.sourceItemId} changed since template capture began. Review it before retrying.`,
+      );
+  }
   const byItem = new Map<string, Y.Doc>();
   const byDoc = new Map<string, Y.Doc>();
   for (const row of documents.rows) {

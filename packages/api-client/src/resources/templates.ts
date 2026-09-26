@@ -15,6 +15,7 @@ import {
   templateApplicationRequestSchema,
   templateApplicationResultSchema,
   templateCaptureRequestSchema,
+  templateCapturePreviewSchema,
   templateCaptureResultSchema,
   templateDraftItemPatchSchema,
   templateDraftMetadataPatchSchema,
@@ -27,6 +28,7 @@ import {
   type TemplateApplicationRequest,
   type TemplateApplicationResult,
   type TemplateCaptureRequest,
+  type TemplateCapturePreview,
   type TemplateCaptureResult,
   type TemplateDraft,
   type TemplateDetail,
@@ -106,6 +108,26 @@ export const captureTemplate = (
     body: templateCaptureRequestSchema.parse(input),
     schema: templateCaptureResultSchema,
     invalidates: [templateLibraryKey(input.workspaceId)],
+  });
+
+export const previewTemplateCapture = (
+  workspaceId: string,
+  sourceItemId: string,
+  includeChildren = true,
+  excludeSampleDescendants = false,
+): QueryEndpoint<TemplateCapturePreview> =>
+  defineQuery({
+    operation: 'templates.capture.preview',
+    path: `/api/v1/workspaces/${workspaceId}/templates/capture-preview/${sourceItemId}?includeChildren=${String(includeChildren)}&excludeSampleDescendants=${String(excludeSampleDescendants)}`,
+    schema: templateCapturePreviewSchema,
+    cacheKey: [
+      ...templateLibraryKey(workspaceId),
+      'capture-preview',
+      sourceItemId,
+      String(includeChildren),
+      String(excludeSampleDescendants),
+    ],
+    staleAfterMs: 0,
   });
 
 export const applyTemplate = (

@@ -112,6 +112,75 @@ function core(overrides: Partial<CoreTemplateClient> = {}): {
 const unusedPool = {} as Pool;
 
 describe('staged template orchestration', () => {
+  it('aborts a capture whose pinned source body head changed', async () => {
+    const target = '77777777-7777-4777-8777-777777777777';
+    const source = ROOT;
+    const fake = core({
+      beginCapture: () =>
+        Promise.resolve({
+          operationId: OPERATION,
+          templateId: TEMPLATE,
+          fileTransferJobId: null,
+          fileTransferPending: false,
+          bodyCopies: [
+            {
+              sourceItemId: source,
+              targetItemId: target,
+              itemType: 'note',
+              checkHead: true,
+              expectedDocId: '88888888-8888-4888-8888-888888888888',
+              expectedHeadSeq: 1,
+            },
+          ],
+          itemMappings: [{ sourceId: source, itemId: target, itemType: 'note' }],
+        }),
+      authorizeOperationItem: () =>
+        Promise.resolve({
+          tenantId: '55555555-5555-4555-8555-555555555555',
+          principalId: '66666666-6666-4666-8666-666666666666',
+          workspaceId: WORKSPACE,
+          itemType: 'note',
+          canWrite: true,
+        }),
+    });
+    const client = {
+      query: (text: string) =>
+        Promise.resolve({
+          rows: text.includes('snapshot.seq AS snapshot_seq')
+            ? [
+                {
+                  doc_id: '88888888-8888-4888-8888-888888888888',
+                  item_id: source,
+                  workspace_id: WORKSPACE,
+                  schema_version: 2,
+                  head_seq: '2',
+                  snapshot_seq: null,
+                  yjs_state: null,
+                },
+              ]
+            : [],
+          rowCount: 0,
+        }),
+      release: () => undefined,
+    };
+    const service = createTemplateService({
+      pool: { connect: () => Promise.resolve(client) } as unknown as Pool,
+      core: fake.client,
+    });
+    await expect(
+      service.capture('token', {
+        workspaceId: WORKSPACE,
+        sourceItemId: source,
+        title: 'Project',
+        includeBody: true,
+        includeChildren: false,
+        idempotencyKey: 'capture-pinned',
+      }),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
+    expect(fake.calls.aborted).toEqual([{ kind: 'captures', operationId: OPERATION }]);
+    expect(fake.calls.finalized).toEqual([]);
+  });
+
   it('finalizes a bodyless capture with the exact empty write set', async () => {
     const fake = core();
     const service = createTemplateService({ pool: unusedPool, core: fake.client });

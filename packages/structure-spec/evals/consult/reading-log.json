@@ -1,0 +1,33 @@
+{
+  "id": "reading-log",
+  "problem": "I want to track books I read, keep notes and maintain a reading habit.",
+  "answers": [
+    {
+      "pattern": "goal|target",
+      "reply": "I want a yearly book target."
+    },
+    {
+      "pattern": "habit|often",
+      "reply": "Twenty minutes every day."
+    },
+    {
+      "pattern": "status|stage",
+      "reply": "To read, reading, and done."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "view",
+        "viewKind": "board"
+      },
+      {
+        "kind": "habit"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 15,
+    "preferComputed": []
+  }
+}

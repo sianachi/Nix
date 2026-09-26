@@ -6,7 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { getSchema, parseAssignments, setProps, setSchema } from './structure.ts';
+import {
+  getSchema,
+  parseAssignments,
+  readStructureOutline,
+  setProps,
+  setSchema,
+} from './structure.ts';
 
 const API = 'http://nix.test';
 const ITEM = '11111111-1111-4111-8111-111111111111';
@@ -160,6 +166,65 @@ describe('nixctl props set', () => {
     ).rejects.toMatchObject({
       status: 404,
     });
+    await done();
+  });
+});
+
+describe('nixctl structure read', () => {
+  it('prints fields, views and the bounded child count from the shared companion reader', async () => {
+    const { env, done } = await withProfile();
+    const field = {
+      key: 'status',
+      label: 'Status',
+      type: 'select',
+      options: ['To read', 'Done'],
+      required: false,
+      expression: null,
+      aggregate: null,
+      source: null,
+    };
+    server.use(
+      http.get(`${API}/api/v1/items/:itemId`, () => HttpResponse.json(item({}))),
+      http.get(`${API}/api/v1/items/:itemId/schema`, () =>
+        HttpResponse.json({ properties: [field], declared: [field], inherit: true }),
+      ),
+      http.get(`${API}/api/v1/items/:itemId/views`, () =>
+        HttpResponse.json({
+          views: [
+            {
+              id: 'view-board',
+              name: 'Board',
+              kind: 'board',
+              groupBy: 'status',
+              dateProperty: null,
+              columns: [],
+              interactiveForm: null,
+            },
+          ],
+          unrenderable: [],
+          default: 'view-board',
+        }),
+      ),
+      http.get(`${API}/api/v1/workspaces/:workspaceId/items`, () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+    );
+
+    const printed = (await capture((json) =>
+      readStructureOutline('default', ITEM, json, { env }),
+    )) as {
+      item: { id: string; title: string };
+      fields: { key: string; label: string; inherited: boolean; computed: boolean }[];
+      views: { name: string; kind: string }[];
+      childCount: number | 'many';
+    };
+
+    expect(printed.item).toMatchObject({ id: ITEM, title: 'Soup' });
+    expect(printed.fields).toMatchObject([
+      { key: 'status', label: 'Status', inherited: false, computed: false },
+    ]);
+    expect(printed.views).toMatchObject([{ name: 'Board', kind: 'board' }]);
+    expect(printed.childCount).toBe(0);
     await done();
   });
 });

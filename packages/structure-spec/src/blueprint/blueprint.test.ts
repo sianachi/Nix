@@ -649,6 +649,27 @@ describe('validateBlueprint', () => {
     expect(findProblem(report.problems, 'too-many-nodes')).toBeUndefined();
   });
 
+  it('counts schema writes for field-bearing plain nodes before the 80-write limit', () => {
+    const children: Node[] = Array.from({ length: 39 }, (_, index) => ({
+      id: `node-${String(index)}`,
+      title: `Node ${String(index)}`,
+      ...(index >= 9 ? { sample: true } : {}),
+      fields: [{ label: `Field ${String(index)}`, type: 'text' }],
+    }));
+    const report = validateBlueprint(
+      blueprint({
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Root field', type: 'text' }],
+        children,
+      }),
+      context(),
+    );
+    expect(findProblem(report.problems, 'too-many-writes')).toBeDefined();
+    expect(findProblem(report.problems, 'too-many-nodes')).toBeUndefined();
+    expect(findProblem(report.problems, 'too-many-fields')).toBeUndefined();
+  });
+
   it('paths are precise: a problem three levels deep names its exact position', () => {
     const bp = blueprint({
       id: 'root',

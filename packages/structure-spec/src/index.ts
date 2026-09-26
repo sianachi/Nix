@@ -80,3 +80,8 @@ export { validateValue } from './validate/values.js';
 export { type SpecOperation, validateSpec } from './validate/spec.js';
 
 export * from './blueprint/index.js';
+
+export { consultScenarioSchema, evalExpectationsSchema } from './evals/schema.js';
+export type { ConsultScenario, EvalExpectations, Predicate } from './evals/schema.js';
+export { scoreBlueprint } from './evals/score.js';
+export type { EvalCriterion, EvalScore } from './evals/score.js';

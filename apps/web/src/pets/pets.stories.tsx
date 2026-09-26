@@ -192,6 +192,29 @@ export const EntriesApproval = {
 };
 export const DarkEntriesApproval = { ...EntriesApproval, globals: { ground: 'dark' } };
 
+const formEditPreviewModel: PreviewModel = {
+  ...structurePreviewModel,
+  headline: 'I will update the interactive form on Reading log.',
+  counts: { items: 0, fields: 1, views: 1, entries: 0, writes: 1 },
+  tree: [
+    {
+      label: 'Page 1: Reading review',
+      detail: [
+        'Added field: Rating (number)',
+        'Added question: Rating',
+        'Removed question: Previous rating',
+        'Reworded question: Review notes',
+        'Now shown when Status equals Finished.',
+      ],
+      children: [],
+    },
+  ],
+};
+export const FormEditApproval = {
+  render: (): ReactElement => <PetStructurePreview model={formEditPreviewModel} />,
+};
+export const DarkFormEditApproval = { ...FormEditApproval, globals: { ground: 'dark' } };
+
 const problemsPreviewModel: PreviewModel = {
   ...structurePreviewModel,
   headline: 'I cannot run this request as written.',
@@ -263,6 +286,125 @@ export const StructureWorkApproval = {
     </MemoryRouter>
   ),
 };
+
+const BLUEPRINT_SOURCE_ID = '77777777-7777-4777-8777-777777777777';
+const blueprintSource = {
+  id: BLUEPRINT_SOURCE_ID,
+  workspaceId: '11111111-1111-4111-8111-111111111111',
+  parentId: null,
+  title: 'Job hunt plan',
+  type: 'note',
+  hasChildren: false,
+  seq: '1',
+  lifecycleState: 'active',
+  properties: {},
+  createdAt: '2026-09-26T00:00:00Z',
+  updatedAt: '2026-09-26T00:00:00Z',
+};
+const blueprintCardClient = {
+  query: (endpoint: { operation: string }) =>
+    endpoint.operation === 'items.get'
+      ? Promise.resolve(blueprintSource)
+      : Promise.reject(new Error(`Unexpected blueprint story query: ${endpoint.operation}`)),
+  paginate: () => ({
+    async *[Symbol.asyncIterator]() {
+      await Promise.resolve();
+      yield* [];
+    },
+  }),
+  execute: () => Promise.reject(new Error('Story approval is not interactive.')),
+  invalidate: () => undefined,
+} as unknown as NixClient;
+const jobHuntBlueprint = {
+  version: 1,
+  title: 'Job hunt plan',
+  summary: 'Track applications and follow-ups in one place.',
+  root: {
+    id: 'applications',
+    title: 'Applications',
+    fields: [{ label: 'Status', type: 'select', options: ['To apply', 'Interviewing', 'Closed'] }],
+    views: [{ kind: 'board', groupBy: 'Status' }],
+    children: [{ id: 'follow-up', title: 'Follow-up', sample: true }],
+  },
+  inputs: [{ key: 'contact_name', label: 'Contact name', type: 'text' }],
+};
+
+function blueprintToolStory(
+  operation: 'build_blueprint' | 'save_as_template',
+  status: 'pending' | 'completed' = 'pending',
+  result = '',
+): ReactElement {
+  const args = {
+    operation,
+    itemId: operation === 'save_as_template' ? BLUEPRINT_SOURCE_ID : '',
+    parentId: '',
+    title: operation === 'save_as_template' ? 'Job hunt' : '',
+    markdown: '',
+    query: '',
+    propertiesJson: '',
+    specJson: JSON.stringify(
+      operation === 'save_as_template' ? { inputs: jobHuntBlueprint.inputs } : jobHuntBlueprint,
+    ),
+  };
+  return (
+    <MemoryRouter>
+      <PetWorkTools
+        client={blueprintCardClient}
+        mode="consult"
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={() => undefined}
+        runtime={petConnectionSchema.parse({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: '',
+          canConnect: false,
+          tools: [
+            {
+              id: `blueprint-${operation}`,
+              arguments: JSON.stringify(args),
+              status,
+              result,
+              claimId: '',
+            },
+          ],
+        })}
+      />
+    </MemoryRouter>
+  );
+}
+
+export const BlueprintApproval = {
+  render: (): ReactElement => blueprintToolStory('build_blueprint'),
+};
+export const DarkBlueprintApproval = { ...BlueprintApproval, globals: { ground: 'dark' } };
+
+export const IncompleteBuild = {
+  render: (): ReactElement =>
+    blueprintToolStory(
+      'build_blueprint',
+      'completed',
+      JSON.stringify({
+        rootId: BLUEPRINT_SOURCE_ID,
+        complete: false,
+        ledger: [
+          {
+            nodeId: 'applications',
+            step: 'createStructuredItem',
+            status: 'done',
+            itemId: BLUEPRINT_SOURCE_ID,
+          },
+          { nodeId: 'follow-up', step: 'createItem', status: 'failed' },
+        ],
+      }),
+    ),
+};
+export const DarkIncompleteBuild = { ...IncompleteBuild, globals: { ground: 'dark' } };
+
+export const SaveTemplateApproval = {
+  render: (): ReactElement => blueprintToolStory('save_as_template'),
+};
+export const DarkSaveTemplateApproval = { ...SaveTemplateApproval, globals: { ground: 'dark' } };
 
 export const History = {
   render: (): ReactElement => (
@@ -434,7 +576,13 @@ function stubNarrowMatchMedia(): () => void {
  * companion tree's own first render already sees the phone layout rather than painting wide and
  * then jumping.
  */
-function PhoneFrame({ children }: { readonly children: ReactNode }): ReactElement {
+function PhoneFrame({
+  children,
+  initialEntry = `/w/${PHONE_WORKSPACE}`,
+}: {
+  readonly children: ReactNode;
+  readonly initialEntry?: string;
+}): ReactElement {
   const restore = useRef<(() => void) | null>(null);
   restore.current ??= stubNarrowMatchMedia();
   useEffect(
@@ -449,7 +597,7 @@ function PhoneFrame({ children }: { readonly children: ReactNode }): ReactElemen
       style={{ width: 390, height: 844, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
       className="relative overflow-hidden rounded-lg border border-divider"
     >
-      <MemoryRouter initialEntries={[`/w/${PHONE_WORKSPACE}`]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route
             path="/w/:workspaceId"
@@ -473,6 +621,18 @@ export const CompanionPhone = {
   ),
 };
 export const DarkCompanionPhone = { ...CompanionPhone, globals: { ground: 'dark' } };
+
+export const DesignConversationPhone = {
+  render: (): ReactElement => (
+    <PhoneFrame initialEntry={`/w/${PHONE_WORKSPACE}?pet=design`}>
+      <PetCompanion />
+    </PhoneFrame>
+  ),
+};
+export const DarkDesignConversationPhone = {
+  ...DesignConversationPhone,
+  globals: { ground: 'dark' },
+};
 
 /**
  * Opens the launcher with a native click (no test-only dependency) so `ConversationPhone` below

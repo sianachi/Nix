@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -189,7 +190,7 @@ func TestMalformedProviderMessageFailsClosed(t *testing.T) {
 func TestIdentitiesAreSeparatedAndMalformedJSONRefused(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused")
+	m, err := New(ctx, t.TempDir(), "unused", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,9 +245,11 @@ func TestCodexHandshakeWithoutUserCredentials(t *testing.T) {
 	if _, err = transport.Call(context.Background(), "model/list", map[string]any{"limit": 100}); err != nil {
 		t.Fatal(err)
 	}
-	// Thread creation validates the installed runtime's experimental tool schema without a model turn.
-	if _, err = transport.Call(context.Background(), "thread/start", map[string]any{"dynamicTools": workspaceTools(), "sandbox": "read-only", "approvalPolicy": "on-request"}); err != nil {
-		t.Fatal(err)
+	// Thread creation validates both modes' tool schemas without a model turn.
+	for _, mode := range []string{"chat", "consult"} {
+		if _, err = transport.Call(context.Background(), "thread/start", map[string]any{"dynamicTools": workspaceTools(mode), "sandbox": "read-only", "approvalPolicy": "on-request"}); err != nil {
+			t.Fatalf("%s tool schema: %v", mode, err)
+		}
 	}
 }
 
@@ -325,31 +328,32 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 	}
 }
 
-// The Phase B tool version bump (add_fields, edit_form, set_recurrence) must restart any
-// thread that still carries the old schema. TestToolVersionChangeStartsFreshThreadAndKeepsMessages
-// proves the mechanism generically, relative to toolVersion; this pins the constant itself
-// to 3, so a future bump that forgets to change it would not silently pass either test.
-func TestToolVersionThreeRestartsThreads(t *testing.T) {
-	if toolVersion != 3 {
-		t.Fatalf("Phase B expects toolVersion 3, got %d", toolVersion)
+// The Phase D tool version bump (consult mode, validate_blueprint, build_blueprint,
+// save_as_template) must restart any thread that still carries the old schema.
+// TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
+// relative to toolVersion; this pins the constant itself to 4, so a future bump that
+// forgets to change it would not silently pass either test.
+func TestToolVersionFourRestartsThreads(t *testing.T) {
+	if toolVersion != 4 {
+		t.Fatalf("Phase D expects toolVersion 4, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 2, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	a.conversations[key] = &conversation{ToolVersion: 3, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 2 conversation should start a fresh thread on the version 3 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 3 conversation should start a fresh thread on the version 4 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 3 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 4 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 3 {
-		t.Fatalf("conversation not recorded at tool version 3: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 4 {
+		t.Fatalf("conversation not recorded at tool version 4: %d", a.conversations[key].ToolVersion)
 	}
 }
 
@@ -383,6 +387,224 @@ func TestFailedSendNeverDuplicatesTheVersionNotice(t *testing.T) {
 	}
 	if notices != 1 {
 		t.Fatalf("retry after a failed send produced %d notices, want 1", notices)
+	}
+}
+
+// TestConsultUsesItsOwnConversationKeyAndToolSet proves chat and consult are two separate
+// conversations for the same pet, each starting its own provider thread with its own
+// dynamicTools, per pet-structure-consult-architecture.md section 6.
+func TestConsultUsesItsOwnConversationKeyAndToolSet(t *testing.T) {
+	f := &fakeTransport{}
+	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	consultRequest := r
+	consultRequest.Mode = "consult"
+	consultRequest.RequestID = "66666666-6666-4666-8666-666666666666"
+	if _, err := a.handle(context.Background(), consultRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	chatKey := r.WorkspaceID + "-" + r.PetID
+	consultKey := chatKey + "-consult"
+	if len(a.conversations) != 2 {
+		t.Fatalf("expected two conversations, got %d", len(a.conversations))
+	}
+	if _, ok := a.conversations[chatKey]; !ok {
+		t.Fatal("chat conversation missing")
+	}
+	if _, ok := a.conversations[consultKey]; !ok {
+		t.Fatal("consult conversation missing")
+	}
+
+	starts := 0
+	var chatParams, consultParams map[string]any
+	for i, call := range f.calls {
+		if call != "thread/start" {
+			continue
+		}
+		starts++
+		if starts == 1 {
+			chatParams, _ = f.params[i].(map[string]any)
+		} else {
+			consultParams, _ = f.params[i].(map[string]any)
+		}
+	}
+	if starts != 2 {
+		t.Fatalf("expected two thread starts, got %d: %v", starts, f.calls)
+	}
+	chatTools, _ := chatParams["dynamicTools"].([]any)
+	consultTools, _ := consultParams["dynamicTools"].([]any)
+	if len(chatTools) == 0 || len(consultTools) == 0 {
+		t.Fatal("dynamicTools missing from a thread start")
+	}
+	if reflect.DeepEqual(chatTools, consultTools) {
+		t.Fatal("chat and consult received the same tool set")
+	}
+}
+
+// TestConsultModelPreferenceFallsBackToProviderDefault covers owner decision 4
+// (pet-structure-consult-plan.md section 1.4): an unset model in consult mode picks the
+// first NIX_COMPANION_CONSULT_MODELS entry the provider actually offers, and leaves the
+// model unset (provider default) when none of them are offered.
+func TestConsultModelPreferenceFallsBackToProviderDefault(t *testing.T) {
+	defaultProvider := &fakeTransport{}
+	defaultAccount := &account{transport: defaultProvider, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	defaultRequest := request()
+	defaultRequest.Mode = "consult"
+	if _, err := defaultAccount.handle(context.Background(), defaultRequest); err != nil {
+		t.Fatal(err)
+	}
+	defaultStart := startParams(t, defaultProvider)
+	if _, ok := defaultStart["model"]; ok {
+		t.Fatalf("empty preference must use the provider default: %+v", defaultStart)
+	}
+	for _, call := range defaultProvider.calls {
+		if call == "model/list" {
+			t.Fatal("provider default must not require a model list request")
+		}
+	}
+
+	preferred := &modelListTransport{models: []string{"gpt-5"}}
+	a := &account{transport: preferred, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", consultModels: []string{"gpt-5-mini", "gpt-5"}}
+	r := request()
+	r.Mode = "consult"
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	start := startParams(t, &preferred.fakeTransport)
+	if start["model"] != "gpt-5" {
+		t.Fatalf("expected the first available preferred model, got %+v", start)
+	}
+
+	none := &modelListTransport{models: []string{"other-model"}}
+	b := &account{transport: none, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", consultModels: []string{"gpt-5-mini", "gpt-5"}}
+	r2 := request()
+	r2.Mode = "consult"
+	if _, err := b.handle(context.Background(), r2); err != nil {
+		t.Fatal(err)
+	}
+	start2 := startParams(t, &none.fakeTransport)
+	if _, ok := start2["model"]; ok {
+		t.Fatalf("no preferred model available should leave the provider default: %+v", start2)
+	}
+}
+
+// modelListTransport answers model/list with a fixed set of model ids, so consult model
+// preference can be tested without a real Codex process.
+type modelListTransport struct {
+	fakeTransport
+	models []string
+}
+
+func (m *modelListTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if method != "model/list" {
+		return m.fakeTransport.Call(ctx, method, params)
+	}
+	m.mu.Lock()
+	m.calls = append(m.calls, method)
+	m.params = append(m.params, params)
+	m.mu.Unlock()
+	data := make([]map[string]any, 0, len(m.models))
+	for _, id := range m.models {
+		data = append(data, map[string]any{"model": id, "displayName": id, "isDefault": false})
+	}
+	raw, err := json.Marshal(map[string]any{"data": data})
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func startParams(t *testing.T, f *fakeTransport) map[string]any {
+	t.Helper()
+	for i, call := range f.calls {
+		if call == "thread/start" {
+			start, ok := f.params[i].(map[string]any)
+			if !ok {
+				t.Fatalf("thread/start params: %T", f.params[i])
+			}
+			return start
+		}
+	}
+	t.Fatal("thread/start not called")
+	return nil
+}
+
+// TestInvalidModeIsRefused covers owner decision 4's neighbour, validRequest's mode gate:
+// only the empty string, "chat" and "consult" are accepted.
+func TestInvalidModeIsRefused(t *testing.T) {
+	r := request()
+	r.Mode = "supervisor"
+	if validRequest(r) {
+		t.Fatal("invalid mode accepted")
+	}
+	for _, mode := range []string{"", "chat", "consult"} {
+		valid := r
+		valid.Mode = mode
+		if !validRequest(valid) {
+			t.Fatalf("valid mode %q refused", mode)
+		}
+	}
+}
+
+func TestModeJSONContractAllowsStatusAndConnect(t *testing.T) {
+	for _, operation := range []string{"status", "connect"} {
+		raw, err := json.Marshal(map[string]string{
+			"tenantId":    request().TenantID,
+			"principalId": request().PrincipalID,
+			"operation":   operation,
+			"mode":        "consult",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got Request
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Mode != "consult" || !validRequest(got) {
+			t.Fatalf("%s request did not retain consult mode", operation)
+		}
+		a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "disconnected"}
+		if _, err := a.handle(context.Background(), got); err != nil {
+			t.Fatalf("%s request failed: %v", operation, err)
+		}
+	}
+}
+
+// TestResetInOneModeKeepsTheOther proves the mode-scoped conversation key means a chat
+// reset cannot wipe the consult conversation for the same pet, and vice versa.
+func TestResetInOneModeKeepsTheOther(t *testing.T) {
+	a := &account{home: t.TempDir(), transport: &fakeTransport{}, conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	r.Operation = "read"
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	chatKey := r.WorkspaceID + "-" + r.PetID
+	a.conversations[chatKey].Messages = []Message{{ID: "one", Role: "user", Text: "Chat message", Actions: []Action{}}}
+
+	consultRead := r
+	consultRead.Mode = "consult"
+	if _, err := a.handle(context.Background(), consultRead); err != nil {
+		t.Fatal(err)
+	}
+	consultKey := chatKey + "-consult"
+	a.conversations[consultKey].Messages = []Message{{ID: "two", Role: "user", Text: "Consult message", Actions: []Action{}}}
+
+	reset := r
+	reset.Operation = "reset"
+	if _, err := a.handle(context.Background(), reset); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.snapshot(chatKey).Messages) != 0 {
+		t.Fatal("chat conversation was not reset")
+	}
+	if len(a.snapshot(consultKey).Messages) != 1 {
+		t.Fatal("consult conversation was wiped by a chat reset")
 	}
 }
 

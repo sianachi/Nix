@@ -15,7 +15,8 @@ public readonly record struct BeginTemplateCapture(
     string? Description,
     bool IncludeBody,
     bool IncludeChildren,
-    string IdempotencyKey) : ICommand<TemplateCapturePlan>;
+    string IdempotencyKey,
+    string? ExpectedFingerprint = null) : ICommand<TemplateCapturePlan>;
 
 /// <summary>Begins capture of an item subtree as a template.</summary>
 public sealed class BeginTemplateCaptureHandler(ITemplateStagingStore stages)
@@ -33,5 +34,6 @@ public sealed class BeginTemplateCaptureHandler(ITemplateStagingStore stages)
             command.IncludeBody,
             command.IncludeChildren,
             command.IdempotencyKey,
-            cancellationToken);
+            cancellationToken,
+            command.ExpectedFingerprint);
 }

@@ -9,6 +9,7 @@ import {
   exportTemplate,
   listTemplates,
   preflightTemplate,
+  previewTemplateCapture,
   saveTemplateDraft,
   templateById,
   templateItemById,
@@ -92,6 +93,7 @@ describe('the templates resource', () => {
       includeBody: true,
       includeChildren: true,
       idempotencyKey: OPERATION_ID,
+      expectedFingerprint: 'a'.repeat(64),
     });
     const beginDraft = beginTemplateDraft(TEMPLATE_ID, OPERATION_ID);
     const readDraft = templateDraftById(TEMPLATE_ID, OPERATION_ID);
@@ -103,6 +105,7 @@ describe('the templates resource', () => {
     });
 
     expect(capture.path).toBe('/collab/templates/captures');
+    expect(capture.body).toMatchObject({ expectedFingerprint: 'a'.repeat(64) });
     expect(beginDraft.path).toBe(`/collab/templates/${TEMPLATE_ID}/drafts`);
     expect(readDraft.path).toBe(`/collab/templates/${TEMPLATE_ID}/drafts/${OPERATION_ID}`);
     expect(updateDraft.body).toEqual({
@@ -114,6 +117,14 @@ describe('the templates resource', () => {
     expect(saveTemplateDraft(TEMPLATE_ID, WORKSPACE_ID, OPERATION_ID).path).toContain('/save');
     expect(discardTemplateDraft(TEMPLATE_ID, OPERATION_ID).method).toBe('DELETE');
     expect(exportTemplate(TEMPLATE_ID).path).toBe(`/collab/templates/${TEMPLATE_ID}/export`);
+  });
+
+  it('keeps projected sample exclusion in the capture preview cache identity', () => {
+    const included = previewTemplateCapture(WORKSPACE_ID, SOURCE_ID);
+    const excluded = previewTemplateCapture(WORKSPACE_ID, SOURCE_ID, true, true);
+    expect(excluded.path).toContain('excludeSampleDescendants=true');
+    expect(included.path).toContain('excludeSampleDescendants=false');
+    expect(excluded.cacheKey).not.toEqual(included.cacheKey);
   });
 
   it('invalidates both detail and catalog after deletion', () => {

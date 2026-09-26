@@ -102,7 +102,7 @@ public sealed class CompositionRootTests
                 "Nix.Features.Templates",
                 StringComparison.Ordinal))
             .ToHashSet();
-        Assert.Equal(28, templateHandlers.Count);
+        Assert.Equal(29, templateHandlers.Count);
 
         var services = new ServiceCollection();
         services.AddNixPersistence(RuntimeConnectionString);
@@ -135,7 +135,7 @@ public sealed class CompositionRootTests
             .Where(method => method.ReturnType == typeof(Task<IResult>))
             .ToArray();
 
-        Assert.Equal(27, routeMethods.Length);
+        Assert.Equal(28, routeMethods.Length);
         Assert.All(routeMethods, method =>
         {
             var dependencies = method.GetParameters().Select(parameter => parameter.ParameterType).ToArray();

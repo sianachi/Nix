@@ -19,12 +19,15 @@ export const workspaceToolSchema = z
       'create_structured',
       'add_view',
       'create_entries',
+      'validate_blueprint',
       'add_fields',
       'edit_form',
       'set_recurrence',
       'list_templates',
       'read_template',
       'apply_template',
+      'build_blueprint',
+      'save_as_template',
     ]),
     itemId: optionalId,
     parentId: optionalId,
@@ -53,10 +56,18 @@ export const workspaceToolSchema = z
       'list_templates',
       'create_structured',
       'create_entries',
+      'validate_blueprint',
+      'build_blueprint',
     ];
     if (!NO_ITEM_ID_REQUIRED.includes(args.operation)) required('itemId');
     if (
-      ['create_note', 'rename_item', 'apply_template', 'create_structured'].includes(args.operation)
+      [
+        'create_note',
+        'rename_item',
+        'apply_template',
+        'create_structured',
+        'save_as_template',
+      ].includes(args.operation)
     )
       required('title');
     if (args.operation === 'append_note') required('markdown');
@@ -75,6 +86,26 @@ export const workspaceToolSchema = z
       if (!args.specJson.trim()) {
         required('specJson');
       } else {
+        try {
+          const parsed: unknown = JSON.parse(args.specJson);
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+            throw new Error('specJson must be a JSON object.');
+        } catch {
+          context.addIssue({
+            code: 'custom',
+            path: ['specJson'],
+            message: 'Provide a JSON object in specJson.',
+          });
+        }
+      }
+    }
+    if (
+      args.operation === 'validate_blueprint' ||
+      args.operation === 'build_blueprint' ||
+      args.operation === 'save_as_template'
+    ) {
+      if (!args.specJson.trim() && args.operation !== 'save_as_template') required('specJson');
+      else if (args.specJson.trim()) {
         try {
           const parsed: unknown = JSON.parse(args.specJson);
           if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
@@ -125,7 +156,9 @@ export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> =
   'read_template',
 ]);
 
-/** Operations only offered in consult mode. Empty until Phase D adds `save_as_template`,
- * `validate_blueprint` and `build_blueprint` (task D.1b onward); kept here now so `run.ts` and a
- * future mode gate have one place to grow this set from. */
-export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([]);
+/** Operations only offered in consult mode. */
+export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
+  'validate_blueprint',
+  'build_blueprint',
+  'save_as_template',
+]);

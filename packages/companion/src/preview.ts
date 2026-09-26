@@ -14,6 +14,10 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  blueprintSchema,
+  validateBlueprint,
+  describeBlueprint,
+  type Blueprint,
   type DescribeContext,
   type PreviewModel,
   type Step,
@@ -23,6 +27,7 @@ import type { Problem } from '@nix/structure-spec';
 import type { PreviewContext } from './context.js';
 export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
+import { planBuild } from './blueprint/plan.js';
 
 /** `WorkspaceToolArgs` widened to the operations and `specJson` field added by task A.4. */
 export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
@@ -250,6 +255,9 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'add_fields':
     case 'edit_form':
     case 'set_recurrence':
+    case 'validate_blueprint':
+    case 'build_blueprint':
+    case 'save_as_template':
       throw new Error(`${args.operation} is a spec operation and has no legacy headline.`);
   }
 }
@@ -281,6 +289,80 @@ function describeLegacyOperation(args: PreviewToolArgs, context: PreviewContext)
  * problems are surfaced directly instead.
  */
 export function describeToolCall(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
+  if (args.operation === 'save_as_template') {
+    const spec = (args.specJson.trim() ? JSON.parse(args.specJson) : {}) as {
+      includeSamples?: boolean;
+      inputs?: { label: string }[];
+    };
+    const sourceTitle = context.sourceTitle ?? 'the linked item';
+    const sampleNote =
+      (spec.includeSamples ?? false)
+        ? 'Example entries are included.'
+        : `${String(context.sampleCount ?? 0)} example entries are left out.`;
+    const inputLabels = (spec.inputs ?? []).map((input) => input.label);
+    return {
+      headline: `I will save “${sourceTitle}” and ${String(Math.max(0, (context.sourceItemCount ?? 1) - 1))} children as the template “${args.title}”. Bodies are included. ${sampleNote}`,
+      destination: context.destination,
+      counts: { ...emptyCounts(), items: context.sourceItemCount ?? 1, writes: 1 },
+      tree: [],
+      notes: [
+        ...(inputLabels.length ? [`It will ask for: ${inputLabels.join(', ')}.`] : []),
+        'Anyone who can see this workspace’s templates can apply it.',
+      ],
+      warnings: [],
+      problems: [],
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
+  if (args.operation === 'validate_blueprint') {
+    const report = validateBlueprint(JSON.parse(args.specJson), { inheritedFields: [], today: '' });
+    return {
+      headline: report.ok
+        ? 'I will validate this design without changing anything.'
+        : 'I cannot validate this design as written.',
+      destination: { title: 'Local validation', path: [] },
+      counts: {
+        ...emptyCounts(),
+        fields: report.stats.fields,
+        views: report.stats.views,
+        entries: report.stats.entries,
+      },
+      tree: [],
+      notes: [],
+      warnings: report.warnings,
+      problems: report.problems,
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
+  if (args.operation === 'build_blueprint') {
+    const blueprint = blueprintSchema.parse(JSON.parse(args.specJson));
+    const report =
+      context.blueprintReport ??
+      validateBlueprint(blueprint, { inheritedFields: context.inheritedFields, today: '' });
+    if (!report.ok)
+      return {
+        headline: 'I cannot run this request as written.',
+        destination: context.destination,
+        counts: {
+          ...emptyCounts(),
+          fields: report.stats.fields,
+          views: report.stats.views,
+          entries: report.stats.entries,
+        },
+        tree: [],
+        notes: [],
+        warnings: report.warnings,
+        problems: report.problems,
+        neverDoes: NEVER_DOES.slice(),
+      };
+    const plan = planBlueprintPreview(blueprint, args.parentId, context);
+    const model = describeBlueprint(blueprint, report, { destination: context.destination });
+    return {
+      ...model,
+      counts: { ...model.counts, writes: plan.writes },
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
   switch (args.operation) {
     case 'create_structured':
     case 'add_view':
@@ -292,4 +374,17 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     default:
       return describeLegacyOperation(args, context);
   }
+}
+
+export function planBlueprintPreview(
+  blueprint: Blueprint,
+  parentId: string,
+  context: PreviewContext,
+): ReturnType<typeof planBuild> {
+  return planBuild(blueprint, {
+    parentId: parentId || null,
+    sandboxExists: context.sandboxExists ?? false,
+    clock: { today: () => '', timeZone: () => 'UTC', now: () => new Date(0) },
+    inheritedFields: context.inheritedFields,
+  });
 }

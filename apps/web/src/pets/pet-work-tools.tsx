@@ -1,4 +1,4 @@
-import { pets, type PetConnection, type PetToolCall, type NixClient } from '@nix/api-client';
+import { items, pets, type PetConnection, type PetToolCall, type NixClient } from '@nix/api-client';
 import {
   READ_ONLY_OPERATIONS,
   WorkspaceToolRefusal,
@@ -13,6 +13,7 @@ import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { PetStructurePreview } from './pet-structure-preview';
 import type { StructureFingerprint } from '@nix/companion';
+import type { PetConversationMode } from './device-preferences';
 
 interface PreparedPreview {
   model: PreviewModel;
@@ -26,16 +27,54 @@ interface ToolPreviewState {
   error?: string;
 }
 
+type BuildLedger = readonly { nodeId: string; itemId?: string; status?: string }[];
+
+interface BuildOutcome {
+  complete: boolean;
+  rootId: string | null;
+  ledger: readonly { nodeId: string; itemId?: string; status: string }[];
+}
+
+const AUTO_RUN_OPERATIONS = new Set(['validate_blueprint']);
+
+function buildOutcome(text: string): BuildOutcome | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== 'object' || value === null) return undefined;
+    const candidate = value as Record<string, unknown>;
+    if (
+      typeof candidate.complete !== 'boolean' ||
+      !(candidate.rootId === null || typeof candidate.rootId === 'string') ||
+      !Array.isArray(candidate.ledger) ||
+      !candidate.ledger.every((entry: unknown) => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const ledgerEntry = entry as Record<string, unknown>;
+        return (
+          typeof ledgerEntry.nodeId === 'string' &&
+          typeof ledgerEntry.status === 'string' &&
+          (ledgerEntry.itemId === undefined || typeof ledgerEntry.itemId === 'string')
+        );
+      })
+    )
+      return undefined;
+    return candidate as unknown as BuildOutcome;
+  } catch {
+    return undefined;
+  }
+}
+
 export function PetWorkTools({
   runtime,
   workspaceId,
   petId,
+  mode = 'chat',
   onChange,
   client,
 }: {
   readonly runtime: PetConnection;
   readonly workspaceId: string;
   readonly petId: string;
+  readonly mode?: PetConversationMode;
   readonly onChange: (value: PetConnection) => void;
   readonly client: NixClient;
 }): ReactElement {
@@ -43,9 +82,13 @@ export function PetWorkTools({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [decisions, setDecisions] = useState<Record<string, string>>({});
+  const [progress, setProgress] = useState<Record<string, string>>({});
+  const [buildLedgers, setBuildLedgers] = useState<
+    Partial<Record<PetConversationMode, BuildLedger>>
+  >({});
 
   function decisionKey(tool: PetToolCall) {
-    return `tool:${workspaceId}:${petId}:${tool.id}`;
+    return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
   }
 
   async function resolve(
@@ -53,6 +96,7 @@ export function PetWorkTools({
     approved: boolean,
     fence?: StructureFingerprint,
     refusalResult?: string,
+    reportProgress?: (completed: number, total: number) => void,
   ) {
     const key = decisionKey(tool);
     if (lock.current || tool.status !== 'pending' || decisions[key] || readActionReceipt(key))
@@ -72,7 +116,14 @@ export function PetWorkTools({
     try {
       // Claim on the server BEFORE any write. A lost claim response must never lead to execution.
       const claimed = await client.execute(
-        pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId: tool.id, requestId }),
+        pets.runtime({
+          operation: 'tool_claim',
+          workspaceId,
+          petId,
+          mode,
+          toolId: tool.id,
+          requestId,
+        }),
         { signal },
       );
       onChange(claimed);
@@ -86,6 +137,8 @@ export function PetWorkTools({
         try {
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
             await import('@nix/companion');
+          const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
+          const ledger = args.operation === 'save_as_template' ? buildLedgers[mode] : undefined;
           const outcome = await runWorkspaceTool(
             {
               core: client,
@@ -98,19 +151,24 @@ export function PetWorkTools({
             tool.arguments,
             signal,
             {
-              mode: 'chat',
+              mode,
               toolId: tool.id,
               claimId: requestId,
               ...(fence === undefined ? {} : { fence }),
+              ...(ledger === undefined ? {} : { buildLedger: ledger }),
+              ...(reportProgress === undefined ? {} : { onProgress: reportProgress }),
             },
           );
           toolResult = outcome.text;
           toolSuccess = true;
+          if (args.operation === 'build_blueprint') {
+            const build = buildOutcome(outcome.text);
+            if (build?.complete) setBuildLedgers((old) => ({ ...old, [mode]: build.ledger }));
+          }
           if (!outcome.readOnly) {
             client.invalidate(['items']);
             for (const parent of outcome.touchedParents)
               notifyItemChildrenChanged(workspaceId, parent);
-            const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
             if (args.operation === 'apply_template') client.invalidate(['templates']);
           }
         } catch (reason) {
@@ -125,6 +183,7 @@ export function PetWorkTools({
           operation: 'tool_result',
           workspaceId,
           petId,
+          mode,
           toolId: tool.id,
           requestId,
           toolResult,
@@ -133,6 +192,21 @@ export function PetWorkTools({
         { signal },
       );
       onChange(result);
+      if (approved && toolSuccess) {
+        const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
+        const build = args.operation === 'build_blueprint' ? buildOutcome(toolResult) : undefined;
+        const completed = build?.ledger.filter((entry) => entry.status === 'done').length;
+        const receipt =
+          build === undefined
+            ? args.operation === 'save_as_template'
+              ? 'Template saved.'
+              : 'Completed.'
+            : build.complete
+              ? `Built ${String(completed)} of ${String(build.ledger.length)}.`
+              : `Stopped after ${String(completed)} of ${String(build.ledger.length)}.`;
+        writeActionReceipt(key, receipt);
+        setDecisions((old) => ({ ...old, [key]: receipt }));
+      }
     } catch {
       setError(
         'The operation could not be confirmed. Refresh and inspect Nix before asking for this change again.',
@@ -140,6 +214,9 @@ export function PetWorkTools({
     } finally {
       lock.current = false;
       setBusy(false);
+      setProgress((old) =>
+        Object.fromEntries(Object.entries(old).filter(([id]) => id !== tool.id)),
+      );
     }
   }
 
@@ -152,6 +229,11 @@ export function PetWorkTools({
           client={client}
           workspaceId={workspaceId}
           busy={busy}
+          mode={mode}
+          progress={progress[tool.id]}
+          onBuildProgress={(message) => {
+            setProgress((old) => ({ ...old, [tool.id]: message }));
+          }}
           submitted={decisions[decisionKey(tool)] ?? readActionReceipt(decisionKey(tool))}
           onResolve={resolve}
         />
@@ -166,6 +248,9 @@ function PetWorkToolCard({
   client,
   workspaceId,
   busy,
+  mode,
+  progress,
+  onBuildProgress,
   submitted,
   onResolve,
 }: {
@@ -173,15 +258,20 @@ function PetWorkToolCard({
   readonly client: NixClient;
   readonly workspaceId: string;
   readonly busy: boolean;
+  readonly mode: PetConversationMode;
+  readonly progress: string | undefined;
+  readonly onBuildProgress: (message: string) => void;
   readonly submitted?: string;
   readonly onResolve: (
     tool: PetToolCall,
     approved: boolean,
     fence?: StructureFingerprint,
     refusalResult?: string,
+    reportProgress?: (completed: number, total: number) => void,
   ) => Promise<void>;
 }): ReactElement {
   const [state, setState] = useState<ToolPreviewState>({ loading: true });
+  const autoRunKey = useRef('');
   let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
   try {
     parsed = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
@@ -198,6 +288,11 @@ function PetWorkToolCard({
       current = workspaceToolSchema.safeParse(null);
     }
     if (!current.success) {
+      return () => {
+        controller.abort();
+      };
+    }
+    if (AUTO_RUN_OPERATIONS.has(current.data.operation) && mode === 'consult') {
       return () => {
         controller.abort();
       };
@@ -245,7 +340,7 @@ function PetWorkToolCard({
     return () => {
       controller.abort();
     };
-  }, [tool.arguments, workspaceId, client]);
+  }, [tool.arguments, workspaceId, client, mode]);
 
   const args = parsed.success ? parsed.data : undefined;
   const currentPreview = state.arguments === tool.arguments;
@@ -257,15 +352,74 @@ function PetWorkToolCard({
   const itemId = args?.itemId && z.uuid().safeParse(args.itemId).success ? args.itemId : undefined;
   const parentId =
     args?.parentId && z.uuid().safeParse(args.parentId).success ? args.parentId : undefined;
+  const autoValidate =
+    mode === 'consult' && args !== undefined && AUTO_RUN_OPERATIONS.has(args.operation);
+
+  useEffect(() => {
+    const key = `${mode}:${tool.id}`;
+    if (
+      !autoValidate ||
+      tool.status !== 'pending' ||
+      submitted ||
+      busy ||
+      autoRunKey.current === key
+    )
+      return;
+    autoRunKey.current = key;
+    void onResolve(tool, true);
+  }, [autoValidate, mode, tool, submitted, busy, onResolve]);
+
+  const incompleteBuild =
+    args?.operation === 'build_blueprint' && tool.result ? buildOutcome(tool.result) : undefined;
+  const incompleteRootId =
+    incompleteBuild?.rootId && z.uuid().safeParse(incompleteBuild.rootId).success
+      ? incompleteBuild.rootId
+      : undefined;
+  const [cleanupStatus, setCleanupStatus] = useState('');
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  async function moveIncompleteDraftToTrash(rootId: string): Promise<void> {
+    if (!window.confirm('Move the incomplete draft to Trash? It can be restored later.')) return;
+    setCleanupBusy(true);
+    setCleanupStatus('');
+    try {
+      const source = await client.query(items.itemById(rootId), { forceRefresh: true });
+      if (source.workspaceId !== workspaceId)
+        throw new Error('This draft is outside the current workspace.');
+      await client.execute(items.deleteItem(workspaceId, rootId), { forceRefresh: true });
+      client.invalidate(['items']);
+      notifyItemChildrenChanged(workspaceId, source.parentId);
+      setCleanupStatus('Incomplete draft moved to Trash.');
+    } catch {
+      setCleanupStatus('The incomplete draft could not be moved to Trash. Inspect Nix first.');
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2 rounded border border-divider p-3">
       <Text variant="h3" as="h3">
         {parsed.success ? 'Proposed action' : 'Unsupported tool request'}
       </Text>
-      {model ? <PetStructurePreview model={model} /> : null}
+      {model ? (
+        <PetStructurePreview
+          model={model}
+          captureSummary={args?.operation === 'save_as_template'}
+        />
+      ) : null}
       {(!currentPreview || state.loading) && parsed.success ? (
         <Text variant="note">Preparing the preview...</Text>
+      ) : null}
+      {autoValidate && tool.status === 'pending' ? (
+        <Text variant="note" role="status">
+          Checking the design (no workspace access).
+        </Text>
+      ) : null}
+      {progress ? (
+        <Text variant="note" role="status">
+          {progress}
+        </Text>
       ) : null}
       {currentPreview && state.error ? (
         <Text variant="note" role="alert">
@@ -324,7 +478,30 @@ function PetWorkToolCard({
           </Text>
         </details>
       ) : null}
-      {tool.status === 'pending' && !submitted ? (
+      {incompleteBuild && !incompleteBuild.complete ? (
+        <div className="flex flex-col gap-2">
+          <Text variant="note" role="status">
+            Stopped after{' '}
+            {String(incompleteBuild.ledger.filter((entry) => entry.status === 'done').length)} of{' '}
+            {String(incompleteBuild.ledger.length)}. The draft is incomplete.
+          </Text>
+          {incompleteRootId ? (
+            <Button
+              variant="ghost"
+              disabled={cleanupBusy}
+              onClick={() => void moveIncompleteDraftToTrash(incompleteRootId)}
+            >
+              {cleanupBusy ? 'Moving draft to Trash...' : 'Move draft to trash'}
+            </Button>
+          ) : null}
+          {cleanupStatus ? (
+            <Text variant="note" role="status">
+              {cleanupStatus}
+            </Text>
+          ) : null}
+        </div>
+      ) : null}
+      {tool.status === 'pending' && !submitted && !autoValidate ? (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="primary"
@@ -338,7 +515,19 @@ function PetWorkToolCard({
               Boolean(state.error)
             }
             onClick={() => {
-              void onResolve(tool, true, currentPreview ? state.prepared?.fingerprint : undefined);
+              const isBuild = args?.operation === 'build_blueprint';
+              if (isBuild) onBuildProgress('Building the draft...');
+              void onResolve(
+                tool,
+                true,
+                currentPreview ? state.prepared?.fingerprint : undefined,
+                undefined,
+                isBuild
+                  ? (completed, total) => {
+                      onBuildProgress(`Building ${String(completed)} of ${String(total)}...`);
+                    }
+                  : undefined,
+              );
             }}
           >
             Approve request

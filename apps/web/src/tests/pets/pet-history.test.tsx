@@ -21,6 +21,7 @@ it('requires a second explicit confirmation before deleting an archived conversa
       workspaceId="11111111-1111-4111-8111-111111111111"
       petId="22222222-2222-4222-8222-222222222222"
       name="Pip"
+      mode="consult"
     />,
   );
   const user = userEvent.setup();
@@ -37,6 +38,6 @@ it('requires a second explicit confirmation before deleting an archived conversa
     expect(execute).toHaveBeenCalledTimes(3);
   });
   expect(execute.mock.calls[2]?.[0]).toMatchObject({
-    body: { operation: 'delete_history', historyId: id },
+    body: { operation: 'delete_history', historyId: id, mode: 'consult' },
   });
 });

@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestLoadUsesSafeDefaults(t *testing.T) {
 	settings, err := Load(func(string) string { return "" })
@@ -12,6 +15,22 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 	if settings.PluginMaxModuleBytes != 8<<20 || settings.PluginMemoryPages != 1024 || settings.PluginTimeout <= 0 || settings.PluginMaxHostCalls != 32 {
 		t.Fatalf("invalid plugin defaults: %+v", settings)
+	}
+}
+
+func TestLoadPreservesOrderedConsultModelPreferences(t *testing.T) {
+	settings, err := Load(func(key string) string {
+		if key == "NIX_COMPANION_CONSULT_MODELS" {
+			return " model-b, ,model-a, model-c "
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"model-b", "model-a", "model-c"}
+	if !reflect.DeepEqual(settings.CompanionConsultModels, want) {
+		t.Fatalf("consult model preferences = %q, want %q", settings.CompanionConsultModels, want)
 	}
 }
 

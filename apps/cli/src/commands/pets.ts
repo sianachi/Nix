@@ -3,9 +3,13 @@ import {
   createCompanionBodies,
   defaultClock,
   defaultIds,
+  describeToolCall,
+  loadPreviewContext,
   runWorkspaceTool,
   workspaceToolSchema,
   WorkspaceToolRefusal,
+  type PreviewContext,
+  type PreviewModel,
 } from '@nix/companion';
 import { printResult, type OutputOptions } from '../output.ts';
 import { openSession, type Session } from '../session.ts';
@@ -169,9 +173,12 @@ export async function executePetToolRun(
   petId: string,
   toolId: string,
   decision: PetToolDecision,
+  mode: 'chat' | 'consult' = 'chat',
 ): Promise<unknown> {
   const client = session.client;
-  const runtime = await client.execute(pets.runtime({ operation: 'read', workspaceId, petId }));
+  const runtime = await client.execute(
+    pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+  );
   const tool: PetToolCall | undefined = runtime.tools?.find((entry) => entry.id === toolId);
   if (tool?.status !== 'pending') throw new Error(`Tool ${toolId} is not pending.`);
 
@@ -183,9 +190,32 @@ export async function executePetToolRun(
   } catch {
     parsed = workspaceToolSchema.safeParse(null);
   }
-  const preview = parsed.success
-    ? describeWorkspaceAction(parsed.data)
-    : 'This request is unsupported. Decline it so the companion can try a supported operation.';
+  const signal = AbortSignal.timeout(90_000);
+  const collab = collabClientFor(session);
+  const ports = {
+    core: session.client,
+    collab,
+    bodies: createCompanionBodies(collab),
+    clock: defaultClock(),
+    ids: defaultIds(),
+  };
+  let previewContext: PreviewContext | undefined;
+  let preview: PreviewModel | string;
+  if (!parsed.success) {
+    preview =
+      'This request is unsupported. Decline it so the companion can try a supported operation.';
+  } else {
+    try {
+      previewContext = await loadPreviewContext(ports, workspaceId, parsed.data, signal);
+      preview = describeToolCall(parsed.data, previewContext);
+    } catch (reason) {
+      const message =
+        reason instanceof WorkspaceToolRefusal
+          ? reason.message
+          : 'The workspace context could not be read. Refresh and inspect Nix before approving.';
+      preview = contextFailurePreview(message);
+    }
+  }
 
   if (decision === 'preview') {
     return { toolId, status: tool.status, preview, arguments: tool.arguments };
@@ -193,7 +223,7 @@ export async function executePetToolRun(
 
   const requestId = crypto.randomUUID();
   const claimed = await client.execute(
-    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId }),
+    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId, mode }),
   );
   const receipt = claimed.tools?.find((entry) => entry.id === toolId);
   if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
@@ -206,15 +236,20 @@ export async function executePetToolRun(
       const outcome = await runWorkspaceTool(
         {
           core: session.client,
-          collab: collabClientFor(session),
-          bodies: createCompanionBodies(session.client),
+          collab,
+          bodies: createCompanionBodies(collab),
           clock: defaultClock(),
           ids: defaultIds(),
         },
         workspaceId,
         tool.arguments,
         AbortSignal.timeout(90000),
-        { toolId, claimId: requestId },
+        {
+          mode,
+          toolId,
+          claimId: requestId,
+          ...(previewContext ? { fence: previewContext.fingerprint } : {}),
+        },
       );
       toolResult = outcome.text;
       toolSuccess = true;
@@ -235,6 +270,7 @@ export async function executePetToolRun(
         requestId,
         toolResult,
         toolSuccess,
+        mode,
       }),
     );
   } catch (reason) {
@@ -246,6 +282,24 @@ export async function executePetToolRun(
       `${toolSuccess ? 'The change was applied, but its' : 'Its'} outcome could not be recorded (${cause}). Refresh and inspect Nix before retrying.`,
     );
   }
+}
+
+function contextFailurePreview(message: string): PreviewModel {
+  return {
+    headline: 'I cannot run this request as written.',
+    destination: { title: 'Workspace root', path: [] },
+    counts: { items: 0, fields: 0, views: 0, entries: 0, writes: 0 },
+    tree: [],
+    notes: [],
+    warnings: [],
+    problems: [{ path: 'workspace', code: 'context_unavailable', message }],
+    neverDoes: [
+      'Publish a public link',
+      'Delete anything permanently',
+      'Remove or retype a field',
+      'Delete a view',
+    ],
+  };
 }
 
 /**
@@ -270,61 +324,61 @@ export async function petToolRun(
     : options.decline
       ? 'decline'
       : 'preview';
-  printResult(
-    await executePetToolRun(session, options.workspace, options.pet, toolId, decision),
-    output,
+  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
+    throw new Error('--mode must be chat or consult.');
+  const result = await executePetToolRun(
+    session,
+    options.workspace,
+    options.pet,
+    toolId,
+    decision,
+    options.mode,
+  );
+  if (decision === 'preview' && hasPreviewModel(result)) {
+    if (output.json) printResult(result.preview, output);
+    else if (output.isTty) process.stdout.write(`${formatPreview(result.preview)}\n`);
+    else printResult(result, output);
+    return;
+  }
+  printResult(result, output);
+}
+
+function hasPreviewModel(value: unknown): value is { preview: PreviewModel } {
+  if (typeof value !== 'object' || value === null || !('preview' in value)) return false;
+  const preview = value.preview;
+  return (
+    typeof preview === 'object' &&
+    preview !== null &&
+    'headline' in preview &&
+    'destination' in preview &&
+    'counts' in preview &&
+    'tree' in preview &&
+    'warnings' in preview &&
+    'problems' in preview
   );
 }
 
-/** Matches `pet-work-tools.tsx:225-260`: the same first-person sentence the web approval card
- * shows, so a pending tool call reads identically whether approved from the browser or nixctl. */
-function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.parse>): string {
-  switch (action.operation) {
-    case 'list_items':
-      return action.parentId
-        ? 'I will list the items inside the linked destination to find what to work on.'
-        : 'I will list the top-level items in this workspace to find what to work on.';
-    case 'search':
-      return `I will search this workspace for “${action.query}” to find matching items.`;
-    case 'read_item':
-      return 'I will read the linked item’s details and properties.';
-    case 'read_note':
-      return 'I will read the linked note’s content for context.';
-    case 'read_structure':
-      return "I will read the linked item's fields, views and how many children it has.";
-    case 'create_note':
-      return `I will create a note named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}${action.markdown ? ', with the content shown below' : ', with an empty body'}.`;
-    case 'append_note':
-      return 'I will add the content below to the end of the linked note, preserving its existing content.';
-    case 'rename_item':
-      return `I will rename the linked item to “${action.title}”.`;
-    case 'move_item':
-      return `I will move the linked item ${action.parentId ? 'inside the linked destination' : 'to the top level of this workspace'}.`;
-    case 'set_properties':
-      return 'I will update the linked item with the property values shown below, leaving other properties unchanged.';
-    case 'trash_item':
-      return 'I will move the linked item to Trash. It can be restored later.';
-    case 'restore_item':
-      return 'I will restore the linked item from Trash.';
-    case 'list_templates':
-      return action.query
-        ? `I will look through your templates for “${action.query}” to see what fits.`
-        : 'I will look through your templates to see what fits.';
-    case 'read_template':
-      return 'I will read the linked template’s outline to see if it fits.';
-    case 'apply_template':
-      return `I will create “${action.title}” from the linked template${action.parentId ? ' inside the linked destination' : ' at the top level of this workspace'}.`;
-    case 'create_structured':
-      return `I will create a structured item named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}.`;
-    case 'add_view':
-      return 'I will add the view described below to the linked item.';
-    case 'create_entries':
-      return 'I will add the entries described below to the linked destination.';
-    case 'add_fields':
-      return 'I will add the fields described below to the linked item, leaving existing fields unchanged.';
-    case 'edit_form':
-      return 'I will update the linked form as described below, preserving its companion view.';
-    case 'set_recurrence':
-      return 'I will make the linked item repeat according to the schedule described below.';
-  }
+export function formatPreview(model: PreviewModel): string {
+  const destination = [...model.destination.path, model.destination.title]
+    .filter((part, index, all) => index === 0 || part !== all[index - 1])
+    .join(' / ');
+  const lines = [
+    model.headline,
+    `Destination: ${destination}`,
+    `Counts: ${String(model.counts.items)} items, ${String(model.counts.fields)} fields, ${String(model.counts.views)} views, ${String(model.counts.entries)} entries, ${String(model.counts.writes)} writes`,
+  ];
+  const appendNodes = (nodes: PreviewModel['tree'], depth: number): void => {
+    for (const node of nodes) {
+      lines.push(`${'  '.repeat(depth)}- ${node.label}`);
+      for (const detail of node.detail) lines.push(`${'  '.repeat(depth + 1)}${detail}`);
+      if (node.why) lines.push(`${'  '.repeat(depth + 1)}Why: ${node.why}`);
+      appendNodes(node.children, depth + 1);
+    }
+  };
+  appendNodes(model.tree, 0);
+  for (const note of model.notes) lines.push(`Note: ${note}`);
+  for (const warning of model.warnings) lines.push(`Warning: ${warning.path}: ${warning.message}`);
+  for (const problem of model.problems) lines.push(`Problem: ${problem.path}: ${problem.message}`);
+  if (model.neverDoes.length > 0) lines.push(`Never: ${model.neverDoes.join('; ')}`);
+  return lines.join('\n');
 }

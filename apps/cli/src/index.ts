@@ -61,7 +61,14 @@ import {
 } from './commands/history.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, inspectViews, setViews } from './commands/views.ts';
-import { getSchema, setProps, setSchema } from './commands/structure.ts';
+import { getSchema, readStructureOutline, setProps, setSchema } from './commands/structure.ts';
+import {
+  blueprintBuild,
+  blueprintCatalog,
+  blueprintDescribe,
+  blueprintSave,
+  blueprintValidate,
+} from './commands/blueprint.ts';
 import {
   clearRecurrence,
   completeRecurrence,
@@ -81,6 +88,7 @@ import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
+import { petEval } from './commands/pet-eval.ts';
 import {
   petCommand,
   petToolRun,
@@ -196,6 +204,27 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       const options: PetToolRunOptions = command.optsWithGlobals();
       await run(() => petToolRun(flags.profile, toolId, options, outputOptions(flags.json)));
+    });
+
+  pet
+    .command('eval')
+    .description('Run a scripted companion evaluation against the connected provider.')
+    .requiredOption('--suite <name>', 'evaluation suite; consult is available')
+    .option('--scenario <id>', 'run one scenario')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      const options: {
+        suite: string;
+        scenario?: string;
+        model?: string;
+        apiUrl?: string;
+        workspace?: string;
+        pet?: string;
+      } = command.optsWithGlobals();
+      if (options.suite !== 'consult') throw new Error('Only the consult eval suite is available.');
+      await run(() =>
+        petEval(flags.profile, { ...options, suite: 'consult' }, outputOptions(flags.json)),
+      );
     });
 
   auth
@@ -1057,6 +1086,87 @@ export function buildProgram(): Command {
     });
 
   const schema = program.command('schema').description("An item's declared property schema.");
+
+  const structureRead = program
+    .command('structure')
+    .description("An item's fields, views and child count as the pet sees them.");
+
+  structureRead
+    .command('read <itemId>')
+    .description('Read an item’s effective fields, views and bounded child count.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readStructureOutline(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  const blueprint = program
+    .command('blueprint')
+    .description('Inspect and build a Design mode blueprint.');
+  blueprint
+    .command('catalog')
+    .description('Print the generated structure catalog.')
+    .option('--text <mode>', 'rendered chat or consult catalog')
+    .action(async (options: { text?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(async () => {
+        if (options.text && options.text !== 'chat' && options.text !== 'consult')
+          throw new Error('--text must be chat or consult.');
+        await blueprintCatalog(
+          options.text as 'chat' | 'consult' | undefined,
+          outputOptions(flags.json),
+        );
+      });
+    });
+  blueprint
+    .command('validate <file>')
+    .description('Validate a blueprint without writing it.')
+    .option('--parent <id>', 'destination item whose fields are inherited')
+    .action(async (file: string, options: { parent?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => blueprintValidate(flags.profile, file, options, outputOptions(flags.json)));
+    });
+  blueprint
+    .command('describe <file>')
+    .description('Preview a blueprint without writing it.')
+    .option('--parent <id>', 'destination item whose fields are inherited')
+    .action(async (file: string, options: { parent?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => blueprintDescribe(flags.profile, file, options, outputOptions(flags.json)));
+    });
+  blueprint
+    .command('build <file>')
+    .description('Build a blueprint as a draft and print its write ledger.')
+    .option('--parent <id>', 'destination item')
+    .option('--workspace <id>', 'workspace for the Pet drafts sandbox')
+    .option('--yes', 'confirm the blueprint build', false)
+    .action(
+      async (
+        file: string,
+        options: { parent?: string; workspace?: string; yes?: boolean },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => blueprintBuild(flags.profile, file, options, outputOptions(flags.json)));
+      },
+    );
+  blueprint
+    .command('save <rootId> <spec-file>')
+    .description('Save a built item tree as a reusable template.')
+    .option('--yes', 'confirm template capture', false)
+    .requiredOption('--idempotency-key <key>', 'stable key for safe retries')
+    .action(
+      async (
+        rootId: string,
+        specFile: string,
+        options: { yes?: boolean; idempotencyKey: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          blueprintSave(flags.profile, rootId, specFile, options, outputOptions(flags.json)),
+        );
+      },
+    );
 
   schema
     .command('get <itemId>')

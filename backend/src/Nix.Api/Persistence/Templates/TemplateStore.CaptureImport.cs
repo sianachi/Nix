@@ -28,7 +28,8 @@ public sealed partial class TemplateStore
         bool includeBody,
         bool includeChildren,
         string idempotencyKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? expectedFingerprint = null)
     {
         if (InvalidKey(idempotencyKey)
             || string.IsNullOrWhiteSpace(title)
@@ -63,6 +64,7 @@ public sealed partial class TemplateStore
             includeBody,
             includeChildren,
             idempotencyKey,
+            expectedFingerprint,
             cancellationToken).ConfigureAwait(false);
         if (replay.IsFailure)
         {
@@ -78,6 +80,13 @@ public sealed partial class TemplateStore
         if (capacity.IsFailure)
         {
             return Result.Failure<TemplateCapturePlan>(capacity.Error);
+        }
+
+        var root = await RegularItemAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+        if (root is null || root.WorkspaceId != workspaceId)
+        {
+            return Result.Failure<TemplateCapturePlan>(
+                TemplateErrors.Invalid($"A template may contain at most {MaximumTemplateItems:N0} items."));
         }
 
         // A template is a copy that outlives its source and is applied by whoever may use the
@@ -99,6 +108,21 @@ public sealed partial class TemplateStore
         {
             return Result.Failure<TemplateCapturePlan>(
                 TemplateErrors.Invalid($"A template may contain at most {MaximumTemplateItems:N0} items."));
+        }
+
+        TemplateCaptureSnapshot? approvedSnapshot = null;
+        if (expectedFingerprint is not null)
+        {
+            if (expectedFingerprint.Length != 64 || expectedFingerprint.Any(character => !char.IsAsciiHexDigit(character)))
+            {
+                return Result.Failure<TemplateCapturePlan>(TemplateErrors.Invalid("The capture preview fingerprint is invalid."));
+            }
+            approvedSnapshot = await CaptureSnapshotAsync(source, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(approvedSnapshot.Fingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return Result.Failure<TemplateCapturePlan>(TemplateErrors.Conflict(
+                    "The source changed since approval. Preview it again before saving."));
+            }
         }
 
         if (_validator.Depth(source, sourceItemId) > MaximumTemplateDepth)
@@ -176,6 +200,13 @@ public sealed partial class TemplateStore
                 TargetItemId = targetIds[item.Id],
                 ItemType = item.Type,
                 BodyRequired = bodyRequired,
+                CheckHead = bodyRequired && approvedSnapshot is not null,
+                ExpectedHeadSeq = bodyRequired && approvedSnapshot is not null
+                    ? approvedSnapshot.BodyHeads[item.Id]
+                    : null,
+                ExpectedDocId = bodyRequired && approvedSnapshot is not null
+                    ? approvedSnapshot.BodyDocIds[item.Id]
+                    : null,
             });
         }
 
@@ -209,6 +240,7 @@ public sealed partial class TemplateStore
             Kind = TemplateOperationKind.Capture,
             IdempotencyKey = idempotencyKey,
             SourceItemId = sourceItemId,
+            CaptureFingerprint = expectedFingerprint,
             ActorId = Context.PrincipalId,
             DraftTitle = title.Trim(),
             DraftDescription = description,
@@ -242,7 +274,10 @@ public sealed partial class TemplateStore
             mappings.Where(mapping => mapping.BodyRequired).Select(mapping => new TemplateBodyCopy(
                 mapping.SourceItemId!.Value,
                 mapping.TargetItemId,
-                mapping.ItemType)).ToArray()));
+                mapping.ItemType,
+                mapping.CheckHead,
+                mapping.ExpectedHeadSeq,
+                mapping.ExpectedDocId)).ToArray()));
     }
 
     /// <summary>Stages a complete validated template-profile import.</summary>

@@ -362,6 +362,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<OpenDailyNote, Guid>, OpenDailyNoteHandler>();
 
         services.AddScoped<IQueryHandler<ListTemplates, Result<TemplateLibrarySnapshot>>, ListTemplatesHandler>();
+        services.AddScoped<IQueryHandler<PreviewTemplateCapture, Result<TemplateCaptureSnapshot>>, PreviewTemplateCaptureHandler>();
         services.AddScoped<IQueryHandler<GetTemplate, Result<TemplateDetailSnapshot>>, GetTemplateHandler>();
         services.AddScoped<IQueryHandler<GetTemplateItem, Result<TemplateItemSnapshot>>, GetTemplateItemHandler>();
         services.AddScoped<ICommandHandler<DeleteTemplate, bool>, DeleteTemplateHandler>();

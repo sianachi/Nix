@@ -183,6 +183,20 @@ export function describeStep(step: Step, context: DescribeContext): PreviewNode 
         children: [],
       };
     }
+    case 'setNodeSchema': {
+      return {
+        label: 'Set inherited fields',
+        detail: step.schema.properties.map(fieldDescriptor),
+        children: [],
+      };
+    }
+    case 'setNodeProperties': {
+      return {
+        label: 'Set item values',
+        detail: describePropertiesRecord(step.properties),
+        children: [],
+      };
+    }
     case 'appendBody': {
       return { label: 'Note content', detail: [truncateText(step.markdown)], children: [] };
     }
@@ -241,6 +255,11 @@ function countSteps(steps: readonly Step[]): PreviewModel['counts'] {
       case 'createItem':
         items += 1;
         entries += 1;
+        break;
+      case 'setNodeSchema':
+        fields += step.schema.properties.length;
+        break;
+      case 'setNodeProperties':
         break;
       case 'appendBody':
       case 'setRecurrence':

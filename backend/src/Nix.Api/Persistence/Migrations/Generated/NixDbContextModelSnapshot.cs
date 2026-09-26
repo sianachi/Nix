@@ -2255,6 +2255,11 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("actor_id");
 
+                    b.Property<string>("CaptureFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("capture_fingerprint");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -2348,6 +2353,18 @@ namespace Nix.Persistence.Migrations.Generated
                     b.Property<bool>("BodyRequired")
                         .HasColumnType("boolean")
                         .HasColumnName("body_required");
+
+                    b.Property<bool>("CheckHead")
+                        .HasColumnType("boolean")
+                        .HasColumnName("check_head");
+
+                    b.Property<Guid?>("ExpectedDocId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("expected_doc_id");
+
+                    b.Property<long?>("ExpectedHeadSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("expected_head_seq");
 
                     b.Property<string>("ItemType")
                         .IsRequired()

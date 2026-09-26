@@ -206,6 +206,16 @@ describe('describeStep', () => {
       title: 'Entry',
       properties: { status: 'A' },
     },
+    setNodeSchema: {
+      kind: 'setNodeSchema',
+      target: { nodeId: 'root' },
+      schema: { properties: [property], inherit: true },
+    },
+    setNodeProperties: {
+      kind: 'setNodeProperties',
+      target: { nodeId: 'root' },
+      properties: { status: 'A' },
+    },
     appendBody: { kind: 'appendBody', target: { itemId: 'item-1' }, markdown: 'Hello' },
     setRecurrence: {
       kind: 'setRecurrence',

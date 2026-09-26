@@ -83,6 +83,8 @@ export type Step =
       /** Blueprint child is attached to this previously-created blueprint node. */
       parentNodeId?: string;
     }
+  | { kind: 'setNodeSchema'; target: { nodeId: string }; schema: StructureSchema }
+  | { kind: 'setNodeProperties'; target: { nodeId: string }; properties: Record<string, unknown> }
   | { kind: 'appendBody'; target: StepTarget; markdown: string }
   | { kind: 'setRecurrence'; target: StepTarget; rule: CompiledRecurrenceRule }
   | { kind: 'setHabit'; target: StepTarget; settings: CompiledHabitSettings }
@@ -100,6 +102,8 @@ const STEP_KIND_KEYS = {
   appendViewSetup: true,
   replaceViewSetup: true,
   createItem: true,
+  setNodeSchema: true,
+  setNodeProperties: true,
   appendBody: true,
   setRecurrence: true,
   setHabit: true,

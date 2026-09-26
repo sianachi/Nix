@@ -1,0 +1,34 @@
+{
+  "id": "job-hunt",
+  "problem": "I need to organize job applications, interviews and follow-up dates.",
+  "answers": [
+    {
+      "pattern": "stage|status",
+      "reply": "Applied, interview, offer, and rejected."
+    },
+    {
+      "pattern": "date|deadline",
+      "reply": "Track interview and follow-up due dates."
+    },
+    {
+      "pattern": "company",
+      "reply": "Record company and role."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "view",
+        "viewKind": "board"
+      },
+      {
+        "kind": "fieldKey",
+        "key": "due_date"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 12,
+    "preferComputed": []
+  }
+}

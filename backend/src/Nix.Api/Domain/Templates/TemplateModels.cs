@@ -48,7 +48,10 @@ public sealed record TemplateItemMapping(
 public sealed record TemplateBodyCopy(
     ItemId SourceItemId,
     ItemId TargetItemId,
-    string ItemType);
+    string ItemType,
+    bool CheckHead = false,
+    long? ExpectedHeadSeq = null,
+    Guid? ExpectedDocId = null);
 
 /// <summary>One archive body Collab must hydrate.</summary>
 public sealed record TemplateBodyWrite(

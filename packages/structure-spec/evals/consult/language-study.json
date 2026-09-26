@@ -1,0 +1,33 @@
+{
+  "id": "language-study",
+  "problem": "I want to keep a daily language study practice and track topics.",
+  "answers": [
+    {
+      "pattern": "habit|daily",
+      "reply": "I study 30 minutes daily."
+    },
+    {
+      "pattern": "language|topic",
+      "reply": "Spanish vocabulary and grammar."
+    },
+    {
+      "pattern": "goal|progress",
+      "reply": "I want to see my consistency."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "habit"
+      },
+      {
+        "kind": "view",
+        "viewKind": "habit_tracker"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 14,
+    "preferComputed": []
+  }
+}

@@ -66,6 +66,74 @@ describe('companion work approvals', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
   });
+  it('passes the complete approved source fingerprint for template saving', async () => {
+    const fingerprint = 'a'.repeat(64);
+    const saveRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'save_as_template',
+          itemId: '33333333-3333-4333-8333-333333333333',
+          parentId: '',
+          title: 'Job hunt',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: '{}',
+        }),
+      })),
+    };
+    client.query.mockImplementation((endpoint: { operation: string; path: string }) => {
+      if (endpoint.operation !== 'templates.capture.preview')
+        throw new Error(`Unexpected preview query: ${endpoint.operation}`);
+      const excluded = endpoint.path.includes('excludeSampleDescendants=true');
+      return Promise.resolve({
+        fingerprint,
+        captureFingerprint: excluded ? 'b'.repeat(64) : fingerprint,
+        sourceTitle: 'Applications',
+        itemCount: excluded ? 2 : 3,
+      });
+    });
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...saveRuntime,
+          tools: saveRuntime.tools.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    runWorkspaceToolSpy.mockResolvedValueOnce({
+      text: 'saved',
+      readOnly: false,
+      touchedParents: [],
+    });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={saveRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        mode="consult"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    expect(await screen.findByText(/I will save “Applications” and 1 children/)).toBeVisible();
+    expect(screen.getByText('2 items to copy, 1 template write')).toBeVisible();
+    expect(screen.queryByText(/0 fields, 0 views/)).not.toBeInTheDocument();
+    await approveRequest();
+    await waitFor(() => {
+      expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+      mode: 'consult',
+      fence: fingerprint,
+    });
+  });
   it('never executes when the server claim is uncertain', async () => {
     client.execute.mockRejectedValue(new Error('lost claim response'));
     show();
@@ -406,6 +474,7 @@ describe('companion work approvals', () => {
         runtime={structuredRuntime}
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
+        mode="consult"
         onChange={vi.fn()}
       />,
       { wrapper: MemoryRouter },
@@ -414,7 +483,13 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
-    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'chat', fence: '|' });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'consult', fence: '|' });
+    expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
+      body: { mode: 'consult', operation: 'tool_claim' },
+    });
+    expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+      body: { mode: 'consult', operation: 'tool_result' },
+    });
     expect(changed.mock.calls).toEqual([
       [
         {
@@ -490,5 +565,259 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(client.invalidate).toHaveBeenCalledWith(['templates']);
     });
+  });
+
+  it('runs consult blueprint validation without approval buttons or workspace reads', async () => {
+    const validationRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'validate_blueprint',
+          itemId: '',
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: JSON.stringify({
+            version: 1,
+            title: 'Design draft',
+            summary: 'A small design.',
+            root: { id: 'plan', title: 'Plan' },
+          }),
+        }),
+      })),
+    };
+    let finishValidation: (() => void) | undefined;
+    client.execute.mockImplementation(
+      (endpoint: {
+        body: { operation: string; requestId: string; toolResult?: string; toolSuccess?: boolean };
+      }) =>
+        endpoint.body.operation === 'tool_claim'
+          ? new Promise<void>((resolve) => {
+              finishValidation = resolve;
+            }).then(() => ({
+              ...validationRuntime,
+              tools: validationRuntime.tools.map((tool) => ({
+                ...tool,
+                status: 'claimed',
+                claimId: endpoint.body.requestId,
+              })),
+            }))
+          : Promise.resolve({
+              ...validationRuntime,
+              tools: validationRuntime.tools.map((tool) => ({
+                ...tool,
+                status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+                claimId: endpoint.body.requestId,
+                ...(endpoint.body.operation === 'tool_result'
+                  ? { result: endpoint.body.toolResult }
+                  : {}),
+              })),
+            }),
+    );
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={validationRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        mode="consult"
+        onChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText('Checking the design (no workspace access).')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
+    expect(client.query).not.toHaveBeenCalled();
+    expect(finishValidation).toBeTypeOf('function');
+    if (finishValidation) finishValidation();
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(2);
+    });
+    expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    await expect(
+      runWorkspaceToolSpy.mock.results[0]?.value as Promise<unknown>,
+    ).resolves.toMatchObject({
+      text: expect.stringContaining('"ok":true') as unknown,
+      readOnly: true,
+      touchedParents: [],
+    });
+  });
+
+  it('announces blueprint step progress and stores only outcome counts in the receipt', async () => {
+    const buildId = '33333333-3333-4333-8333-333333333333';
+    const buildRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'build_blueprint',
+          itemId: '',
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: JSON.stringify({
+            version: 1,
+            title: 'Private title',
+            summary: 'A small design.',
+            root: { id: 'private-node', title: 'Private title' },
+          }),
+        }),
+      })),
+    };
+    const fakeClient = {
+      query: vi.fn((endpoint: { path?: string }) => {
+        if (endpoint.path === '/items/33333333-3333-4333-8333-333333333333')
+          return Promise.resolve({
+            id: '33333333-3333-4333-8333-333333333333',
+            workspaceId: '11111111-1111-4111-8111-111111111111',
+            parentId: null,
+            title: 'Pet drafts',
+          });
+        return Promise.reject(new Error(`Unexpected preview query: ${String(endpoint.path)}`));
+      }),
+      paginate: vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          await Promise.resolve();
+          yield* [];
+        },
+      })),
+      execute: vi.fn(
+        (endpoint: { body: { operation: string; requestId: string; toolResult?: string } }) =>
+          Promise.resolve({
+            ...buildRuntime,
+            tools: buildRuntime.tools.map((tool) => ({
+              ...tool,
+              status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+              claimId: endpoint.body.requestId,
+            })),
+          }),
+      ),
+      invalidate: vi.fn(),
+    };
+    let finishRun: (() => void) | undefined;
+    runWorkspaceToolSpy.mockImplementationOnce(async (...callArgs: unknown[]) => {
+      const options = callArgs[4] as { onProgress?: (completed: number, total: number) => void };
+      options.onProgress?.(1, 2);
+      await new Promise<void>((resolve) => {
+        finishRun = resolve;
+      });
+      return {
+        text: JSON.stringify({
+          rootId: buildId,
+          complete: true,
+          ledger: [
+            { nodeId: 'private-node', step: 'createItem', status: 'done', itemId: buildId },
+            { nodeId: '$sandbox', step: 'ensureSandbox', status: 'done' },
+          ],
+        }),
+        readOnly: false,
+        touchedParents: [null],
+      };
+    });
+    render(
+      <MemoryRouter>
+        <PetWorkTools
+          client={fakeClient as unknown as NixClient}
+          runtime={buildRuntime}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          mode="consult"
+          onChange={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    const approveButton = await screen.findByRole('button', { name: 'Approve request' });
+    await waitFor(() => {
+      expect(approveButton).toBeEnabled();
+    });
+    await userEvent.click(approveButton);
+    await waitFor(() => {
+      expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    });
+    expect(await screen.findByText('Building 1 of 2...')).toBeInTheDocument();
+    if (finishRun) finishRun();
+    await waitFor(() => {
+      expect(fakeClient.execute).toHaveBeenCalledTimes(2);
+    });
+    expect(Object.values(sessionStorage)).not.toContain('Private title');
+    const storedReceipts = Object.keys(sessionStorage).map((key) => sessionStorage.getItem(key));
+    expect(storedReceipts).toContain('Built 2 of 2.');
+    expect(storedReceipts.join(' ')).not.toContain('Private title');
+  });
+
+  it('offers confirmed cleanup for an incomplete blueprint result', async () => {
+    const buildId = '33333333-3333-4333-8333-333333333333';
+    const incompleteRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        status: 'completed' as const,
+        arguments: JSON.stringify({
+          operation: 'build_blueprint',
+          itemId: '',
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: JSON.stringify({
+            version: 1,
+            title: 'Plan',
+            summary: 'A small design.',
+            root: { id: 'plan', title: 'Plan' },
+          }),
+        }),
+        result: JSON.stringify({
+          rootId: buildId,
+          complete: false,
+          ledger: [
+            { nodeId: 'plan', status: 'done' },
+            { nodeId: 'task', status: 'failed' },
+          ],
+        }),
+      })),
+    };
+    client.query.mockResolvedValue({
+      id: buildId,
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      parentId: null,
+      title: 'Plan',
+    });
+    client.execute.mockResolvedValue(incompleteRuntime);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <MemoryRouter>
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={incompleteRuntime}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          mode="consult"
+          onChange={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByText('Stopped after 1 of 2. The draft is incomplete.'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Move draft to trash' }));
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'items.delete' }),
+        expect.anything(),
+      );
+    });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Move the incomplete draft to Trash? It can be restored later.',
+    );
+    expect(screen.getByText('Incomplete draft moved to Trash.')).toBeInTheDocument();
+    expect(Object.keys(sessionStorage)).toHaveLength(0);
   });
 });

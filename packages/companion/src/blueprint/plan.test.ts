@@ -106,6 +106,36 @@ describe('planBuild', () => {
     );
   });
 
+  it('does not double-prefix a sample title supplied by a validated blueprint', () => {
+    const result = plan({
+      id: 'root',
+      title: 'Root',
+      children: [
+        { id: 'plain', title: 'Sample: Example book', sample: true },
+        {
+          id: 'structured',
+          title: 'Sample: Example board',
+          sample: true,
+          views: [{ kind: 'list' }],
+        },
+      ],
+    });
+    expect(result.steps).toContainEqual(
+      expect.objectContaining({
+        kind: 'createItem',
+        nodeId: 'plain',
+        title: 'Sample: Example book',
+      }),
+    );
+    expect(result.steps).toContainEqual(
+      expect.objectContaining({
+        kind: 'createStructuredItem',
+        nodeId: 'structured',
+        title: 'Sample: Example board',
+      }),
+    );
+  });
+
   it('produces the same plan for the same blueprint and clock', () => {
     const bp = blueprint({
       id: 'root',
@@ -116,6 +146,52 @@ describe('planBuild', () => {
     });
     const options = { parentId: null, sandboxExists: true, clock };
     expect(planBuild(bp, options)).toEqual(planBuild(bp, options));
+  });
+
+  it('persists fields on a plain parent before creating inheriting children', () => {
+    const result = plan(
+      {
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Status', type: 'select', options: ['Open', 'Done'] }],
+        values: { status: 'Open' },
+        children: [{ id: 'child', title: 'Child', views: [{ kind: 'board', groupBy: 'status' }] }],
+      },
+      { sandboxExists: true },
+    );
+    expect(result.steps.slice(0, 4).map((step) => step.kind)).toEqual([
+      'createItem',
+      'setNodeSchema',
+      'setNodeProperties',
+      'createStructuredItem',
+    ]);
+    expect(result.steps[0]).toMatchObject({ properties: null });
+    expect(result.steps[1]).toMatchObject({
+      target: { nodeId: 'root' },
+      schema: { inherit: true, properties: [{ key: 'status', type: 'select' }] },
+    });
+    expect(result.steps[2]).toMatchObject({
+      target: { nodeId: 'root' },
+      properties: { status: 'Open' },
+    });
+    expect(result.writes).toBe(4);
+  });
+
+  it('sets structured node values after its atomic schema and view creation', () => {
+    const result = plan(
+      {
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Status', type: 'text' }],
+        views: [{ kind: 'list' }],
+        values: { status: 'Open' },
+      },
+      { sandboxExists: true },
+    );
+    expect(result.steps.map((step) => step.kind)).toEqual([
+      'createStructuredItem',
+      'setNodeProperties',
+    ]);
   });
 
   it('refuses a plan with 81 writes', () => {

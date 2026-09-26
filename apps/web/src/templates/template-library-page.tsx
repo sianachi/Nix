@@ -18,6 +18,7 @@ import {
 import { templateFailure } from './use-templates';
 import { TemplateViewPreview } from './template-view-preview';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { usePetSettings } from '../pets/use-pet-settings';
 
 function originLabel(template: TemplateSummary): string {
   if (template.origin === 'managed') return 'Managed from file';
@@ -38,6 +39,7 @@ export function TemplateLibraryPage(): ReactNode {
   const client = useApiClient();
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
+  const { saved: petSettings } = usePetSettings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deleting, setDeleting] = useState<TemplateSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -243,16 +245,28 @@ export function TemplateLibraryPage(): ReactNode {
               Reuse the fields, views, and starting content your team has agreed on.
             </Text>
           </div>
-          {library.capabilities.canManage ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void navigate(`/w/${workspaceId}/templates/import`);
-              }}
-            >
-              <Icon icon={FileUp} size="sm" /> Import template
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {petSettings?.settings.enabled ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void navigate(`/w/${workspaceId}?pet=design`);
+                }}
+              >
+                Design one with your pet
+              </Button>
+            ) : null}
+            {library.capabilities.canManage ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void navigate(`/w/${workspaceId}/templates/import`);
+                }}
+              >
+                <Icon icon={FileUp} size="sm" /> Import template
+              </Button>
+            ) : null}
+          </div>
         </header>
 
         <Field label="Search templates">

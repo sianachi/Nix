@@ -1,0 +1,33 @@
+{
+  "id": "small-garden",
+  "problem": "I need to keep track of plants, watering and harvests.",
+  "answers": [
+    {
+      "pattern": "plant|crop",
+      "reply": "Tomatoes, herbs and flowers."
+    },
+    {
+      "pattern": "water|repeat",
+      "reply": "Watering should repeat weekly."
+    },
+    {
+      "pattern": "date|calendar",
+      "reply": "Show planting and harvest dates."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "view",
+        "viewKind": "calendar"
+      },
+      {
+        "kind": "recurrence"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 15,
+    "preferComputed": []
+  }
+}

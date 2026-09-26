@@ -9,6 +9,9 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  blueprintSchema,
+  validateBlueprint,
+  saveSpecSchema,
 } from '@nix/structure-spec';
 import type { CompanionPorts } from './ports.js';
 import { applyTemplate } from './templates/apply.js';
@@ -23,7 +26,15 @@ import * as createEntries from './structure/create-entries.js';
 import * as addFields from './structure/add-fields.js';
 import * as editForm from './structure/edit-form.js';
 import * as setRecurrence from './structure/recurrence.js';
-import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
+import {
+  CONSULT_ONLY_OPERATIONS,
+  READ_ONLY_OPERATIONS,
+  WorkspaceToolRefusal,
+  workspaceToolSchema,
+} from './tool-args.js';
+import { planBuild } from './blueprint/plan.js';
+import { executeBuild } from './blueprint/build.js';
+import { saveAsTemplate } from './templates/save.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -31,7 +42,9 @@ export interface RunOptions {
   mode?: 'chat' | 'consult';
   toolId?: string;
   claimId?: string;
+  buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[];
   fence?: StructureFingerprint;
+  onProgress?: (completed: number, total: number) => void;
 }
 
 export interface WorkspaceToolOutcome {
@@ -52,15 +65,52 @@ export async function runWorkspaceTool(
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
   const args = workspaceToolSchema.parse(JSON.parse(raw));
+  if (CONSULT_ONLY_OPERATIONS.has(args.operation) && options.mode !== 'consult')
+    throw new WorkspaceToolRefusal('This operation is only available in Design mode.');
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
-  const rawSpec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+  const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
+  if (args.operation === 'validate_blueprint') {
+    const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
+    return { text: JSON.stringify(report), readOnly: true, touchedParents: [] };
+  }
+  if (args.operation === 'build_blueprint') {
+    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    if (options.fence === undefined || context.fingerprint !== options.fence)
+      throw new WorkspaceToolRefusal(
+        'The destination changed since you approved this. Review the design again before building.',
+      );
+    const blueprint = blueprintSchema.parse(rawSpec);
+    const report =
+      context.blueprintReport ??
+      validateBlueprint(blueprint, {
+        inheritedFields: context.inheritedFields,
+        today: ports.clock.today(),
+      });
+    if (!report.ok)
+      throw new WorkspaceToolRefusal(
+        report.problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n'),
+      );
+    const plan = planBuild(blueprint, {
+      parentId: args.parentId || null,
+      sandboxExists: context.sandboxExists ?? false,
+      clock: ports.clock,
+      inheritedFields: context.inheritedFields,
+    });
+    const result = await executeBuild(ports, workspaceId, plan, signal, options.onProgress);
+    return {
+      text: JSON.stringify(result),
+      readOnly: false,
+      touchedParents: [args.parentId || null],
+    };
+  }
   // Scope guards supplement, never replace, permission checks in Core and collab. Check every
   // named item identity before loading schema, views, paths, template preflight, or bodies.
   if (
     args.operation !== 'apply_template' &&
     args.operation !== 'read_template' &&
+    args.operation !== 'save_as_template' &&
     args.operation !== 'restore_item' &&
     ![
       'list_items',
@@ -316,6 +366,32 @@ export async function runWorkspaceTool(
       );
       break;
     }
+    case 'save_as_template': {
+      const spec = saveSpecSchema.parse(rawSpec);
+      const context = await loadPreviewContext(ports, workspaceId, args, signal);
+      if (
+        options.fence === undefined ||
+        context.fingerprint !== options.fence ||
+        context.captureFingerprint === undefined
+      )
+        throw new WorkspaceToolRefusal(
+          'The source changed since you approved this. Review it again before saving.',
+        );
+      result = await saveAsTemplate(
+        ports,
+        workspaceId,
+        { itemId: args.itemId, title: args.title, spec },
+        {
+          toolId: options.toolId,
+          claimId: options.claimId,
+          approvedFingerprint: options.fence,
+          captureFingerprint: context.captureFingerprint,
+          buildLedger: options.buildLedger,
+        },
+        signal,
+      );
+      break;
+    }
     default: {
       const item = await check(args.itemId);
       switch (args.operation) {
@@ -374,6 +450,7 @@ export async function runWorkspaceTool(
       'create_note',
       'move_item',
       'apply_template',
+      'save_as_template',
       'create_structured',
       'create_entries',
     ].includes(args.operation)

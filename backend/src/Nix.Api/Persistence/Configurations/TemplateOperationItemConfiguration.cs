@@ -22,6 +22,9 @@ internal sealed class TemplateOperationItemConfiguration : IEntityTypeConfigurat
         builder.Property(mapping => mapping.TargetItemId).HasColumnName("target_item_id");
         builder.Property(mapping => mapping.ItemType).HasColumnName("item_type").HasMaxLength(64);
         builder.Property(mapping => mapping.BodyRequired).HasColumnName("body_required");
+        builder.Property(mapping => mapping.CheckHead).HasColumnName("check_head");
+        builder.Property(mapping => mapping.ExpectedHeadSeq).HasColumnName("expected_head_seq");
+        builder.Property(mapping => mapping.ExpectedDocId).HasColumnName("expected_doc_id");
 
         builder.HasIndex(mapping => new { mapping.TenantId, mapping.TargetItemId }).IsUnique();
         builder.HasIndex(mapping => new { mapping.TenantId, mapping.SourceItemId });

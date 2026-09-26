@@ -100,6 +100,7 @@ public sealed partial class TemplateStore
         bool includeBody,
         bool includeChildren,
         string idempotencyKey,
+        string? expectedFingerprint,
         CancellationToken cancellationToken)
     {
         var operation = await _database.TemplateOperations.FirstOrDefaultAsync(
@@ -121,7 +122,8 @@ public sealed partial class TemplateStore
             || !string.Equals(operation.DraftTitle, title, StringComparison.Ordinal)
             || !string.Equals(operation.DraftDescription, description, StringComparison.Ordinal)
             || catalog.IncludeBody != includeBody
-            || catalog.IncludeChildren != includeChildren)
+            || catalog.IncludeChildren != includeChildren
+            || !string.Equals(operation.CaptureFingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase))
         {
             return Result.Failure<TemplateCapturePlan?>(
                 TemplateErrors.Conflict("This idempotency key belongs to a different template capture."));
@@ -141,7 +143,10 @@ public sealed partial class TemplateStore
             mappings.Where(mapping => mapping.BodyRequired).Select(mapping => new TemplateBodyCopy(
                 mapping.SourceItemId!.Value,
                 mapping.TargetItemId,
-                mapping.ItemType)).ToArray()));
+                mapping.ItemType,
+                mapping.CheckHead,
+                mapping.ExpectedHeadSeq,
+                mapping.ExpectedDocId)).ToArray()));
     }
 
     private async ValueTask<TemplateDraftPlan?> DraftReplayAsync(

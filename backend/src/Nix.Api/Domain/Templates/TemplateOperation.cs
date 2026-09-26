@@ -28,6 +28,9 @@ public sealed class TemplateOperation
     /// <summary>Gets the ordinary root captured by a capture operation.</summary>
     public ItemId? SourceItemId { get; init; }
 
+    /// <summary>Approved capture snapshot digest, or null for a legacy capture.</summary>
+    public string? CaptureFingerprint { get; init; }
+
     /// <summary>Gets the acting principal.</summary>
     public required PrincipalId ActorId { get; init; }
 

@@ -86,9 +86,36 @@ describe('nixctl mcp workspace tools', () => {
         'resume_template_file_copy',
         'pet_runtime',
         'pet_tool_run',
+        'structure_read',
+        'blueprint_validate',
+        'blueprint_describe',
+        'blueprint_build',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('requires explicit confirmation before a blueprint build reaches the API', async () => {
+    const connected = await connect('owner', async () => unexpectedRequest());
+    try {
+      const result = await connected.client.callTool({
+        name: 'blueprint_build',
+        arguments: {
+          specJson: JSON.stringify({
+            version: 1,
+            title: 'Draft',
+            summary: '',
+            root: { id: 'root', title: 'Draft' },
+          }),
+          workspaceId: WORKSPACE,
+          confirm: false,
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain('confirm: true');
     } finally {
       await connected.close();
     }
@@ -873,7 +900,10 @@ describe('nixctl mcp workspace tools', () => {
       expect(JSON.parse(content[0]?.text ?? '')).toMatchObject({
         toolId,
         status: 'pending',
-        preview: 'I will list the top-level items in this workspace to find what to work on.',
+        preview: {
+          headline: 'I will list the top-level items in this workspace to find what to work on.',
+          counts: { writes: 0 },
+        },
       });
     } finally {
       await connected.close();
