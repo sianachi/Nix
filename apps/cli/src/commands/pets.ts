@@ -386,6 +386,8 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will validate this design without changing anything.';
     case 'build_blueprint':
       return `I will build the approved design${action.parentId ? ' inside the linked destination' : ' in Pet drafts'}.`;
+    case 'save_as_template':
+      return `I will save the linked item as the template “${action.title}”.`;
   }
 }
 

@@ -11,6 +11,7 @@ import {
   viewSetupSpecSchema,
   blueprintSchema,
   validateBlueprint,
+  saveSpecSchema,
 } from '@nix/structure-spec';
 import type { CompanionPorts } from './ports.js';
 import { applyTemplate } from './templates/apply.js';
@@ -33,6 +34,7 @@ import {
 } from './tool-args.js';
 import { planBuild } from './blueprint/plan.js';
 import { executeBuild } from './blueprint/build.js';
+import { saveAsTemplate } from './templates/save.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -40,6 +42,7 @@ export interface RunOptions {
   mode?: 'chat' | 'consult';
   toolId?: string;
   claimId?: string;
+  buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[];
   fence?: StructureFingerprint;
 }
 
@@ -106,6 +109,7 @@ export async function runWorkspaceTool(
   if (
     args.operation !== 'apply_template' &&
     args.operation !== 'read_template' &&
+    args.operation !== 'save_as_template' &&
     args.operation !== 'restore_item' &&
     ![
       'list_items',
@@ -361,6 +365,17 @@ export async function runWorkspaceTool(
       );
       break;
     }
+    case 'save_as_template': {
+      const spec = saveSpecSchema.parse(rawSpec);
+      result = await saveAsTemplate(
+        ports,
+        workspaceId,
+        { itemId: args.itemId, title: args.title, spec },
+        { toolId: options.toolId, claimId: options.claimId, buildLedger: options.buildLedger },
+        signal,
+      );
+      break;
+    }
     default: {
       const item = await check(args.itemId);
       switch (args.operation) {
@@ -419,6 +434,7 @@ export async function runWorkspaceTool(
       'create_note',
       'move_item',
       'apply_template',
+      'save_as_template',
       'create_structured',
       'create_entries',
     ].includes(args.operation)

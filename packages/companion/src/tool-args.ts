@@ -27,6 +27,7 @@ export const workspaceToolSchema = z
       'read_template',
       'apply_template',
       'build_blueprint',
+      'save_as_template',
     ]),
     itemId: optionalId,
     parentId: optionalId,
@@ -57,10 +58,17 @@ export const workspaceToolSchema = z
       'create_entries',
       'validate_blueprint',
       'build_blueprint',
+      'save_as_template',
     ];
     if (!NO_ITEM_ID_REQUIRED.includes(args.operation)) required('itemId');
     if (
-      ['create_note', 'rename_item', 'apply_template', 'create_structured'].includes(args.operation)
+      [
+        'create_note',
+        'rename_item',
+        'apply_template',
+        'create_structured',
+        'save_as_template',
+      ].includes(args.operation)
     )
       required('title');
     if (args.operation === 'append_note') required('markdown');
@@ -92,7 +100,11 @@ export const workspaceToolSchema = z
         }
       }
     }
-    if (args.operation === 'validate_blueprint' || args.operation === 'build_blueprint') {
+    if (
+      args.operation === 'validate_blueprint' ||
+      args.operation === 'build_blueprint' ||
+      args.operation === 'save_as_template'
+    ) {
       if (!args.specJson.trim()) required('specJson');
       else {
         try {
@@ -145,10 +157,9 @@ export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> =
   'read_template',
 ]);
 
-/** Operations only offered in consult mode. Empty until Phase D adds `save_as_template`,
- * `validate_blueprint` and `build_blueprint` (task D.1b onward); kept here now so `run.ts` and a
- * future mode gate have one place to grow this set from. */
+/** Operations only offered in consult mode. */
 export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
   'validate_blueprint',
   'build_blueprint',
+  'save_as_template',
 ]);

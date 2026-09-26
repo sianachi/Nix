@@ -13,6 +13,7 @@ import { checkItem, structureFingerprint, type StructureFingerprint } from './gu
 import { WorkspaceToolRefusal } from './tool-args.js';
 import { validateBlueprint } from '@nix/structure-spec';
 import { findSandbox } from './blueprint/sandbox.js';
+import { readSourceTree } from './templates/save.js';
 
 /** How far up the tree the destination path is walked before it is simply truncated: enough for
  * a preview to read as a breadcrumb, never a full-workspace crawl. */
@@ -45,6 +46,9 @@ export interface PreviewContext {
   warnings?: Problem[];
   blueprintReport?: ValidationReport;
   sandboxExists?: boolean;
+  sourceItemCount?: number;
+  sampleCount?: number;
+  sourceTitle?: string;
 }
 
 const formConditionSchema = z.object({
@@ -176,6 +180,30 @@ export async function loadPreviewContext(
   signal: AbortSignal,
 ): Promise<PreviewContext> {
   const requestOptions = { signal, forceRefresh: true };
+
+  if (args.operation === 'save_as_template') {
+    const source = await readSourceTree(ports, workspaceId, args.itemId, signal);
+    const nodes: (typeof source)[] = [source];
+    for (const node of nodes) nodes.push(...node.children);
+    const excluded = new Set<string>();
+    function markSamples(node: typeof source, underSample = false): void {
+      const isSample = underSample || (node !== source && node.item.title.startsWith('Sample: '));
+      if (isSample) excluded.add(node.item.id);
+      node.children.forEach((child) => {
+        markSamples(child, isSample);
+      });
+    }
+    markSamples(source);
+    return {
+      destination: { title: source.item.title, path: [source.item.title] },
+      inheritedFields: [],
+      fingerprint: structureFingerprint({ declared: [] }, []),
+      problems: [],
+      sourceTitle: source.item.title,
+      sourceItemCount: nodes.length - excluded.size,
+      sampleCount: excluded.size,
+    };
+  }
 
   if (args.operation === 'build_blueprint') {
     const parent = args.parentId

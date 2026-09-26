@@ -257,6 +257,7 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'set_recurrence':
     case 'validate_blueprint':
     case 'build_blueprint':
+    case 'save_as_template':
       throw new Error(`${args.operation} is a spec operation and has no legacy headline.`);
   }
 }
@@ -288,6 +289,31 @@ function describeLegacyOperation(args: PreviewToolArgs, context: PreviewContext)
  * problems are surfaced directly instead.
  */
 export function describeToolCall(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
+  if (args.operation === 'save_as_template') {
+    const spec = JSON.parse(args.specJson) as {
+      includeSamples?: boolean;
+      inputs?: { label: string }[];
+    };
+    const sourceTitle = context.sourceTitle ?? 'the linked item';
+    const sampleNote =
+      (spec.includeSamples ?? false)
+        ? 'Example entries are included.'
+        : `${String(context.sampleCount ?? 0)} example entries are left out.`;
+    const inputLabels = (spec.inputs ?? []).map((input) => input.label);
+    return {
+      headline: `I will save “${sourceTitle}” and ${String(Math.max(0, (context.sourceItemCount ?? 1) - 1))} children as the template “${args.title}”. Bodies are included. ${sampleNote}`,
+      destination: context.destination,
+      counts: { ...emptyCounts(), items: context.sourceItemCount ?? 1, writes: 1 },
+      tree: [],
+      notes: [
+        ...(inputLabels.length ? [`It will ask for: ${inputLabels.join(', ')}.`] : []),
+        'Anyone who can see this workspace’s templates can apply it.',
+      ],
+      warnings: [],
+      problems: [],
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
   if (args.operation === 'validate_blueprint') {
     const report = validateBlueprint(JSON.parse(args.specJson), { inheritedFields: [], today: '' });
     return {

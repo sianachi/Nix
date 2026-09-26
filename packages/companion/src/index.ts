@@ -34,6 +34,13 @@ export {
   type TemplateInputSummary,
   type TemplateOutlineNode,
 } from './templates/read.js';
+export {
+  saveAsTemplate,
+  readSourceTree,
+  type SaveAsTemplateClaim,
+  type SaveAsTemplateInput,
+  type SaveAsTemplateResult,
+} from './templates/save.js';
 export { describeToolCall, type PreviewToolArgs } from './preview.js';
 export type { PreviewModel, PreviewNode } from '@nix/structure-spec';
 export { planBuild, type BuildPlan, type PlanBuildOptions } from './blueprint/plan.js';

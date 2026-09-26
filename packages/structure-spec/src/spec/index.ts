@@ -30,4 +30,7 @@ export type {
 export { resolveFieldRef } from './refs.js';
 export type { FieldRefResolution, ResolvedField } from './refs.js';
 
+export { saveSpecSchema } from './save.js';
+export type { SaveSpec } from './save.js';
+
 export { keyFor } from './keys.js';
