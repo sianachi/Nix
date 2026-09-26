@@ -1,14 +1,11 @@
 import { z } from 'zod';
-import { items, recurrence, search, structure, views } from '@nix/api-client';
+import { items, search, structure } from '@nix/api-client';
 import {
   applySpecSchema,
   entriesSpecSchema,
   fieldsSpecSchema,
   formEditSpecSchema,
   recurrenceSpecSchema,
-  compileAddFields,
-  compileEditForm,
-  compileRecurrence,
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
@@ -23,8 +20,10 @@ import { readStructure } from './structure/read-structure.js';
 import * as createStructured from './structure/create-structured.js';
 import * as addView from './structure/add-view.js';
 import * as createEntries from './structure/create-entries.js';
+import * as addFields from './structure/add-fields.js';
+import * as editForm from './structure/edit-form.js';
+import * as setRecurrence from './structure/recurrence.js';
 import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
-import { toPropertyDefinitionRequest, toViewRequest } from './structure/create-structured.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -159,17 +158,10 @@ export async function runWorkspaceTool(
         throw new WorkspaceToolRefusal(
           report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
         );
-      const step = compileAddFields(spec, { itemId: args.itemId, existing })[0];
-      if (step?.kind !== 'appendViewSetup')
-        throw new Error('add_fields compiled to an unexpected plan.');
-      result = await client.execute(
-        views.appendViewSetup(step.itemId, {
-          properties: step.properties.map(toPropertyDefinitionRequest),
-          views: step.views.map(toViewRequest),
-          makeDefault: step.makeDefault,
-          publishInteractiveFormViewId: null,
-        }),
-        requestOptions,
+      result = await addFields.execute(
+        ports,
+        addFields.compile(spec, { itemId: args.itemId, existing }),
+        signal,
       );
     } else if (args.operation === 'edit_form') {
       const spec = formEditSpecSchema.parse(rawSpec);
@@ -182,20 +174,10 @@ export async function runWorkspaceTool(
         );
       const view = existing.views.find((candidate) => candidate.id === spec.viewId);
       if (view === undefined) throw new WorkspaceToolRefusal('The form view no longer exists.');
-      const step = compileEditForm(spec, { itemId: args.itemId, existing, view })[0];
-      if (step?.kind !== 'replaceViewSetup')
-        throw new Error('edit_form compiled to an unexpected plan.');
-      result = await client.execute(
-        views.replaceViewSetup(step.itemId, step.viewId, {
-          schema: {
-            properties: step.schema.properties.map(toPropertyDefinitionRequest),
-            inherit: step.schema.inherit,
-          },
-          originalPropertyKeys: step.originalPropertyKeys,
-          views: step.views.map(toViewRequest),
-          publishInteractiveFormViewId: null,
-        }),
-        requestOptions,
+      result = await editForm.execute(
+        ports,
+        editForm.compile(spec, { itemId: args.itemId, existing, view }),
+        signal,
       );
     } else {
       const spec = recurrenceSpecSchema.parse(rawSpec);
@@ -209,23 +191,7 @@ export async function runWorkspaceTool(
         throw new WorkspaceToolRefusal(
           report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
         );
-      const step = compileRecurrence(spec, { itemId: args.itemId })[0];
-      if (step?.kind !== 'setRecurrence' || !('itemId' in step.target))
-        throw new Error('set_recurrence compiled to an unexpected plan.');
-      result = await client.execute(
-        recurrence.setRecurrence(step.target.itemId, {
-          freq: step.rule.freq as 'daily' | 'weekly' | 'monthly' | 'yearly',
-          interval: step.rule.interval,
-          weekdays:
-            step.rule.weekdays?.map(
-              (day) =>
-                ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'][day - 1] as
-                  'mo' | 'tu' | 'we' | 'th' | 'fr' | 'sa' | 'su',
-            ) ?? null,
-          until: step.rule.until,
-        }),
-        requestOptions,
-      );
+      result = await setRecurrence.execute(ports, setRecurrence.compile(spec, args.itemId), signal);
     }
   }
   switch (args.operation) {

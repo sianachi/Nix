@@ -28,4 +28,17 @@ describe('pet executor never-operation guard', () => {
       expect(source, file).not.toMatch(forbidden);
     }
   });
+
+  it('only replaces a view setup with an empty original property key set', async () => {
+    const files = await sourceFiles(new URL('.', import.meta.url).pathname);
+    const callers: { file: string; source: string }[] = [];
+    for (const file of files) {
+      if (file.endsWith('.test.ts')) continue;
+      const source = await readFile(file, 'utf8');
+      if (source.includes('.replaceViewSetup(')) callers.push({ file, source });
+    }
+    expect(callers).toHaveLength(1);
+    expect(callers[0]?.file).toMatch(/structure\/edit-form\.ts$/);
+    expect(callers[0]?.source).toMatch(/originalPropertyKeys:\s*\[\]/);
+  });
 });

@@ -511,6 +511,49 @@ describe('workspace-scoped companion tools', () => {
     expect(outcome.touchedParents).toEqual([itemId]);
   });
 
+  it('keeps every existing property when adding generated fields', async () => {
+    for (let count = 1; count <= 8; count++) {
+      const { ports, execute, signal } = setup();
+      const fields = Array.from({ length: count }, (_, index) => ({
+        key: `added_${index.toString()}`,
+        label: `Added ${index.toString()}`,
+        type: 'text',
+      }));
+      await runWorkspaceTool(
+        ports,
+        workspace,
+        input('add_fields', { itemId, specJson: JSON.stringify({ fields }) }),
+        signal,
+        { fence: '|' },
+      );
+      const endpoint = execute.mock.calls[0]?.[0] as
+        | { operation: string; body?: { properties?: { key: string }[]; views?: unknown[] } }
+        | undefined;
+      expect(endpoint?.operation).toBe('views.appendSetup');
+      expect(endpoint?.body?.properties?.map((property) => property.key)).toEqual(
+        fields.map((field) => field.key),
+      );
+      expect(endpoint?.body?.views).toEqual([]);
+    }
+  });
+
+  it('refuses edit_form when the approved fingerprint is stale', async () => {
+    const { ports, execute, signal } = setup();
+    await expect(
+      runWorkspaceTool(
+        ports,
+        workspace,
+        input('edit_form', {
+          itemId,
+          specJson: '{"viewId":"form","form":{"pages":[]}}',
+        }),
+        signal,
+        { fence: 'stale' },
+      ),
+    ).rejects.toThrow('changed since you approved');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('dispatches set_recurrence after validating the current due date value', async () => {
     const { ports, query, execute, signal } = setup();
     query.mockImplementation((endpoint: { operation: string }) => {
@@ -543,7 +586,7 @@ describe('workspace-scoped companion tools', () => {
       workspace,
       input('set_recurrence', {
         itemId,
-        specJson: '{"frequency":"weekly","interval":1,"weekdays":[1,3]}',
+        specJson: '{"frequency":"weekly","interval":1,"weekdays":[1,3],"until":"2027-04-02"}',
       }),
       signal,
       { fence: 'due_date:due_date|' },
@@ -551,7 +594,7 @@ describe('workspace-scoped companion tools', () => {
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
       operation: 'recurrence.set',
-      body: { freq: 'weekly', interval: 1, weekdays: ['mo', 'we'], until: null },
+      body: { freq: 'weekly', interval: 1, weekdays: ['mo', 'we'], until: '2027-04-02' },
     });
     expect(outcome.touchedParents).toEqual([itemId]);
   });
