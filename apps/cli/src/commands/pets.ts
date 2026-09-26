@@ -281,8 +281,8 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will read the linked item’s details and properties.';
     case 'read_note':
       return 'I will read the linked note’s content for context.';
-    case 'read_schema':
-      return 'I will read the linked item’s property schema to check which fields can be used.';
+    case 'read_structure':
+      return "I will read the linked item's fields, views and how many children it has.";
     case 'create_note':
       return `I will create a note named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}${action.markdown ? ', with the content shown below' : ', with an empty body'}.`;
     case 'append_note':
@@ -305,5 +305,11 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will read the linked template’s outline to see if it fits.';
     case 'apply_template':
       return `I will create “${action.title}” from the linked template${action.parentId ? ' inside the linked destination' : ' at the top level of this workspace'}.`;
+    case 'create_structured':
+      return `I will create a structured item named “${action.title}” ${action.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}.`;
+    case 'add_view':
+      return 'I will add the view described below to the linked item.';
+    case 'create_entries':
+      return 'I will add the entries described below to the linked destination.';
   }
 }

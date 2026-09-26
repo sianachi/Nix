@@ -10,36 +10,13 @@ import {
   viewSetupSpecSchema,
   type DescribeContext,
   type PreviewModel,
-  type Problem,
   type Step,
-  type StructureProperty,
-  type StructureView,
   type ValidationContext,
 } from '@nix/structure-spec';
+import type { Problem } from '@nix/structure-spec';
+import type { PreviewContext } from './context.js';
+export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
-
-/**
- * Everything a preview needs about where a tool call lands and what is already there, produced by
- * `loadPreviewContext` (`docs/plans/pet-structure-consult-plan.md`, task A.4). A.4 has not merged
- * into this branch yet (it is a parallel task in the same wave, and this task's own merge order
- * runs before it - plan section 4's wave 4 row), so this is this task's own minimal stand-in for
- * A.4's real `PreviewContext`, matching the shape the A.4 card states
- * (`{ destination, existing, inheritedFields, fingerprint, preflight?, problems: [] }`). When A.4
- * lands, replace this with an import from `./context.js` and delete this local definition - the
- * field names below are chosen to make that swap a no-op for every caller of `describeToolCall`.
- */
-export interface PreviewContext {
-  destination: { title: string; path: string[] };
-  existing?: {
-    declared: readonly StructureProperty[];
-    effective: readonly StructureProperty[];
-    views: readonly StructureView[];
-  };
-  inheritedFields: readonly StructureProperty[];
-  preflight?: TemplatePreflight;
-  problems: Problem[];
-  warnings?: Problem[];
-}
 
 /**
  * `WorkspaceToolArgs` widened to the operations and the `specJson` field task A.4 adds to
@@ -93,7 +70,11 @@ function compileSpecSteps(
     }
     case 'add_view': {
       const spec = viewSetupSpecSchema.parse(raw);
-      const existing = context.existing ?? { declared: [], effective: context.inheritedFields, views: [] };
+      const existing = context.existing ?? {
+        declared: [],
+        effective: context.inheritedFields,
+        views: [],
+      };
       return compileAddView(spec, { itemId: args.itemId, existing });
     }
     case 'create_entries': {
@@ -119,7 +100,9 @@ function describeSpecOperation(
       tree: [],
       notes: [],
       warnings: [],
-      problems: [{ path: 'specJson', code: 'invalid_json', message: 'specJson is not valid JSON.' }],
+      problems: [
+        { path: 'specJson', code: 'invalid_json', message: 'specJson is not valid JSON.' },
+      ],
       neverDoes: NEVER_DOES.slice(),
     };
   }
@@ -127,7 +110,12 @@ function describeSpecOperation(
   const validationContext: ValidationContext = {
     inheritedFields: [...context.inheritedFields],
     ...(context.existing
-      ? { existing: { declared: [...context.existing.declared], views: [...context.existing.views] } }
+      ? {
+          existing: {
+            declared: [...context.existing.declared],
+            views: [...context.existing.views],
+          },
+        }
       : {}),
     // ValidationContext.today is reserved for a relative-date check `validateSpec` does not yet
     // perform for these three operations; there is no real clock port on `PreviewContext` to read
@@ -182,9 +170,8 @@ function applyTemplateProblems(preflight: TemplatePreflight | undefined): Proble
 }
 
 /** Sentences kept byte-for-byte from `apps/web/src/pets/pet-work-tools.tsx`'s
- * `describeWorkspaceAction` (lines 226-255), minus `read_schema` (dropped from the tool at
- * version 2) and `read_structure` (new: architecture section 2.2). `list_templates` and
- * `read_template` get the new copy this task's card specifies, replacing the old ones. */
+ * `describeWorkspaceAction` (lines 226-255), with `read_structure` using the architecture's
+ * structure-aware description. `list_templates` and `read_template` use this task card's copy. */
 function legacyHeadline(args: PreviewToolArgs): string {
   switch (args.operation) {
     case 'list_items':
@@ -197,11 +184,7 @@ function legacyHeadline(args: PreviewToolArgs): string {
       return 'I will read the linked item’s details and properties.';
     case 'read_note':
       return 'I will read the linked note’s content for context.';
-    case 'read_schema':
     case 'read_structure':
-      // `read_schema` is dropped from the tool enum at version 2 (task A.4); it is still part of
-      // the current `WorkspaceToolArgs` type this stub widens, so it needs a branch here until
-      // A.4 removes it. Both read the same thing from the pet's point of view.
       return "I will read the linked item's fields, views and how many children it has.";
     case 'create_note':
       return `I will create a note named “${args.title}” ${args.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}${args.markdown ? ', with the content shown below' : ', with an empty body'}.`;

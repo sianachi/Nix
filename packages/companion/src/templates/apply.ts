@@ -1,4 +1,4 @@
-import { items, templates } from '@nix/api-client';
+import { items, templates, type TemplatePreflight } from '@nix/api-client';
 import type { CompanionPorts } from '../ports.js';
 import { WorkspaceToolRefusal } from '../tool-args.js';
 
@@ -43,6 +43,7 @@ export async function applyTemplate(
   input: ApplyTemplateInput,
   claim: ApplyTemplateClaim,
   signal: AbortSignal,
+  knownPreflight?: TemplatePreflight,
 ): Promise<ApplyTemplateResult> {
   if (!claim.toolId || !claim.claimId) throw new Error('A claimed tool id is required.');
   const requestOptions = { signal, forceRefresh: true };
@@ -56,7 +57,7 @@ export async function applyTemplate(
         'The destination is outside this workspace. No action was run.',
       );
   }
-  const preflight = await ports.core.execute(
+  const preflight = knownPreflight ?? await ports.core.execute(
     templates.preflightTemplate(input.templateId, {
       mode: 'create',
       parentItemId: input.parentId,

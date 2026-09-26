@@ -1,9 +1,22 @@
 import { z } from 'zod';
 import { items, search, structure } from '@nix/api-client';
+import {
+  applySpecSchema,
+  entriesSpecSchema,
+  structuredSpecSchema,
+  validateSpec,
+  viewSetupSpecSchema,
+} from '@nix/structure-spec';
 import type { CompanionPorts } from './ports.js';
 import { applyTemplate } from './templates/apply.js';
 import { listTemplates } from './templates/list.js';
 import { readTemplate } from './templates/read.js';
+import { loadPreviewContext } from './context.js';
+import { checkItem, type StructureFingerprint } from './guards.js';
+import { readStructure } from './structure/read-structure.js';
+import * as createStructured from './structure/create-structured.js';
+import * as addView from './structure/add-view.js';
+import * as createEntries from './structure/create-entries.js';
 import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
@@ -12,6 +25,7 @@ export interface RunOptions {
   mode?: 'chat' | 'consult';
   toolId?: string;
   claimId?: string;
+  fence?: StructureFingerprint;
 }
 
 export interface WorkspaceToolOutcome {
@@ -28,25 +42,103 @@ export async function runWorkspaceTool(
   signal: AbortSignal,
   options: RunOptions = {},
 ): Promise<WorkspaceToolOutcome> {
-  // `mode` is reserved for a later phase (consult-only operations read it); this
-  // executor only consumes `toolId`/`claimId` so far, for the claimed template apply.
-  void options.mode;
   const client = ports.core;
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
   const args = workspaceToolSchema.parse(JSON.parse(raw));
   const requestOptions = { signal, forceRefresh: true };
-  const check = async (id: string) => {
-    if (!id) throw new Error('An item identity is required.');
-    const item = await client.query(items.itemById(id), requestOptions);
-    if (item.workspaceId !== workspaceId)
-      throw new WorkspaceToolRefusal('The item is outside this workspace. No action was run.');
-    return item;
-  };
-  // Scope guards supplement, never replace, permission checks in Core and collab.
-  if (args.parentId) await check(args.parentId);
   let result: unknown;
+  const check = (id: string) => checkItem(ports, workspaceId, id, signal);
+  const rawSpec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+  // Scope guards supplement, never replace, permission checks in Core and collab. Check every
+  // named item identity before loading schema, views, paths, template preflight, or bodies.
+  if (
+    args.operation !== 'apply_template' &&
+    args.operation !== 'read_template' &&
+    args.operation !== 'restore_item' &&
+    ![
+      'list_items',
+      'search',
+      'create_note',
+      'create_structured',
+      'create_entries',
+      'list_templates',
+    ].includes(args.operation)
+  ) {
+    await check(args.itemId);
+  }
+  if (args.parentId) await check(args.parentId);
+  let templatePreflight;
+  if (args.operation === 'apply_template') {
+    applySpecSchema.parse(rawSpec);
+    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    templatePreflight = context.preflight;
+  }
+  if (['create_structured', 'add_view', 'create_entries'].includes(args.operation)) {
+    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    if (options.fence === undefined || context.fingerprint !== options.fence)
+      throw new WorkspaceToolRefusal(
+        'The item changed since you approved this. Ask the pet to look again.',
+      );
+    if (args.operation === 'create_structured') {
+      const spec = structuredSpecSchema.parse(rawSpec);
+      const report = validateSpec('create_structured', spec, {
+        inheritedFields: context.inheritedFields,
+        today: ports.clock.today(),
+      });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n'),
+        );
+      result = await createStructured.execute(
+        ports,
+        workspaceId,
+        createStructured.compile(spec, {
+          parentId: args.parentId || null,
+          title: args.title,
+          inheritedFields: context.inheritedFields,
+        }),
+        signal,
+      );
+    } else if (args.operation === 'add_view') {
+      const spec = viewSetupSpecSchema.parse(rawSpec);
+      const existing = context.existing;
+      if (existing === undefined) throw new Error('add_view preview context is missing.');
+      const report = validateSpec('add_view', spec, {
+        inheritedFields: context.inheritedFields,
+        existing,
+        today: ports.clock.today(),
+      });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n'),
+        );
+      const steps = addView.compile(spec, {
+        itemId: args.itemId,
+        existing: {
+          declared: existing.declared,
+          effective: existing.effective,
+          views: existing.views,
+        },
+      });
+      result = await addView.execute(ports, steps, signal);
+    } else {
+      const spec = entriesSpecSchema.parse(rawSpec);
+      result = await createEntries.execute(
+        ports,
+        workspaceId,
+        args.parentId,
+        spec,
+        context.inheritedFields,
+        signal,
+      );
+    }
+  }
   switch (args.operation) {
+    case 'create_structured':
+    case 'add_view':
+    case 'create_entries':
+      break;
     case 'restore_item': {
       // Ordinary item reads intentionally hide deleted rows. Establish the exact
       // target through Core's workspace-scoped trash query before restoring it.
@@ -145,12 +237,19 @@ export async function runWorkspaceTool(
       break;
     }
     case 'apply_template': {
+      const spec = applySpecSchema.parse(rawSpec);
       result = await applyTemplate(
         ports,
         workspaceId,
-        { templateId: args.itemId, parentId: args.parentId || null, title: args.title },
+        {
+          templateId: args.itemId,
+          parentId: args.parentId || null,
+          title: args.title,
+          ...(spec.inputs ? { inputs: spec.inputs } : {}),
+        },
         { toolId: options.toolId, claimId: options.claimId },
         signal,
+        templatePreflight,
       );
       break;
     }
@@ -160,8 +259,8 @@ export async function runWorkspaceTool(
         case 'read_item':
           result = item;
           break;
-        case 'read_schema':
-          result = await client.query(structure.effectiveSchema(item.id), requestOptions);
+        case 'read_structure':
+          result = await readStructure(ports, workspaceId, item.id, signal);
           break;
         case 'read_note':
         case 'append_note':
@@ -208,8 +307,16 @@ export async function runWorkspaceTool(
         ? text
         : JSON.stringify({ truncated: true, preview: text.slice(0, 15000) }),
     readOnly: READ_ONLY_OPERATIONS.has(args.operation),
-    touchedParents: ['create_note', 'move_item', 'apply_template'].includes(args.operation)
+    touchedParents: [
+      'create_note',
+      'move_item',
+      'apply_template',
+      'create_structured',
+      'create_entries',
+    ].includes(args.operation)
       ? [args.parentId || null]
-      : [],
+      : args.operation === 'add_view'
+        ? [args.itemId]
+        : [],
   };
 }

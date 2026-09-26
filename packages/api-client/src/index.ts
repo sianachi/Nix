@@ -214,9 +214,12 @@ export type {
  * `pnpm --filter @nix/api-client generate` and is not an editable surface.
  */
 export type {
+  AppendViewSetupRequestContract,
   CanvasLibraryContract,
   ChangeWorkspaceMemberRoleRequestContract,
   ContainerViewsContract,
+  CreateItemRequestContract,
+  CreateStructuredItemRequestContract,
   CreateWorkspaceInvitationRequestContract,
   CreateWorkspaceRequestContract,
   DailyNoteContract,

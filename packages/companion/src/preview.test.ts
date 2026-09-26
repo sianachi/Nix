@@ -19,6 +19,7 @@ function context(overrides: Partial<PreviewContext> = {}): PreviewContext {
   return {
     destination: { title: 'Books', path: ['Books'] },
     inheritedFields: [],
+    fingerprint: '|',
     problems: [],
     ...overrides,
   };

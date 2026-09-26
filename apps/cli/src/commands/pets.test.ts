@@ -283,8 +283,40 @@ describe('pet tools run', () => {
       'I will read the linked template’s outline to see if it fits.',
     ],
     [
-      { operation: 'apply_template', itemId: '11111111-1111-4111-8111-111111111111', title: 'Reading log' },
+      {
+        operation: 'apply_template',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        title: 'Reading log',
+      },
       'I will create “Reading log” from the linked template at the top level of this workspace.',
+    ],
+    [
+      { operation: 'read_structure', itemId: '11111111-1111-4111-8111-111111111111' },
+      "I will read the linked item's fields, views and how many children it has.",
+    ],
+    [
+      {
+        operation: 'create_structured',
+        title: 'Reading log',
+        specJson: '{"recipe":"board","fields":[]}',
+      },
+      'I will create a structured item named “Reading log” at the top level of this workspace.',
+    ],
+    [
+      {
+        operation: 'add_view',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        specJson: '{"views":[{"kind":"list"}]}',
+      },
+      'I will add the view described below to the linked item.',
+    ],
+    [
+      {
+        operation: 'create_entries',
+        parentId: '11111111-1111-4111-8111-111111111111',
+        specJson: '{"entries":[{"title":"First"}]}',
+      },
+      'I will add the entries described below to the linked destination.',
     ],
   ])('previews %o the same way the web approval card does', async (overrides, preview) => {
     const profile = await withProfile();
@@ -495,7 +527,9 @@ describe('pet tools run', () => {
             );
           if (body.operation === 'tool_result')
             return HttpResponse.json(
-              runtimeResponse([pendingTool({ status: 'completed', result: body.toolResult as string })]),
+              runtimeResponse([
+                pendingTool({ status: 'completed', result: body.toolResult as string }),
+              ]),
             );
           throw new Error(`Unexpected operation ${String(body.operation)}`);
         }),
