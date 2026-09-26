@@ -1,3 +1,6 @@
+Section: Structure operations
+create_structured, add_view, create_entries
+
 Section: Property types
 text (Text), number (Number), select (Select (one of a list)), multi_select (Multi-select (any of a list)), date (Date), timestamp (Date and time), checkbox (Checkbox), url (Link), image (Picture), due_date (Due date), start_date (Start date), completion (Completion), priority (Priority (1 to 4)), estimate (Estimate), formula (Formula), rollup (Rollup (across children))
 

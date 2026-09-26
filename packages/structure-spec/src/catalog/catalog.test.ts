@@ -48,6 +48,23 @@ describe('the capability catalog', () => {
     ]);
   });
 
+  it('names every structure operation of the mode in the rendered text, not hand-typed', () => {
+    const catalog = buildCatalog();
+    const chat = renderChat(catalog);
+    const consult = renderConsult(catalog, readPatterns());
+
+    // create_structured, add_view and create_entries: the Go worker's TestCatalogNamesEveryOperationInItsMode
+    // cross-checks this same set against workspaceTools()'s enum, so a structure operation added
+    // to one side and forgotten on the other fails a build.
+    expect(catalog.structureOperations.chat.length).toBeGreaterThan(0);
+    for (const operation of catalog.structureOperations.chat) {
+      expect(chat, `chat catalog should name structure operation '${operation}'`).toContain(operation);
+      expect(consult, `consult catalog should name structure operation '${operation}'`).toContain(
+        operation,
+      );
+    }
+  });
+
   it('lists IF among the formula functions', () => {
     const catalog = buildCatalog();
     expect(catalog.formulaFunctions).toContain('IF');

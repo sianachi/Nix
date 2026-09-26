@@ -333,6 +333,10 @@
     "identityRoles": ["name", "email"],
     "titleModes": ["generated", "field"]
   },
+  "structureOperations": {
+    "chat": ["create_structured", "add_view", "create_entries"],
+    "consult": ["create_structured", "add_view", "create_entries"]
+  },
   "limits": {
     "rawToolCallBytes": 40000,
     "specJsonChars": 24000,

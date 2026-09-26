@@ -13,6 +13,7 @@ import {
   NEVER_PET_RECIPES,
   QUERY_OPERATORS,
   RECURRENCE,
+  STRUCTURE_OPERATIONS,
   TEMPLATE_INPUT_TYPES,
   VIEW_KIND_RULES,
   type CatalogLimits,
@@ -20,6 +21,7 @@ import {
   type HabitRules,
   type QueryOperatorRule,
   type RecurrenceRules,
+  type StructureOperationsByMode,
   type ViewKindRule,
 } from './tables.js';
 
@@ -62,6 +64,7 @@ export interface Catalog {
   readonly viewKinds: readonly ViewKindRule[];
   readonly queryOperators: readonly QueryOperatorRule[];
   readonly formRules: FormRules;
+  readonly structureOperations: StructureOperationsByMode;
   readonly limits: CatalogLimits;
   readonly templateInputTypes: readonly string[];
   readonly initRuleKinds: readonly string[];
@@ -109,6 +112,7 @@ export function buildCatalog(): Catalog {
     viewKinds: VIEW_KIND_RULES,
     queryOperators: QUERY_OPERATORS,
     formRules: FORM_RULES,
+    structureOperations: STRUCTURE_OPERATIONS,
     limits: LIMITS,
     templateInputTypes: TEMPLATE_INPUT_TYPES,
     initRuleKinds: INIT_RULE_KINDS,
@@ -137,6 +141,9 @@ function viewKindLine(kind: ViewKindRule): string {
  */
 export function renderChat(catalog: Catalog): string {
   const lines: string[] = [];
+  lines.push('Section: Structure operations');
+  lines.push(catalog.structureOperations.chat.join(', '));
+  lines.push('');
   lines.push('Section: Property types');
   lines.push(catalog.propertyTypes.map((type) => `${type.type} (${type.label})`).join(', '));
   lines.push('');
