@@ -215,7 +215,14 @@ describe('describeStep', () => {
     setHabit: {
       kind: 'setHabit',
       target: { itemId: 'item-1' },
-      settings: { frequency: 'daily', weekdays: null, target: 1, unit: 'time' },
+      settings: {
+        frequency: 'daily',
+        weekdays: null,
+        startDate: '2026-09-26',
+        timezone: 'Europe/London',
+        target: 1,
+        unit: 'time',
+      },
     },
     ensureSandbox: { kind: 'ensureSandbox' },
     captureTemplate: { kind: 'captureTemplate' },

@@ -23,6 +23,7 @@ export type {
   CallOptions,
   NixClient,
   NixClientConfig,
+  PaginateOptions,
   QueryResult,
 } from './client.js';
 

@@ -18,6 +18,8 @@ export interface CompiledRecurrenceRule {
 export interface CompiledHabitSettings {
   frequency: string;
   weekdays: number[] | null;
+  startDate: string;
+  timezone: string;
   target: number;
   unit: string;
 }
@@ -48,6 +50,11 @@ export type Step =
       views: StructureView[];
       defaultViewId: string;
       nodeId?: string;
+      sample?: boolean;
+      /** Blueprint root is attached to the resolved Pet drafts sandbox. */
+      sandboxParent?: true;
+      /** Blueprint child is attached to this previously-created blueprint node. */
+      parentNodeId?: string;
     }
   | {
       kind: 'appendViewSetup';
@@ -71,6 +78,10 @@ export type Step =
       properties: Record<string, unknown> | null;
       nodeId?: string;
       sample?: boolean;
+      /** Blueprint root is attached to the resolved Pet drafts sandbox. */
+      sandboxParent?: true;
+      /** Blueprint child is attached to this previously-created blueprint node. */
+      parentNodeId?: string;
     }
   | { kind: 'appendBody'; target: StepTarget; markdown: string }
   | { kind: 'setRecurrence'; target: StepTarget; rule: CompiledRecurrenceRule }
