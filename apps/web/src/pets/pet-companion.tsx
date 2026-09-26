@@ -29,6 +29,19 @@ import { PetHistory } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 
+/** How much of the viewport's bottom edge the mobile navigation currently occupies, read from
+ * the shell's own measurement (`app-shell.tsx` publishes `--mobile-nav-height`) rather than
+ * guessed at here. Zero whenever the nav is not rendered - a wide screen, or the software
+ * keyboard covering it - because the shell removes the property then. Used to keep a dragged or
+ * clamped launcher position clear of the nav, the same clearance `narrowOffset` below gives the
+ * launcher's own default position. */
+function mobileNavClearance(): number {
+  const parsed = Number.parseFloat(
+    document.documentElement.style.getPropertyValue('--mobile-nav-height'),
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function PetCompanion(): ReactElement | null {
   const { workspaceId } = useWorkspace();
   const { saved } = usePetSettings();
@@ -59,7 +72,6 @@ function Companion({
   const launcher = useRef<HTMLButtonElement | null>(null);
   const [placement, setPlacement] = useState(() => readDevicePreference('placement'));
   const [position, setPosition] = useState(() => readPetPosition());
-  const positionRef = useRef(position);
   const drag = useRef<{
     pointerId: number;
     offsetX: number;
@@ -93,45 +105,69 @@ function Companion({
       window.removeEventListener('nix-pet-device-changed', changed);
     };
   }, []);
+  // A saved position can sit off-screen, or over the bottom navigation, at a width or clearance
+  // different from the one it was saved at - a desktop position visited on a phone, a phone
+  // rotated to landscape crossing back past the phone breakpoint, a tablet, or a placement
+  // changed from the settings page in this same tab. This keeps what is *rendered* inside the
+  // viewport and clear of the nav on load, resize, orientation change, a placement change, and a
+  // change in the nav's own measured height (a PWA banner appearing above it); it never writes
+  // back, so the saved position itself is untouched and a width that fits it again renders it
+  // exactly as saved. Only a user drag (`onPointerMove` below) calls `writePetPosition`.
   useEffect(() => {
-    positionRef.current = position;
-  }, [position]);
-  // A position dragged and saved on a wide screen can sit off a phone's much smaller
-  // viewport; clamp it back on load and whenever the viewport itself changes.
-  useEffect(() => {
-    if (!narrow) return;
-    const clamp = () => {
-      const current = positionRef.current;
+    const recompute = () => {
+      const saved = readPetPosition();
+      if (!saved) return;
       const rect = launcher.current?.getBoundingClientRect();
       // A `hidden` launcher (the keyboard is up) measures 0x0; clamping to that would pin the
       // button flush with the far edge instead of leaving it where it actually is. Skipping
-      // the clamp then is safe: `keyboardVisible` is also a dependency below, so the clamp
-      // re-runs, with a real rect, the moment the launcher is visible again.
-      if (!current || !rect || rect.width === 0 || rect.height === 0) return;
+      // then is safe: `keyboardVisible` is also a dependency below, so this re-runs, with a real
+      // rect, the moment the launcher is visible again.
+      if (!rect || rect.width === 0 || rect.height === 0) return;
       const next = {
-        x: Math.min(Math.max(8, current.x), Math.max(8, window.innerWidth - rect.width - 8)),
-        y: Math.min(Math.max(8, current.y), Math.max(8, window.innerHeight - rect.height - 8)),
+        x: Math.min(Math.max(8, saved.x), Math.max(8, window.innerWidth - rect.width - 8)),
+        y: Math.min(
+          Math.max(8, saved.y),
+          Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
+        ),
       };
-      if (next.x !== current.x || next.y !== current.y) {
-        setPosition(next);
-        writePetPosition(next);
-      }
+      setPosition((current) => {
+        const unchanged = current !== null && current.x === next.x && current.y === next.y;
+        return unchanged ? current : next;
+      });
     };
-    clamp();
-    window.addEventListener('resize', clamp);
-    window.addEventListener('orientationchange', clamp);
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    // A placement change from the settings page (the effect above, listening for the same event)
+    // sets the raw saved value first; registered after it, this listener always runs second for
+    // the same dispatch and reclamps whatever it just set.
+    window.addEventListener('nix-pet-device-changed', recompute);
+    // The shell's own measurement of the nav's height (`app-shell.tsx`) can change without the
+    // window resizing at all - a PWA install or update banner appearing above the nav grows it -
+    // so the shell announces every change to it rather than leaving this to notice only on the
+    // next resize.
+    window.addEventListener('nix-mobile-nav-resized', recompute);
     return () => {
-      window.removeEventListener('resize', clamp);
-      window.removeEventListener('orientationchange', clamp);
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+      window.removeEventListener('nix-pet-device-changed', recompute);
+      window.removeEventListener('nix-mobile-nav-resized', recompute);
     };
-  }, [narrow, keyboardVisible]);
-  // No token names the mobile navigation's rendered height (mobile-navigation.tsx has no
-  // fixed height of its own); 3.5rem is the fallback so a phone launcher never sits under it.
-  const narrowOffset = 'bottom-[calc(var(--mobile-nav-height,3.5rem)+env(safe-area-inset-bottom))]'; // design-token-exempt: no token for the mobile nav's rendered height.
+  }, [keyboardVisible]);
+  // No token names the mobile navigation's rendered height (mobile-navigation.tsx has no fixed
+  // height of its own, and includes the PWA banner above it when shown); 3.5rem plus the safe-area
+  // inset is the fallback so a phone launcher never sits under it before the shell has measured
+  // one, or once the nav is not rendered at all. The measured value already includes the inset
+  // (`mobile-navigation.tsx` pads itself with it), so only the fallback adds it. Cleared at `lg:`
+  // (1024px, `WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR` in `layout/regions.ts`) rather than `sm:`: the
+  // bottom navigation this offset clears renders across the whole drawer-nav range
+  // (`useDrawerNavigation`, below 1024px), a tablet included, not only below the phone breakpoint
+  // (`useNarrowViewport`, 640px) that `narrow` itself tracks.
+  const narrowOffset = 'bottom-[var(--mobile-nav-height,calc(3.5rem+env(safe-area-inset-bottom)))]'; // design-token-exempt: no token for the mobile nav's rendered height.
   return (
     <aside
       aria-label={`${pet.name} companion`}
-      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `${narrowOffset} sm:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
+      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `${narrowOffset} lg:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
       style={
         position
           ? open && openAnchor
@@ -226,7 +262,7 @@ function Companion({
           );
           const y = Math.min(
             Math.max(8, event.clientY - active.offsetY),
-            window.innerHeight - rect.height - 8,
+            Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
           );
           const next = { x, y };
           setPosition(next);
