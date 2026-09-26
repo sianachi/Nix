@@ -32,6 +32,8 @@ export interface ValidationReport {
  */
 export interface ValidationContext {
   inheritedFields: StructureProperty[];
-  existing?: { declared: StructureProperty[]; views: StructureView[] };
+  existing?: { declared: StructureProperty[]; inherit?: boolean; views: StructureView[] };
+  /** The item's current property values, used to require a due date before setting recurrence. */
+  itemValues?: Record<string, unknown>;
   today: string;
 }

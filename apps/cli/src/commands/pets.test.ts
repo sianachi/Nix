@@ -318,6 +318,30 @@ describe('pet tools run', () => {
       },
       'I will add the entries described below to the linked destination.',
     ],
+    [
+      {
+        operation: 'add_fields',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        specJson: '{"fields":[]}',
+      },
+      'I will add the fields described below to the linked item, leaving existing fields unchanged.',
+    ],
+    [
+      {
+        operation: 'edit_form',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        specJson: '{"viewId":"form","form":{"pages":[]}}',
+      },
+      'I will update the linked form as described below, preserving its companion view.',
+    ],
+    [
+      {
+        operation: 'set_recurrence',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        specJson: '{"frequency":"weekly","interval":2}',
+      },
+      'I will make the linked item repeat according to the schedule described below.',
+    ],
   ])('previews %o the same way the web approval card does', async (overrides, preview) => {
     const profile = await withProfile();
     try {
@@ -425,7 +449,9 @@ describe('pet tools run', () => {
             );
           if (body.operation === 'tool_result')
             return HttpResponse.json(
-              runtimeResponse([pendingTool({ status: 'failed', result: body.toolResult as string })]),
+              runtimeResponse([
+                pendingTool({ status: 'failed', result: body.toolResult as string }),
+              ]),
             );
           throw new Error(`Unexpected operation ${String(body.operation)}`);
         }),
@@ -481,7 +507,9 @@ describe('pet tools run', () => {
             );
           if (body.operation === 'tool_result')
             return HttpResponse.json(
-              runtimeResponse([pendingTool({ status: 'failed', result: body.toolResult as string })]),
+              runtimeResponse([
+                pendingTool({ status: 'failed', result: body.toolResult as string }),
+              ]),
             );
           throw new Error(`Unexpected operation ${String(body.operation)}`);
         }),
@@ -589,7 +617,9 @@ describe('pet tools run', () => {
             );
           if (body.operation === 'tool_result')
             return HttpResponse.json(
-              runtimeResponse([pendingTool({ status: 'failed', result: body.toolResult as string })]),
+              runtimeResponse([
+                pendingTool({ status: 'failed', result: body.toolResult as string }),
+              ]),
             );
           throw new Error(`Unexpected operation ${String(body.operation)}`);
         }),
@@ -660,7 +690,8 @@ describe('pet tools run', () => {
       );
       expect(result).toMatchObject({
         toolId: TOOL,
-        preview: 'This request is unsupported. Decline it so the companion can try a supported operation.',
+        preview:
+          'This request is unsupported. Decline it so the companion can try a supported operation.',
       });
     } finally {
       await profile.done();

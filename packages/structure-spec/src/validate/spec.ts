@@ -2,6 +2,7 @@ import type { z } from 'zod';
 
 import type { StructureProperty, StructureView } from '../types.js';
 import type { FieldSpec } from '../spec/field.js';
+import { fieldsSpecSchema, formEditSpecSchema, recurrenceSpecSchema } from '../spec/edits.js';
 import {
   type EntriesSpec,
   applySpecSchema,
@@ -20,7 +21,14 @@ import { refuseViews } from './view-rules.js';
 import { validateValue } from './values.js';
 import type { Problem, ValidationContext, ValidationReport } from './report.js';
 
-export type SpecOperation = 'create_structured' | 'add_view' | 'create_entries' | 'apply_template';
+export type SpecOperation =
+  | 'create_structured'
+  | 'add_view'
+  | 'create_entries'
+  | 'apply_template'
+  | 'add_fields'
+  | 'edit_form'
+  | 'set_recurrence';
 
 interface RefScope {
   existing: readonly StructureProperty[];
@@ -383,6 +391,97 @@ function validateApplyTemplate(raw: unknown): ValidationReport {
   return report([], stats);
 }
 
+function validateAddFields(raw: unknown, context: ValidationContext): ValidationReport {
+  const stats = statsFromRaw(raw);
+  const parsed = fieldsSpecSchema.safeParse(raw);
+  if (!parsed.success) return report(zodIssuesToProblems(parsed.error), stats);
+
+  const problems: Problem[] = [];
+  const priorEffective = mergeProperties(context.inheritedFields, context.existing?.declared ?? []);
+  const declared = compileFieldSpecs(parsed.data.fields, priorEffective, 'fields', problems);
+  problems.push(...refuseAdditiveCollisions(priorEffective, declared));
+
+  const effective = mergeProperties(priorEffective, declared);
+  const schemaProblem = refuseSchema({
+    properties: effective,
+    inherit: context.existing?.inherit ?? true,
+  });
+  if (schemaProblem !== null)
+    problems.push({ path: 'fields', code: 'schema', message: schemaProblem });
+
+  return report(problems, { fields: declared.length, views: 0, entries: 0 });
+}
+
+function validateEditForm(raw: unknown, context: ValidationContext): ValidationReport {
+  const stats = statsFromRaw(raw);
+  const parsed = formEditSpecSchema.safeParse(raw);
+  if (!parsed.success) return report(zodIssuesToProblems(parsed.error), stats);
+
+  const spec = parsed.data;
+  const problems: Problem[] = [];
+  const targetView = context.existing?.views.find((view) => view.id === spec.viewId);
+  if (targetView === undefined) {
+    problems.push({
+      path: 'viewId',
+      code: 'unknown-view',
+      message: `View '${spec.viewId}' does not exist on this item.`,
+    });
+  } else if (targetView.kind !== 'interactive_form') {
+    problems.push({
+      path: 'viewId',
+      code: 'not-interactive-form',
+      message: `View '${spec.viewId}' is not an interactive form.`,
+    });
+  }
+
+  const priorEffective = mergeProperties(context.inheritedFields, context.existing?.declared ?? []);
+  const newFields = compileFieldSpecs(spec.fields ?? [], priorEffective, 'fields', problems);
+  problems.push(...refuseAdditiveCollisions(priorEffective, newFields));
+  const effective = mergeProperties(priorEffective, newFields);
+  const schemaProblem = refuseSchema({
+    properties: effective,
+    inherit: context.existing?.inherit ?? true,
+  });
+  if (schemaProblem !== null)
+    problems.push({ path: 'fields', code: 'schema', message: schemaProblem });
+
+  const addedKeys = new Set(newFields.map((field) => field.key));
+  const formView: ViewSpec = { kind: 'interactive_form', form: spec.form };
+  const compiled = compileViews([formView], effective, addedKeys, problems);
+  pushViewProblems(compiled, effective, problems);
+
+  return report(problems, { fields: newFields.length, views: 1, entries: 0 });
+}
+
+function validateSetRecurrence(raw: unknown, context: ValidationContext): ValidationReport {
+  const parsed = recurrenceSpecSchema.safeParse(raw);
+  if (!parsed.success)
+    return report(zodIssuesToProblems(parsed.error), { fields: 0, views: 0, entries: 0 });
+
+  const problems: Problem[] = [];
+  const effective = mergeProperties(context.inheritedFields, context.existing?.declared ?? []);
+  const dueDate = effective.find((property) => property.type === 'due_date');
+  if (dueDate === undefined) {
+    problems.push({
+      path: 'recurrence',
+      code: 'recurrence-needs-due-date',
+      message: 'Recurrence needs a due_date field in the item’s effective schema.',
+    });
+  } else {
+    const value = context.itemValues?.[dueDate.key];
+    const valueProblem = validateValue(dueDate, value);
+    if (value === undefined || value === null || valueProblem !== null) {
+      problems.push({
+        path: 'recurrence',
+        code: 'recurrence-needs-due-date-value',
+        message: 'Recurrence needs a valid due_date value on this item.',
+      });
+    }
+  }
+
+  return report(problems, { fields: 0, views: 0, entries: 0 });
+}
+
 /**
  * The one entry point every caller uses to check a pet's proposed spec before any write:
  * `runWorkspaceTool` (`packages/companion`, once A.1d wires it in), the approval card, and
@@ -415,5 +514,11 @@ export function validateSpec(
       return validateCreateEntries(spec, context);
     case 'apply_template':
       return validateApplyTemplate(spec);
+    case 'add_fields':
+      return validateAddFields(spec, context);
+    case 'edit_form':
+      return validateEditForm(spec, context);
+    case 'set_recurrence':
+      return validateSetRecurrence(spec, context);
   }
 }

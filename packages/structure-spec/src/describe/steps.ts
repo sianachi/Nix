@@ -4,6 +4,7 @@ import type { StructureForm, StructureProperty, StructureView } from '../types.j
 import { propertyTypeWord } from '../vocabulary/property-types.js';
 import type { Problem } from '../validate/report.js';
 import type { PreviewModel, PreviewNode } from './model.js';
+import { describeAddFields, describeEditForm, describeRecurrence } from './edits.js';
 
 /**
  * What a `Step[]` is described against: where the plan lands, the schema and views already there
@@ -69,10 +70,7 @@ function viewKindLabel(kind: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-function fieldBlockLabels(
-  form: StructureForm,
-  properties: readonly StructureProperty[],
-): string[] {
+function fieldBlockLabels(form: StructureForm, properties: readonly StructureProperty[]): string[] {
   const labels: string[] = [];
   for (const page of form.pages) {
     for (const block of page.blocks) {
@@ -93,7 +91,11 @@ function describeView(
   if (view.groupBy !== null) {
     detail.push(`Grouped by ${lookupLabel(view.groupBy, properties)}`);
   }
-  if (view.kind === 'interactive_form' && view.interactiveForm !== null && view.interactiveForm !== undefined) {
+  if (
+    view.kind === 'interactive_form' &&
+    view.interactiveForm !== null &&
+    view.interactiveForm !== undefined
+  ) {
     const labels = fieldBlockLabels(view.interactiveForm, properties);
     if (labels.length > 0) {
       detail.push(`Asks for ${formatList(labels)}`);
@@ -120,7 +122,9 @@ function describePropertiesRecord(
   for (const field of orderedFields) {
     const key = Object.hasOwn(properties, field.key)
       ? field.key
-      : Object.keys(properties).find((candidate) => candidate.toLowerCase() === field.label.toLowerCase());
+      : Object.keys(properties).find(
+          (candidate) => candidate.toLowerCase() === field.label.toLowerCase(),
+        );
     if (key !== undefined) {
       details.push(`${field.label}: ${formatValue(properties[key])}`);
       remaining.delete(key);
@@ -192,7 +196,9 @@ export function describeStep(step: Step, context: DescribeContext): PreviewNode 
     case 'setHabit': {
       return {
         label: 'Habit tracking',
-        detail: [`${step.settings.frequency}, target ${String(step.settings.target)} ${step.settings.unit}`],
+        detail: [
+          `${step.settings.frequency}, target ${String(step.settings.target)} ${step.settings.unit}`,
+        ],
         children: [],
       };
     }
@@ -229,6 +235,7 @@ function countSteps(steps: readonly Step[]): PreviewModel['counts'] {
         views += step.views.length;
         break;
       case 'replaceViewSetup':
+        fields += step.schema.properties.length;
         views += step.views.length;
         break;
       case 'createItem':
@@ -268,7 +275,9 @@ function describeCreateStructured(
   const viewClause =
     defaultView !== undefined
       ? ` and a ${viewKindLabel(defaultView.kind)} view${
-          defaultView.groupBy !== null ? ` grouped by ${lookupLabel(defaultView.groupBy, allFields)}` : ''
+          defaultView.groupBy !== null
+            ? ` grouped by ${lookupLabel(defaultView.groupBy, allFields)}`
+            : ''
         }`
       : '';
   const headline = `I will create the ${noun} ${step.title} ${destinationPhrase}${fieldsClause}${viewClause}.`;
@@ -376,7 +385,8 @@ function describeEntries(steps: readonly Step[], context: DescribeContext): Prev
 
 function describeGeneric(steps: readonly Step[], context: DescribeContext): PreviewModel {
   const count = steps.length;
-  const target = context.destination.title.length > 0 ? context.destination.title : 'this workspace';
+  const target =
+    context.destination.title.length > 0 ? context.destination.title : 'this workspace';
   const headline = `I will make ${String(count)} ${count === 1 ? 'change' : 'changes'} to ${target}.`;
   return {
     headline,
@@ -417,7 +427,15 @@ export function describeSteps(steps: readonly Step[], context: DescribeContext):
     return describeCreateStructured(single, context);
   }
   if (single !== null && single.kind === 'appendViewSetup') {
-    return describeAppendView(single, context);
+    return single.views.length === 0
+      ? describeAddFields(single, context)
+      : describeAppendView(single, context);
+  }
+  if (single !== null && single.kind === 'replaceViewSetup') {
+    return describeEditForm(single, context);
+  }
+  if (single !== null && single.kind === 'setRecurrence') {
+    return describeRecurrence(single, context);
   }
   if (steps.every((step) => step.kind === 'createItem' || step.kind === 'appendBody')) {
     return describeEntries(steps, context);

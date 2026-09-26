@@ -1,8 +1,14 @@
 import { z } from 'zod';
-import { items, search, structure } from '@nix/api-client';
+import { items, recurrence, search, structure, views } from '@nix/api-client';
 import {
   applySpecSchema,
   entriesSpecSchema,
+  fieldsSpecSchema,
+  formEditSpecSchema,
+  recurrenceSpecSchema,
+  compileAddFields,
+  compileEditForm,
+  compileRecurrence,
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
@@ -18,6 +24,7 @@ import * as createStructured from './structure/create-structured.js';
 import * as addView from './structure/add-view.js';
 import * as createEntries from './structure/create-entries.js';
 import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
+import { toPropertyDefinitionRequest, toViewRequest } from './structure/create-structured.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -62,6 +69,8 @@ export async function runWorkspaceTool(
       'create_note',
       'create_structured',
       'create_entries',
+      'add_fields',
+      'edit_form',
       'list_templates',
     ].includes(args.operation)
   ) {
@@ -74,7 +83,16 @@ export async function runWorkspaceTool(
     const context = await loadPreviewContext(ports, workspaceId, args, signal);
     templatePreflight = context.preflight;
   }
-  if (['create_structured', 'add_view', 'create_entries'].includes(args.operation)) {
+  if (
+    [
+      'create_structured',
+      'add_view',
+      'create_entries',
+      'add_fields',
+      'edit_form',
+      'set_recurrence',
+    ].includes(args.operation)
+  ) {
     const context = await loadPreviewContext(ports, workspaceId, args, signal);
     if (options.fence === undefined || context.fingerprint !== options.fence)
       throw new WorkspaceToolRefusal(
@@ -122,7 +140,7 @@ export async function runWorkspaceTool(
         },
       });
       result = await addView.execute(ports, steps, signal);
-    } else {
+    } else if (args.operation === 'create_entries') {
       const spec = entriesSpecSchema.parse(rawSpec);
       result = await createEntries.execute(
         ports,
@@ -132,12 +150,91 @@ export async function runWorkspaceTool(
         context.inheritedFields,
         signal,
       );
+    } else if (args.operation === 'add_fields') {
+      const spec = fieldsSpecSchema.parse(rawSpec);
+      const existing = context.existing;
+      if (existing === undefined) throw new Error('add_fields preview context is missing.');
+      const report = validateSpec('add_fields', spec, { ...context, today: ports.clock.today() });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
+        );
+      const step = compileAddFields(spec, { itemId: args.itemId, existing })[0];
+      if (step?.kind !== 'appendViewSetup')
+        throw new Error('add_fields compiled to an unexpected plan.');
+      result = await client.execute(
+        views.appendViewSetup(step.itemId, {
+          properties: step.properties.map(toPropertyDefinitionRequest),
+          views: step.views.map(toViewRequest),
+          makeDefault: step.makeDefault,
+          publishInteractiveFormViewId: null,
+        }),
+        requestOptions,
+      );
+    } else if (args.operation === 'edit_form') {
+      const spec = formEditSpecSchema.parse(rawSpec);
+      const existing = context.existing;
+      if (existing === undefined) throw new Error('edit_form preview context is missing.');
+      const report = validateSpec('edit_form', spec, { ...context, today: ports.clock.today() });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
+        );
+      const view = existing.views.find((candidate) => candidate.id === spec.viewId);
+      if (view === undefined) throw new WorkspaceToolRefusal('The form view no longer exists.');
+      const step = compileEditForm(spec, { itemId: args.itemId, existing, view })[0];
+      if (step?.kind !== 'replaceViewSetup')
+        throw new Error('edit_form compiled to an unexpected plan.');
+      result = await client.execute(
+        views.replaceViewSetup(step.itemId, step.viewId, {
+          schema: {
+            properties: step.schema.properties.map(toPropertyDefinitionRequest),
+            inherit: step.schema.inherit,
+          },
+          originalPropertyKeys: step.originalPropertyKeys,
+          views: step.views.map(toViewRequest),
+          publishInteractiveFormViewId: null,
+        }),
+        requestOptions,
+      );
+    } else {
+      const spec = recurrenceSpecSchema.parse(rawSpec);
+      const existing = context.existing;
+      if (existing === undefined) throw new Error('set_recurrence preview context is missing.');
+      const report = validateSpec('set_recurrence', spec, {
+        ...context,
+        today: ports.clock.today(),
+      });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
+        );
+      const step = compileRecurrence(spec, { itemId: args.itemId })[0];
+      if (step?.kind !== 'setRecurrence' || !('itemId' in step.target))
+        throw new Error('set_recurrence compiled to an unexpected plan.');
+      result = await client.execute(
+        recurrence.setRecurrence(step.target.itemId, {
+          freq: step.rule.freq as 'daily' | 'weekly' | 'monthly' | 'yearly',
+          interval: step.rule.interval,
+          weekdays:
+            step.rule.weekdays?.map(
+              (day) =>
+                ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'][day - 1] as
+                  'mo' | 'tu' | 'we' | 'th' | 'fr' | 'sa' | 'su',
+            ) ?? null,
+          until: step.rule.until,
+        }),
+        requestOptions,
+      );
     }
   }
   switch (args.operation) {
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'add_fields':
+    case 'edit_form':
+    case 'set_recurrence':
       break;
     case 'restore_item': {
       // Ordinary item reads intentionally hide deleted rows. Establish the exact
@@ -315,7 +412,7 @@ export async function runWorkspaceTool(
       'create_entries',
     ].includes(args.operation)
       ? [args.parentId || null]
-      : args.operation === 'add_view'
+      : ['add_view', 'add_fields', 'edit_form', 'set_recurrence'].includes(args.operation)
         ? [args.itemId]
         : [],
   };

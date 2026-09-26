@@ -1,10 +1,16 @@
 import type { TemplatePreflight } from '@nix/api-client';
 import {
   compileAddView,
+  compileAddFields,
   compileCreateStructured,
+  compileEditForm,
   compileEntries,
+  compileRecurrence,
   describeSteps,
   entriesSpecSchema,
+  fieldsSpecSchema,
+  formEditSpecSchema,
+  recurrenceSpecSchema,
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
@@ -18,23 +24,27 @@ import type { PreviewContext } from './context.js';
 export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
 
-/**
- * `WorkspaceToolArgs` widened to the operations and the `specJson` field task A.4 adds to
- * `tool-args.ts`'s `workspaceToolSchema` (architecture section 2.2). Kept local to this file for
- * the same reason as `PreviewContext` above: A.4 owns `tool-args.ts`, and this task's file list
- * does not include it. Replace this alias with the real `WorkspaceToolArgs` once A.4 merges.
- */
+/** `WorkspaceToolArgs` widened to the operations and `specJson` field added by task A.4. */
 export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
   operation:
     | WorkspaceToolArgs['operation']
     | 'read_structure'
     | 'create_structured'
     | 'add_view'
-    | 'create_entries';
+    | 'create_entries'
+    | 'add_fields'
+    | 'edit_form'
+    | 'set_recurrence';
   specJson: string;
 };
 
-type SpecOperation = 'create_structured' | 'add_view' | 'create_entries';
+type SpecOperation =
+  | 'create_structured'
+  | 'add_view'
+  | 'create_entries'
+  | 'add_fields'
+  | 'edit_form'
+  | 'set_recurrence';
 
 /** The writes this executor never performs (architecture section 2.2's "never mapped to any operation" guard, restated for a person). Shown on every preview so approving one request never reads as approving more than the executor can do. */
 const NEVER_DOES: readonly string[] = [
@@ -81,6 +91,32 @@ function compileSpecSteps(
       const spec = entriesSpecSchema.parse(raw);
       return compileEntries(spec, { parentId: args.parentId || null });
     }
+    case 'add_fields': {
+      const spec = fieldsSpecSchema.parse(raw);
+      const existing = context.existing ?? {
+        declared: [],
+        inherit: true,
+        effective: context.inheritedFields,
+        views: [],
+      };
+      return compileAddFields(spec, { itemId: args.itemId, existing });
+    }
+    case 'edit_form': {
+      const spec = formEditSpecSchema.parse(raw);
+      const existing = context.existing ?? {
+        declared: [],
+        inherit: true,
+        effective: context.inheritedFields,
+        views: [],
+      };
+      const view = existing.views.find((candidate) => candidate.id === spec.viewId);
+      if (view === undefined) throw new Error(`View "${spec.viewId}" does not exist on this item.`);
+      return compileEditForm(spec, { itemId: args.itemId, existing, view });
+    }
+    case 'set_recurrence': {
+      const spec = recurrenceSpecSchema.parse(raw);
+      return compileRecurrence(spec, { itemId: args.itemId });
+    }
   }
 }
 
@@ -113,10 +149,12 @@ function describeSpecOperation(
       ? {
           existing: {
             declared: [...context.existing.declared],
+            inherit: context.existing.inherit,
             views: [...context.existing.views],
           },
         }
       : {}),
+    ...(context.itemValues !== undefined ? { itemValues: context.itemValues } : {}),
     // ValidationContext.today is reserved for a relative-date check `validateSpec` does not yet
     // perform for these three operations; there is no real clock port on `PreviewContext` to read
     // it from, so this is left blank rather than guessed.
@@ -209,6 +247,9 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'add_fields':
+    case 'edit_form':
+    case 'set_recurrence':
       throw new Error(`${args.operation} is a spec operation and has no legacy headline.`);
   }
 }
@@ -244,6 +285,9 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'add_fields':
+    case 'edit_form':
+    case 'set_recurrence':
       return describeSpecOperation(args.operation, args, context);
     default:
       return describeLegacyOperation(args, context);

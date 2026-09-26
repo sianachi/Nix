@@ -486,6 +486,178 @@ describe('workspace-scoped companion tools', () => {
     expect(outcome.touchedParents).toEqual([itemId]);
   });
 
+  it('dispatches add_fields through appendViewSetup with only new properties', async () => {
+    const { ports, execute, signal } = setup();
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('add_fields', {
+        itemId,
+        specJson: '{"fields":[{"key":"status","label":"Status","type":"text"}]}',
+      }),
+      signal,
+      { fence: '|' },
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'views.appendSetup',
+      body: {
+        properties: [{ key: 'status', type: 'text' }],
+        views: [],
+        makeDefault: false,
+        publishInteractiveFormViewId: null,
+      },
+    });
+    expect(outcome.touchedParents).toEqual([itemId]);
+  });
+
+  it('dispatches set_recurrence after validating the current due date value', async () => {
+    const { ports, query, execute, signal } = setup();
+    query.mockImplementation((endpoint: { operation: string }) => {
+      if (endpoint.operation === 'schema.get')
+        return Promise.resolve({
+          properties: [
+            { key: 'due_date', label: 'Due date', type: 'due_date', options: [], required: false },
+          ],
+          declared: [
+            { key: 'due_date', label: 'Due date', type: 'due_date', options: [], required: false },
+          ],
+          inherit: true,
+        });
+      if (endpoint.operation === 'views.getConfigurations')
+        return Promise.resolve({ views: [], unrenderable: [], default: 'document' });
+      if (endpoint.operation === 'items.get')
+        return Promise.resolve({
+          id: itemId,
+          workspaceId: workspace,
+          parentId: null,
+          title: 'Plan',
+          type: 'note',
+          properties: { due_date: '2027-03-02' },
+          computed: {},
+        });
+      throw new Error(`unexpected query ${endpoint.operation}`);
+    });
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('set_recurrence', {
+        itemId,
+        specJson: '{"frequency":"weekly","interval":1,"weekdays":[1,3]}',
+      }),
+      signal,
+      { fence: 'due_date:due_date|' },
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'recurrence.set',
+      body: { freq: 'weekly', interval: 1, weekdays: ['mo', 'we'], until: null },
+    });
+    expect(outcome.touchedParents).toEqual([itemId]);
+  });
+
+  it('dispatches edit_form with the companion preserved and an empty property replacement set', async () => {
+    const { ports, query, execute, signal } = setup();
+    const formView = {
+      id: 'form',
+      name: 'Signup',
+      kind: 'interactive_form',
+      columns: [],
+      groupBy: null,
+      groupOrder: [],
+      dateProperty: null,
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      endDateProperty: null,
+      cardSize: null,
+      layout: null,
+      filters: [],
+      companionViewId: 'responses',
+      companionPlacement: 'beside',
+      interactiveForm: {
+        pages: [],
+        titleMode: 'generated',
+        titleFieldBlockId: null,
+        confirmationTitle: 'Thanks',
+        confirmationMessage: '',
+      },
+    };
+    const companion = {
+      id: 'responses',
+      name: 'Responses',
+      kind: 'list',
+      columns: ['status'],
+      groupBy: null,
+      groupOrder: [],
+      dateProperty: null,
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      endDateProperty: null,
+      cardSize: null,
+      layout: null,
+      filters: [],
+      companionViewId: null,
+      companionPlacement: null,
+      interactiveForm: null,
+    };
+    query.mockImplementation((endpoint: { operation: string }) => {
+      if (endpoint.operation === 'schema.get')
+        return Promise.resolve({
+          properties: [
+            { key: 'status', label: 'Status', type: 'text', options: [], required: false },
+          ],
+          declared: [
+            { key: 'status', label: 'Status', type: 'text', options: [], required: false },
+          ],
+          inherit: true,
+        });
+      if (endpoint.operation === 'views.getConfigurations')
+        return Promise.resolve({ views: [formView, companion], unrenderable: [], default: 'form' });
+      if (endpoint.operation === 'items.get')
+        return Promise.resolve({
+          id: itemId,
+          workspaceId: workspace,
+          parentId: null,
+          title: 'Plan',
+          type: 'note',
+          properties: {},
+          computed: {},
+        });
+      throw new Error(`unexpected query ${endpoint.operation}`);
+    });
+    await runWorkspaceTool(
+      ports,
+      workspace,
+      input('edit_form', {
+        itemId,
+        specJson: JSON.stringify({
+          viewId: 'form',
+          form: { pages: [{ title: 'Details', blocks: [{ field: 'status' }] }] },
+        }),
+      }),
+      signal,
+      { fence: 'status:text|form:interactive_form,responses:list' },
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'views.replaceSetup',
+      path: '/api/v1/items/22222222-2222-4222-8222-222222222222/view-setups/form',
+      body: {
+        schema: { properties: [], inherit: true },
+        originalPropertyKeys: [],
+        views: [
+          { id: 'form', kind: 'interactive_form', companionViewId: 'responses' },
+          { id: 'responses', columns: ['status'], kind: 'list' },
+        ],
+        publishInteractiveFormViewId: null,
+      },
+    });
+  });
+
   it('read_structure reports inherited and computed fields with a bounded child count', async () => {
     const { ports, query, paginate, signal } = setup();
     query.mockImplementation((endpoint: { operation: string }) => {

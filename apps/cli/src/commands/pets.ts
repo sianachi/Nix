@@ -211,7 +211,8 @@ export async function executePetToolRun(
       toolResult = outcome.text;
       toolSuccess = true;
     } catch (reason) {
-      toolResult = reason instanceof WorkspaceToolRefusal ? reason.message : UNCERTAIN_OUTCOME_RESULT;
+      toolResult =
+        reason instanceof WorkspaceToolRefusal ? reason.message : UNCERTAIN_OUTCOME_RESULT;
       toolSuccess = false;
     }
   }
@@ -311,5 +312,11 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will add the view described below to the linked item.';
     case 'create_entries':
       return 'I will add the entries described below to the linked destination.';
+    case 'add_fields':
+      return 'I will add the fields described below to the linked item, leaving existing fields unchanged.';
+    case 'edit_form':
+      return 'I will update the linked form as described below, preserving its companion view.';
+    case 'set_recurrence':
+      return 'I will make the linked item repeat according to the schedule described below.';
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { StructureProperty } from '../types.js';
+import type { StructureProperty, StructureView } from '../types.js';
 import type { ValidationContext } from './report.js';
 import { validateSpec } from './spec.js';
 
@@ -15,6 +15,60 @@ const statusProperty: StructureProperty = {
   options: ['To do', 'Done'],
   required: false,
 };
+
+const dueDateProperty: StructureProperty = {
+  key: 'due_date',
+  label: 'Due date',
+  type: 'due_date',
+  options: [],
+  required: false,
+};
+
+function interactiveFormView(id = 'form'): StructureView {
+  return {
+    id,
+    name: 'Intake',
+    kind: 'interactive_form',
+    columns: ['title'],
+    groupBy: null,
+    groupOrder: [],
+    dateProperty: null,
+    sortBy: null,
+    sortDescending: false,
+    mode: null,
+    coverProperty: null,
+    endDateProperty: null,
+    cardSize: null,
+    layout: null,
+    filters: [],
+    interactiveForm: {
+      pages: [
+        {
+          id: 'p1',
+          title: 'Details',
+          description: null,
+          visibleWhen: [],
+          blocks: [
+            {
+              id: 'b1',
+              kind: 'field',
+              propertyKey: 'status',
+              text: 'Status',
+              help: null,
+              required: false,
+              identityRole: null,
+              visibleWhen: [],
+            },
+          ],
+        },
+      ],
+      titleMode: 'generated',
+      titleFieldBlockId: null,
+      confirmationTitle: 'Thanks',
+      confirmationMessage: 'Received',
+    },
+  };
+}
 
 describe('validateSpec create_structured', () => {
   it('accepts a well-formed structured spec', () => {
@@ -366,5 +420,77 @@ describe('validateSpec apply_template', () => {
   it('accepts an empty inputs object', () => {
     const report = validateSpec('apply_template', {}, context());
     expect(report.ok).toBe(true);
+  });
+});
+
+describe('validateSpec edit operations', () => {
+  it('refuses add_fields that collide with the effective schema', () => {
+    const report = validateSpec(
+      'add_fields',
+      { fields: [{ label: 'Another Status', key: 'status', type: 'text' }] },
+      context({ existing: { declared: [statusProperty], views: [] } }),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.problems.some((problem) => problem.code === 'collision')).toBe(true);
+  });
+
+  it('refuses edit_form when the named view is not an interactive form', () => {
+    const board = { ...interactiveFormView('board'), kind: 'board', interactiveForm: null };
+    const report = validateSpec(
+      'edit_form',
+      {
+        viewId: 'board',
+        form: { pages: [{ title: 'Details', blocks: [{ heading: 'Info' }] }] },
+      },
+      context({ existing: { declared: [], views: [board] } }),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.problems.some((problem) => problem.path === 'viewId')).toBe(true);
+  });
+
+  it('refuses edit_form blocks that name computed fields', () => {
+    const total: StructureProperty = {
+      key: 'total',
+      label: 'Total',
+      type: 'formula',
+      options: [],
+      required: false,
+      expression: '1 + 1',
+    };
+    const report = validateSpec(
+      'edit_form',
+      {
+        viewId: 'form',
+        form: { pages: [{ title: 'Details', blocks: [{ field: 'total' }] }] },
+      },
+      context({
+        inheritedFields: [total],
+        existing: { declared: [], views: [interactiveFormView()] },
+      }),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.problems.some((problem) => problem.code === 'views')).toBe(true);
+  });
+
+  it('set_recurrence needs an effective due_date field and a value on the item', () => {
+    const missingValue = validateSpec(
+      'set_recurrence',
+      { frequency: 'daily', interval: 1 },
+      context({ existing: { declared: [dueDateProperty], views: [] } }),
+    );
+    expect(missingValue.ok).toBe(false);
+    expect(
+      missingValue.problems.some((problem) => problem.code === 'recurrence-needs-due-date-value'),
+    ).toBe(true);
+
+    const presentValue = validateSpec(
+      'set_recurrence',
+      { frequency: 'daily', interval: 1 },
+      context({
+        existing: { declared: [dueDateProperty], views: [] },
+        itemValues: { due_date: '2026-10-01' },
+      }),
+    );
+    expect(presentValue.ok).toBe(true);
   });
 });

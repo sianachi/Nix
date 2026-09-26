@@ -7,6 +7,9 @@ export type { QueryOperator, ViewSpec } from './view.js';
 export { condSchema, formSpecSchema } from './form.js';
 export type { Cond, FormSpec } from './form.js';
 
+export { fieldsSpecSchema, formEditSpecSchema, recurrenceSpecSchema } from './edits.js';
+export type { FieldsSpec, FormEditSpec, RecurrenceSpec } from './edits.js';
+
 export {
   applySpecSchema,
   entriesSpecSchema,

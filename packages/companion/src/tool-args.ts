@@ -19,6 +19,9 @@ export const workspaceToolSchema = z
       'create_structured',
       'add_view',
       'create_entries',
+      'add_fields',
+      'edit_form',
+      'set_recurrence',
       'list_templates',
       'read_template',
       'apply_template',
@@ -59,7 +62,16 @@ export const workspaceToolSchema = z
     if (args.operation === 'append_note') required('markdown');
     if (args.operation === 'search') required('query');
     if (args.operation === 'create_entries') required('parentId');
-    if (['create_structured', 'add_view', 'create_entries'].includes(args.operation)) {
+    if (
+      [
+        'create_structured',
+        'add_view',
+        'create_entries',
+        'add_fields',
+        'edit_form',
+        'set_recurrence',
+      ].includes(args.operation)
+    ) {
       if (!args.specJson.trim()) {
         required('specJson');
       } else {

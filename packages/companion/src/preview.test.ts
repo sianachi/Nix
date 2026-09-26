@@ -39,9 +39,9 @@ describe('describeToolCall - legacy operations', () => {
   });
 
   it('search', () => {
-    expect(describeToolCall(args({ operation: 'search', query: 'invoices' }), context()).headline).toBe(
-      'I will search this workspace for “invoices” to find matching items.',
-    );
+    expect(
+      describeToolCall(args({ operation: 'search', query: 'invoices' }), context()).headline,
+    ).toBe('I will search this workspace for “invoices” to find matching items.');
   });
 
   it('read_item', () => {
@@ -70,7 +70,9 @@ describe('describeToolCall - legacy operations', () => {
   it('create_note without content, top level', () => {
     expect(
       describeToolCall(args({ operation: 'create_note', title: 'Groceries' }), context()).headline,
-    ).toBe('I will create a note named “Groceries” at the top level of this workspace, with an empty body.');
+    ).toBe(
+      'I will create a note named “Groceries” at the top level of this workspace, with an empty body.',
+    );
   });
 
   it('append_note', () => {
@@ -80,9 +82,9 @@ describe('describeToolCall - legacy operations', () => {
   });
 
   it('rename_item', () => {
-    expect(describeToolCall(args({ operation: 'rename_item', title: 'New title' }), context()).headline).toBe(
-      'I will rename the linked item to “New title”.',
-    );
+    expect(
+      describeToolCall(args({ operation: 'rename_item', title: 'New title' }), context()).headline,
+    ).toBe('I will rename the linked item to “New title”.');
   });
 
   it('move_item (destination)', () => {
@@ -173,7 +175,12 @@ describe('describeToolCall - new template copy and read_structure', () => {
 describe('describeToolCall - spec operations', () => {
   it('an invalid specJson yields problems and no steps', () => {
     const model = describeToolCall(
-      args({ operation: 'create_structured', parentId: 'p1', title: 'Reading log', specJson: 'not json' }),
+      args({
+        operation: 'create_structured',
+        parentId: 'p1',
+        title: 'Reading log',
+        specJson: 'not json',
+      }),
       context(),
     );
     expect(model.headline).toBe('I cannot run this request as written.');
@@ -216,5 +223,53 @@ describe('describeToolCall - spec operations', () => {
     expect(model.headline).toContain('<b>Status</b>');
     expect(model.problems).toEqual([]);
     expect(model.neverDoes.length).toBeGreaterThan(0);
+  });
+
+  it('describes add_fields as a schema-only append', () => {
+    const status = {
+      key: 'status',
+      label: 'Status',
+      type: 'select',
+      options: ['New'],
+      required: false,
+    };
+    const model = describeToolCall(
+      args({
+        operation: 'add_fields',
+        itemId: 'item-1',
+        specJson: JSON.stringify({ fields: [{ label: 'Rating', type: 'number' }] }),
+      }),
+      context({
+        existing: { declared: [status], inherit: true, effective: [status], views: [] },
+      }),
+    );
+    expect(model.headline).toBe(
+      'I will add 1 field to Books: Rating (number). No field is removed or changed.',
+    );
+    expect(model.counts).toMatchObject({ fields: 1, views: 0, writes: 1 });
+  });
+
+  it('reports a missing due date value before describing set_recurrence', () => {
+    const dueDate = {
+      key: 'due_date',
+      label: 'Due date',
+      type: 'due_date',
+      options: [],
+      required: false,
+    };
+    const model = describeToolCall(
+      args({
+        operation: 'set_recurrence',
+        itemId: 'item-1',
+        specJson: JSON.stringify({ frequency: 'weekly', interval: 2, weekdays: [1, 4] }),
+      }),
+      context({
+        existing: { declared: [dueDate], inherit: true, effective: [dueDate], views: [] },
+      }),
+    );
+    expect(model.headline).toBe('I cannot run this request as written.');
+    expect(
+      model.problems.some((problem) => problem.code === 'recurrence-needs-due-date-value'),
+    ).toBe(true);
   });
 });

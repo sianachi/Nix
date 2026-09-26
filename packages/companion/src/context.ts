@@ -1,6 +1,7 @@
-import { structure, templates, views, type TemplatePreflight } from '@nix/api-client';
+import { items, structure, templates, views, type TemplatePreflight } from '@nix/api-client';
 import { applySpecSchema } from '@nix/structure-spec';
 import type { Problem, StructureProperty, StructureView } from '@nix/structure-spec';
+import { z } from 'zod';
 import type { CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
@@ -18,6 +19,7 @@ export interface PreviewDestination {
 
 export interface PreviewExisting {
   declared: StructureProperty[];
+  inherit: boolean;
   effective: StructureProperty[];
   views: StructureView[];
 }
@@ -28,6 +30,7 @@ export interface PreviewExisting {
 export interface PreviewContext {
   destination: PreviewDestination;
   existing?: PreviewExisting;
+  itemValues?: Record<string, unknown>;
   inheritedFields: StructureProperty[];
   fingerprint: StructureFingerprint;
   preflight?: TemplatePreflight;
@@ -35,29 +38,77 @@ export interface PreviewContext {
   warnings?: Problem[];
 }
 
-/** A container view's identity only: enough to fence on and to satisfy `compileAddView`'s typed
- * context, which reads no more than `id` from each existing view. The full view configuration
- * (columns, grouping, its form) is not needed here - `read-structure.ts` reads it separately,
- * through the same endpoint, for its own richer preview. */
-function viewIdentity(summary: { id: string; name: string; kind: string }): StructureView {
-  return {
-    id: summary.id,
-    name: summary.name,
-    kind: summary.kind,
-    columns: [],
-    groupBy: null,
-    groupOrder: [],
-    dateProperty: null,
-    sortBy: null,
-    sortDescending: false,
-    mode: null,
-    coverProperty: null,
-    endDateProperty: null,
-    cardSize: null,
-    layout: null,
-    filters: [],
-  };
-}
+const formConditionSchema = z.object({
+  fieldBlockId: z.string(),
+  operator: z.string(),
+  value: z.string().nullable(),
+});
+const formBlockSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  propertyKey: z.string().nullable(),
+  text: z.string(),
+  help: z.string().nullable(),
+  required: z.boolean(),
+  identityRole: z.string().nullable(),
+  visibleWhen: z.array(formConditionSchema),
+});
+const interactiveFormSchema = z.object({
+  pages: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      description: z.string().nullable(),
+      visibleWhen: z.array(formConditionSchema),
+      blocks: z.array(formBlockSchema),
+    }),
+  ),
+  titleMode: z.string(),
+  titleFieldBlockId: z.string().nullable(),
+  confirmationTitle: z.string(),
+  confirmationMessage: z.string(),
+});
+const viewDetailSchema = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  columns: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
+  groupBy: z.string().nullable().default(null),
+  groupOrder: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
+  dateProperty: z.string().nullable().default(null),
+  sortBy: z.string().nullable().default(null),
+  sortDescending: z.boolean().default(false),
+  mode: z.string().nullable().default(null),
+  coverProperty: z.string().nullable().default(null),
+  endDateProperty: z.string().nullable().default(null),
+  cardSize: z.string().nullable().default(null),
+  layout: z.string().nullable().default(null),
+  filters: z
+    .array(z.object({ property: z.string(), operator: z.string(), value: z.string() }))
+    .default([]),
+  habitWidgets: z
+    .array(
+      z.object({
+        id: z.string(),
+        kind: z.enum(['completion', 'quantity', 'heatmap']),
+        habitId: z.string(),
+        from: z.string(),
+        to: z.string(),
+      }),
+    )
+    .default([]),
+  measure: z.string().nullable().default(null),
+  measureProperty: z.string().nullable().default(null),
+  companionViewId: z.string().nullable().default(null),
+  companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
+  interactiveForm: interactiveFormSchema.nullable().default(null),
+}) satisfies z.ZodType<StructureView>;
 
 /** The fields this item inherits from its ancestors alone, backed out of the effective schema by
  * removing whatever the item declares itself - `EffectiveSchema` only carries the merged result
@@ -168,7 +219,11 @@ export async function loadPreviewContext(
   // Legacy item operations are workspace-checked here and intentionally receive no structure
   // reads. This prevents a newly supported or future legacy operation from falling through into
   // schema/view access with a cross-workspace id.
-  if (!['add_view', 'read_structure', 'apply_template'].includes(args.operation)) {
+  if (
+    !['add_view', 'read_structure', 'add_fields', 'edit_form', 'set_recurrence'].includes(
+      args.operation,
+    )
+  ) {
     if (args.itemId && !['restore_item', 'read_template'].includes(args.operation))
       await checkItem(ports, workspaceId, args.itemId, signal);
     const destination = args.parentId
@@ -186,16 +241,23 @@ export async function loadPreviewContext(
     };
   }
 
-  // read_structure and add_view: an existing item's own schema and views.
+  // Item structure operations: an existing item's own schema, views, and values.
   const destination = await itemDestination(ports, workspaceId, args.itemId, signal);
-  const [schema, containerViews] = await Promise.all([
+  const [item, schema, containerViews] = await Promise.all([
+    ports.core.query(items.itemById(args.itemId), requestOptions),
     ports.core.query(structure.effectiveSchema(args.itemId), requestOptions),
-    ports.core.query(views.containerViews(args.itemId), requestOptions),
+    ports.core.query(views.containerViewConfigurations(args.itemId), requestOptions),
   ]);
-  const existingViews = containerViews.views.map(viewIdentity);
+  const existingViews = containerViews.views.map((view) => viewDetailSchema.parse(view));
   return {
     destination,
-    existing: { declared: schema.declared, effective: schema.properties, views: existingViews },
+    existing: {
+      declared: schema.declared,
+      inherit: schema.inherit,
+      effective: schema.properties,
+      views: existingViews,
+    },
+    itemValues: item.properties,
     inheritedFields: inheritedOnly(schema.properties, schema.declared),
     fingerprint: structureFingerprint({ declared: schema.declared }, existingViews),
     problems: [],
