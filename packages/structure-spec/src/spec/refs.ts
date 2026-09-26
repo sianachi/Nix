@@ -10,8 +10,7 @@ export interface ResolvedField {
 }
 
 export type FieldRefResolution =
-  | { ok: true; key: string }
-  | { ok: false; code: 'unknown' | 'ambiguous'; candidates: string[] };
+  { ok: true; key: string } | { ok: false; code: 'unknown' | 'ambiguous'; candidates: string[] };
 
 /**
  * Resolves a `FieldRef` string against the fields already on the item and the fields a

@@ -57,15 +57,17 @@ export async function applyTemplate(
         'The destination is outside this workspace. No action was run.',
       );
   }
-  const preflight = knownPreflight ?? await ports.core.execute(
-    templates.preflightTemplate(input.templateId, {
-      mode: 'create',
-      parentItemId: input.parentId,
-      title: input.title,
-      inputs: input.inputs,
-    }),
-    requestOptions,
-  );
+  const preflight =
+    knownPreflight ??
+    (await ports.core.execute(
+      templates.preflightTemplate(input.templateId, {
+        mode: 'create',
+        parentItemId: input.parentId,
+        title: input.title,
+        inputs: input.inputs,
+      }),
+      requestOptions,
+    ));
   if (!preflight.canApply) {
     throw new WorkspaceToolRefusal(
       `This template cannot be applied here: ${preflight.conflicts.join('; ')}. No action was run.`,

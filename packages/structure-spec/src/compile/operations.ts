@@ -21,7 +21,10 @@ export interface CreateStructuredContext {
  * "make me a board" still gets a Status field. The same rule governs views: `spec.views` when
  * given, else the recipe's own default view (`viewForRecipe`).
  */
-export function compileCreateStructured(spec: StructuredSpec, context: CreateStructuredContext): Step[] {
+export function compileCreateStructured(
+  spec: StructuredSpec,
+  context: CreateStructuredContext,
+): Step[] {
   const recipe = findStructuredRecipe(spec.recipe);
   if (recipe === null) {
     throw new Error(`Unknown recipe "${spec.recipe}".`);
@@ -35,7 +38,10 @@ export function compileCreateStructured(spec: StructuredSpec, context: CreateStr
   const usesRecipeSeed = spec.fields.length === 0;
   const compiledFields = usesRecipeSeed
     ? {
-        properties: recipe.properties.map((property) => ({ ...property, options: [...property.options] })),
+        properties: recipe.properties.map((property) => ({
+          ...property,
+          options: [...property.options],
+        })),
         keys: new Map(recipe.properties.map((property) => [property.label, property.key])),
       }
     : compileFields(spec.fields, { existing: inheritedScope });

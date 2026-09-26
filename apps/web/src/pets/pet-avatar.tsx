@@ -29,7 +29,10 @@ export type PetAnimationState = (typeof petAnimationStates)[number];
 
 /** The launcher's two CSS boxes; the canvas backing store never changes size. */
 export type PetAvatarSize = 'regular' | 'compact';
-const avatarBox: Readonly<Record<PetAvatarSize, string>> = { regular: 'size-24', compact: 'size-14' };
+const avatarBox: Readonly<Record<PetAvatarSize, string>> = {
+  regular: 'size-24',
+  compact: 'size-14',
+};
 
 /** Playback state is supplied by the caller; animation never starts work or audio. */
 export function PetAvatar({

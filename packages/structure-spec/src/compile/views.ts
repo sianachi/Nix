@@ -85,8 +85,7 @@ export function compileView(
     groupByKey !== null ? effective.find((property) => property.key === groupByKey) : undefined;
 
   const mode =
-    spec.mode ??
-    (spec.kind === 'calendar' ? 'week' : spec.kind === 'timeline' ? 'month' : null);
+    spec.mode ?? (spec.kind === 'calendar' ? 'week' : spec.kind === 'timeline' ? 'month' : null);
 
   return {
     id,
@@ -104,7 +103,8 @@ export function compileView(
     sortDescending: spec.sortDescending ?? false,
     mode,
     coverProperty: spec.cover !== undefined ? resolveKey(spec.cover, effective, addedKeys) : null,
-    endDateProperty: spec.endDate !== undefined ? resolveKey(spec.endDate, effective, addedKeys) : null,
+    endDateProperty:
+      spec.endDate !== undefined ? resolveKey(spec.endDate, effective, addedKeys) : null,
     cardSize: spec.cardSize ?? (spec.kind === 'gallery' ? 'medium' : null),
     layout: null,
     filters: compileFilters(spec, effective, addedKeys),

@@ -852,7 +852,9 @@ describe('nixctl mcp workspace tools', () => {
           status: 'connected',
           reason: 'Connected',
           canConnect: false,
-          tools: [{ id: toolId, arguments: toolArguments, status: 'pending', result: '', claimId: '' }],
+          tools: [
+            { id: toolId, arguments: toolArguments, status: 'pending', result: '', claimId: '' },
+          ],
         }),
       );
     };
@@ -933,7 +935,10 @@ describe('nixctl mcp workspace tools', () => {
       expect(claim.isError).not.toBe(true);
       expect(result.isError).not.toBe(true);
       const runtimeCalls = requests.filter((request) => request.url.endsWith('/pets/runtime'));
-      expect(runtimeCalls.map((call) => call.body.operation)).toEqual(['tool_claim', 'tool_result']);
+      expect(runtimeCalls.map((call) => call.body.operation)).toEqual([
+        'tool_claim',
+        'tool_result',
+      ]);
       expect(runtimeCalls[0]?.body).toMatchObject({
         workspaceId,
         petId,

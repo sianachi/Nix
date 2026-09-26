@@ -40,7 +40,15 @@ export const TASK_SEMANTIC_FIELD_TYPES = [
   'estimate',
 ] as const;
 
-export const ROLLUP_SPEC_AGGREGATES = ['count', 'sum', 'average', 'min', 'max', 'any', 'all'] as const;
+export const ROLLUP_SPEC_AGGREGATES = [
+  'count',
+  'sum',
+  'average',
+  'min',
+  'max',
+  'any',
+  'all',
+] as const;
 
 /**
  * The shape a pet may propose for one property, before it is compiled into a

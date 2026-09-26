@@ -20,7 +20,10 @@ describe('compileCreateStructured', () => {
       {
         recipe: 'board',
         fields: [{ label: 'Status', type: 'select', options: ['To do', 'Doing', 'Done'] }],
-        views: [{ kind: 'board', groupBy: 'Status' }, { kind: 'board', groupBy: 'Status' }],
+        views: [
+          { kind: 'board', groupBy: 'Status' },
+          { kind: 'board', groupBy: 'Status' },
+        ],
         inherit: true,
       },
       { parentId: 'parent-1', title: 'Board', inheritedFields: [] },
@@ -92,7 +95,10 @@ describe('compileForm (via compileCreateStructured)', () => {
     const steps = compileCreateStructured(
       {
         recipe: 'interactive-form',
-        fields: [{ label: 'Name', type: 'text' }, { label: 'Email', type: 'text' }],
+        fields: [
+          { label: 'Name', type: 'text' },
+          { label: 'Email', type: 'text' },
+        ],
         views: [
           {
             kind: 'interactive_form',

@@ -81,7 +81,12 @@ import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
-import { petCommand, petToolRun, type PetOptions, type PetToolRunOptions } from './commands/pets.ts';
+import {
+  petCommand,
+  petToolRun,
+  type PetOptions,
+  type PetToolRunOptions,
+} from './commands/pets.ts';
 import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
 import * as financeCommands from './commands/finance.ts';
 import {

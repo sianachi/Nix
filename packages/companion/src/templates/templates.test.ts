@@ -64,7 +64,11 @@ function templateDetail() {
       title: 'Reading log',
       seq: '1',
       properties: { status: 'Draft' },
-      schema: { properties: [], declared: [{ key: 'status', label: 'Status', type: 'select' }], inherit: true },
+      schema: {
+        properties: [],
+        declared: [{ key: 'status', label: 'Status', type: 'select' }],
+        inherit: true,
+      },
       views: { views: [{ id: 'board', kind: 'board' }], default: 'board' },
       hasBody: true,
       recurrence: null,

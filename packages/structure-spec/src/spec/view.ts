@@ -57,9 +57,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   habit_tracker: [],
 };
 
-const ALL_KIND_GATED_FIELDS = [
-  ...new Set(Object.values(KIND_EXTRA_FIELDS).flat()),
-] as const;
+const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;
 
 const CALENDAR_MODES = new Set(['day', 'week', 'month']);
 const TIMELINE_MODES = new Set(['week', 'month', 'quarter']);

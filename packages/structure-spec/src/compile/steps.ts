@@ -97,9 +97,7 @@ const STEP_KIND_KEYS = {
   applyTemplate: true,
 } satisfies Record<Step['kind'], true>;
 
-export const STEP_KINDS: readonly Step['kind'][] = Object.keys(
-  STEP_KIND_KEYS,
-) as Step['kind'][];
+export const STEP_KINDS: readonly Step['kind'][] = Object.keys(STEP_KIND_KEYS) as Step['kind'][];
 
 /**
  * Whether a step performs a Core or Collab write once executed.

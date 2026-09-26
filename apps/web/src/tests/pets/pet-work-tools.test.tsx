@@ -80,8 +80,14 @@ describe('companion work approvals', () => {
   });
 
   it.each([
-    [{ operation: 'list_templates', query: 'reading' }, /I will look through your templates for “reading”/],
-    [{ operation: 'list_templates', query: '' }, /I will look through your templates to see what fits/],
+    [
+      { operation: 'list_templates', query: 'reading' },
+      /I will look through your templates for “reading”/,
+    ],
+    [
+      { operation: 'list_templates', query: '' },
+      /I will look through your templates to see what fits/,
+    ],
     [
       { operation: 'read_template', itemId: '33333333-3333-4333-8333-333333333333' },
       /I will read the linked template’s outline/,

@@ -8,7 +8,8 @@ import { viewSpecSchema } from './view.js';
  * Recursive, so it is declared with `z.lazy`; the TS type is written out by hand because Zod
  * cannot infer a recursive type through `z.infer` without one.
  */
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([

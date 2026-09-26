@@ -16,7 +16,9 @@ import { viewSpecSchema } from './view.js';
 
 describe('vocabulary parity', () => {
   it('field types are every property type except assignee', () => {
-    const vocabulary = PROPERTY_TYPES.map((entry) => entry.value).filter((value) => value !== 'assignee');
+    const vocabulary = PROPERTY_TYPES.map((entry) => entry.value).filter(
+      (value) => value !== 'assignee',
+    );
     expect([...FIELD_SPEC_TYPES].sort()).toEqual([...vocabulary].sort());
   });
 
@@ -139,7 +141,11 @@ describe('fieldSpecSchema', () => {
       expect(mismatched.error.issues[0]?.path).toEqual(['key']);
     }
 
-    const matching = fieldSpecSchema.safeParse({ label: 'Kicks off', key: 'start_date', type: 'start_date' });
+    const matching = fieldSpecSchema.safeParse({
+      label: 'Kicks off',
+      key: 'start_date',
+      type: 'start_date',
+    });
     expect(matching.success).toBe(true);
 
     const omitted = fieldSpecSchema.safeParse({ label: 'Kicks off', type: 'start_date' });
@@ -147,7 +153,11 @@ describe('fieldSpecSchema', () => {
   });
 
   it('a plain field refuses a key reserved for a task-semantic type', () => {
-    const collision = fieldSpecSchema.safeParse({ label: 'Deadline', key: 'due_date', type: 'text' });
+    const collision = fieldSpecSchema.safeParse({
+      label: 'Deadline',
+      key: 'due_date',
+      type: 'text',
+    });
     expect(collision.success).toBe(false);
     if (!collision.success) {
       expect(collision.error.issues[0]?.path).toEqual(['key']);
@@ -353,7 +363,9 @@ describe('keyFor', () => {
 
 describe('resolveFieldRef', () => {
   it('labels resolve only for new fields', () => {
-    const existing = [{ key: 'status', label: 'Status', type: 'select', options: [], required: false }];
+    const existing = [
+      { key: 'status', label: 'Status', type: 'select', options: [], required: false },
+    ];
     const added = [{ key: 'priority', label: 'Priority' }];
 
     const byExistingKey = resolveFieldRef('status', { existing, added });

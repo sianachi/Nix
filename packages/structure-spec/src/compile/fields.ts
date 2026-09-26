@@ -27,7 +27,10 @@ export interface CompiledFields {
  * it throws rather than returning a `Problem`, matching the pure, always-succeeds-on-valid-input
  * shape the rest of this module keeps.
  */
-export function compileFields(specs: readonly FieldSpec[], scope: CompileFieldsScope): CompiledFields {
+export function compileFields(
+  specs: readonly FieldSpec[],
+  scope: CompileFieldsScope,
+): CompiledFields {
   const properties: StructureProperty[] = [];
   const added: ResolvedField[] = [];
   const keys = new Map<string, string>();

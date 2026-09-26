@@ -58,7 +58,9 @@ describe('the capability catalog', () => {
     // to one side and forgotten on the other fails a build.
     expect(catalog.structureOperations.chat.length).toBeGreaterThan(0);
     for (const operation of catalog.structureOperations.chat) {
-      expect(chat, `chat catalog should name structure operation '${operation}'`).toContain(operation);
+      expect(chat, `chat catalog should name structure operation '${operation}'`).toContain(
+        operation,
+      );
       expect(consult, `consult catalog should name structure operation '${operation}'`).toContain(
         operation,
       );

@@ -29,7 +29,10 @@ describe('describeSteps', () => {
       { parentId: 'books-id', title: 'Reading log', inheritedFields: [] },
     );
 
-    const model = describeSteps(steps, context({ destination: { title: 'Books', path: ['Books'] } }));
+    const model = describeSteps(
+      steps,
+      context({ destination: { title: 'Books', path: ['Books'] } }),
+    );
 
     expect(model.headline).toBe(
       'I will create the board Reading log inside Books with Status (To read, Reading, Done), Rating (number) and a Board view grouped by Status.',
@@ -83,7 +86,10 @@ describe('describeSteps', () => {
       { parentId: 'books-id' },
     );
 
-    const model = describeSteps(steps, context({ destination: { title: 'Books', path: ['Books'] } }));
+    const model = describeSteps(
+      steps,
+      context({ destination: { title: 'Books', path: ['Books'] } }),
+    );
 
     expect(model.headline).toBe('I will add 2 entries to Books.');
     expect(model.tree).toHaveLength(2);
@@ -126,7 +132,11 @@ describe('describeSteps', () => {
   it('falls back to a generic per-step description for a mixed plan', () => {
     const steps: Step[] = [
       { kind: 'ensureSandbox' },
-      { kind: 'setRecurrence', target: { itemId: 'i1' }, rule: { freq: 'daily', interval: 1, weekdays: null, until: null } },
+      {
+        kind: 'setRecurrence',
+        target: { itemId: 'i1' },
+        rule: { freq: 'daily', interval: 1, weekdays: null, until: null },
+      },
     ];
     const model = describeSteps(steps, context());
     expect(model.headline).toBe('I will make 2 changes to Workspace.');
