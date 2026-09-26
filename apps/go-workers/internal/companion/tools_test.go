@@ -115,9 +115,26 @@ func TestInvalidToolArgumentsNeverReachApproval(t *testing.T) {
 	}
 }
 
+func TestOnlyLocalBlueprintValidationCanRunWithoutWorkspaceAccess(t *testing.T) {
+	a := &account{transport: &toolPeer{}, home: t.TempDir(), conversations: map[string]*conversation{"x": {
+		ThreadID: "thread", State: "thinking", Mode: "consult", WorkspaceAccess: false,
+	}}}
+	call := func(id, operation string) bool {
+		args := fmt.Sprintf(`{"operation":%q,"specJson":"{}"}`, operation)
+		raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_workspace","callId":%q,"arguments":%s}`, id, args))
+		return a.toolRequest(json.RawMessage(`1`), "item/tool/call", raw)
+	}
+	if !call("local", "validate_blueprint") || len(a.snapshot("x").Tools) != 1 {
+		t.Fatal("local blueprint validation was refused without workspace access")
+	}
+	if call("workspace", "build_blueprint") || len(a.snapshot("x").Tools) != 1 {
+		t.Fatal("workspace write reached the approval flow without workspace access")
+	}
+}
+
 func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	oversized := `{"operation":"create_structured","parentId":"","title":"Plan","specJson":"` + strings.Repeat("a", 24001) + `"}`
-	if got := validateToolArguments(json.RawMessage(oversized)); got != "The design is too large. Use fewer items and fields." {
+	if got := validateToolArguments(json.RawMessage(oversized), "chat"); got != "The design is too large. Use fewer items and fields." {
 		t.Fatalf("oversized specJson not refused with the exact message: %q", got)
 	}
 	deep := strings.Repeat(`{"a":`, 25) + "1" + strings.Repeat("}", 25)
@@ -125,7 +142,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := validateToolArguments(json.RawMessage(deepArgs)); got != "The design is too large. Use fewer items and fields." {
+	if got := validateToolArguments(json.RawMessage(deepArgs), "chat"); got != "The design is too large. Use fewer items and fields." {
 		t.Fatalf("depth-25 specJson not refused with the exact message: %q", got)
 	}
 	atLimit := strings.Repeat(`{"a":`, 24) + "1" + strings.Repeat("}", 24)
@@ -133,7 +150,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := validateToolArguments(json.RawMessage(atLimitArgs)); got != "" {
+	if got := validateToolArguments(json.RawMessage(atLimitArgs), "chat"); got != "" {
 		t.Fatalf("depth-24 specJson wrongly refused: %q", got)
 	}
 	shallow := `{"a":1}`
@@ -145,7 +162,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 		t.Fatalf("brackets inside a string counted as nesting: %d", jsonDepth(bracketsInString))
 	}
 	alongsideMarkdown := `{"operation":"create_note","title":"Plan","markdown":"body","specJson":"{}"}`
-	if got := validateToolArguments(json.RawMessage(alongsideMarkdown)); got != "Put markdown inside specJson entries, not alongside it." {
+	if got := validateToolArguments(json.RawMessage(alongsideMarkdown), "chat"); got != "Put markdown inside specJson entries, not alongside it." {
 		t.Fatalf("markdown alongside specJson not refused: %q", got)
 	}
 }
@@ -161,16 +178,39 @@ func TestNewOperationsAcceptValidArguments(t *testing.T) {
 		fmt.Sprintf(`{"operation":"read_template","itemId":%q}`, itemID),
 		fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
 	} {
-		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "" {
 			t.Fatalf("valid arguments refused: %s -> %q", raw, got)
 		}
 	}
 }
 
-// TestEnumAndValidatorAgree proves the operation enum in workspaceTools() and the switch in
-// validateToolArguments never drift apart: every enum entry must have a minimal valid argument
-// set below that validateToolArguments accepts, and any string outside the enum (including a
-// retired operation such as read_schema) must be refused as unsupported.
+// TestConsultOnlyOperationsAreRefusedInChat covers owner decision 7 (pet-structure-consult-plan.md
+// section 1.4): validate_blueprint, build_blueprint and save_as_template are refused outside
+// Design mode, and accepted with minimal valid arguments in it.
+func TestConsultOnlyOperationsAreRefusedInChat(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, raw := range []string{
+		`{"operation":"validate_blueprint","specJson":"{}"}`,
+		`{"operation":"build_blueprint","specJson":"{}"}`,
+		fmt.Sprintf(`{"operation":"save_as_template","itemId":%q,"title":"Job hunt"}`, itemID),
+	} {
+		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "This operation is only available in Design mode." {
+			t.Fatalf("consult-only operation accepted in chat: %s -> %q", raw, got)
+		}
+		if got := validateToolArguments(json.RawMessage(raw), "consult"); got != "" {
+			t.Fatalf("consult-only operation refused in consult with valid arguments: %s -> %q", raw, got)
+		}
+	}
+	// The empty mode ("" defaults to chat, architecture section 6) refuses them too.
+	if got := validateToolArguments(json.RawMessage(`{"operation":"build_blueprint","specJson":"{}"}`), ""); got != "This operation is only available in Design mode." {
+		t.Fatalf("consult-only operation accepted with an empty mode: %q", got)
+	}
+}
+
+// TestEnumAndValidatorAgree proves the operation enum in workspaceTools("chat") and the
+// switch in validateToolArguments never drift apart: every enum entry must have a minimal
+// valid argument set below that validateToolArguments accepts, and any string outside the
+// enum (including a retired operation such as read_schema) must be refused as unsupported.
 func TestEnumAndValidatorAgree(t *testing.T) {
 	itemID := "11111111-1111-4111-8111-111111111111"
 	minimalArguments := map[string]string{
@@ -197,16 +237,16 @@ func TestEnumAndValidatorAgree(t *testing.T) {
 		"apply_template":    fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
 	}
 
-	enum := workspaceOperationEnum(t)
+	enum := workspaceOperationEnum(t, "chat")
 	if len(enum) != len(minimalArguments) {
-		t.Fatalf("workspaceTools() enum has %d operations, minimalArguments covers %d; the fixture is stale", len(enum), len(minimalArguments))
+		t.Fatalf("workspaceTools(\"chat\") enum has %d operations, minimalArguments covers %d; the fixture is stale", len(enum), len(minimalArguments))
 	}
 	for _, operation := range enum {
 		raw, ok := minimalArguments[operation]
 		if !ok {
 			t.Fatalf("no minimal arguments fixture for enum operation %q", operation)
 		}
-		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "" {
 			t.Fatalf("enum operation %q refused with minimal valid arguments: %s -> %q", operation, raw, got)
 		}
 	}
@@ -217,15 +257,48 @@ func TestEnumAndValidatorAgree(t *testing.T) {
 		`{"operation":"delete_item_permanently"}`,
 		`{"operation":""}`,
 	} {
-		if got := validateToolArguments(json.RawMessage(raw)); got != "Unsupported workspace operation." {
+		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "Unsupported workspace operation." {
 			t.Fatalf("non-enum operation not refused as unsupported: %s -> %q", raw, got)
+		}
+	}
+}
+
+// TestConsultEnumAndValidatorAgree is TestEnumAndValidatorAgree's counterpart for
+// workspaceTools("consult"): the three consult-only operations must also have a minimal
+// valid argument set that validateToolArguments accepts in consult mode.
+func TestConsultEnumAndValidatorAgree(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	minimalConsultArguments := map[string]string{
+		"validate_blueprint": `{"operation":"validate_blueprint","specJson":"{}"}`,
+		"build_blueprint":    `{"operation":"build_blueprint","specJson":"{}"}`,
+		"save_as_template":   fmt.Sprintf(`{"operation":"save_as_template","itemId":%q,"title":"Job hunt"}`, itemID),
+	}
+
+	enum := workspaceOperationEnum(t, "consult")
+	for _, operation := range consultOnlyOperations {
+		found := false
+		for _, candidate := range enum {
+			if candidate == operation {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%q is not in workspaceTools(\"consult\")'s operation enum", operation)
+		}
+		raw, ok := minimalConsultArguments[operation]
+		if !ok {
+			t.Fatalf("no minimal arguments fixture for consult-only operation %q", operation)
+		}
+		if got := validateToolArguments(json.RawMessage(raw), "consult"); got != "" {
+			t.Fatalf("consult-only operation %q refused with minimal valid arguments: %s -> %q", operation, raw, got)
 		}
 	}
 }
 
 func TestReadSchemaIsNoLongerAnOperation(t *testing.T) {
 	itemID := "11111111-1111-4111-8111-111111111111"
-	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)))
+	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)), "chat")
 	if got != "Unsupported workspace operation." {
 		t.Fatalf("read_schema still accepted: %q", got)
 	}
@@ -244,6 +317,7 @@ func TestNewReadOperationsAreReadOnly(t *testing.T) {
 		`{"operation":"read_structure","itemId":"11111111-1111-4111-8111-111111111111"}`,
 		`{"operation":"list_templates"}`,
 		`{"operation":"read_template","itemId":"11111111-1111-4111-8111-111111111111"}`,
+		`{"operation":"validate_blueprint"}`,
 	} {
 		_, readOnly := toolIdentity(raw)
 		if !readOnly {
@@ -258,6 +332,8 @@ func TestNewReadOperationsAreReadOnly(t *testing.T) {
 		`{"operation":"edit_form"}`,
 		`{"operation":"set_recurrence"}`,
 		`{"operation":"apply_template"}`,
+		`{"operation":"build_blueprint"}`,
+		`{"operation":"save_as_template"}`,
 	} {
 		_, readOnly := toolIdentity(raw)
 		if readOnly {

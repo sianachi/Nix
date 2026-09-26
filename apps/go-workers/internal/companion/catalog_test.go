@@ -33,7 +33,7 @@ func TestCatalogsAreEmbeddedAndBounded(t *testing.T) {
 }
 
 func TestCatalogNamesEveryOperationInItsMode(t *testing.T) {
-	enum := workspaceOperationEnum(t)
+	enum := workspaceOperationEnum(t, "chat")
 
 	for _, operation := range structureOperationsInChatMode {
 		found := false
@@ -44,7 +44,7 @@ func TestCatalogNamesEveryOperationInItsMode(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("%q is not in workspaceTools()'s operation enum; the fixture list is stale", operation)
+			t.Fatalf("%q is not in workspaceTools(\"chat\")'s operation enum; the fixture list is stale", operation)
 		}
 		if !strings.Contains(chatCatalog, operation) {
 			t.Errorf("chat catalog does not name structure operation %q", operation)
@@ -52,20 +52,44 @@ func TestCatalogNamesEveryOperationInItsMode(t *testing.T) {
 	}
 }
 
-// workspaceOperationEnum reads the "operation" property's enum straight out of workspaceTools(),
-// rather than a second hand-typed copy of it, so a structure operation renamed in the schema and
-// forgotten in structureOperationsInChatMode fails TestCatalogNamesEveryOperationInItsMode instead
-// of two lists silently agreeing with each other and disagreeing with the schema.
-func workspaceOperationEnum(t *testing.T) []string {
+// TestConsultCatalogNamesEveryConsultOperation is TestCatalogNamesEveryOperationInItsMode's
+// counterpart for consult (Design mode): the same structure operations must also be present
+// in workspaceTools("consult")'s enum and named in the embedded consult catalog text.
+func TestConsultCatalogNamesEveryConsultOperation(t *testing.T) {
+	enum := workspaceOperationEnum(t, "consult")
+
+	for _, operation := range structureOperationsInChatMode {
+		found := false
+		for _, candidate := range enum {
+			if candidate == operation {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%q is not in workspaceTools(\"consult\")'s operation enum; the fixture list is stale", operation)
+		}
+		if !strings.Contains(consultCatalog, operation) {
+			t.Errorf("consult catalog does not name structure operation %q", operation)
+		}
+	}
+}
+
+// workspaceOperationEnum reads the "operation" property's enum straight out of
+// workspaceTools(mode), rather than a second hand-typed copy of it, so a structure
+// operation renamed in the schema and forgotten in structureOperationsInChatMode fails
+// TestCatalogNamesEveryOperationInItsMode instead of two lists silently agreeing with each
+// other and disagreeing with the schema.
+func workspaceOperationEnum(t *testing.T, mode string) []string {
 	t.Helper()
 
-	tools := workspaceTools()
+	tools := workspaceTools(mode)
 	if len(tools) != 1 {
-		t.Fatalf("workspaceTools() returned %d tools, want 1", len(tools))
+		t.Fatalf("workspaceTools(%q) returned %d tools, want 1", mode, len(tools))
 	}
 	tool, ok := tools[0].(map[string]any)
 	if !ok {
-		t.Fatalf("workspaceTools()[0] is %T, want map[string]any", tools[0])
+		t.Fatalf("workspaceTools(%q)[0] is %T, want map[string]any", mode, tools[0])
 	}
 	inputSchema, ok := tool["inputSchema"].(map[string]any)
 	if !ok {
@@ -79,7 +103,7 @@ func workspaceOperationEnum(t *testing.T) []string {
 	if !ok {
 		t.Fatalf("operation property is %T, want map[string]any", properties["operation"])
 	}
-	// workspaceTools() builds this as a Go []string literal (tools.go), never via
+	// workspaceTools(mode) builds this as a Go []string literal (tools.go), never via
 	// json.Unmarshal (which would produce []any), so this assertion holds for as long as the
 	// schema is constructed in Go rather than parsed from JSON.
 	enum, ok := operation["enum"].([]string)

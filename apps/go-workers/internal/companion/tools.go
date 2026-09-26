@@ -30,13 +30,24 @@ type toolTransport interface {
 	Reply(json.RawMessage, any) error
 }
 
-func workspaceTools() []any {
+// consultOnlyOperations are the nix_workspace operations available only in consult
+// (Design mode) conversations: designing and saving a whole structure, as opposed to the
+// additive, one-item-at-a-time operations chat also has.
+var consultOnlyOperations = []string{"validate_blueprint", "build_blueprint", "save_as_template"}
+
+func workspaceTools(mode string) []any {
 	properties := map[string]any{}
 	for _, key := range []string{"itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"} {
 		properties[key] = map[string]string{"type": "string"}
 	}
-	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence", "list_templates", "read_template", "apply_template"}}
-	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. add_fields (itemId, specJson {fields}; never removes a field); edit_form (itemId, specJson {viewId, form}); set_recurrence (itemId, specJson {frequency, interval, weekdays, until}). Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
+	operations := []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence", "list_templates", "read_template", "apply_template"}
+	description := "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. add_fields (itemId, specJson {fields}; never removes a field); edit_form (itemId, specJson {viewId, form}); set_recurrence (itemId, specJson {frequency, interval, weekdays, until}). Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration."
+	if mode == "consult" {
+		operations = append(operations, consultOnlyOperations...)
+		description += " Design mode only: validate_blueprint (specJson is the blueprint) checks a design before building and never writes; build_blueprint (specJson is the blueprint) creates it under Pet drafts; save_as_template (itemId, title) saves an item and its children as a reusable template."
+	}
+	properties["operation"] = map[string]any{"type": "string", "enum": operations}
+	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": description, "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
 }
 
 func (a *account) listModels(ctx context.Context) error {
@@ -82,10 +93,21 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for key, c := range a.conversations {
-		if c.ThreadID != p.ThreadID || c.State != "thinking" || !c.WorkspaceAccess {
+		if c.ThreadID != p.ThreadID || c.State != "thinking" {
 			continue
 		}
-		if reason := validateToolArguments(p.Arguments); reason != "" {
+		// The only operation allowed without workspace access is local blueprint
+		// validation in Design mode. Reject everything else before returning a tool
+		// error, preserving the no-consent boundary for workspace operations.
+		if !c.WorkspaceAccess {
+			var args struct {
+				Operation string `json:"operation"`
+			}
+			if c.Mode != "consult" || json.Unmarshal(p.Arguments, &args) != nil || args.Operation != "validate_blueprint" {
+				return false
+			}
+		}
+		if reason := validateToolArguments(p.Arguments, c.Mode); reason != "" {
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
 				return true
@@ -154,7 +176,7 @@ func toolIdentity(raw string) (string, bool) {
 		return "", false
 	}
 	operation, _ := args["operation"].(string)
-	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template"
+	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint"
 	if properties, ok := args["propertiesJson"].(string); ok && properties != "" {
 		var object map[string]any
 		decoder := json.NewDecoder(strings.NewReader(properties))
@@ -184,7 +206,7 @@ func toolOutput(success bool, result string) any {
 	return map[string]any{"success": success, "contentItems": []any{map[string]string{"type": "inputText", "text": result}}}
 }
 
-func validateToolArguments(raw json.RawMessage) string {
+func validateToolArguments(raw json.RawMessage, mode string) string {
 	var p struct {
 		Operation  string `json:"operation"`
 		ItemID     string `json:"itemId"`
@@ -217,6 +239,11 @@ func validateToolArguments(raw json.RawMessage) string {
 	}
 	if p.ItemID != "" && !uuid.MatchString(p.ItemID) {
 		return "itemId must be a Nix item UUID."
+	}
+	for _, consultOnly := range consultOnlyOperations {
+		if p.Operation == consultOnly && mode != "consult" {
+			return "This operation is only available in Design mode."
+		}
 	}
 	switch p.Operation {
 	case "list_items":
@@ -296,6 +323,21 @@ func validateToolArguments(raw json.RawMessage) string {
 		}
 		if p.Spec != "" && !isJSONObject(p.Spec) {
 			return "apply_template requires a JSON object in specJson when supplied."
+		}
+	case "validate_blueprint":
+		if !isJSONObject(p.Spec) {
+			return "validate_blueprint requires a JSON object in specJson."
+		}
+	case "build_blueprint":
+		if !isJSONObject(p.Spec) {
+			return "build_blueprint requires a JSON object in specJson."
+		}
+	case "save_as_template":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if strings.TrimSpace(p.Title) == "" {
+			return "save_as_template requires a title."
 		}
 	default:
 		return "Unsupported workspace operation."
