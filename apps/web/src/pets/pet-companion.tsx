@@ -10,6 +10,9 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { useNarrowViewport } from '../layout/viewport';
+import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
+import { useBackDismiss } from '../layout/use-back-dismiss';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { usePetSettings } from './use-pet-settings';
 import { usePetVoice } from './use-pet-voice';
@@ -56,13 +59,30 @@ function Companion({
   const launcher = useRef<HTMLButtonElement | null>(null);
   const [placement, setPlacement] = useState(() => readDevicePreference('placement'));
   const [position, setPosition] = useState(() => readPetPosition());
+  const positionRef = useRef(position);
   const drag = useRef<{
     pointerId: number;
     offsetX: number;
     offsetY: number;
+    startX: number;
+    startY: number;
     moved: boolean;
   } | null>(null);
   const suppressClick = useRef(false);
+  const returnFocus = useRef(false);
+  const narrow = useNarrowViewport();
+  const keyboardVisible = useMobileKeyboard(narrow);
+  const launcherHidden = open || (narrow && keyboardVisible);
+  // Close (or the back gesture) may fire while the keyboard still occludes the page, which
+  // keeps the launcher `hidden`; a hidden button cannot take focus, so waiting for
+  // `launcherHidden` to clear - rather than focusing right on close - is what makes focus land
+  // on it once it is actually visible again, on a phone or a desktop alike.
+  useEffect(() => {
+    if (returnFocus.current && !launcherHidden) {
+      returnFocus.current = false;
+      launcher.current?.focus();
+    }
+  }, [launcherHidden]);
   useEffect(() => {
     const changed = () => {
       setPlacement(readDevicePreference('placement'));
@@ -73,10 +93,45 @@ function Companion({
       window.removeEventListener('nix-pet-device-changed', changed);
     };
   }, []);
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+  // A position dragged and saved on a wide screen can sit off a phone's much smaller
+  // viewport; clamp it back on load and whenever the viewport itself changes.
+  useEffect(() => {
+    if (!narrow) return;
+    const clamp = () => {
+      const current = positionRef.current;
+      const rect = launcher.current?.getBoundingClientRect();
+      // A `hidden` launcher (the keyboard is up) measures 0x0; clamping to that would pin the
+      // button flush with the far edge instead of leaving it where it actually is. Skipping
+      // the clamp then is safe: `keyboardVisible` is also a dependency below, so the clamp
+      // re-runs, with a real rect, the moment the launcher is visible again.
+      if (!current || !rect || rect.width === 0 || rect.height === 0) return;
+      const next = {
+        x: Math.min(Math.max(8, current.x), Math.max(8, window.innerWidth - rect.width - 8)),
+        y: Math.min(Math.max(8, current.y), Math.max(8, window.innerHeight - rect.height - 8)),
+      };
+      if (next.x !== current.x || next.y !== current.y) {
+        setPosition(next);
+        writePetPosition(next);
+      }
+    };
+    clamp();
+    window.addEventListener('resize', clamp);
+    window.addEventListener('orientationchange', clamp);
+    return () => {
+      window.removeEventListener('resize', clamp);
+      window.removeEventListener('orientationchange', clamp);
+    };
+  }, [narrow, keyboardVisible]);
+  // No token names the mobile navigation's rendered height (mobile-navigation.tsx has no
+  // fixed height of its own); 3.5rem is the fallback so a phone launcher never sits under it.
+  const narrowOffset = 'bottom-[calc(var(--mobile-nav-height,3.5rem)+env(safe-area-inset-bottom))]'; // design-token-exempt: no token for the mobile nav's rendered height.
   return (
     <aside
       aria-label={`${pet.name} companion`}
-      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
+      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `${narrowOffset} sm:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
       style={
         position
           ? open && openAnchor
@@ -90,17 +145,18 @@ function Companion({
           workspaceId={workspaceId}
           pet={pet}
           settings={settings}
+          narrow={narrow}
           onClose={() => {
             setOpen(false);
             setOpenAnchor(null);
-            requestAnimationFrame(() => launcher.current?.focus());
+            returnFocus.current = true;
           }}
         />
       ) : null}
       <Button
         ref={launcher}
         variant="ghost"
-        className={`h-auto touch-none p-1 ${open ? 'hidden' : ''}`}
+        className={`h-auto touch-none p-1 ${launcherHidden ? 'hidden' : ''}`}
         aria-expanded={open}
         aria-label={open ? `Close ${pet.name}` : `Talk with ${pet.name}`}
         onMouseEnter={() => {
@@ -134,11 +190,18 @@ function Companion({
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          // A drag that ends past the tap slop, on touch, dispatches no `click` at all: the flag
+          // `onClick` would otherwise clear stays set, and the very next real tap is swallowed
+          // silently. Starting every new pointer-down clean is what keeps a stale flag from a
+          // prior drag from ever eating a later tap.
+          suppressClick.current = false;
           const rect = event.currentTarget.getBoundingClientRect();
           drag.current = {
             pointerId: event.pointerId,
             offsetX: event.clientX - rect.left,
             offsetY: event.clientY - rect.top,
+            startX: event.clientX,
+            startY: event.clientY,
             moved: false,
           };
           if (typeof event.currentTarget.setPointerCapture === 'function')
@@ -147,7 +210,12 @@ function Companion({
         onPointerMove={(event) => {
           const active = drag.current;
           if (active?.pointerId !== event.pointerId) return;
-          const moved = active.moved || Math.hypot(event.movementX, event.movementY) > 2;
+          // Cumulative distance from where the pointer went down, rather than the per-event
+          // `movementX`/`movementY` delta: some engines never populate a non-zero delta for a
+          // touch pointer, which would otherwise make a drag never register as one at all.
+          const moved =
+            active.moved ||
+            Math.hypot(event.clientX - active.startX, event.clientY - active.startY) > 2;
           active.moved = moved;
           if (!moved) return;
           suppressClick.current = true;
@@ -177,6 +245,7 @@ function Companion({
           state={hover ? 'hover' : 'idle'}
           motion={settings.motion}
           label={pet.name}
+          size={narrow ? 'compact' : 'regular'}
         />
       </Button>
     </aside>
@@ -187,11 +256,13 @@ function Conversation({
   workspaceId,
   pet,
   settings,
+  narrow,
   onClose,
 }: {
   readonly workspaceId: string;
   readonly pet: PetProfile;
   readonly settings: PetSettings;
+  readonly narrow: boolean;
   readonly onClose: () => void;
 }) {
   const client = useApiClient();
@@ -243,11 +314,85 @@ function Conversation({
     };
   }, [onClose]);
 
+  // Mounted only while the conversation is open (the caller renders it conditionally), so the
+  // browser Back gesture dismisses the full-screen phone dialog for as long as it is showing.
+  useBackDismiss(narrow, onClose);
+
+  useEffect(() => {
+    if (!narrow) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [narrow]);
+
+  // A full-screen phone dialog has no page underneath it to fall back on, so Tab is kept from
+  // ever walking out of it and onto the shell painted below.
+  useEffect(() => {
+    if (!narrow) return;
+    const node = dialog.current;
+    if (!node) return;
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const focusable = node.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    node.addEventListener('keydown', trap);
+    return () => {
+      node.removeEventListener('keydown', trap);
+    };
+  }, [narrow]);
+
+  // `100dvh` does not always shrink for the software keyboard (it depends on the browser's
+  // virtual-keyboard resize mode), so the phone dialog's own height is measured from
+  // `visualViewport` instead - the same approach `mobile-note-toolbar.tsx` uses - and written
+  // onto the element so the composer at its bottom edge stays above the keyboard rather than
+  // being covered by it.
+  useEffect(() => {
+    if (!narrow) return;
+    const node = dialog.current;
+    const viewport = window.visualViewport;
+    if (!node) return;
+    let frame = 0;
+    const measure = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+        node.style.setProperty('--phone-dialog-height', `${String(height)}px`);
+      });
+    };
+    measure();
+    viewport?.addEventListener('resize', measure);
+    viewport?.addEventListener('scroll', measure);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', measure);
+      viewport?.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [narrow]);
+
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
     let timer: ReturnType<typeof setTimeout>;
-    input.current?.focus();
+    // On a phone the dialog itself takes focus first (its name is announced, and Tab starts
+    // from a known place); on a wide screen the composer keeps taking it directly, as before.
+    if (narrow) dialog.current?.focus();
+    else input.current?.focus();
     void client
       .execute(pets.runtime({ operation: 'models' }), { signal: controller.signal })
       .then((value) => {
@@ -277,7 +422,7 @@ function Conversation({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, workspaceId, pet.id]);
+  }, [client, workspaceId, pet.id, narrow]);
 
   useEffect(() => {
     if (!narrationPending.current || runtime?.state !== 'success') return;
@@ -342,9 +487,13 @@ function Conversation({
       ref={dialog}
       role="dialog"
       tabIndex={-1}
-      aria-modal={false}
+      aria-modal={narrow}
       aria-label={`Conversation with ${pet.name}`}
-      className="flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg"
+      className={
+        narrow
+          ? 'fixed inset-0 z-40 flex h-[var(--phone-dialog-height,100dvh)] w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground'
+          : 'flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg'
+      }
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
