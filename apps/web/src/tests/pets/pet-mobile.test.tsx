@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import { StrictMode } from 'react';
 import { PetCompanion } from '../../pets/pet-companion';
 import { stubViewport } from '../stub-viewport';
 
@@ -178,6 +179,28 @@ describe('companion on a phone', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+  });
+
+  it('keeps a mobile Design deep link open in StrictMode and switches histories', async () => {
+    stubViewport(390);
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/?pet=design']}>
+          <PetCompanion />
+        </MemoryRouter>
+      </StrictMode>,
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Design' }));
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('dialog', { name: 'Conversation with Cat' })).toBeInTheDocument();
   });
 
   it('clamps a stored off-screen position into view on a phone', async () => {

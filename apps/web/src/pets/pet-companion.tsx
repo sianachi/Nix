@@ -70,7 +70,7 @@ function Companion({
   const [search] = useSearchParams();
   const designEntry = search.get('pet') === 'design';
   const [mode, setMode] = useState<PetConversationMode>(designEntry ? 'consult' : 'chat');
-  const [open, setOpen] = useState(designEntry);
+  const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
   const [openAnchor, setOpenAnchor] = useState<CSSProperties | null>(null);
   const launcher = useRef<HTMLButtonElement | null>(null);
@@ -87,6 +87,11 @@ function Companion({
   const suppressClick = useRef(false);
   const returnFocus = useRef(false);
   const narrow = useNarrowViewport();
+  useBackDismiss(open && narrow, () => {
+    setOpen(false);
+    setOpenAnchor(null);
+    returnFocus.current = true;
+  });
   const keyboardVisible = useMobileKeyboard(narrow);
   const launcherHidden = open || (narrow && keyboardVisible);
   useEffect(() => {
@@ -372,10 +377,6 @@ function Conversation({
       document.removeEventListener('keydown', escape);
     };
   }, [onClose]);
-
-  // Mounted only while the conversation is open (the caller renders it conditionally), so the
-  // browser Back gesture dismisses the full-screen phone dialog for as long as it is showing.
-  useBackDismiss(narrow, onClose);
 
   useEffect(() => {
     if (!narrow) return;
