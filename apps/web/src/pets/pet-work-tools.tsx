@@ -402,7 +402,12 @@ function PetWorkToolCard({
       <Text variant="h3" as="h3">
         {parsed.success ? 'Proposed action' : 'Unsupported tool request'}
       </Text>
-      {model ? <PetStructurePreview model={model} /> : null}
+      {model ? (
+        <PetStructurePreview
+          model={model}
+          captureSummary={args?.operation === 'save_as_template'}
+        />
+      ) : null}
       {(!currentPreview || state.loading) && parsed.success ? (
         <Text variant="note">Preparing the preview...</Text>
       ) : null}

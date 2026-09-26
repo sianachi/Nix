@@ -13,7 +13,13 @@ function detailTone(detail: string): 'default' | 'muted' | 'accent' {
   return 'muted';
 }
 
-export function PetStructurePreview({ model }: { readonly model: PreviewModel }): ReactElement {
+export function PetStructurePreview({
+  model,
+  captureSummary = false,
+}: {
+  readonly model: PreviewModel;
+  readonly captureSummary?: boolean;
+}): ReactElement {
   return (
     <div className="flex flex-col gap-2">
       <Text variant="body">{model.headline}</Text>
@@ -21,8 +27,9 @@ export function PetStructurePreview({ model }: { readonly model: PreviewModel })
         In: {model.destination.path.length ? model.destination.path.join(' / ') : 'Workspace root'}
       </Text>
       <Text variant="note" tone="muted">
-        {model.counts.items} items, {model.counts.fields} fields, {model.counts.views} views,{' '}
-        {model.counts.entries} entries, {model.counts.writes} writes
+        {captureSummary
+          ? `${String(model.counts.items)} items to copy, ${String(model.counts.writes)} template write`
+          : `${String(model.counts.items)} items, ${String(model.counts.fields)} fields, ${String(model.counts.views)} views, ${String(model.counts.entries)} entries, ${String(model.counts.writes)} writes`}
       </Text>
       {model.tree.length ? (
         <ul className="list-disc space-y-2 pl-5">
