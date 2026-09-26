@@ -78,3 +78,5 @@ export { refuseSchema } from './validate/schema-rules.js';
 export { refuseViews } from './validate/view-rules.js';
 export { validateValue } from './validate/values.js';
 export { type SpecOperation, validateSpec } from './validate/spec.js';
+
+export * from './blueprint/index.js';
