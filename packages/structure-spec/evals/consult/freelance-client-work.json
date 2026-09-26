@@ -1,0 +1,34 @@
+{
+  "id": "freelance-client-work",
+  "problem": "I need to track client projects, tasks and deadlines.",
+  "answers": [
+    {
+      "pattern": "client|project",
+      "reply": "One project per client, with tasks beneath it."
+    },
+    {
+      "pattern": "deadline|date",
+      "reply": "Track task due dates."
+    },
+    {
+      "pattern": "priority|status",
+      "reply": "Use status and priority."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "fieldKey",
+        "key": "status"
+      },
+      {
+        "kind": "fieldKey",
+        "key": "due_date"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 20,
+    "preferComputed": ["total_hours"]
+  }
+}
