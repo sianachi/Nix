@@ -44,6 +44,7 @@ export interface RunOptions {
   claimId?: string;
   buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[];
   fence?: StructureFingerprint;
+  onProgress?: (completed: number, total: number) => void;
 }
 
 export interface WorkspaceToolOutcome {
@@ -97,7 +98,7 @@ export async function runWorkspaceTool(
       clock: ports.clock,
       inheritedFields: context.inheritedFields,
     });
-    const result = await executeBuild(ports, workspaceId, plan, signal);
+    const result = await executeBuild(ports, workspaceId, plan, signal, options.onProgress);
     return {
       text: JSON.stringify(result),
       readOnly: false,
